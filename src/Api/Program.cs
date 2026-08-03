@@ -87,6 +87,11 @@ app.UseSerilogRequestLogging();
 
 app.MapHealthChecks("/health");
 
+// A minimal authenticated "who am I" endpoint — generically useful on its own, and gives G0-09's
+// smoke test a real protected route to assert 401-unauthenticated against before any module exists.
+app.MapGet("/api/me", (ICurrentUser currentUser) => Results.Ok(new { currentUser.UserId }))
+    .RequireAuthorization();
+
 foreach (var module in modules)
     module.MapEndpoints(app);
 

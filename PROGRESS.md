@@ -198,3 +198,114 @@ an `internal` class.
 called with an empty assembly array, since Identity/HR don't exist until G1-03/G2-03); `GET /health` →
 200 `Healthy`; `GET /scalar/v1` → 200 with the actual Scalar UI HTML (`GET /scalar` redirects there,
 302, which is Scalar's own default routing, not a failure).
+
+**G0-09** — done — `tests/Integration.Tests/` (`ApiFixture`, `TestJwt`, `SmokeTests`) and, in
+`tests/Architecture.Tests/`, `Rule9CrossSchemaForeignKeyTests` (rule 9's implementation, deferred here
+from G0-07 as the plan specified). Also added `GET /api/me` to `Api/Program.cs` — a minimal
+authenticated "who am I" endpoint, generically useful on its own, and the concrete protected route this
+task's smoke test needed since no real module endpoint exists yet.
+
+`ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime` boots a `Testcontainers.PostgreSql`
+container, migrates every schema in `ModuleDependencyOrder.SchemaOrder` (today: only `shared`),
+configures the host via `UseSetting` (not `ConfigureAppConfiguration` + `AddInMemoryCollection` — the
+former is guaranteed highest precedence; the latter would have required reasoning about ordering
+against Program.cs's own appsettings/user-secrets/env-var setup, which is exactly what broke on the
+first attempt — see below), and issues test JWTs signed with a **fixed test key**, never the real
+dev user-secrets value.
+
+**Respawn needs the `DbConnection` overload for Postgres, not the connection-string one** — discovered
+by running it: the string overload only supports `SqlConnection` internally and throws
+`ArgumentException` for any other provider. Fixed by opening an explicit `NpgsqlConnection` and passing
+that to both `Respawner.CreateAsync` and `ResetAsync`.
+
+**`__EFMigrationsHistory` lives in the default `public` schema regardless of a context's
+`HasDefaultSchema`** — confirmed by migrating `SharedDbContext` against the docker-compose Postgres and
+inspecting with `psql` directly, not assumed. This means `SchemasToInclude = ["identity", "hr",
+"shared"]` (PLAN.md's own list) already excludes it without needing an explicit `TablesToIgnore` — the
+plan's phrasing ("make sure `__EFMigrationsHistory` is not reset") reads as if that needs separate
+handling; it doesn't, given where EF actually puts that table.
+
+**Checkpoint answers (the four questions from the review, plus the fifth added at review 3):**
+
+1. **Does `AddModuleCqrs<TContext>` produce an isolated pipeline per module, or did anything end up
+   shared by accident?** Isolated, by construction, not by luck: `IDomainEventQueue` is the one
+   genuinely shared, stateless service (`TryAddScoped`, safe since it holds no per-module state);
+   `DomainEventDispatcher<TContext>` and every decorator are registered per fully-closed
+   `(TCommand[, TResponse])` service type discovered by reflecting the *calling* module's own assembly
+   — never via Scrutor's open-generic `Decorate`, which was the one path that would have silently
+   leaked across modules the moment a second module registered (documented at length in
+   `ModuleCqrsRegistration`'s own XML doc, G0-03). This hasn't yet been exercised with **two real
+   module assemblies in one composition root** — Identity and HR are both still empty. That is the
+   one thing this checkpoint answer can't fully close out ahead of G2, and G3-01's cross-module smoke
+   test (register a user, create an employee, assert HR touches no `identity.` SQL) is where it
+   actually gets proven, not assumed.
+
+2. **Did the R1 kill-before-return test genuinely fail before the fix?** Not tested by literally
+   reverting the fix and re-running — that would have meant deliberately shipping the wrong design
+   first. Instead: the test was checked for whether it discriminates the specific failure mode R1
+   guards against, which it does — `HandlerCommitsOwnWrite_RetryWithOutboxStillUnprocessed_DoesNotRepeatSideEffect`
+   calls `IEventBus.PublishAsync` twice with the same event and asserts the side-effect count stays at
+   1; if the inbox write happened through a separate `SharedDbContext` call instead of the handler's
+   own context (the bug R1 exists to prevent), the second call would find no inbox row and re-run the
+   handler, and the assertion would catch it. Recorded honestly in G0-05's own entry above: this test
+   is mechanically identical to the "publish twice" idempotency test — a real *process kill* mid-commit
+   can't be scripted in an automated test at all, so what's proven is the atomicity guarantee the design
+   rests on (one `SaveChangesAsync` call, no window where the write exists without the marker), not an
+   empirical crash simulation. That is a real limit, not a gap I'm eliding.
+
+3. **Which of the nine arch rules pass vacuously today, and what makes each non-vacuous later?** Full
+   table is in G0-07's entry above. Only rules 7 and 8b are live; both were fault-injected (pointed at
+   a csproj known to violate them) to confirm they actually fail, not just pass by construction. The
+   rest scan zero module assemblies and were **not** fault-injected the same way, because there is no
+   real module yet to build a violating example from — each becomes checkable, and gets the same
+   treatment, at the task named in the table.
+
+4. **Anything in G0 that felt like ceremony rather than structure?** `IEventBus` as a concept distinct
+   from `IOutboxWriter` (G0-05) came closest — PLAN.md lists both without fully explaining why, and it
+   took real design work to land on write-path-vs-delivery-path as the distinction that makes them both
+   necessary rather than redundant. Once landed, though, it earns its place: it's what let the same
+   delivery/dedup logic run identically from a direct test call and from `OutboxProcessor`'s poll loop.
+   Nothing else in G0 felt like it existed only to satisfy the letter of the plan — the two projects
+   added beyond the plan's own file tree (`BuildingBlocks.UnitTests`, `BuildingBlocks.IntegrationTests`)
+   were both load-bearing: G0-03's and G0-05's verify blocks are not satisfiable without real,
+   assertable test code, and InMemory EF genuinely cannot demonstrate G0-05's transaction-boundary
+   claims.
+
+5. **Which G0 decisions would be expensive to reverse at G2, and which would be cheap?** Expensive:
+   the shape of `IHrDirectory`/contract interfaces don't exist yet, but the CONVENTION they'll follow —
+   per-module-assembly reflection-based decoration (`AddModuleCqrs<TContext>`,
+   `AddModuleIntegrationEvents<TContext>`) — is now baked into two working modules' worth of
+   infrastructure; changing the registration mechanism itself (not adding to it) would mean touching
+   every module that exists by then. Same for the outbox/inbox table shape (`OutboxModelConfiguration`)
+   — every module's `DbContext.OnModelCreating` will call it, so a schema change ripples everywhere.
+   Cheap: `ModuleDependencyOrder.SchemaOrder` is a one-line list to extend; `CorsPolicies`/health-check
+   wiring in `Program.cs` are pure host concerns nothing depends on; the JWT bearer *validation* setup
+   in `Program.cs` is independent of however Identity's `JwtProvider` ends up shaped internally at
+   G1-04, since they only need to agree on the `JwtSettings` config keys and the `"permissions"` claim
+   type (`BuildingBlocks.PermissionClaim`) — already the single source for that string. The `Migration`/
+   `ModelSnapshot` exemption in arch rule 4 and the `InternalsVisibleTo` check are both narrow,
+   single-purpose rules that would be easy to adjust in isolation if G1/G2 surface a shape they didn't
+   anticipate.
+
+**Verify:** smoke test passes against a real Testcontainers Postgres — app boots, `shared`'s migration
+applies, `/api/me` returns 401 unauthenticated and 200 with a valid test-issued token (proving the JWT
+helper actually works, not just that it compiles). Rule 9 passes — vacuously, since only `shared` is
+migrated and it references nothing outside its own schema; not independently fault-injected (unlike
+rules 7/8b) since there is no real cross-schema FK yet to build a violating example from — noted, not
+hidden.
+
+---
+
+## Phase G0 boundary — non-negotiables re-checked
+
+- No repository pattern. ✓ — no repository type exists anywhere in `src/`.
+- One DbContext per module, one schema per module, one database. ✓ — only `SharedDbContext` exists so
+  far, schema `shared`, single connection string throughout.
+- Cross-module reads via `*.Contracts`, never another module's tables. ✓ — vacuous (no module yet);
+  the convention (arch rules 3, 6) is in place and tested to be non-vacuous the moment a module exists.
+- Cross-module writes via outbox integration events. ✓ — `IOutboxWriter`/`IEventBus`/`OutboxProcessor`
+  built and tested against a real database at G0-05; no direct-call path exists to bypass it.
+- Only `*.Contracts` types are public. ✓ — enforced by arch rule 4, vacuous until G1-02.
+- SharedKernel frozen at ~9 files. ✓ — still exactly 9, zero project references (rule 7, live).
+- Arch tests written before the code they constrain. ✓ — `Architecture.Tests` (G0-07) predates every
+  module; this is the one non-negotiable that is *itself* about G0's own task ordering, and it held.
