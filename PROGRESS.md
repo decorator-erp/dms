@@ -829,3 +829,56 @@ inspection of the two-line `ItemGroup`. Arch rule 5 (integration event payload s
 confirmed by the full architecture suite staying green (13/13). No unit test project exists for this
 task — there is no logic yet, only type declarations, and the plan's own verify block for this task is
 architectural + a manual check, not a runtime assertion.
+
+**G2-02** — done — `src/Modules/Hr/Hr.Domain/{Employee,Department,EmployeeDepartment,ContractType,
+Errors/{EmployeeErrors,DepartmentErrors}}.cs`, `tests/Modules/Hr.UnitTests/`.
+
+**PLAN.md says "port `EmployeeDomainService` and `DepartmentDomainService`" — this task does NOT do
+that, and the reason is load-bearing, not a shortcut.** Both backend classes are constructor-injected
+with `IEmployeeRepository`/`IDepartmentRepository`/`IEmployeeDepartmentRepository` and call
+`ExecuteUpdateAsync`/`GetByIdAsync`/`ExistsAsync` on them — that is the repository pattern this whole
+rebuild exists to remove, and `Hr.Domain` referencing a repository abstraction (wherever it would live)
+would also trip arch rule 1 the moment it touched anything EF-shaped. Porting them here, as written,
+would mean re-introducing exactly the thing G0's non-negotiables forbid, one module after the
+non-negotiable was supposedly established. The actual BUSINESS LOGIC those two classes contain (create/
+update/deactivate/activate an employee; create/update/delete a department; assign/unassign a head; add/
+move/remove an employee from a department) is not discarded — it is reimplemented as CQRS command
+handlers directly against `HrDbContext` at G2-04/G2-05, the identical shape `Login`/`Register`/etc.
+already established for Identity at G1-05/06. `Hr.Domain` carries forward only what has no repository
+dependency: the entities themselves and their own invariants (`Employee.Update`'s "no-op if inactive"
+guard, `EmployeeDepartment`'s soft-removal). This is the same "domain service" naming mismatch G1 never
+hit, because Identity's own DB-touching services (`EffectivePermissionService` et al.) were never called
+"domain services" in the backend to begin with — HR's naming is what surfaces the mismatch here, not a
+difference in what actually belongs where.
+
+**One deliberate scope narrowing, flagged rather than silently applied:** the backend's
+`EmployeeDomainService.UpdateAsync` also writes `ApplicationUser.FirstName`/`LastName` through a second
+repository — a direct cross-module write into `identity.` tables from HR. `Employee.Update` here touches
+only HR-owned fields; there is no command anywhere in this build that lets an HR-side action rename an
+Identity user, because building one wasn't asked for and inventing one now would be scope creep in the
+wrong direction. If a caller needs to rename someone, that has to go through an Identity-owned command,
+which doesn't exist yet. Recorded as thinner than the original on the way in, not discovered after the
+fact.
+
+**D7 bug fixed on the way in:** `DepartmentErrors.DepartmentHeadNotAssign` emitted `nameof(NoEmployeesToMove)`
+as its error code in the backend (copy-paste from the entry directly above it) — any caller checking
+`Error.Code == "departments.DepartmentHeadNotAssign"` would never match. Gets its own code here.
+`EmployeeErrors.InactiveException`/`ActiveException` (backend, unused by anything that calls them) are
+not ported — dead error codes aren't worth carrying forward as ceremony.
+
+**D3 applied:** only `ContractType` is ported (`internal enum`, matching arch rule 4 — everything in
+`*.Domain` stays non-public). `HiringReason`/`PastExperience` are not — both are referenced only by CRM
+lead-intake features, entirely out of scope. **Open question for G2-04/06:** `ContractType` may need to
+cross into a public `Hr.Contracts` request/response type once `CreateEmployeeCommand` exists, exactly the
+way G1-07 had to move Identity's command/DTO types into `Identity.Contracts` for the same circular-
+reference reason. Deferred to whichever of those two tasks actually writes the request shape, rather than
+guessed at now.
+
+**Verify:** no reference to `Identity.Domain` anywhere in `Hr.Domain` — confirmed both by the `Hr.Domain.csproj`
+`ItemGroup` (`SharedKernel` only) and by arch rule 3 (`Modules_MustNotReferenceEachOthersDomainApplicationOrInfrastructure`)
+passing with both modules' `.Domain` assemblies now present — this is the FIRST task where that rule
+checks something real (it was vacuous through all of G1, since only one module existed). `Hr.UnitTests` —
+10 tests: `Employee.Create` sets every provided field; `Update` changes only the fields passed and is a
+no-op when the employee is inactive; `Deactivate`/`Activate` round-trip `IsActive`; `Department.Create`/
+`Update`/`AssignHead`/`RemoveHead`/`Deactivate`/`Activate`; `EmployeeDepartment.Create`/`Remove`. All pure,
+no database.
