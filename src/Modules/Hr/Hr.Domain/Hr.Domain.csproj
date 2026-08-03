@@ -8,6 +8,8 @@
     <InternalsVisibleTo Include="Hr.Application" />
     <InternalsVisibleTo Include="Hr.Infrastructure" />
     <InternalsVisibleTo Include="Hr.UnitTests" />
+    <InternalsVisibleTo Include="Hr.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Hr.Application.Tests" />
   </ItemGroup>
 
 </Project>

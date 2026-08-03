@@ -107,7 +107,11 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                     "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
                 break;
 
-                // "hr" has no migration to apply yet — HR lands at G2-03.
+            case "hr":
+                await MigrateModuleSchemaAsync(
+                    "Hr.Infrastructure",
+                    "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
+                break;
         }
     }
 

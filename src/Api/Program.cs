@@ -69,6 +69,7 @@ builder.Services.AddHealthChecks();
 var moduleAssemblies = new[]
 {
     Assembly.Load("Identity.Infrastructure"),
+    Assembly.Load("Hr.Infrastructure"),
 };
 var modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
 

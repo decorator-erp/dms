@@ -882,3 +882,51 @@ checks something real (it was vacuous through all of G1, since only one module e
 no-op when the employee is inactive; `Deactivate`/`Activate` round-trip `IsActive`; `Department.Create`/
 `Update`/`AssignHead`/`RemoveHead`/`Deactivate`/`Activate`; `EmployeeDepartment.Create`/`Remove`. All pure,
 no database.
+
+**G2-03** — done — `src/Modules/Hr/Hr.Infrastructure/{Persistence/{HrDbContext,HrDbContextFactory,
+Configurations/{EmployeeConfiguration,DepartmentConfiguration,EmployeeDepartmentConfiguration},
+Migrations/InitialHr},HrModule}.cs`.
+
+**The cross-schema FK, exactly as `docs/cross-schema-foreign-keys.md` and R6 specify:**
+`hr.employees."AppUserId" → identity.users("Id")`, `ON DELETE RESTRICT`, added by hand via
+`migrationBuilder.Sql(...)` in `Up` (and dropped by hand in `Down`) — EF cannot emit it itself since
+`HrDbContext` and `IdentityModuleDbContext` are two separate models. `Employee.AppUserId` stays a plain
+indexed `string` property with no `HasOne`/navigation. **One thing worth naming explicitly: column names
+are quoted PascalCase (`"AppUserId"`, `"Id"`), not lowercase/snake_case** — this solution doesn't
+configure a snake_case naming convention anywhere (confirmed by reading `InitialIdentity`'s own
+generated SQL), so the doc's lowercase example SQL would have silently referenced nonexistent columns
+(Postgres folds unquoted identifiers to lowercase) had it been copied verbatim.
+
+**`dotnet ef migrations add` needed `Microsoft.EntityFrameworkCore.Design` on `Api` itself, not just on
+`Hr.Infrastructure`/`Identity.Infrastructure`** — a real, if minor, tooling gap the CLI itself reported
+(`Your startup project 'Api' doesn't reference Microsoft.EntityFrameworkCore.Design`) the moment this
+task tried to run the exact command T2 already prescribed. `Identity.Infrastructure`'s own equivalent
+migration would have hit the identical error at G1-03 had it been re-run instead of relying on cached
+build output — added the package to `Api.csproj` (`PrivateAssets=all`, same pattern already used
+elsewhere) rather than working around it, since every future module's migration needs this to work too.
+
+**`Rule9CrossSchemaForeignKeyTests` rewritten, not just extended** — it previously only migrated
+`SharedDbContext` directly (the only schema that existed). Now migrates `identity` then `hr` via each
+module's own public `IModule.Register` on a throwaway `ServiceCollection` — the identical technique
+`ApiFixture` adopted at G1-07 for the same reason (no compile-time name for an internal DbContext type).
+Added a non-vacuity assertion (`Assert.Contains(found, ... "fk_employees_app_user")`) alongside the
+"nothing points the wrong way" check — an empty result set would trivially satisfy the original
+assertion without proving the rule ever looked at anything real, the same T4 concern already raised at
+G0-07 for the other eight rules.
+
+**`Hr.Infrastructure.Tests` is new** (mirrors `Identity.Infrastructure.Tests`'s shape): migrates
+`identity` then `hr` against a real Testcontainers Postgres, then asserts (a) `pg_constraint` has
+`fk_employees_app_user` with `confdeltype = 'r'` (RESTRICT, confirmed by reading the actual character
+code, not just that a constraint exists) and a unique index on `hr.employees."AppUserId"`; (b)
+`HrDbContext`'s own EF model for `Employee` has zero navigations, zero foreign keys, and no property
+whose CLR type lives in an `Identity.*` namespace — the "EF metadata contains no navigation to
+ApplicationUser" verify requirement, checked structurally against the real built model rather than by
+inspection alone.
+
+**Verify, in full:** migration applies cleanly against a real Postgres (confirmed inside the test, not
+just that `dotnet ef database update` succeeded once by hand); `hr.` schema has the three expected
+tables; the FK exists in `pg_constraint` with `RESTRICT`; arch rule 9 passes non-vacuously; `AppUserId`
+has a unique index; `Employee`'s EF metadata carries no relationship targeting `identity.`. `HrModule`
+registers `HrDbContext` and the 17-permission `IModulePermissions` set (`Register` only — `AddModuleCqrs`
+and `MapEndpoints`'s real content land at G2-04/05/06); added to `Api.csproj`, `Program.cs`'s module
+list, and `ModuleDependencyOrder.SchemaOrder` already anticipated the `"hr"` entry from G0.

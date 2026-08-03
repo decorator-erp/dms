@@ -8,6 +8,16 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.OpenApi" />
+    <!--
+      Needed only so the `dotnet ef migrations add` CLI (pointed at Api as the startup project) runs
+      at all - the EF tool requires the startup project to reference this package, even though the
+      actual DbContext is resolved through each module's own IDesignTimeDbContextFactory, never
+      through Api itself. PrivateAssets=all keeps it out of Api's own published output.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Serilog.AspNetCore" />
   </ItemGroup>
@@ -31,6 +41,7 @@
       copied there, never to name a type from it.
     -->
     <ProjectReference Include="..\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

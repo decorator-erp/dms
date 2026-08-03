@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\Hr.Domain\Hr.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Hr.Application needs this despite never being referenced BY Hr.Infrastructure - same reasoning
+         as Identity.Infrastructure.csproj's identical grant (G1-05/G1-07): it uses HrDbContext directly. -->
+    <InternalsVisibleTo Include="Hr.Application" />
+    <InternalsVisibleTo Include="Hr.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Hr.Application.Tests" />
+  </ItemGroup>
+
+</Project>

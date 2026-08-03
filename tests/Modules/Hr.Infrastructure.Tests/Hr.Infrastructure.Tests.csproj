@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Domain\Hr.Domain.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <!-- Needed so Identity.Infrastructure's own Assembly.Load("Identity.Application") (inside
+         IdentityModule.Register) finds the DLL, since identity must migrate before hr for the FK. -->
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+  </ItemGroup>
+
+</Project>

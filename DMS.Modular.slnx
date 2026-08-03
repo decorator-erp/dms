@@ -9,6 +9,7 @@
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Contracts/Hr.Contracts.csproj" />
     <Project Path="src/Modules/Hr/Hr.Domain/Hr.Domain.csproj" />
+    <Project Path="src/Modules/Hr/Hr.Infrastructure/Hr.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Identity/">
     <Project Path="src/Modules/Identity/Identity.Application/Identity.Application.csproj" />
@@ -23,6 +24,7 @@
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/Modules/">
+    <Project Path="tests/Modules/Hr.Infrastructure.Tests/Hr.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Hr.UnitTests/Hr.UnitTests.csproj" />
     <Project Path="tests/Modules/Identity.Application.Tests/Identity.Application.Tests.csproj" />
     <Project Path="tests/Modules/Identity.Infrastructure.Tests/Identity.Infrastructure.Tests.csproj" />
