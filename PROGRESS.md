@@ -1163,3 +1163,142 @@ anything already there.
 **G3-02** — done — `CLAUDE.md`, written verbatim from PLAN.md's own prescriptive template (rules list
 and command shortcuts unchanged from what the plan specifies). No verify block — a documentation file,
 confirmed not to disturb the build/test/format gate by re-running all three after adding it.
+
+**G3-03** — done — `README.md`, `docs/adding-a-module.md`. The authoring guide is written as the actual
+step-by-step order a builder hits each concern (project creation → arch test registration → migration
+→ feature → endpoint → cross-module wiring), not a topic-organized reference, specifically so the
+circular-reference lesson from G1-07 (command/DTO types belong in `*.Contracts` from the start) lands
+before the next module's first feature file is written, not after its first endpoint fails to compile.
+No verify block — confirmed not to disturb build/test/format by re-running all three after adding both
+files.
+
+---
+
+# Final report
+
+## Task table
+
+| Task | Commit |
+|---|---|
+| G0-01 (solution skeleton) | `1a26096` |
+| G0-01 (PROGRESS.md log) | `94061b2` |
+| G0-02 (SharedKernel) | `bff5c59` |
+| G0-03 (BuildingBlocks CQRS + decorators + domain-event dispatch) | `5fcc211` |
+| G0-04 (BuildingBlocks ICurrentUser) | `56084dd` |
+| G0-05 (BuildingBlocks outbox/inbox + integration events) | `526eda1` |
+| G0-06 (BuildingBlocks.Web module registration contract) | `e0534d1` |
+| G0-07 (architecture tests, NetArchTest) | `1da6ab8` |
+| G0-08 (Api host) | `3ae019d` |
+| G0-09 (integration test harness + rule 9) | `654ac04` |
+| G0 checkpoint fix (self-enforcing arch-test module discovery) | `d407c05` |
+| G1-01 (Identity.Contracts) | `2125469` |
+| G1-02 (Identity.Domain) | `47868e1` |
+| G1-03 (Identity.Infrastructure persistence) | `1834563` |
+| G1-04 (Identity.Infrastructure JWT + permission resolution) | `eb32a41` |
+| G1-05 (Identity.Application auth features) | `d02d71e` |
+| G1-06 (Identity.Application roles & permissions) | `029c680` |
+| G1-07 (Identity.Infrastructure endpoints + seeding) | `1215d68` |
+| G1 phase boundary | `435f605` |
+| G2-01 (Hr.Contracts) | `5a82514` |
+| G2-02 (Hr.Domain) | `15b15fa` |
+| G2-03 (Hr.Infrastructure persistence + cross-schema FK) | `31e64d8` |
+| G2-04 (Hr.Application employee features + outbox wiring fix) | `6f479be` |
+| G2-05 (Hr.Application department features) | `1e9dea1` |
+| G2-06 (Hr.Infrastructure IHrDirectory + endpoints) + G2 phase boundary | `34f4ff0` |
+| G3-01 (cross-module smoke test) | `dddac30` |
+| G3-02 (CLAUDE.md) | `22dbcbf` |
+| G3-03 (README + module authoring guide) | *(this commit)* |
+
+25 numbered tasks (G0-01 through G3-03) plus one unplanned checkpoint fix and two phase-boundary
+commits, all green through the full gate (`dotnet build -warnaserror`, `dotnet test`,
+`dotnet format --verify-no-changes`) at every commit.
+
+## Test counts (final)
+
+**76 tests total**, all passing:
+- **Architecture:** 13 (all nine numbered rules + `ModuleContractTests` + the two
+  `MetaSelfEnforcementTests` self-checks + the vacuity/non-vacuity structure recorded at G0-checkpoint)
+- **Unit** (pure, no database): 21 — `Identity.UnitTests` 8, `Hr.UnitTests` 10, `BuildingBlocks.UnitTests` 3
+- **Integration** (real Postgres, Testcontainers or the real composition root): 42 —
+  `BuildingBlocks.IntegrationTests` 5, `Identity.Infrastructure.Tests` 8, `Identity.Application.Tests`
+  10, `Hr.Infrastructure.Tests` 5, `Hr.Application.Tests` 9, `Integration.Tests` 5
+
+## Every decision PLAN.md did not specify (index — full reasoning is in each task's own PROGRESS.md entry above)
+
+- **G0:** central package version resolution for a Microsoft-package drift; the `--` XML-comment bug in
+  `Directory.Packages.props`; Respawn's `DbConnection` overload for Postgres; confirming
+  `__EFMigrationsHistory`'s actual schema by inspection rather than assumption; the per-closed-type
+  Scrutor decoration technique (not open-generic `Decorate`) for both CQRS and integration-event
+  handlers; `MetaSelfEnforcementTests` to catch fail-open arch tests.
+- **G1:** the `Microsoft.AspNetCore.Identity` narrow exception to arch rule 2, and the reflection-based
+  rewrite of that rule to check it structurally; the 8-generic-parameter `IdentityDbContext` form
+  instead of PLAN.md's 3-parameter shorthand; `ApplicationRoleClaim`'s constructor made public (a CLR
+  `new()`-constraint requirement, not an accessibility choice); `AddDataProtection()` needed by
+  `AddDefaultTokenProviders()`; `JwtSecurityTokenHandler.MapInboundClaims = false`; the
+  `IValidator<>`-registration gap in `AddModuleCqrs`; **the circular-reference discovery that moved
+  every command/query/DTO type into `*.Contracts`** (the single largest unplanned structural decision in
+  the whole build — see G1-07); `ResultHttpExtensions`/`HasPermissionAttribute`/
+  `PermissionAuthorizationHandler` relocated from `Api` to `BuildingBlocks.Web` for the same reason;
+  `IModule.SeedAsync` added to the shared contract; which three of the backend's seven roles to seed and
+  why; the seed admin joining `admin` instead of the backend's own `Manager`-role quirk.
+- **G2:** reinterpreting "port `EmployeeDomainService`/`DepartmentDomainService`" as "reimplement the
+  logic as CQRS handlers" rather than porting the repository dependency along with it; `ContractType`
+  represented as a string across the `*.Contracts` boundary since neither `Hr.Domain` nor `Hr.Contracts`
+  could depend on the other to share the enum; **`IUserDirectory`/`IUserAdministration` had no
+  implementation until HR needed them** — a real gap left over from G1; **`SharedDbContext`/
+  `AddOutbox()` were never wired into `Program.cs`** until G2-04's deactivate flow needed a message
+  actually delivered — the single most significant functional gap found in the whole build, silent since
+  G0-05; `UserDirectory.GetAsync`'s stale-tracked-entity bug, found by a failing test; the D7 bug fixes
+  (`DepartmentHeadNotAssign`'s wrong error code, `MoveEmployeeAsync`'s missing department filter);
+  `PrimaryDepartmentId` resolved as a correlated subquery since `Employee` has no such stored field.
+- **G3:** the `ILoggerProvider`-based SQL capture technique for proving "no SQL touched `identity.`"
+  structurally rather than by inspection; the authoring guide's step-ordering (matching the actual
+  sequence a builder hits each concern, not a topic outline).
+
+## Anything implemented more thinly than intended
+
+- **G2-04:** T1's "optional synchronous best-effort attempt" before falling back to the outbox was not
+  built — the outbox alone is the deactivation mechanism of record. The window between an employee
+  being deactivated and their login actually being disabled is one `OutboxProcessor` poll interval
+  (5 seconds in the real host), not zero.
+- **G2-04:** `CreateEmployeeCommand.Update` does not let a caller rename the underlying Identity user —
+  the backend's version did, via a direct cross-module repository write that no longer exists. No
+  replacement command was built; this is a real capability gap relative to the backend, not hidden.
+- **G2-05:** the backend's combined "deactivate department + bulk-move every member to a replacement
+  department" operation was not ported as one command — two existing commands (`DeleteDepartmentCommand`
+  + `MoveEmployeeToDepartmentCommand` called once per member) cover the same ground without the combined
+  failure-semantics question the backend's own version doesn't answer any more carefully.
+- **Employee/department "activate" commands never re-enable a login** — only deactivation was
+  specified as security-relevant; reactivation was left HR-only rather than inventing a symmetric
+  integration event nothing asked for.
+- **D4 (from the approved plan, carried through unchanged):** seven of the backend's 34 HR feature files
+  that read Projects tables were dropped entirely, since porting them would mean stubbing Projects.
+- **Four of the backend's seven default roles were not seeded** (`DepartmentHead`, `Client`, `Vendor`,
+  `Contractor`) — each exists in the backend only to carry permissions from modules out of scope here.
+
+## Anything in the plan that looks wrong, having built it
+
+- **PLAN.md's G2-02 instruction to "port `EmployeeDomainService` and `DepartmentDomainService`" reads as
+  though those classes are Domain-layer logic; they are Application-layer logic bound to a repository
+  abstraction in the backend's own naming convention.** Read literally, following the instruction would
+  have meant reintroducing the repository pattern this entire rebuild exists to remove, one module after
+  the non-negotiable was established. The task's INTENT (port the business rules) was followable; its
+  literal wording (port these two "domain services") was not, without violating a G0 non-negotiable.
+- **The reference-matrix table's silence on "Application → own Infrastructure" was a real ambiguity, not
+  a settled question** — resolved the same way twice (G1-04, then again for HR at the equivalent point)
+  by inferring it from the "no repository pattern" non-negotiable itself, since a handler that must
+  touch `DbContext` directly has no other legal path to one. Worth stating explicitly in a future
+  revision of the plan rather than leaving it to be re-derived per module.
+- **The circular-reference tension between "endpoints live in `*.Infrastructure`" and "Application may
+  reference own Infrastructure" is structural, not incidental** — it will recur, identically, for every
+  future module the moment that module's Application layer needs its own DbContext AND its
+  Infrastructure needs to expose endpoints over Application's command types. `docs/adding-a-module.md`
+  now states the resolution (command/DTO types in `*.Contracts`) up front specifically so this doesn't
+  need rediscovering a third time.
+- **G2-04's plan text describes deactivation's outbox routing in detail but never mentions that
+  `SharedDbContext`/`AddOutbox()` need to be registered in the composition root at all** — a reasonable
+  omission (it reads as "obviously part of standing up the outbox," which G0-05 built but never wired
+  end-to-end), but the gap survived undetected through G0's own checkpoint and all of G1, since nothing
+  before G2-04 needed a published event actually delivered. Worth an explicit checklist line in a future
+  plan: "confirm `Program.cs` registers everything `AddOutbox()`-adjacent" as part of the G0-05/G0-08
+  verify blocks, not left to be discovered by the first feature that depends on it.
