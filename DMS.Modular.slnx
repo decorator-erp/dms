@@ -1,5 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/BuildingBlocks/BuildingBlocks.csproj" />
     <Project Path="src/SharedKernel/SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BuildingBlocks.UnitTests/BuildingBlocks.UnitTests.csproj" />
   </Folder>
 </Solution>
