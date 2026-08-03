@@ -2,10 +2,12 @@ using System.Reflection;
 using System.Text;
 using Api;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
@@ -61,6 +63,15 @@ builder.Services.AddCors(corsOptions =>
 });
 
 builder.Services.AddHealthChecks();
+
+// SharedDbContext + AddOutbox() were never wired into the composition root before this - every
+// module's outbox writes (UserRegisteredIntegrationEvent, EmployeeHiredIntegrationEvent, etc.) landed
+// in shared.outbox_messages successfully (each module maps that table on its own DbContext), but
+// nothing was ever registered to poll and publish them. Found while wiring G2-04's deactivate -> outbox
+// -> Identity flow, which is the first feature that actually depends on a message getting delivered.
+builder.Services.AddDbContext<SharedDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddOutbox();
 
 // Loaded by assembly NAME, not by referencing any type from it — every IModule implementation is
 // internal (only *.Contracts is public), so Api can never name one directly even though it references

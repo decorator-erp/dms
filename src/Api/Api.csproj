@@ -42,6 +42,9 @@
     -->
     <ProjectReference Include="..\Modules\Identity\Identity.Application\Identity.Application.csproj" />
     <ProjectReference Include="..\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
+    <!-- Same reasoning as the Identity.Application reference above: HrModule.Register's
+         Assembly.Load("Hr.Application") needs this DLL present in Api's output directory. -->
+    <ProjectReference Include="..\Modules\Hr\Hr.Application\Hr.Application.csproj" />
   </ItemGroup>
 
 </Project>

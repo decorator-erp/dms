@@ -41,6 +41,8 @@ internal sealed class IdentityModule : IModule
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IUserDirectory, UserDirectory>();
+        services.AddScoped<IUserAdministration, UserAdministration>();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

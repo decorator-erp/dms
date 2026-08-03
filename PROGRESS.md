@@ -930,3 +930,84 @@ has a unique index; `Employee`'s EF metadata carries no relationship targeting `
 registers `HrDbContext` and the 17-permission `IModulePermissions` set (`Register` only — `AddModuleCqrs`
 and `MapEndpoints`'s real content land at G2-04/05/06); added to `Api.csproj`, `Program.cs`'s module
 list, and `ModuleDependencyOrder.SchemaOrder` already anticipated the `"hr"` entry from G0.
+
+**G2-04** — done — `src/Modules/Hr/Hr.Contracts/Employees/EmployeeContracts.cs`,
+`src/Modules/Hr/Hr.Application/Features/Employees/{Create,Update,Deactivate,Activate,Get,GetList,
+AssignToDepartment}/*Handler.cs`, `src/Modules/Hr/Hr.Infrastructure/IntegrationEvents/
+EmployeeDeactivatedIntegrationEventHandler.cs`. Also required implementing two things G1 declared but
+never built, and fixing one real gap the whole solution had carried silently since G0-05.
+
+**`IUserDirectory` and `IUserAdministration` had no implementation before this task.** Both interfaces
+were written into `Identity.Contracts` at G1-01 for exactly this moment, but nothing in G1-04 through
+G1-07 ever needed to call them, so neither was ever registered. Added `UserDirectory` and
+`UserAdministration` in `Identity.Infrastructure/Services`, both thin wrappers over `UserManager`, and
+registered them in `IdentityModule.Register`. Both are idempotent by construction (deactivating an
+already-inactive/reactivating an already-active user is a no-op success) — required by this task's own
+retry design.
+
+**Real bug found while wiring the deactivate flow: `SharedDbContext` and `AddOutbox()` were never
+registered in `Program.cs`.** Every module's outbox writes since G0-05 (`UserRegisteredIntegrationEvent`
+at G1-05, now `EmployeeHiredIntegrationEvent`/`EmployeeDeactivatedIntegrationEvent`) landed successfully
+in `shared.outbox_messages` — each module maps that table on its own `DbContext`, so the WRITE side never
+needed `Program.cs` to do anything — but nothing was ever registered to poll and publish them, because
+`OutboxProcessor` is an `IHostedService` that only runs if `AddOutbox()` adds it, and nothing called
+`AddOutbox()`. This never surfaced before because no test exercised delivery through the real composition
+root end to end; every prior outbox-adjacent test either constructed `SharedDbContext`/`OutboxProcessor`
+directly or didn't touch the processor at all. G2-04 is the first feature whose correctness genuinely
+depends on a published event reaching another module, which is what surfaced it. Fixed by adding
+`builder.Services.AddDbContext<SharedDbContext>(...)` and `builder.Services.AddOutbox();` to `Program.cs`.
+
+**A second real bug, found by a failing integration test, not by inspection: `UserDirectory.GetAsync`
+used `userManager.FindByIdAsync`, which goes through the scoped `UserStore`'s own EF change tracker.**
+A test that read a user, deactivated them through a completely different DI scope (the outbox
+processor's own), then read the same user again through the FIRST scope's already-resolved
+`IUserDirectory` — realistic within one request that reads before and after some other operation —
+got back the FIRST read's cached, now-stale snapshot instead of a fresh query. Fixed by querying
+`userManager.Users.AsNoTracking()` directly instead of going through `FindByIdAsync`. `IUserDirectory` is
+a read-only cross-module contract; there is no reason for anything it returns to come from a tracked
+entity.
+
+**Deactivation routed through the outbox exactly as T1 specifies:** `DeactivateEmployeeCommandHandler`
+writes `Employee.IsActive = false` and stages `EmployeeDeactivatedIntegrationEvent` in the SAME
+`SaveChangesAsync`; `EmployeeDeactivatedIntegrationEventHandler` (in `Hr.Infrastructure`, never Identity)
+calls `IUserAdministration.DeactivateAsync`; `OutboxProcessor` retries on failure, safe because that call
+is idempotent. **Not built:** the "optional synchronous best-effort attempt" T1 also mentions — the
+outbox alone is the mechanism of record here, and adding a redundant synchronous call first would need
+its own failure-swallowing logic to stay non-fatal, which felt like complexity earning its keep only once
+the async path's window (one poll interval, 5 seconds) was shown to actually matter for this build's
+needs. Recorded as thinner than T1's full design, not silently dropped.
+
+**`ActivateEmployeeCommand` does NOT re-enable the login.** T1 only requires DEACTIVATION to disable the
+login (a security requirement); nothing in the plan asks for the symmetric case, and inventing a
+`UserReactivatedIntegrationEvent`-style flow nobody asked for is scope creep in the other direction.
+Recorded so it doesn't read as an oversight.
+
+**`CreateEmployeeCommand` has no name or email field** (structural, not just described) — confirmed by
+reading `EmployeeContracts.cs` directly: the record has `AppUserId, JobTitle, HireDate, ContractType,
+PhoneNumber, EmergencyContactName, EmergencyContactPhone, Notes` and nothing else. Breaking change from
+the backend's `CreateEmployeeRequest` (which took `FirstName`/`LastName` because it created the user and
+the employee together) — noted here and in the final report so the frontend can be updated. The two-step
+flow is `Identity.Register` then `Hr.CreateEmployee`; composing them into one call, if wanted, is an
+endpoint-layer concern for G2-06/G3, not this command's job.
+
+**`ContractType` crosses into `Hr.Contracts` as a `string`** (the enum's name, e.g. `"FullTime"`),
+resolving the open question flagged at G2-02 — `Hr.Contracts` may only reference `SharedKernel`/
+`BuildingBlocks`, `Hr.Domain` may only reference `SharedKernel`, so neither could depend on the other to
+share one enum type. The Application handler converts both directions with `Enum.Parse`/`.ToString()`;
+an unrecognized string fails validation before it ever reaches `Enum.Parse`.
+
+**`GetEmployeeQuery`/`GetEmployeesQuery` map in memory, not via an EF `Select` projection** —
+`ContractType.ToString()` isn't guaranteed translatable to SQL by every provider, and this isn't a hot
+enough path to be worth finding out the hard way. `GetEmployeesQuery` uses `EF.Functions.ILike` for the
+job-title filter (Postgres case-insensitive `LIKE`, translates to SQL directly, unlike a client-side
+`Contains` with `StringComparison`).
+
+**Verify:** `Hr.Application.Tests` — 4 tests, against a fixture that boots BOTH `IdentityModule` and
+`HrModule` plus `SharedDbContext`/`AddOutbox()` (the first fixture in the solution that needs two modules
+and the outbox wiring together): creating an employee with an unknown `AppUserId` is rejected;
+create → get → update → paged-list-with-filter round-trips; assigning an employee to a department twice
+is rejected as a duplicate; deactivating an employee leaves the login untouched until
+`OutboxProcessor.ProcessPendingAsync` runs (driven directly rather than waiting for its real poll
+interval), after which the login is disabled — and running the processor a second time is a safe no-op,
+proving `UserAdministration.DeactivateAsync`'s idempotency actually holds, not just that it's documented
+to.

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\Hr.Domain\Hr.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as Identity.Application (G1-04): handlers use HrDbContext
+         directly - "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Hr.Infrastructure\Hr.Infrastructure.csproj" />
+    <!-- Cross-module read: HR validates AppUserId via Identity.Contracts.IUserDirectory, never a join
+         into identity. tables. Cross-module *.Contracts references are always allowed. -->
+    <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hr.Application.Tests" />
+  </ItemGroup>
+
+</Project>

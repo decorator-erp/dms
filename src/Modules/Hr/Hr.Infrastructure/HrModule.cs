@@ -1,4 +1,6 @@
+using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Hr.Contracts;
 using Hr.Infrastructure.Persistence;
@@ -39,6 +41,14 @@ internal sealed class HrModule : IModule
                 HrPermissions.DepartmentsRemoveFromUser,
                 HrPermissions.DepartmentsMoveUser,
             ]));
+
+        services.AddModuleCqrs<HrDbContext>(Assembly.Load("Hr.Application"));
+
+        // The integration event handler (EmployeeDeactivatedIntegrationEventHandler) lives in THIS
+        // assembly, not Hr.Application - unlike command/query handlers, it belongs to Infrastructure
+        // because it calls out to another module's contract (Identity.Contracts.IUserAdministration),
+        // which Hr.Application has no reason to know about.
+        services.AddModuleIntegrationEvents<HrDbContext>(typeof(HrModule).Assembly);
 
         return services;
     }
