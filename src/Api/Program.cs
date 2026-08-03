@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Text;
 using Api;
-using Api.Authorization;
 using BuildingBlocks;
 using BuildingBlocks.Web;
+using BuildingBlocks.Web.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
@@ -99,6 +99,13 @@ app.MapGet("/api/me", (ICurrentUser currentUser) => Results.Ok(new { currentUser
 
 foreach (var module in modules)
     module.MapEndpoints(app);
+
+// Idempotent by contract (see IModule.SeedAsync) — safe to run on every startup, not just the first.
+using (var seedScope = app.Services.CreateScope())
+{
+    foreach (var module in modules)
+        await module.SeedAsync(seedScope.ServiceProvider);
+}
 
 app.Run();
 

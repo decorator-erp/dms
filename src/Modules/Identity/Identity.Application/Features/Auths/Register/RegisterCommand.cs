@@ -2,17 +2,13 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using FluentValidation;
 using Identity.Contracts;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
 namespace Identity.Application.Features.Auths.Register;
-
-internal sealed record RegisterRequest(
-    string Email, string Password, string FirstName, string LastName, string? PhoneNumber, string RoleName);
-
-internal sealed record RegisterCommand(RegisterRequest Request) : ICommand<string>;
 
 internal sealed class RegisterCommandValidator : AbstractValidator<RegisterCommand>
 {

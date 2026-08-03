@@ -1,6 +1,6 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
-using Identity.Application.DTOs;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
@@ -9,10 +9,6 @@ using Microsoft.Extensions.Options;
 using SharedKernel;
 
 namespace Identity.Application.Features.Auths.RefreshToken;
-
-internal sealed record RefreshTokenRequest(string Token, string RefreshToken);
-
-internal sealed record RefreshTokenCommand(RefreshTokenRequest Request) : ICommand<AuthResponse>;
 
 internal sealed class RefreshTokenCommandValidator : AbstractValidator<RefreshTokenCommand>
 {

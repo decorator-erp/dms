@@ -1,12 +1,11 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Roles;
 using Identity.Domain;
 using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.UpdateRole;
-
-internal sealed record UpdateRoleCommand(string RoleId, string Name, string? Description) : ICommand;
 
 internal sealed class UpdateRoleCommandValidator : AbstractValidator<UpdateRoleCommand>
 {

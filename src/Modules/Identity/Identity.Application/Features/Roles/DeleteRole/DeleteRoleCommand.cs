@@ -1,11 +1,10 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Roles;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.DeleteRole;
-
-internal sealed record DeleteRoleCommand(string RoleId) : ICommand;
 
 internal sealed class DeleteRoleCommandValidator : AbstractValidator<DeleteRoleCommand>
 {

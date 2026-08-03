@@ -1,8 +1,10 @@
+using System.Reflection;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Respawn;
@@ -100,7 +102,9 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 break;
 
             case "identity":
-                await MigrateViaHostAsync("Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
+                await MigrateModuleSchemaAsync(
+                    "Identity.Infrastructure",
+                    "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
                 break;
 
                 // "hr" has no migration to apply yet — HR lands at G2-03.
@@ -111,16 +115,38 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// Resolves a module's DbContext by assembly-qualified name and migrates it, without the test
     /// project ever naming the internal concrete type — every module DbContext is internal (arch rule
     /// 4), so there is no compile-time way to reference it from outside the module, and there
-    /// shouldn't be. Accessing <see cref="WebApplicationFactory{TEntryPoint}.Services"/> here forces
-    /// the host to build (using the connection string set in <see cref="ConfigureWebHost"/>), which is
-    /// what makes this "migrate through the real composition root", not a bespoke test-only context.
+    /// shouldn't be.
+    ///
+    /// Deliberately does NOT go through <see cref="WebApplicationFactory{TEntryPoint}.Services"/> (the
+    /// real host's container) — since G1-07, <c>Program.cs</c> runs every <c>IModule.SeedAsync</c> as
+    /// part of building that host, and seeding queries tables that don't exist yet on a fresh
+    /// Testcontainers database. Building a throwaway <see cref="ServiceCollection"/> via the module's
+    /// own (public) <see cref="IModule.Register"/> — the same discovery mechanism
+    /// <c>Program.cs</c> uses, just not <c>Program.cs</c>'s own container — resolves and migrates the
+    /// DbContext with no seeding side effect, so migration always completes before the real host (and
+    /// its seed step) ever builds.
     /// </summary>
-    private async Task MigrateViaHostAsync(string assemblyQualifiedContextTypeName)
+    private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)
     {
+        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = ConnectionString,
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        module.Register(services, configuration);
+
+        await using var provider = services.BuildServiceProvider();
+
         var contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = Services.CreateScope();
+        using var scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

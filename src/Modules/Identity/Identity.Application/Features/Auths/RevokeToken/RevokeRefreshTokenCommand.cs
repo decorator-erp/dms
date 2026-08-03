@@ -1,6 +1,6 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
-using Identity.Application.Features.Auths.RefreshToken;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
@@ -8,8 +8,6 @@ using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
 namespace Identity.Application.Features.Auths.RevokeToken;
-
-internal sealed record RevokeRefreshTokenCommand(RefreshTokenRequest Request) : ICommand;
 
 internal sealed class RevokeRefreshTokenCommandValidator : AbstractValidator<RevokeRefreshTokenCommand>
 {

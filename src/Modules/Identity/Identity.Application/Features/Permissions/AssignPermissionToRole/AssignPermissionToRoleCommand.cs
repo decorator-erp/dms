@@ -1,12 +1,11 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Identity.Contracts;
+using Identity.Contracts.Permissions;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.AssignPermissionToRole;
-
-internal sealed record AssignPermissionToRoleCommand(string RoleId, string Permission) : ICommand;
 
 /// <summary>Validates <see cref="AssignPermissionToRoleCommand.Permission"/> against
 /// <see cref="IPermissionCatalog"/>'s union of every module's registered strings — never a hard-coded

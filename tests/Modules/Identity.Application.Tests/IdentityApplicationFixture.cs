@@ -75,7 +75,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddSingleton<ICurrentUser>(new TestCurrentUser("test-caller-id"));
 
         services.AddModuleCqrs<IdentityModuleDbContext>(
-            typeof(Identity.Application.Features.Auths.Register.RegisterCommand).Assembly);
+            typeof(Identity.Application.Features.Auths.Register.RegisterCommandHandler).Assembly);
 
         _provider = services.BuildServiceProvider();
 

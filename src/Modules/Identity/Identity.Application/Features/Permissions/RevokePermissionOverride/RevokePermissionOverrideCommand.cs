@@ -1,13 +1,12 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Permissions;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.RevokePermissionOverride;
-
-internal sealed record RevokePermissionOverrideCommand(string TargetUserId, string Permission) : ICommand;
 
 internal sealed class RevokePermissionOverrideCommandValidator : AbstractValidator<RevokePermissionOverrideCommand>
 {

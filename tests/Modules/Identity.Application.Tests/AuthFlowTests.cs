@@ -1,10 +1,5 @@
 using BuildingBlocks.Messaging;
-using Identity.Application.DTOs;
-using Identity.Application.Features.Auths.ChangePassword;
-using Identity.Application.Features.Auths.Login;
-using Identity.Application.Features.Auths.RefreshToken;
-using Identity.Application.Features.Auths.Register;
-using Identity.Application.Features.Auths.RevokeToken;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;

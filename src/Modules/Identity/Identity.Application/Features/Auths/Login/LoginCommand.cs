@@ -1,6 +1,6 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
-using Identity.Application.DTOs;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
@@ -9,10 +9,6 @@ using Microsoft.Extensions.Options;
 using SharedKernel;
 
 namespace Identity.Application.Features.Auths.Login;
-
-internal sealed record LoginRequest(string Email, string Password);
-
-internal sealed record LoginCommand(LoginRequest Request) : ICommand<AuthResponse>;
 
 internal sealed class LoginCommandValidator : AbstractValidator<LoginCommand>
 {

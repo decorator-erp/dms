@@ -1,14 +1,11 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Auth;
 using Identity.Domain;
 using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
 namespace Identity.Application.Features.Auths.ChangePassword;
-
-internal sealed record ChangePasswordRequest(string UserId, string CurrentPassword, string NewPassword);
-
-internal sealed record ChangePasswordCommand(ChangePasswordRequest Request) : ICommand;
 
 internal sealed class ChangePasswordCommandValidator : AbstractValidator<ChangePasswordCommand>
 {

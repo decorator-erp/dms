@@ -1,4 +1,5 @@
-using Identity.Application.DTOs;
+using Identity.Contracts.Permissions;
+using Identity.Contracts.Roles;
 using Identity.Domain;
 
 namespace Identity.Application;

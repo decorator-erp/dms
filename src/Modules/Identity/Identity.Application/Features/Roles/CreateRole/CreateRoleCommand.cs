@@ -1,11 +1,10 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Roles;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.CreateRole;
-
-internal sealed record CreateRoleCommand(string Name) : ICommand<string>;
 
 internal sealed class CreateRoleCommandValidator : AbstractValidator<CreateRoleCommand>
 {

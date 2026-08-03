@@ -1,10 +1,9 @@
 using BuildingBlocks.Messaging;
 using Identity.Contracts;
+using Identity.Contracts.Permissions;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.GetAllPermissions;
-
-internal sealed record GetAllPermissionsQuery : IQuery<IReadOnlyList<ModulePermissionSet>>;
 
 /// <summary>Reads <see cref="IPermissionCatalog"/> — the union of every module's registered
 /// permission strings — never a hard-coded list. This is deliberately NOT the same thing as

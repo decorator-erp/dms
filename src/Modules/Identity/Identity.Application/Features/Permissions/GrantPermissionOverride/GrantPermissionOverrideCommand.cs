@@ -2,15 +2,13 @@ using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Identity.Contracts;
+using Identity.Contracts.Permissions;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.GrantPermissionOverride;
-
-internal sealed record GrantPermissionOverrideCommand(
-    string TargetUserId, string Permission, string? Reason = null, DateTime? ExpiresAtUtc = null) : ICommand;
 
 /// <summary>
 /// Ported from <c>../backend/Application/Features/Permissions/Commands/GrantOverride</c>. The backend

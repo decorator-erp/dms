@@ -1,5 +1,5 @@
 using BuildingBlocks.Messaging;
-using Identity.Application.DTOs;
+using Identity.Contracts.Permissions;
 using Identity.Infrastructure.Persistence;
 using Identity.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -7,12 +7,11 @@ using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.GetUserEffectivePermissions;
 
-internal sealed record GetUserEffectivePermissionsQuery(string UserId) : IQuery<EffectivePermissionsResponse>;
-
 /// <summary>Ported from <c>../backend/Application/Features/Permissions/Queries/GetEffective</c>. Unlike
-/// <see cref="GetUserPermissions.GetUserPermissionsQuery"/>, this includes per-user overrides on top of
-/// role-derived permissions — the actual authorization-relevant set, via
-/// <see cref="IEffectivePermissionService"/> (the same service the JWT issuer uses).</summary>
+/// <see cref="Identity.Application.Features.Permissions.GetUserPermissions.GetUserPermissionsQueryHandler"/>,
+/// this includes per-user overrides on top of role-derived permissions — the actual
+/// authorization-relevant set, via <see cref="IEffectivePermissionService"/> (the same service the JWT
+/// issuer uses).</summary>
 internal sealed class GetUserEffectivePermissionsQueryHandler(
     IEffectivePermissionService effectivePermissionService, IdentityModuleDbContext db)
     : IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse>

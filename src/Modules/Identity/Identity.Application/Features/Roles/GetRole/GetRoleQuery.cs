@@ -1,12 +1,10 @@
 using BuildingBlocks.Messaging;
-using Identity.Application.DTOs;
+using Identity.Contracts.Roles;
 using Identity.Domain;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.GetRole;
-
-internal sealed record GetRoleQuery(string RoleId) : IQuery<RoleResponse>;
 
 internal sealed class GetRoleQueryHandler(IRoleService roleService) : IQueryHandler<GetRoleQuery, RoleResponse>
 {

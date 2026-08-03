@@ -655,3 +655,108 @@ role-only baseline, a grant adding a permission the role doesn't confer, a deny 
 does, a revoke restoring the role-only baseline — the same shape `EffectivePermissionServiceTests`
 proved at the service level, now proven through the command surface); and update-then-delete-role
 removes it from both a direct lookup and the full list.
+
+**G1-07** — done — `src/Modules/Identity/Identity.Infrastructure/Endpoints/{AuthEndpoints,RoleEndpoints,
+PermissionEndpoints}.cs`, `Persistence/Seeders/{DefaultRoles,RoleSeeder,RoleClaimSeeder,
+AdminUserSeeder}.cs`. This task surfaced a real architectural gap the previous six tasks never
+exercised, and fixing it touched files well outside Identity — recorded in full because every later
+module (starting with HR at G2-06) will hit the identical shape.
+
+**The circular-reference problem.** Endpoints belong in `*.Infrastructure` (arch rules 2 and 8 both
+forbid `*.Application` from touching ASP.NET Core at all, so they can't live in `Identity.Application`
+instead) — but a minimal-API endpoint needs to name the exact command/query type to resolve
+`ICommandHandler<TCommand,TResponse>`/`IQueryHandler<TQuery,TResponse>` from DI, and every one of those
+types was `internal` inside `Identity.Application`. `Identity.Application` already has a real
+`ProjectReference` to `Identity.Infrastructure` (G1-04, for its own DbContext/JWT services) — the reverse
+reference `Identity.Infrastructure` would need to compile against those types is a circular project
+reference, which MSBuild refuses outright regardless of `internal`/`public`/`InternalsVisibleTo` (those
+only govern visibility once a reference already exists; they don't make a cyclic reference legal).
+Reversing the G1-04 decision instead (Infrastructure → Application, no back-reference) was not viable at
+this point — every G1-05/G1-06 handler already depends on `IdentityModuleDbContext`, `IJwtProvider`,
+`JwtOptions`, `IPermissionService`, `IRoleService`, and `IPermissionCatalog`, all `internal` types owned
+by Infrastructure.
+
+**Fix: the thin wire-shape types moved to `Identity.Contracts`.** Every command/query wrapper record and
+its request/response DTO (`RegisterRequest`/`RegisterCommand`, `LoginRequest`/`LoginCommand`/
+`AuthResponse`, all the permission and role commands/queries and their response records) relocated from
+`Identity.Application` into `Identity.Contracts/{Auth,Permissions,Roles}` as `public` records — both
+`Identity.Application` and `Identity.Infrastructure` already have real, non-circular `ProjectReference`s
+to `Identity.Contracts`, so this is the one place both sides can share these types without a cycle. The
+validators and handlers implementing each command stayed exactly where they were, still `internal`, in
+`Identity.Application` — only the type DECLARATIONS moved, not the logic. This does widen what
+`Identity.Contracts` holds beyond "the module's cross-module contract" to also include "this module's
+own HTTP wire shapes," which is a real, deliberate broadening of that project's purpose, not an
+oversight — flagging it because a future module author reading `Identity.Contracts` and expecting only
+`IUserDirectory`/`IPermissionCatalog`-style cross-module interfaces will find `LoginCommand` sitting
+next to them, and should know why.
+
+**Two more pieces had the identical problem and got the identical fix.** `CustomResults.ToProblem()` and
+`ResultExtensions.Match()` (built at G0-08, unused until now) lived in `Api/Results` — but
+`Identity.Infrastructure`'s endpoints need to convert a `Result`/`Result<T>` into an `IResult` too, and
+`Api` depends on every module, never the reverse. Moved both into
+`BuildingBlocks.Web/Results/ResultHttpExtensions.cs` (already the shared, ASP.NET-aware project every
+module's `*.Infrastructure` references). Same story for `HasPermissionAttribute` and
+`PermissionAuthorizationHandler` (`Api/Authorization` → `BuildingBlocks.Web/Authorization`) — endpoints
+need to attach the attribute via `.WithMetadata(...)`, so it can't live in `Api` either. Added one new
+extension, `EndpointAuthorizationExtensions.RequirePermission(string)`, documenting the ordering
+requirement that isn't obvious from the ASP.NET Core docs: `.RequireAuthorization()`'s default policy is
+built by discovering `IAuthorizationRequirementData` metadata already attached to the endpoint, so the
+attribute must be added before (or in the same chain as) that call, not after.
+
+**`IModule` gained a fourth method: `SeedAsync(IServiceProvider, CancellationToken)`, with a default
+no-op body.** The plan's seeding requirement ("idempotent, run at startup") is a concern every future
+module will have (HR's default departments, etc.), so it lives on the shared contract rather than being
+a one-off `Identity`-specific mechanism bolted onto `Program.cs`. Called from `Program.cs` in a scoped
+`IServiceProvider` after `MapEndpoints`, before `app.Run()`.
+
+**Roles seeded: `admin`, `manager`, `employee` — three of the backend's seven, not all seven.** The
+backend's other four (`DepartmentHead`, `Client`, `Vendor`, `Contractor`) exist purely to carry
+permission claims from CRM, Sites, and Portal — modules entirely out of scope here. Seeding an
+empty-claim placeholder role for a module that doesn't exist is the same kind of stub the plan forbids
+for modules themselves, so they're dropped, not carried forward as dead weight. `admin` and `manager`
+both get every permission `IPermissionCatalog.All()` currently returns (today: Identity's four; HR's
+`employees.*`/`departments.*` join automatically at G2 with no seeder change needed, since the catalog
+is read at seed time, never hard-coded) — matching the backend's own choice to give `manager` the
+identical full-access treatment as `admin`.
+
+**The seeded admin user joins the `admin` role, not `manager`.** The backend's actual seeded user is
+named "the admin user" in its own code comments but is assigned to the `Manager` role — a naming quirk
+in the source, not a deliberate design choice worth preserving. This one joins `admin`, matching what
+it's actually called.
+
+**R7 applied as specified:** the seed password reads from configuration key `DMS_SEED_ADMIN_PASSWORD`
+(env var directly, or user-secrets for local dev — no prefix needed since `IConfiguration`'s environment
+provider exposes a flat env var under its own name). Unset outside `Development` throws at seed time;
+unset inside `Development` just skips seeding the user (roles and role claims still seed) rather than
+failing local dev outright.
+
+**`ApiFixture`'s migration strategy needed a real fix, not just a tweak, once seeding existed.**
+`Program.cs`'s new seed step runs as part of building the real host's `Services` — but the test fixture
+migrated the identity schema by forcing `Services` to build FIRST and only THEN calling
+`.Database.MigrateAsync()` through it, so seeding queried `identity.roles` before that table existed and
+every integration test failed with `42P01: relation "identity.roles" does not exist`. Fixed by having
+`ApiFixture` build a throwaway `ServiceCollection` via the module's own (public) `IModule.Register` —
+the same discovery mechanism `Program.cs` itself uses, just not `Program.cs`'s own container — migrate
+through THAT, dispose it, and only then let the real host's `Services` build (finding the tables already
+there). This generalizes past Identity: any future module added to `ModuleDependencyOrder.SchemaOrder`
+gets the same treatment for free, with no per-module special-casing beyond the assembly-qualified
+DbContext type name already required.
+
+**Endpoint permission gating**, since `IdentityPermissions` only has four constants: `RolesRead` gates
+role/role-permission reads; `RolesManage` gates role CRUD and assigning/removing a permission ON a role;
+`PermissionsManage` gates the permission catalog read and all per-user override commands (grant/deny/
+revoke) — these mutate or reveal another user's specific permissions, the most sensitive surface here.
+`GET /users/{userId}/effective` only requires plain authentication (any signed-in caller), not a specific
+permission — reasoned as: it's a user's own permission set on the read side, and there is no per-user
+"is this your own id" scoping mechanism built yet to make a tighter check meaningful; noted as worth
+revisiting once such a mechanism exists. `/api/auth/refresh` and `/api/auth/revoke` are deliberately
+anonymous (no `.RequireAuthorization()`) — both accept an EXPIRED access token by design, and the
+standard JWT bearer middleware would reject that token before the handler ever ran.
+
+**Verify:** `Identity.Infrastructure.Tests.SeedingIdempotencyTests` — one test, running
+`IdentityModule.Register` + `IdentityModule.SeedAsync` twice against a freshly migrated Testcontainers
+Postgres and asserting role/role-claim/user counts are identical both times (3 roles, `admin` and
+`manager` each carrying every catalog permission, exactly 1 seeded user) — the literal "seeding twice
+produces the same rows" requirement. Arch rule 4 (only `*.Contracts` types public) still passes with the
+type relocation, confirmed by the full architecture suite staying green — moving types INTO `Contracts`
+doesn't change what that rule checks, since `Contracts` was always allowed to be public.

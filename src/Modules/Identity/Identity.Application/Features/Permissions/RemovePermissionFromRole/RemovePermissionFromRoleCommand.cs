@@ -1,11 +1,10 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
+using Identity.Contracts.Permissions;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.RemovePermissionFromRole;
-
-internal sealed record RemovePermissionFromRoleCommand(string RoleId, string Permission) : ICommand;
 
 internal sealed class RemovePermissionFromRoleCommandValidator : AbstractValidator<RemovePermissionFromRoleCommand>
 {

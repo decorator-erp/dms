@@ -1,11 +1,9 @@
 using BuildingBlocks.Messaging;
-using Identity.Application.DTOs;
+using Identity.Contracts.Roles;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.GetAllRoles;
-
-internal sealed record GetAllRolesQuery : IQuery<IReadOnlyList<RoleResponse>>;
 
 internal sealed class GetAllRolesQueryHandler(IRoleService roleService)
     : IQueryHandler<GetAllRolesQuery, IReadOnlyList<RoleResponse>>
