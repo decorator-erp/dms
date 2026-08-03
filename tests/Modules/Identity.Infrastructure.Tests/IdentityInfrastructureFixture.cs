@@ -1,0 +1,78 @@
+using Identity.Domain;
+using Identity.Infrastructure.Authentication;
+using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Services;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+namespace Identity.Infrastructure.Tests;
+
+/// <summary>
+/// Real Postgres (Testcontainers), a real <c>IdentityModuleDbContext</c> and real
+/// <c>UserManager</c>/<c>RoleManager</c> — this is security-sensitive code (permission resolution,
+/// token issuance), and InMemory EF's looser query translation is exactly the kind of gap that could
+/// hide a real bug here. Has <c>InternalsVisibleTo</c> access to both Identity.Infrastructure and
+/// Identity.Domain (naming: <c>Identity.Infrastructure.Tests</c>, distinct from the pure-domain
+/// <c>Identity.UnitTests</c> — this one needs a database).
+/// </summary>
+public sealed class IdentityInfrastructureFixture : IAsyncLifetime
+{
+    private PostgreSqlContainer _container = null!;
+    private ServiceProvider _provider = null!;
+
+    public async Task InitializeAsync()
+    {
+        _container = new PostgreSqlBuilder().WithImage("postgres:17").Build();
+        await _container.StartAsync();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["JwtSettings:Key"] = "test-signing-key-at-least-32-characters-long-000000",
+                ["JwtSettings:Issuer"] = "identity-infrastructure-tests",
+                ["JwtSettings:Audience"] = "identity-infrastructure-tests-client",
+                ["JwtSettings:ExpiryMinutes"] = "60",
+                ["JwtSettings:RefreshTokenExpiryDays"] = "14",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDataProtection();
+        services.AddDbContext<IdentityModuleDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
+        services.AddIdentityCore<ApplicationUser>()
+            .AddRoles<ApplicationRole>()
+            .AddEntityFrameworkStores<IdentityModuleDbContext>()
+            .AddDefaultTokenProviders();
+
+        services.AddOptions<JwtOptions>()
+            .Bind(configuration.GetSection(JwtOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        services.AddScoped<IJwtProvider, JwtProvider>();
+        services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
+
+        _provider = services.BuildServiceProvider();
+
+        await using var scope = _provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
+    }
+
+    public AsyncServiceScope CreateScope() => _provider.CreateAsyncScope();
+
+    public async Task DisposeAsync()
+    {
+        await _provider.DisposeAsync();
+        await _container.DisposeAsync();
+    }
+}
+
+[CollectionDefinition(Name)]
+public sealed class IdentityInfrastructureCollection : ICollectionFixture<IdentityInfrastructureFixture>
+{
+    public const string Name = "IdentityInfrastructure";
+}

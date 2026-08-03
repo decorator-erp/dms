@@ -461,3 +461,58 @@ asserts the `identity` schema contains exactly the 9 expected tables — `users`
 stayed excluded); a probe migration (`dotnet ef migrations add Probe` / `remove`, against the
 self-contained `IdentityModuleDbContextFactory`) yielded an empty `Up`/`Down` diff, confirming the
 model and the migration agree exactly.
+
+**G1-04** — done — `src/Modules/Identity/Identity.Infrastructure/{Authentication/{JwtOptions,IJwtProvider,
+JwtProvider},Services/{IEffectivePermissionService,EffectivePermissionService,IPermissionService,
+PermissionService,IRoleService,RoleService}}` plus `tests/Modules/Identity.Infrastructure.Tests/`
+(new project — real Postgres via Testcontainers, not InMemory, since this is security-sensitive code
+and InMemory's looser query translation is exactly the kind of gap that could hide a real bug in a
+join-based permission query).
+
+**Resolved before writing any code: does `Identity.Application` (G1-05/06, not built yet) get to
+reference `Identity.Infrastructure`'s `IdentityModuleDbContext` directly, given "handlers use their
+module's DbContext directly" is a non-negotiable but the reference matrix's `*.Application` row lists
+only `SharedKernel, BuildingBlocks, own .Domain, other modules' .Contracts`?** Read literally, the two
+requirements contradict — Application couldn't ever see the DbContext G1-03 explicitly placed in
+Infrastructure. Resolved by inference from arch rule 6's own wording: *"No type may reference a
+DbContext **outside its own module**"* — a rule that specifically carves out "outside its own module"
+only makes sense if referencing a DbContext **inside** your own module (Application → own
+Infrastructure) is the assumed-fine case; if it weren't, the rule would just say "no type may reference
+a DbContext" and stop there. Treated the reference-matrix table as a summary of the CROSS-MODULE
+isolation rules the arch tests actually enforce, not an exhaustive intra-module dependency graph — no
+existing arch test needed changing, since `Rule3ModuleIsolationTests` already only flags *other*
+modules' layers, never a module's own Infrastructure. Interfaces (`IJwtProvider`,
+`IEffectivePermissionService`, `IPermissionService`, `IRoleService`) accordingly stay in
+Identity.Infrastructure rather than being pushed into Domain as artificial ports — there was no
+architectural reason to invert that, once Application → own Infrastructure was established as legal.
+
+**`EffectivePermissionService` ported unchanged**, per the plan and the review's agreement — same
+algorithm (role claims ∪ overrides, override wins both directions via a `HashSet`, deny-over-grant
+precedence coming from the unique `(UserId, Permission)` index rather than code), same two known gaps
+carried forward (ignores the override row's own `IsActive`; ignores the user's own `IsActive`) —
+documented on the class itself, not silently fixed.
+
+**Two real bugs found by running the code, not by inspection:**
+- `AddEntityFrameworkStores<IdentityModuleDbContext>()` needs `services.AddDataProtection()` —
+  `AddDefaultTokenProviders()` registers `DataProtectorTokenProvider<TUser>`, which needs
+  `IDataProtectionProvider`; without it, resolving `UserManager<ApplicationUser>` throws
+  `InvalidOperationException` at first use. (`IdentityModule.Register()` in the real Api host doesn't
+  need this explicitly — ASP.NET Core's shared framework registers data protection by default; the
+  test's minimal `ServiceCollection` had to add it by hand, which is what surfaced this as something to
+  be aware of when standing up Identity outside the full host.)
+- `JwtProvider.ValidateToken` — `JwtSecurityTokenHandler.MapInboundClaims` defaults to `true`, which
+  silently renames the `"sub"` claim to `ClaimTypes.NameIdentifier` during validation.
+  `FindFirst(JwtRegisteredClaimNames.Sub)` came back `null` for a token the SAME provider had just
+  issued — fixed by constructing the handler with `MapInboundClaims = false`.
+
+**D7 bug fix carried through:** `RoleService.UserInRoleAsync` resolves the role's name before calling
+`UserManager.IsInRoleAsync` — the backend passed the role id directly, which the method expects a name
+for, so the check silently always returned false there.
+
+**Verify:** `Identity.Infrastructure.Tests` — 5 tests for `EffectivePermissionService` (role-granted
+permissions; grant-override adds a permission the role doesn't confer; deny-override removes one the
+role does; an expired grant does not apply; an unknown user resolves empty) plus 2 for `JwtProvider`
+(a token carries **exactly** the resolved permission set — role permissions with an override applied,
+proving the token reflects `EffectivePermissionService`'s resolution and not just raw role claims — and
+round-trips through `ValidateToken` to the same user id). All against a real migrated Postgres via
+Testcontainers, real `UserManager`/`RoleManager`.
