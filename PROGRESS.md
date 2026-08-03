@@ -1011,3 +1011,48 @@ is rejected as a duplicate; deactivating an employee leaves the login untouched 
 interval), after which the login is disabled — and running the processor a second time is a safe no-op,
 proving `UserAdministration.DeactivateAsync`'s idempotency actually holds, not just that it's documented
 to.
+
+**G2-05** — done — `src/Modules/Hr/Hr.Contracts/Departments/DepartmentContracts.cs`,
+`src/Modules/Hr/Hr.Application/Features/Departments/{Create,Update,Delete,AssignHead,UnassignHead,Get,
+GetList,MoveEmployee,RemoveEmployee}/*Handler.cs`. Employee-department ASSIGNMENT itself
+(`AssignEmployeeToDepartmentCommand`) was already built at G2-04 under the Employees feature, matching
+where the backend's own `DepartmentDomainService.AddEmployeeAsync` sits conceptually closer to "things
+you do to an employee" than "things you do to a department" — this task adds the department-owned half:
+CRUD, head assignment, and moving/removing a membership.
+
+**D7 bug fixed on the way in:** `MoveEmployeeToDepartmentCommandHandler` — the backend's
+`MoveEmployeeAsync` updates EVERY `EmployeeDepartment` row matching `EmployeeId` alone
+(`u => u.EmployeeId == employeeId`), with no department filter at all. For an employee who somehow
+belongs to more than one department, that silently moves ALL of them, regardless of which one the
+caller actually meant. This version resolves the specific active membership row to move (there is at
+most one under the port's own single-active-department assumption) rather than blanket-updating by
+employee id alone.
+
+**`AssignDepartmentHeadCommandHandler` ports the backend's own compound behaviour**: assigning a head
+also adds that employee to the department if they aren't already a member, rather than requiring
+`AssignEmployeeToDepartmentCommand` as a separate prior call — matches
+`DepartmentDomainService.AssignDepartmentHeadAsync` exactly.
+
+**`DeleteDepartmentCommand` soft-deletes** (`IsActive = false`), matching the backend's own
+`DepartmentDomainService.DeleteAsync` — not a row removal. **Not ported:** the backend's
+`DeactivateAsync(id, newDepartmentId)` overload, which deactivates a department AND bulk-moves every one
+of its members to a replacement department in the same call. Two independent operations
+(`DeleteDepartmentCommand` and `MoveEmployeeToDepartmentCommand`, called once per member) already cover
+the same ground without a combined command whose failure semantics — what happens if the bulk move
+partially succeeds? — the backend's own version doesn't handle any more carefully than leaving it to
+`Result` propagation. Recorded as a deliberate simplification, not a missed feature.
+
+**One behavioural nuance confirmed by a test, not assumed:** `RemoveEmployeeFromDepartmentCommand`
+checks only that a membership ROW exists for the (employee, department) pair — it does not filter by
+`IsActive` — so removing an already-removed (soft-deleted) membership succeeds again rather than
+erroring. This matches the backend's own `RemoveEmployeeAsync`, which has the identical existence check
+with no `IsActive` filter; ported as-is, not tightened, since changing that would be a behaviour change
+disguised as a port. The test written against the OPPOSITE assumption failed first, which is exactly
+what proved this distinction real rather than assumed.
+
+**Verify:** `Hr.Application.Tests` — 5 more tests (9 total in the project): department create → get →
+update → paged-list-with-filter round-trips; duplicate department name rejected; delete deactivates
+rather than removing; assigning a head makes the employee a member and a second assignment while one
+head is already set is rejected, then unassign clears it; move-then-remove leaves no active membership,
+while removing a membership that was never created at all is rejected (the case above, right after it,
+is the one that ISN'T rejected — both are exercised so the distinction is explicit, not accidental).
