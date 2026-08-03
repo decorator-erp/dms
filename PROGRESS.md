@@ -760,3 +760,43 @@ Postgres and asserting role/role-claim/user counts are identical both times (3 r
 produces the same rows" requirement. Arch rule 4 (only `*.Contracts` types public) still passes with the
 type relocation, confirmed by the full architecture suite staying green — moving types INTO `Contracts`
 doesn't change what that rule checks, since `Contracts` was always allowed to be public.
+
+## Phase boundary — end of G1
+
+Re-checking the seven non-negotiables against the completed Identity module:
+
+1. **No repository pattern.** Every handler (`Login`, `Register`, `RefreshToken`, role/permission
+   commands) uses `IdentityModuleDbContext` or ASP.NET Identity's `UserManager`/`RoleManager` directly —
+   no repository interface or implementation exists anywhere in `Identity.*`. ✓
+2. **One DbContext/schema/module, one database.** `IdentityModuleDbContext` is the only DbContext in the
+   module, `HasDefaultSchema("identity")`, same Postgres instance `SharedDbContext` uses. ✓
+3. **Cross-module reads only via `<Module>.Contracts`.** No other module exists to read FROM yet — HR
+   (G2) is the first test of this in the writing direction (`IUserDirectory`). Vacuously true today. ✓
+4. **Cross-module writes only via outbox integration events.** `RegisterCommandHandler` stages
+   `UserRegisteredIntegrationEvent` through `db.Outbox()` rather than any direct call; no synchronous
+   cross-module write exists because there is no second module yet to write to. ✓
+5. **Only `*.Contracts` types public.** Arch rule 4 passes, including after G1-07 moved the auth/
+   permissions/roles command and DTO types into `Identity.Contracts` — they're public precisely because
+   they live there now, not an exception to the rule. ✓
+6. **SharedKernel frozen ~9 files.** Untouched since G0-02; zero edits across all of G1. ✓
+7. **Arch tests written before the code they constrain.** All nine rules plus `ModuleContractTests` and
+   `MetaSelfEnforcementTests` existed at G0-07/G0-checkpoint, before Identity's first line of module code
+   (G1-01) was written. ✓
+
+**Which G1 decisions would be expensive to reverse at G2, and which would be cheap** (the plan's own
+fifth checkpoint question, worth re-asking now that a full module is built, not just the foundation):
+- **Expensive:** "`Identity.Application` references its own `Identity.Infrastructure`" (G1-04). Every
+  handler in G1-05/06 depends on it; reversing it means re-deriving how Application would reach a
+  DbContext without one, which is a different architecture, not a refactor.
+- **Expensive:** the G1-07 fix (command/query/DTO types living in `Identity.Contracts` rather than
+  `Identity.Application`). Cheap to have gotten right at G1-05 before any tests were written against the
+  old location; now it would mean re-touching every Application feature file and both test projects
+  again.
+- **Cheap:** which roles get seeded (`DefaultRoles.All`) and which get full access
+  (`FullAccessRoles`) — both are simple string-array constants with no schema or migration behind them.
+- **Cheap:** endpoint route shapes (`/api/auth/...`, `/api/roles/...`, `/api/permissions/...`) — nothing
+  outside `Identity.Infrastructure` depends on the exact paths yet (no frontend in this repo).
+- **Moderately expensive:** the permission-gating choices per endpoint (`RolesRead` vs `RolesManage` vs
+  `PermissionsManage`) — changing them is a one-line-per-endpoint edit, but changing them WRONG is a
+  silent authorization bug, not a compile error, so any change here needs the same care as the original
+  choice, not less.
