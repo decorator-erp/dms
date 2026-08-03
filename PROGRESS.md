@@ -580,3 +580,78 @@ away, and replaying the token `RevokeToken` just revoked) in one flow, per the t
 `ChangePassword_then_login_with_old_password_is_rejected_and_new_password_succeeds` cover the remaining
 three commands. All resolve real handlers through DI against a migrated Testcontainers Postgres, no
 handler is ever constructed directly with `new`.
+
+**G1-06** — done — `src/Modules/Identity/Identity.Application/Features/{Permissions,Roles}/*`,
+`DTOs/{PermissionResponse,RoleResponse,EffectivePermissionsResponse}`, `ResponseMappingExtensions`
+(`ApplicationRoleClaim.ToResponse()`, `ApplicationRole.ToResponse()`). Most of this task's substance was
+already built at G1-04 (`IPermissionService`, `IRoleService`, `IEffectivePermissionService`) — this task
+wraps those in CQRS commands/queries + validators, the shape every other feature in this codebase uses,
+rather than reimplementing the logic.
+
+**`IPermissionCatalog` had no implementation before this task.** `Identity.Contracts` declared the
+interface at G1-01, but nothing implemented it. Added `PermissionCatalog` in `Identity.Infrastructure`
+(`IEnumerable<IModulePermissions> → IReadOnlyList<ModulePermissionSet>`), registered as a singleton
+(safe — every `IModulePermissions` registration, this module's own included, is itself a singleton).
+`GetAllPermissionsQuery` reads this, deliberately NOT `IPermissionService.GetAllPermissionsAsync` —
+that method (built at G1-04, named confusingly close) returns only permissions currently **assigned to
+some role**, a real and different, narrower value from "every permission any module has declared to
+exist." Recorded here so the distinction doesn't get lost the next time someone reads both names side
+by side.
+
+**`AssignPermissionToRoleCommandValidator` and both permission-override validators use
+`IPermissionCatalog.All()` to validate the permission string is real** — "Identity must not hold a
+hard-coded list of other modules' permissions" (the plan's own words for this task) rules out a fixed
+enum or constant array; the catalog is exactly the mechanism built to make that check possible without
+one. Confirmed non-vacuous the same way as the CQRS validator-registration fix in G1-05: temporarily
+passed a garbage permission string in a test, watched it get rejected, then wrote the real assertion.
+
+**Override grant/deny/revoke commands ported from the backend's
+`Application/Features/Permissions/Commands/{GrantOverride,DenyOverride,RevokeOverride}`, with two
+changes:**
+- **The D7 bug is fixed on the way in**, per PLAN.md's own bug list: `DenyPermissionOverrideCommand`
+  called `repo.Adapt(entity)` (a Mapster mapping call) instead of `repo.Add(entity)`, so a "deny"
+  override was constructed and silently never persisted. There is no repository/Mapster layer here to
+  make that particular mistake with — the handler adds directly to `IdentityModuleDbContext` — but the
+  bug is still recorded because it's evidence the override-denial path was never actually tested against
+  a real database in the original.
+- **`CallerUserId` is no longer a command field.** The backend's controller supplied it from the HTTP
+  principal on every one of these three commands; carrying it as a plain `string` on the command shape
+  makes every caller responsible for plumbing it through by hand and lets it silently go stale if the
+  authenticated user changes mid-request. `ICurrentUser` (already in `BuildingBlocks`, built at G0-08 for
+  exactly this) is injected into the handler instead. `Identity.Application.Tests` supplies a fixed
+  `TestCurrentUser` stand-in, since the real HTTP-backed implementation lives in `Api`.
+
+**`RevokePermissionOverrideCommand` hard-deletes the override row** (`ExecuteDeleteAsync`), matching the
+backend exactly — `UserPermissionOverride` inherits `Entity.IsActive` (a soft-delete flag) but nothing
+in either codebase ever sets it for this entity; the row is removed, not deactivated. Not changed here
+either, for the same reason G1-04 left `EffectivePermissionService`'s known gaps alone: fixing it would
+be a security-semantics change disguised as a port.
+
+**`UpdateRoleCommand` bypasses `IRoleService.UpdateRoleAsync`** — that method (G1-04) only renames,
+because renaming was all G1-04 needed to prove `RoleService` end to end. This task's role-CRUD scope
+needs name AND description updated together, so the handler calls `RoleManager<ApplicationRole>`
+directly (`Rename` + `UpdateDescription` + one `UpdateAsync`) — the same pattern `Login`/`Register`
+already established of Application handlers using ASP.NET Identity managers directly rather than
+through an intermediate service wrapper when the wrapper doesn't already do what's needed.
+
+**No query-level `AbstractValidator` was added for `GetUserPermissionsQuery` or the other read-only
+queries**, despite one being started for the former and then deliberately removed. `AddModuleCqrs`
+(G0-03) only wraps `ICommandHandler`s in `ValidationDecorator` — there is no query-side equivalent
+pipeline. A `FluentValidation` validator on a query type would still get picked up by the
+`IValidator<>` Scrutor scan added in G1-05, register successfully, and then never run — the identical
+silent-no-op shape as the bug that scan itself was written to fix. Recorded so a future task doesn't
+"fix" this by adding a validator that looks correct and isn't.
+
+**Testing approach — same reasoning as G1-05, still no HTTP endpoints to call.**
+`IdentityApplicationFixture` gained `IPermissionService`, `IRoleService`, a fixed single-module
+`IModulePermissions` registration (enough to exercise the catalog's union logic without a second fake
+module), `IPermissionCatalog`, and a `TestCurrentUser` singleton. `RolesAndPermissionsTests` — 6 tests:
+the catalog union contains this module's permission strings (the substance of the plan's literal
+"assert its strings appear in `GET /api/permissions`" verify, exercised at the handler level since that
+route doesn't exist until G1-07); create-role → assign → read-back → remove → read-back round-trips;
+assigning an unrecognized permission string is rejected; a user's permissions reflect their role's
+claims; grant/deny/revoke override each visibly change `GetUserEffectivePermissionsQuery`'s result (a
+role-only baseline, a grant adding a permission the role doesn't confer, a deny removing one the role
+does, a revoke restoring the role-only baseline — the same shape `EffectivePermissionServiceTests`
+proved at the service level, now proven through the command surface); and update-then-delete-role
+removes it from both a direct lookup and the full list.

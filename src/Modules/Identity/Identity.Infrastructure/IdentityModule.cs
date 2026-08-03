@@ -49,6 +49,10 @@ internal sealed class IdentityModule : IModule
                 IdentityPermissions.PermissionsManage,
             ]));
 
+        // Singleton: it only aggregates IEnumerable<IModulePermissions>, and every registration of that
+        // (this module's own included) is itself a singleton - no scoped/DbContext dependency here.
+        services.AddSingleton<IPermissionCatalog, PermissionCatalog>();
+
         services.AddModuleCqrs<IdentityModuleDbContext>(Assembly.Load("Identity.Application"));
 
         return services;

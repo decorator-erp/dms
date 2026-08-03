@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Outbox;
+using Identity.Contracts;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
@@ -57,6 +58,21 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
 
         services.AddScoped<IJwtProvider, JwtProvider>();
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
+        services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IRoleService, RoleService>();
+
+        // Mirrors IdentityModule.Register: a single fixed IModulePermissions registration (this module's
+        // own set) is enough to exercise the catalog union logic without needing a second fake module.
+        services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+            "Identity",
+            [
+                IdentityPermissions.UsersRead,
+                IdentityPermissions.RolesRead,
+                IdentityPermissions.RolesManage,
+                IdentityPermissions.PermissionsManage,
+            ]));
+        services.AddSingleton<IPermissionCatalog, PermissionCatalog>();
+        services.AddSingleton<ICurrentUser>(new TestCurrentUser("test-caller-id"));
 
         services.AddModuleCqrs<IdentityModuleDbContext>(
             typeof(Identity.Application.Features.Auths.Register.RegisterCommand).Assembly);
