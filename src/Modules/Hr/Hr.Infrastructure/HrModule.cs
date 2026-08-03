@@ -4,6 +4,7 @@ using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Hr.Contracts;
 using Hr.Infrastructure.Persistence;
+using Hr.Infrastructure.Services;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -41,6 +42,8 @@ internal sealed class HrModule : IModule
                 HrPermissions.DepartmentsRemoveFromUser,
                 HrPermissions.DepartmentsMoveUser,
             ]));
+
+        services.AddScoped<IHrDirectory, HrDirectory>();
 
         services.AddModuleCqrs<HrDbContext>(Assembly.Load("Hr.Application"));
 

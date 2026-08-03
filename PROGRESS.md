@@ -1056,3 +1056,77 @@ rather than removing; assigning a head makes the employee a member and a second 
 head is already set is rejected, then unassign clears it; move-then-remove leaves no active membership,
 while removing a membership that was never created at all is rejected (the case above, right after it,
 is the one that ISN'T rejected — both are exercised so the distinction is explicit, not accidental).
+
+**G2-06** — done — `src/Modules/Hr/Hr.Infrastructure/Services/HrDirectory.cs`, `src/Modules/Hr/
+Hr.Infrastructure/Endpoints/{EmployeeEndpoints,DepartmentEndpoints,EmployeeDepartmentEndpoints}.cs`.
+Closes out HR, and closes out the whole of Phase G2.
+
+**`EmployeeSummary.PrimaryDepartmentId` needed a correlated subquery, not a stored field.**
+`Employee` (G2-02) has no `PrimaryDepartmentId` property of its own — membership lives entirely in
+`EmployeeDepartment`, and an employee's current department is "whichever active membership row exists,"
+not a column. `HrDirectory`'s projection resolves it with
+`db.EmployeeDepartments.Where(ed => ed.EmployeeId == e.Id && ed.IsActive).Select(...).FirstOrDefault()`
+inside the same `Select` — a correlated scalar subquery, which EF Core translates to SQL directly (a
+single query, not N+1) rather than loading the join table separately and zipping in memory.
+
+**`ResolveEmployeeIdAsync`'s per-request memo is a private `Dictionary` field on `HrDirectory` itself**,
+made real by registering `IHrDirectory` as scoped (once per request in the real host) — nothing
+DI-specific was needed beyond that; a plain dictionary on a scoped service already lives exactly as long
+as the memo needs to.
+
+**The LIST endpoint returns `EmployeeProfile` (names); the LOOKUP endpoint returns `EmployeeSummary`
+(HR-only) — the plan's own literal instruction for this task, not a design choice made independently.**
+`GetEmployeesQueryHandler`'s own response type (`EmployeeResponse`, HR-only, no name) is unchanged;
+`EmployeeEndpoints`'s list route calls `GetEmployeesQuery` for paging, then enriches just that page's ids
+through `IHrDirectory.GetProfilesAsync` before returning — the CQRS query itself never grows a name
+field, the endpoint composes on top of it. The lookup route (`GET /api/employees/{id}`) goes straight to
+`IHrDirectory.GetAsync`, bypassing the CQRS layer entirely — this is the summary surface other modules
+(and low-privilege callers) are meant to use, so it deliberately stays name-free.
+
+**Verify — checked structurally against a real database, not asserted by inspection:**
+`Hr.Infrastructure.Tests.HrDirectoryTests` — 3 tests, counting actual SQL commands via
+`DbContextOptionsBuilder.LogTo` filtered to `RelationalEventId.CommandExecuted` (the same "enable EF
+query logging in the test" technique the plan's own G3-01 task calls for elsewhere, used here first):
+`GetManyAsync` with 100 ids issues exactly one command, and is proven to never call
+`IUserDirectory` at all (a throwing fake substituted in place of the real one — if the code path were
+ever touched, the test would fail loudly, not silently pass because nothing happened to invoke it);
+`GetProfilesAsync` with 100 ids issues exactly one HR command AND exactly one `IUserDirectory` call
+(a counting fake); `ResolveEmployeeIdAsync` called three times with the same id hits the database once.
+Each employee needed a real `identity.users` row to seed — `hr.employees."AppUserId"`'s FK is a genuine
+`ON DELETE RESTRICT` constraint (G2-03), so an employee row referencing a made-up user id fails to
+INSERT at all; seeded via raw SQL rather than through `UserManager`, since the test only needs rows to
+satisfy the constraint.
+
+## Phase boundary — end of G2
+
+Re-checking the seven non-negotiables against the completed HR module, now that a second module exists
+to actually test the cross-module rules against:
+
+1. **No repository pattern.** Every HR handler uses `HrDbContext` directly — confirmed by grep, no
+   `IEmployeeRepository`/`IDepartmentRepository` exists anywhere in `Hr.*`, unlike the backend this was
+   ported from. This is the one non-negotiable G2-02 had to actively resist PLAN.md's own wording for
+   ("port `EmployeeDomainService`") to uphold. ✓
+2. **One DbContext/schema/module, one database.** `HrDbContext` is HR's only DbContext,
+   `HasDefaultSchema("hr")`, same Postgres instance as `identity` and `shared`. ✓
+3. **Cross-module reads only via `<Module>.Contracts`.** HR reads Identity through
+   `Identity.Contracts.IUserDirectory` exclusively (`CreateEmployeeCommandHandler` validating
+   `AppUserId`; `HrDirectory.GetProfilesAsync` composing names) — confirmed by arch rule 3 passing
+   non-vacuously now that both modules have layered assemblies to check against each other. ✓
+4. **Cross-module writes only via outbox integration events.** The one cross-module write in this build
+   — deactivating an employee's login — goes through `EmployeeDeactivatedIntegrationEvent` →
+   `OutboxProcessor` → `Identity.Contracts.IUserAdministration`, never a direct call. ✓
+5. **Only `*.Contracts` types public.** Arch rule 4 passes with both modules' full four-layer structure
+   in place — the widest this rule has ever been exercised in this build. ✓
+6. **SharedKernel frozen ~9 files.** Still untouched; zero edits across all of G2. ✓
+7. **Arch tests written before the code they constrain.** Unchanged since G0 — rule 9's real content
+   (the cross-schema FK check) was added at G0-07/G0-checkpoint, before `hr.employees` existed to check.
+
+**Real gaps found during G2, not anticipated at G0/G1, worth naming together since they share a root
+cause:** `IUserDirectory`/`IUserAdministration` were declared but never implemented (G2-04);
+`SharedDbContext`/`AddOutbox()` were never wired into `Program.cs` (G2-04); `UserDirectory.GetAsync`
+returned stale tracked data across DI scopes (G2-04). All three trace back to the same thing: G1 built
+and thoroughly tested Identity in isolation, and nothing in that isolation ever exercised the
+cross-module or whole-host paths these three items sit on. G2 is where a second module turns "correct in
+isolation" into "correct end to end," and these are exactly the kind of gap that phase boundary should
+be expected to surface — recorded as confirmation the phase-boundary discipline is doing its job, not as
+a mark against G1.
