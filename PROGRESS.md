@@ -1159,3 +1159,7 @@ asserted to contain no reference to the `identity.` schema.
 zero SQL touching `identity.` during that specific call. All 5 `Integration.Tests` pass, including the
 three G0-09 smoke tests and the identity-schema-shape test, confirming this addition didn't disturb
 anything already there.
+
+**G3-02** — done — `CLAUDE.md`, written verbatim from PLAN.md's own prescriptive template (rules list
+and command shortcuts unchanged from what the plan specifies). No verify block — a documentation file,
+confirmed not to disturb the build/test/format gate by re-running all three after adding it.
