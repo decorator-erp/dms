@@ -6,6 +6,9 @@
     <Project Path="src/SharedKernel/SharedKernel.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Hr/">
+    <Project Path="src/Modules/Hr/Hr.Contracts/Hr.Contracts.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Identity/">
     <Project Path="src/Modules/Identity/Identity.Application/Identity.Application.csproj" />
     <Project Path="src/Modules/Identity/Identity.Contracts/Identity.Contracts.csproj" />

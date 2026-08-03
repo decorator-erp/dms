@@ -800,3 +800,32 @@ fifth checkpoint question, worth re-asking now that a full module is built, not 
   `PermissionsManage`) — changing them is a one-line-per-endpoint edit, but changing them WRONG is a
   silent authorization bug, not a compile error, so any change here needs the same care as the original
   choice, not less.
+
+# Phase G2 — HR module
+
+**G2-01** — done — `src/Modules/Hr/Hr.Contracts/{IHrDirectory,HrPermissions,IntegrationEvents}.cs`,
+written verbatim from PLAN.md's prescriptive code block (`EmployeeSummary`, `EmployeeProfile`,
+`IHrDirectory`, `EmployeeHiredIntegrationEvent`, `EmployeeDeactivatedIntegrationEvent`). `HrPermissions`'
+17 string constants ported from `../backend/Domain/Constants/DefaultPermissions.cs`'s actual Employees/
+Departments values (confirmed by reading that file, not guessed from the naming pattern) — per D5, this
+is the one place in this module where the plan says "port the real strings," unlike Identity's four
+prescriptive constants.
+
+**`EmployeeSummary` carries no name or email, by design, not by omission** — the whole point of splitting
+`EmployeeSummary` from `EmployeeProfile` (per the plan's own reasoning) is that most callers
+(`ResolveEmployeeIdAsync`, department membership, the future Projects module's assignee checks) never
+need a name, and paying for a cross-module `IUserDirectory` call on that path just to populate a field
+nobody reads is exactly the N+1-shaped cost this two-shape split exists to avoid. `EmployeeProfile` is
+the only shape that carries `FullName`/`Email`, and it's documented as composed (one HR query + one
+batched Identity call), never a source HR itself owns.
+
+**Added to `DMS.Modular.slnx` and `Architecture.Tests.csproj`'s references**, per the established
+per-module-project discipline (a module assembly not referenced there is invisible to every rule that
+scans by naming convention).
+
+**Verify:** `Hr.Contracts.csproj` references only `SharedKernel` and `BuildingBlocks` — confirmed by
+inspection of the two-line `ItemGroup`. Arch rule 5 (integration event payload shape: primitives/`Guid`/
+`DateTimeOffset`/`string`/enums/collections thereof only) passes with the two new HR events included,
+confirmed by the full architecture suite staying green (13/13). No unit test project exists for this
+task — there is no logic yet, only type declarations, and the plan's own verify block for this task is
+architectural + a manual check, not a runtime assertion.
