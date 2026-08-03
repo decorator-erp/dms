@@ -5,6 +5,10 @@
     <Project Path="src/BuildingBlocks/BuildingBlocks.csproj" />
     <Project Path="src/SharedKernel/SharedKernel.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/Identity.Contracts/Identity.Contracts.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.IntegrationTests/BuildingBlocks.IntegrationTests.csproj" />

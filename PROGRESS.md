@@ -347,3 +347,15 @@ fails naming exactly that project, restored the reference, confirmed it passes.
   This is safe *because* the marker and the work share one transaction — one more reason the "stage,
   don't save" contract above must hold.
 
+## Phase G1 — Identity module
+
+**G1-01** — done — `src/Modules/Identity/Identity.Contracts/` (`IUserDirectory`/`UserSummary`,
+`IPermissionCatalog`/`ModulePermissionSet`, `IUserAdministration`, `IdentityPermissions`,
+`UserRegisteredIntegrationEvent`, `UserDeactivatedIntegrationEvent`) — written verbatim from PLAN.md's
+code block, which is prescriptive here. csproj references only `SharedKernel` and `BuildingBlocks`, no
+packages. Added its `ProjectReference` to `Architecture.Tests.csproj` per the discipline set up in
+G0-07 — without it the arch rules scanning `*.Contracts` would silently stay vacuous for this module.
+
+**Verify:** confirmed by inspection (two `ProjectReference`s, nothing else) and by rule 5 now actually
+scanning both integration events (Guid/string/DateTimeOffset payloads only, no violations) rather than
+an empty set.
