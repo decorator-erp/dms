@@ -1130,3 +1130,32 @@ cross-module or whole-host paths these three items sit on. G2 is where a second 
 isolation" into "correct end to end," and these are exactly the kind of gap that phase boundary should
 be expected to surface — recorded as confirmation the phase-boundary discipline is doing its job, not as
 a mark against G1.
+
+# Phase G3 — Close out
+
+**G3-01** — done — `tests/Integration.Tests/CrossModuleSmokeTests.cs`, plus a small extension to
+`ApiFixture` (`CapturedSql`/`ClearCapturedSql`, a custom `ILoggerProvider` registered in
+`ConfigureWebHost`) to support it.
+
+**Runs through the REAL composition root, not a hand-wired substitute** — resolves
+`ICommandHandler<RegisterCommand, string>`, `ICommandHandler<CreateEmployeeCommand, Guid>`, and
+`IHrDirectory` directly from `ApiFixture.Services` (the actual `WebApplicationFactory<Program>`
+container). Every type this test touches — `RegisterCommand`, `CreateEmployeeCommand`, `IHrDirectory`
+— is public in its own module's `*.Contracts` project, so reaching them needs no
+`InternalsVisibleTo` grant at all; that this test compiles without one is itself a small piece of
+evidence for the architecture doing what it claims.
+
+**"Enable EF query logging in the test and assert no SQL touches the identity schema," done literally.**
+Added a custom `ILoggerProvider` to `ApiFixture` that captures every message EF Core logs under
+`Microsoft.EntityFrameworkCore.Database.Command` (event `CommandExecuted`) — the actual SQL text, across
+every DbContext in the host, not just HR's. `ClearCapturedSql()` is called right before the one call
+under observation (`IHrDirectory.ResolveEmployeeIdAsync`), specifically AFTER registering the user and
+creating the employee — both of those legitimately touch `identity.` (`Register` writes it directly;
+`CreateEmployee` validates `AppUserId` via `IUserDirectory`), and including their SQL in the capture
+would make the assertion pass for the wrong reason. Only the resolve call's own SQL is checked, and it's
+asserted to contain no reference to the `identity.` schema.
+
+**Verify:** register → create employee → `ResolveEmployeeIdAsync` returns the created employee's id;
+zero SQL touching `identity.` during that specific call. All 5 `Integration.Tests` pass, including the
+three G0-09 smoke tests and the identity-schema-shape test, confirming this addition didn't disturb
+anything already there.

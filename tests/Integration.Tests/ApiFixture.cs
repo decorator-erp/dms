@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
@@ -6,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Respawn;
 using Xunit;
@@ -31,6 +33,19 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     private Respawner _respawner = null!;
 
     public string ConnectionString => _container.GetConnectionString();
+
+    /// <summary>
+    /// Every SQL statement EF Core has executed across every DbContext in this host, captured via a
+    /// custom <see cref="ILoggerProvider"/> registered in <see cref="ConfigureWebHost"/> — for G3-01's
+    /// "enable EF query logging in the test and assert no SQL touches the identity schema" requirement.
+    /// Call <see cref="ClearCapturedSql"/> before the operation under test so earlier noise (migrations,
+    /// seeding, an unrelated request) doesn't produce a false positive.
+    /// </summary>
+    public IReadOnlyList<string> CapturedSql => [.. _capturedSql];
+
+    public void ClearCapturedSql() => _capturedSql.Clear();
+
+    private readonly ConcurrentQueue<string> _capturedSql = new();
 
     public string IssueTestToken(string userId, params string[] permissions) =>
         TestJwt.Issue(JwtKey, JwtIssuer, JwtAudience, userId, permissions);
@@ -87,6 +102,34 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Issuer", JwtIssuer);
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
+        builder.ConfigureLogging(logging => logging.AddProvider(new SqlCapturingLoggerProvider(_capturedSql)));
+    }
+
+    /// <summary>Captures every message logged under EF Core's "Executed DbCommand" event — the SQL text
+    /// itself, schema-qualified table names included — across every DbContext in the host.</summary>
+    private sealed class SqlCapturingLoggerProvider(ConcurrentQueue<string> sink) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new SqlCapturingLogger(categoryName, sink);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class SqlCapturingLogger(string categoryName, ConcurrentQueue<string> sink) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) =>
+                categoryName == "Microsoft.EntityFrameworkCore.Database.Command" && logLevel >= LogLevel.Information;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                if (IsEnabled(logLevel) && eventId.Id == Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.CommandExecuted.Id)
+                    sink.Enqueue(formatter(state, exception));
+            }
+        }
     }
 
     private async Task MigrateSchemaAsync(string schema)
