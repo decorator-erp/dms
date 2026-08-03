@@ -10,9 +10,8 @@ namespace BuildingBlocks.Web;
 public static class ModuleDiscovery
 {
     public static IReadOnlyList<IModule> DiscoverModules(params Assembly[] moduleAssemblies) =>
-        moduleAssemblies
+        [.. moduleAssemblies
             .SelectMany(a => a.DefinedTypes)
             .Where(t => t is { IsAbstract: false, IsInterface: false } && typeof(IModule).IsAssignableFrom(t))
-            .Select(t => (IModule)Activator.CreateInstance(t, nonPublic: true)!)
-            .ToList();
+            .Select(t => (IModule)Activator.CreateInstance(t, nonPublic: true)!)];
 }

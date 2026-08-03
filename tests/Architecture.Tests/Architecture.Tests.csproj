@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Identity\Identity.Contracts\Identity.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

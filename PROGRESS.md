@@ -13,7 +13,10 @@ error — treated as pass.
 
 **G0-02** — done — `src/SharedKernel/` (9 files: `Entity`, `Result`, `Error`, `IDomainEvent`,
 `IDomainEventHandler`, `IDomainEventDispatcher`, `IDomainEventQueue`, `IAuditable`,
-`AuditIgnoreAttribute`), ported byte-for-byte from `../backend/SharedKernel/`. csproj has no
+`AuditIgnoreAttribute`), ported verbatim from `../backend/SharedKernel/` modulo line endings — the
+backend's files are UTF-8-with-BOM/CRLF, these are written plain/LF; `diff` shows every line changed
+for that reason alone, content is byte-identical once whitespace is normalized (confirmed by re-diffing
+at the G0 checkpoint). csproj has no
 `PropertyGroup` beyond the SDK default — everything (target framework, nullable, implicit usings,
 warnings-as-errors) comes from `Directory.Build.props`. Zero package references, zero project
 references, confirmed by `dotnet build -warnaserror`. **Known gap recorded, not fixed:** `IAuditable`
@@ -309,3 +312,38 @@ hidden.
 - SharedKernel frozen at ~9 files. ✓ — still exactly 9, zero project references (rule 7, live).
 - Arch tests written before the code they constrain. ✓ — `Architecture.Tests` (G0-07) predates every
   module; this is the one non-negotiable that is *itself* about G0's own task ordering, and it held.
+
+---
+
+## G0 checkpoint review — findings adopted
+
+Reviewed against `654ac04`. Verdict: G0 approved; one required fix before G1, plus known gaps to
+record. Full review: `REVIEW-G0-CHECKPOINT.md`.
+
+**Required fix — arch tests were fail-open, not fail-closed:** `ModuleAssemblies` only sees module
+assemblies that `Architecture.Tests.csproj` references; forgetting to add a new module's reference
+means every rule scanning it silently stays vacuous — nine green ticks, zero enforcement, no signal
+that anything is wrong. Added `MetaSelfEnforcementTests` — parses `DMS.Modular.slnx` directly (not
+`ModuleAssemblies`, which would make the test check itself) for every project under `src/Modules/`
+matching the four suffixes, and asserts each one's assembly was actually discovered. **Proven
+red-then-green**, per the same standard already applied to rules 7/8b: temporarily removed
+`Identity.Contracts`'s `ProjectReference` from `Architecture.Tests.csproj`, confirmed the meta-test
+fails naming exactly that project, restored the reference, confirmed it passes.
+
+**Known gaps recorded, not fixed (their own note, matching the `IAuditable` gap's treatment):**
+- **`OutboxProcessor` has no max-attempts/backoff/dead-letter.** A permanently failing message retries
+  every poll forever, logging a warning each time, with `attempts` climbing unbounded. Acceptable for
+  this scope — the field exists to build on. Starts to matter at G2-04, HR's first real integration
+  event handler (deactivation).
+- **The `InboxDedupeDecorator` "stage, don't save" contract is a convention, not enforced.** A handler
+  that calls its own `SaveChangesAsync` silently splits the atomic commit R1 depends on, and no test
+  can catch that generically — it can only be caught by code review and by keeping the first real
+  handler (G2-04's deactivation) as the reference example everyone copies. If it ever breaks in
+  practice, the real fix is a decorator-owned transaction rather than a documented convention.
+  Recorded here since PLAN.md doesn't call this shape out and a future reader needs the warning.
+- **Concurrency is safe, worth stating why:** two concurrent deliveries of the same event both pass the
+  inbox's `AnyAsync` check before either commits; the second one's `SaveChangesAsync` then violates the
+  `(event_id, handler_name)` primary key and rolls back its whole transaction, business write included.
+  This is safe *because* the marker and the work share one transaction — one more reason the "stage,
+  don't save" contract above must hold.
+
