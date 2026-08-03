@@ -99,8 +99,29 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 }
                 break;
 
-                // "identity" and "hr" have no migration to apply yet — Identity lands at G1-03, HR at
-                // G2-03. Add their DbContext's MigrateAsync call here when each exists.
+            case "identity":
+                await MigrateViaHostAsync("Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
+                break;
+
+                // "hr" has no migration to apply yet — HR lands at G2-03.
         }
+    }
+
+    /// <summary>
+    /// Resolves a module's DbContext by assembly-qualified name and migrates it, without the test
+    /// project ever naming the internal concrete type — every module DbContext is internal (arch rule
+    /// 4), so there is no compile-time way to reference it from outside the module, and there
+    /// shouldn't be. Accessing <see cref="WebApplicationFactory{TEntryPoint}.Services"/> here forces
+    /// the host to build (using the connection string set in <see cref="ConfigureWebHost"/>), which is
+    /// what makes this "migrate through the real composition root", not a bespoke test-only context.
+    /// </summary>
+    private async Task MigrateViaHostAsync(string assemblyQualifiedContextTypeName)
+    {
+        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+            ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
+
+        using var scope = Services.CreateScope();
+        var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
+        await context.Database.MigrateAsync();
     }
 }

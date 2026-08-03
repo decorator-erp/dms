@@ -16,6 +16,13 @@
     <ProjectReference Include="..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <!--
+      The composition root references every module's Infrastructure project, per the reference matrix
+      ("Api: everything"), even though it can never name any of their internal types directly (IModule
+      implementations are internal - only *.Contracts is public). Program.cs discovers them by loading
+      the assembly by name (Assembly.Load), not by referencing a type from it.
+    -->
+    <ProjectReference Include="..\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

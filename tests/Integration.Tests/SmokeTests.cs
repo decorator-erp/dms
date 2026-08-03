@@ -7,7 +7,8 @@ namespace Integration.Tests;
 /// <summary>G0-09 verify: app boots against a container, migrations apply, a protected route returns
 /// 401 unauthenticated. Also proves the test-JWT helper actually works (a token it issues is accepted),
 /// not just that it compiles.</summary>
-public sealed class SmokeTests(ApiFixture fixture) : IClassFixture<ApiFixture>
+[Collection(ApiCollection.Name)]
+public sealed class SmokeTests(ApiFixture fixture)
 {
     [Fact]
     public async Task Health_Returns200()

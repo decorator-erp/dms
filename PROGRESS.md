@@ -413,3 +413,51 @@ original, not a deliberate feature.
 (before/after `ExpiresOn`), revoke (single and double-revoke-throws), and rotation (valid rotation,
 unknown-token rejection, reuse-after-rotation rejection, revoke-all) — 8 tests, all against the real
 domain types via `InternalsVisibleTo`, not reflection or mocks.
+
+**G1-03** — done — `src/Modules/Identity/Identity.Infrastructure/` (`Persistence/IdentityModuleDbContext`,
+`Persistence/IdentityModuleDbContextFactory` (design-time), `Persistence/Configurations/*`,
+`Persistence/Migrations/InitialIdentity`, `IdentityModule`). Also added
+`src/BuildingBlocks/EntityModelConfigurationExtensions.cs` (the `Id`-never-DB-generated +
+`Ignore(DomainEvents)` pair every `Entity`-derived type needs, centralized so HR doesn't repeat it) and
+`BuildingBlocks.ModulePermissionsSet` (the one-line `IModulePermissions` implementation every module's
+`Register()` needs, same reasoning).
+
+**Used the 8-generic-parameter `IdentityDbContext` form, not PLAN.md's 3-parameter shorthand:** the
+shorthand (`IdentityDbContext<ApplicationUser, ApplicationRole, string>`) would silently fall back to
+the stock `IdentityRoleClaim<string>` for role claims instead of `ApplicationRoleClaim`, orphaning the
+`Group`/`DisplayName`/`Description` fields G1-02 ported it specifically to carry. PLAN.md's text reads
+as a simplified reference, not a literal instruction — the backend's own `ApplicationDbContext` already
+used the full 8-parameter form for exactly this reason.
+
+**A real bug found by running the code, not by inspection:** `AddEntityFrameworkStores<IdentityModuleDbContext>()`
+threw `TypeLoadException` — `ApplicationRoleClaim` violates the `new()` generic constraint ASP.NET
+Identity's own `RoleStore` places on `TRoleClaim`. The CLR's constraint validation for `new()` requires
+a **public** parameterless constructor specifically; it does not know about `InternalsVisibleTo`
+(a C#-compiler-level concept), so the `private` constructor G1-02 gave it — reasonable-looking, EF only
+ever needs private access — fails at the generic-store-construction call site, which lives in a
+different assembly with no IVT grant. Fixed by making that one constructor `public`; the type itself
+staying `internal` was never the problem, only the constructor's accessibility, confirmed by testing
+(making it public alone was sufficient — no arch-rule-4 exception needed).
+
+**Identity is now wired into the real composition root**, not just built standalone: `Api.csproj`
+references `Identity.Infrastructure` (per the reference matrix, "Api: everything") and `Program.cs`
+loads it by assembly **name** (`Assembly.Load("Identity.Infrastructure")`), not by referencing any type
+from it — every `IModule` implementation is internal, so Api can never name one directly even with the
+project reference in place. This was the natural moment to do it: Identity.Infrastructure now has
+something to register (the context, ASP.NET Identity core services), and it's what makes "migration
+applies to a clean container" testable through the real host rather than a bespoke construction.
+
+**`ApiFixture` migrates `identity` by resolving `IdentityModuleDbContext` through the host's own DI
+container**, looked up by assembly-qualified name (`Type.GetType(...)`) and cast to the public
+`DbContext` base — the test project has no `InternalsVisibleTo` grant into Identity (correctly; it
+isn't part of the module) and so can never name the internal context type directly. Added
+`ApiCollection`/`ICollectionFixture<ApiFixture>` so `SmokeTests` and the new `IdentitySchemaTests` share
+one container instead of each paying for their own.
+
+**Verify:** migration applies cleanly against a real Testcontainers Postgres (`IdentitySchemaTests`
+asserts the `identity` schema contains exactly the 9 expected tables — `users`, `roles`, `role_claims`,
+`refresh_tokens`, `user_claims`, `user_roles`, `user_logins`, `user_tokens`,
+`user_permission_overrides` — no more, no less, confirming `shared.outbox_messages`/`inbox_messages`
+stayed excluded); a probe migration (`dotnet ef migrations add Probe` / `remove`, against the
+self-contained `IdentityModuleDbContextFactory`) yielded an empty `Up`/`Down` diff, confirming the
+model and the migration agree exactly.

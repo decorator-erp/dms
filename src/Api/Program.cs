@@ -62,9 +62,14 @@ builder.Services.AddCors(corsOptions =>
 
 builder.Services.AddHealthChecks();
 
-// Zero modules exist yet (Identity lands at G1-03, HR at G2-03) — this becomes a real assembly list
-// then. The composition root is the only place that ever sees every module.
-var moduleAssemblies = Array.Empty<Assembly>();
+// Loaded by assembly NAME, not by referencing any type from it — every IModule implementation is
+// internal (only *.Contracts is public), so Api can never name one directly even though it references
+// the project. HR joins this list at G2-03. The composition root is the only place that ever sees
+// every module.
+var moduleAssemblies = new[]
+{
+    Assembly.Load("Identity.Infrastructure"),
+};
 var modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
 
 foreach (var module in modules)

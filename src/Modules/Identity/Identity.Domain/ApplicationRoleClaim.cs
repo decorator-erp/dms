@@ -17,9 +17,15 @@ internal sealed class ApplicationRoleClaim : IdentityRoleClaim<string>, IAuditab
     public string DisplayName { get; private set; } = null!;
     public string? Description { get; private set; }
 
-    private ApplicationRoleClaim()
+    /// <summary>
+    /// Public, not private — ASP.NET Identity's own <c>RoleStore</c> constructs role claims via a
+    /// <c>new()</c> generic constraint on <c>TRoleClaim</c> from a different assembly, which a private
+    /// constructor cannot satisfy (a <c>TypeLoadException</c> at the generic-store construction site,
+    /// discovered by actually running <see cref="IdentityModule.Register"/>, not by inspection). EF
+    /// materialization also uses this constructor.
+    /// </summary>
+    public ApplicationRoleClaim()
     {
-        // EF materialization.
     }
 
     public static ApplicationRoleClaim Create(

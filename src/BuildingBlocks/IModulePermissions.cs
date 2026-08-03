@@ -11,3 +11,8 @@ public interface IModulePermissions
     string Module { get; }
     IReadOnlyList<string> Permissions { get; }
 }
+
+/// <summary>Trivial default implementation — every module's registration is the same one-liner
+/// (<c>new ModulePermissionsSet("Identity", [...])</c>), so it lives here once rather than being
+/// redeclared privately per module.</summary>
+public sealed record ModulePermissionsSet(string Module, IReadOnlyList<string> Permissions) : IModulePermissions;
