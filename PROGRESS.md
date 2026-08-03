@@ -49,3 +49,8 @@ the inner handler; a command raising a domain event dispatches it after success 
 — both proven through the real `AddModuleCqrs` pipeline (DI-resolved `ICommandHandler<T>`), not by
 constructing decorators directly, and the failure-path assertion is not vacuous (removing the
 `result.IsSuccess` guard would flip it).
+
+**G0-04** — done — `src/BuildingBlocks/ICurrentUser.cs`. Interface only, as specified; HTTP
+implementation deferred to G0-08. Verify done by inspection (`grep -i AspNetCore
+BuildingBlocks.csproj` → no match) since `Architecture.Tests` doesn't exist until G0-07 — this becomes
+a permanently code-enforced rule there (rule 8), not just a one-time check.
