@@ -1174,6 +1174,40 @@ files.
 
 ---
 
+# Post-close-out follow-up
+
+**F1** — done — `tests/Architecture.Tests/Rule10CommandQueryPrivacyTests.cs`. The final review found a
+real hole in the G1-07/G2-06 resolution to the Application/Infrastructure circular reference: making
+command/query wrapper types public in `*.Contracts` (so `*.Infrastructure`'s endpoints could name them
+without a circular project reference) also makes them referenceable from ANY other module, which could
+resolve `ICommandHandler<T,R>`/`IQueryHandler<T,R>` for another module's command straight from the
+shared DI container — a synchronous cross-module write bypassing the outbox entirely, invisible to rule
+3 because it never touches the other module's `*.Application`/`*.Infrastructure`. Rule 10: no type in
+module B may depend on a type in `A.Contracts` implementing `ICommand`/`ICommand<T>`/`IQuery<T>`, for
+every distinct module pair A ≠ B; DTOs, contract interfaces, permission constants, and integration
+events in Contracts stay cross-module-referenceable, as intended.
+
+**Fault-injection, both states observed:** added a scratch file (`Hr.Application/
+FaultInjectionScratch.cs`) referencing `Identity.Contracts.Auth.LoginCommand` — the new test failed
+(`Hr.Application: Hr.Application.FaultInjectionScratch`), confirming it actually detects the violation
+rather than passing vacuously. Removed the scratch file; test passed again. Full gate re-run clean
+after removal (build -warnaserror, all tests, format --verify-no-changes).
+
+**Existing code:** zero findings. Every endpoint constructs only its own module's commands/queries
+(A == B, which the rule permits) — the hole was structural and unexploited, not a live bug.
+
+`docs/adding-a-module.md` updated in two places: the "fifth thing" paragraph (Contracts housing
+command/query types) now states rule 10's cost containment, and the arch-rules-per-module section lists
+rule 10 alongside the other nine.
+
+**F2 (collapse `.Application`/`.Infrastructure` into one project per module) — deliberately deferred,
+not implemented.** It would remove the circular-reference tension at its root (commands return to
+`internal`, the reference-matrix ambiguity disappears) rather than patching around it, but is a
+mechanical refactor with no urgency today. Decide before starting module #3 — if adopted, rule 10 stays
+regardless, as defense in depth.
+
+---
+
 # Final report
 
 ## Task table

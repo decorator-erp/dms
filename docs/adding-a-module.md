@@ -51,6 +51,16 @@ its command types started in `Identity.Application` and had to be relocated at G
 were built and the cycle became a compile error, touching every feature file a second time. Don't repeat
 that; decide this before writing the first feature, not after the first endpoint.
 
+Making these types public in `*.Contracts` has a cost this pattern doesn't remove — it only contains
+it: nothing about "public" stops another module from referencing your `*.Contracts`, naming your command
+type, and resolving `ICommandHandler<TCommand,TResponse>` straight from the shared DI container, a
+synchronous cross-module write that never touches your `*.Application`/`*.Infrastructure` and so isn't
+caught by rule 3's cross-module-reference check. **Arch rule 10 closes this**: no other module may
+depend on a type in your `*.Contracts` that implements `ICommand`/`ICommand<T>`/`IQuery<T>`. Everything
+else in Contracts (DTOs, contract interfaces, permission constants, integration events) stays fair game
+across modules — only the command/query types themselves are module-private, enforced the same way
+publicness is required in the first place.
+
 **`*.Domain`** — entities (deriving from `SharedKernel.Entity` unless they're a pure join/association
 row with no identity of their own — see `Hr.Domain.EmployeeDepartment`), enums actually referenced by
 those entities (don't port enums nothing in scope uses), and `<Module>Errors` static classes. No
@@ -164,7 +174,7 @@ type from it). Any test project that boots the module the same way needs the ide
 
 ## Arch rules a new module must satisfy
 
-All nine rules apply automatically once the module's assemblies are referenced in
+All ten rules apply automatically once the module's assemblies are referenced in
 `Architecture.Tests.csproj` (step 2 above) — nothing else to configure. What each one means for you:
 
 1. **`*.Domain` ⇏ EF Core.** No `Microsoft.EntityFrameworkCore` reference in the Domain csproj.
@@ -186,6 +196,10 @@ All nine rules apply automatically once the module's assemblies are referenced i
 9. **Cross-schema foreign keys only point in an allowed module-dependency direction** (see
    `docs/cross-schema-foreign-keys.md` for the full allow-list). `ON DELETE RESTRICT`, never `CASCADE`,
    across the boundary.
+10. **Commands and queries are module-private.** No other module's `*.Domain`/`*.Application`/
+    `*.Infrastructure`/`*.Contracts` may depend on a type in your `*.Contracts` that implements
+    `ICommand`/`ICommand<T>`/`IQuery<T>` — see the "fifth thing" note above for why this exists
+    alongside rule 4 rather than instead of it.
 
 ## Testing shape (mirror what Identity/HR already have)
 
