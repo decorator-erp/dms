@@ -168,3 +168,33 @@ even gets to run.
 fault-injected** the same way — there is no module assembly yet to construct a violating example from.
 Each will get the same non-vacuity check the first time a real module assembly makes it possible (the
 "becomes non-vacuous at" column above), rather than being trusted on code-reading alone.
+
+**G0-08** — done — `src/Api/` (`Program.cs`, `HttpCurrentUser`, `Authorization/{HasPermissionAttribute,
+PermissionAuthorizationHandler}`, `GlobalExceptionHandler`, `Results/{CustomResults,ResultExtensions}`,
+`CorsPolicies`, `appsettings.json`, `appsettings.Development.json`,
+`Properties/launchSettings.json`). Also added `src/BuildingBlocks/PermissionClaim.cs` — the `"permissions"`
+JWT claim-type string, shared between the issuer (Identity's `JwtProvider`, G1-04) and the validator
+(`HttpCurrentUser` and `PermissionAuthorizationHandler`, here) so it's spelled out once rather than as
+a literal duplicated across two modules that could drift.
+
+`CustomResults.ToProblem`'s reflection hop removed — `Results.Problem` takes an `extensions` dictionary
+directly, so there was never a need to build a `ProblemDetails` and reflect a property back off it.
+Moved out of the global namespace the backend left it in. `PermissionAutherizationHandler`'s name typo
+fixed on the way in (this is a new class, not an edited copy of ported code, so there's no reason to
+carry it forward) — `HasAnyPermissionAttribute`'s OR-semantics variant is **not** ported; PLAN.md's
+G0-08 text names only `HasPermissionAttribute`, and nothing in scope needs the OR form yet.
+
+**JWT signing key never touches source control (R7's principle, extended to a second credential):**
+`appsettings.json` has `JwtSettings.Issuer`/`Audience`/`ExpiryMinutes` but no `Key`; the dev value lives
+in `dotnet user-secrets` (`UserSecretsId = dms-modular-api`), generated with `openssl rand -base64 48`.
+Program.cs throws with a clear message at startup if the key is unset — no default fallback, in either
+environment.
+
+`Program.cs` ends with `public partial class Program;` so `WebApplicationFactory<Program>` can see the
+entry point from the external test assembly G0-09 will add — top-level statements otherwise generate
+an `internal` class.
+
+**Verify:** app boots with zero modules registered (confirmed — `ModuleDiscovery.DiscoverModules()`
+called with an empty assembly array, since Identity/HR don't exist until G1-03/G2-03); `GET /health` →
+200 `Healthy`; `GET /scalar/v1` → 200 with the actual Scalar UI HTML (`GET /scalar` redirects there,
+302, which is Scalar's own default routing, not a failure).
