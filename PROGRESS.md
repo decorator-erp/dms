@@ -359,3 +359,57 @@ G0-07 — without it the arch rules scanning `*.Contracts` would silently stay v
 **Verify:** confirmed by inspection (two `ProjectReference`s, nothing else) and by rule 5 now actually
 scanning both integration events (Guid/string/DateTimeOffset payloads only, no violations) rather than
 an empty set.
+
+**G1-02** — done — `src/Modules/Identity/Identity.Domain/` (`ApplicationUser`, `ApplicationRole`,
+`ApplicationRoleClaim`, `RefreshToken`, `UserPermissionOverride`, `UserType`,
+`Errors/{AuthErrors,UserErrors,RoleErrors,PermissionErrors}`) plus
+`tests/Modules/Identity.UnitTests/` (per PLAN.md's own file tree this time, not an ad-hoc addition).
+Every type is `internal` (arch rule 4); `InternalsVisibleTo` granted to `Identity.Application`,
+`Identity.Infrastructure`, `Identity.UnitTests` only (D1) — none of which except the test project exist
+yet.
+
+**A real rule-vs-plan conflict, resolved rather than worked around:** `ApplicationUser : IdentityUser<string>`
+is prescribed verbatim by PLAN.md, but `IdentityUser<TKey>` lives in namespace
+`Microsoft.AspNetCore.Identity` — which a blanket "no `Microsoft.AspNetCore.*` in Domain" reading of
+arch rule 2 would forbid. Resolved by referencing `Microsoft.Extensions.Identity.Stores` (confirmed via
+its own nuspec: depends only on logging/caching abstractions, zero EF Core, zero ASP.NET web pipeline)
+rather than `Microsoft.AspNetCore.Identity.EntityFrameworkCore`, and by narrowing rule 2's
+implementation to an explicit, documented exception for `Microsoft.AspNetCore.Identity` specifically —
+rule 2's actual intent (per its own motivating example, `IHttpContextAccessor` leaking into
+`ProjectAccessService`) is to keep the request pipeline out of Domain/Application, not to forbid
+modeling identity, which is this module's entire purpose. Everything else under `Microsoft.AspNetCore.*`
+stays forbidden. This is a scoping fix to the rule, not a relaxation — the same category of correction
+as R3's `Migration`/`ModelSnapshot` exclusion on rule 4.
+
+Since the exception can't be expressed through NetArchTest's own dependency-check API (no built-in way
+to allow one sub-namespace while forbidding the rest of a prefix), rule 2 was rewritten using plain
+reflection over base type/interfaces/properties/fields/constructor parameters rather than NetArchTest's
+Cecil-based IL scan. **Narrower than before**: it will not catch a method body that locally touches a
+forbidden namespace without storing it in a field/property/parameter — an accepted, stated reduction in
+thoroughness for the sake of the scoped exception, not a silent one.
+
+**Fault-injected to confirm non-vacuity, both directions:** temporarily disabled the
+`Microsoft.AspNetCore.Identity` exception and confirmed rule 2 fails, naming
+`Identity.Domain: Microsoft.AspNetCore.Identity` exactly — then restored it and confirmed it passes
+again. Rule 1 (no EF Core) was not separately fault-injected this round — `Microsoft.Extensions.Identity.Stores`
+provably has no EF Core dependency, so there was no way to construct a real violation to test against
+without deliberately writing wrong code first.
+
+**Refresh-token expiry/rotation logic, inert in the backend (`AuthService` did all of it), moved onto
+the aggregate:** `RefreshToken.Issue`/`Revoke` and `ApplicationUser.IssueRefreshToken`/
+`RotateRefreshToken`/`RevokeRefreshToken`/`RevokeAllRefreshTokens` — the 14-day lifetime is now a
+parameter (`TimeSpan lifetime`), not a hard-coded field, ready for `JwtOptions.RefreshTokenExpiryDays`
+at G1-04. `RotateRefreshToken` rejects reuse of an already-rotated/revoked token by construction (the
+`SingleOrDefault(...).IsActive` check), which is what G1-05's "reuse of a revoked refresh token is
+rejected" integration test will exercise end-to-end later.
+
+**One deliberate fix on the way in, per G1-02's own "review each one" instruction:**
+`ApplicationRoleClaim`'s display-name derivation now uses `CultureInfo.InvariantCulture` instead of
+`CultureInfo.CurrentCulture` — permission strings are ASCII identifiers (`"employees.read"`), and
+culture-sensitive casing on those (the Turkish "i" problem, concretely) was a latent bug in the
+original, not a deliberate feature.
+
+**Verify:** no EF Core reference (rule 1, passing non-vacuously); unit tests for refresh-token expiry
+(before/after `ExpiresOn`), revoke (single and double-revoke-throws), and rotation (valid rotation,
+unknown-token rejection, reuse-after-rotation rejection, revoke-all) — 8 tests, all against the real
+domain types via `InternalsVisibleTo`, not reflection or mocks.

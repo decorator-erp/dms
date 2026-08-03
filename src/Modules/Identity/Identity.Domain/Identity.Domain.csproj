@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!--
+      IdentityUser<TKey>/IdentityRole<TKey>/IdentityRoleClaim<TKey> live here, NOT in
+      Microsoft.AspNetCore.Identity.EntityFrameworkCore - this package depends only on logging/caching
+      abstractions (no EF Core, no ASP.NET web pipeline), which is what keeps arch rule 1 satisfiable
+      while still extending the ASP.NET Identity model types PLAN.md's G1-02 requires. See the
+      AllowedAspNetCoreNamespace comment on Architecture.Tests' Rule1And2Tests for the rule-2 side of
+      this.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Identity.Application" />
+    <InternalsVisibleTo Include="Identity.Infrastructure" />
+    <InternalsVisibleTo Include="Identity.UnitTests" />
+  </ItemGroup>
+
+</Project>
