@@ -54,3 +54,52 @@ constructing decorators directly, and the failure-path assertion is not vacuous 
 implementation deferred to G0-08. Verify done by inspection (`grep -i AspNetCore
 BuildingBlocks.csproj` → no match) since `Architecture.Tests` doesn't exist until G0-07 — this becomes
 a permanently code-enforced rule there (rule 8), not just a one-time check.
+
+**G0-05** — done — `src/BuildingBlocks/Events/{IIntegrationEvent,IIntegrationEventHandler,IEventBus,
+EventBus}`, `src/BuildingBlocks/Outbox/{OutboxMessage,InboxMessage,OutboxModelConfiguration,
+SharedDbContext,SharedDbContextFactory,DbContextOutboxExtensions,InboxDedupeDecorator,
+ModuleIntegrationEventRegistration,OutboxProcessor,OutboxServiceCollectionExtensions,Migrations/*}`.
+`tests/BuildingBlocks.IntegrationTests/` (new project, same reasoning as G0-03's UnitTests project —
+this task's verify block needs real transaction/commit boundaries, which the InMemory EF provider
+can't demonstrate, so Testcontainers.PostgreSql is used here ahead of G0-09's formal harness).
+
+**R1 (inbox atomicity) implemented as:** every module `DbContext` maps `OutboxMessage` *and*
+`InboxMessage` via `OutboxModelConfiguration.ConfigureOutbox(ownsMigration: false)`;
+`SharedDbContext` owns the migration for both (`ownsMigration: true`) and nothing else.
+`IOutboxWriter` is deliberately an **extension method on `DbContext`** (`db.Outbox().Enqueue(event)`),
+not a DI-registered service — a shared `IOutboxWriter` registration would collide across modules the
+same way a non-generic domain-event dispatcher would. `InboxDedupeDecorator<TContext,TEvent>` wraps
+each module's `IIntegrationEventHandler<T>` (registered via the new
+`AddModuleIntegrationEvents<TContext>`, using the same per-closed-type decoration technique as G0-03's
+`AddModuleCqrs`) and writes the dedupe row through the SAME `TContext` instance the handler uses, in
+ONE `SaveChangesAsync` call — the handler's own business write and the inbox marker can never commit
+separately. **Contract this relies on:** handlers stage changes but do not call their own
+`SaveChangesAsync`; the decorator's save is the one commit point. Documented on the decorator's XML
+doc, will need to be documented again wherever the first real handler is written (G2-04).
+
+**R2 (zero-handler events)** falls out of the design rather than needing special-casing: `EventBus`
+resolving zero handlers for an event type is a silent, successful no-op (not an error), so
+`OutboxProcessor` marks the message processed on the first pass regardless of handler count.
+
+**IEventBus vs IOutboxWriter, a distinction PLAN.md's text doesn't spell out:** `IOutboxWriter` is the
+*write* path (stage an event transactionally with an aggregate write); `IEventBus.PublishAsync` is the
+*delivery* path (resolve and invoke whatever's subscribed, right now) — `OutboxProcessor` is just:
+pop pending rows → deserialize → `IEventBus.PublishAsync` → mark processed or record failure. This
+split let the same delivery mechanism be called directly from tests (immediate) or from the poller
+(deferred) without duplicating the handler-resolution logic.
+
+**Honest limit of the "process killed before returning" test:** a real process kill can't be scripted
+in an automated test. The test instead proves the guarantee the design rests on directly — the
+handler's write and its inbox marker commit through one `SaveChangesAsync` call, so there is no window
+where one exists without the other — by invoking the decorated handler twice via `IEventBus` without
+ever advancing `outbox_messages.processed_utc` between the two calls (exactly what a real processor
+would do on retry after a crash at that boundary) and asserting the business effect happened once.
+This is mechanically the same assertion as the "publish twice" test; the two are kept as separate
+tests because they document the guarantee from different angles (black-box idempotency vs. the
+specific crash-recovery scenario R1 names), not because they exercise different code paths — flagged
+honestly rather than silently, per the checkpoint's question about non-vacuous tests.
+
+Generated migration classes (`InitialShared`, `SharedDbContextModelSnapshot`, and the equivalent for
+the test module) stay `public partial class` — **not** hand-edited to `internal`, per the plan's R3
+correction (arch rule 4 will exclude `Migration`/`ModelSnapshot` subclasses at G0-07, not the other
+way around).
