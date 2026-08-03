@@ -103,3 +103,27 @@ Generated migration classes (`InitialShared`, `SharedDbContextModelSnapshot`, an
 the test module) stay `public partial class` — **not** hand-edited to `internal`, per the plan's R3
 correction (arch rule 4 will exclude `Migration`/`ModelSnapshot` subclasses at G0-07, not the other
 way around).
+
+**G0-06** — done — `src/BuildingBlocks.Web/{IModule,IEndpoint,EndpointExtensions,ModuleDiscovery,
+ModuleDependencyOrder}` (new project, `Microsoft.AspNetCore.App` framework reference, references
+`BuildingBlocks` only) and `src/BuildingBlocks/IModulePermissions.cs` (stays in the ASP.NET-free
+project per the plan text, since it's a list of strings). `EndpointExtensions.MapModuleEndpoints`
+deliberately does **not** thread `IEndpoint` through DI's global `IEnumerable<IEndpoint>` the way the
+backend's version does — a shared collection populated by every module's own `Register` call would mix
+every module's endpoints together, making a module's own `MapEndpoints` unable to map only its own.
+Endpoint classes are stateless in the existing pattern (route delegates take `[FromServices]`
+parameters, not the endpoint class's own constructor), so `Activator.CreateInstance` per module
+assembly is enough — no DI container needed for this step.
+
+Migration order (S3) implemented as `ModuleDependencyOrder.SchemaOrder` — a static list, not an
+`Order`/`DependsOn` member on `IModule`, so PLAN.md's `IModule` shape is left exactly as written.
+Scoped to `["shared", "identity", "hr"]` (what this solution actually builds), not the full ten-module
+order in `docs/cross-schema-foreign-keys.md` — extend, never reorder past an existing dependency, when
+later modules are added.
+
+Verify (arch test: every `IModule` lives in `*.Infrastructure`; no `*.Application`/`*.Domain`
+references `BuildingBlocks.Web`) done by inspection again, same as G0-04 — vacuously true, no modules
+exist yet. Noted for G0-07: "every `IModule` implementation lives in `*.Infrastructure`" isn't fully
+implied by rule 8 alone (rule 8 only stops `*.Application`/`*.Domain`; nothing stops `Api` itself from
+implementing `IModule`, which would still violate this), so it needs its own arch test at G0-07, not
+just reuse of rule 8.
