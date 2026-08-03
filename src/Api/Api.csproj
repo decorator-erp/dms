@@ -23,6 +23,14 @@
       the assembly by name (Assembly.Load), not by referencing a type from it.
     -->
     <ProjectReference Include="..\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <!--
+      Identity.Application is never referenced by Identity.Infrastructure (that would be circular -
+      Application already depends on its own Infrastructure). Infrastructure's IdentityModule.Register
+      finds its handlers via Assembly.Load("Identity.Application") at runtime, which only succeeds if
+      that DLL is present in Api's output directory - hence this reference exists purely to get it
+      copied there, never to name a type from it.
+    -->
+    <ProjectReference Include="..\Modules\Identity\Identity.Application\Identity.Application.csproj" />
   </ItemGroup>
 
 </Project>

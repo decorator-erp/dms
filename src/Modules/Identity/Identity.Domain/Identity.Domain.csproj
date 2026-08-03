@@ -21,6 +21,7 @@
     <InternalsVisibleTo Include="Identity.Infrastructure" />
     <InternalsVisibleTo Include="Identity.UnitTests" />
     <InternalsVisibleTo Include="Identity.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Identity.Application.Tests" />
   </ItemGroup>
 
 </Project>

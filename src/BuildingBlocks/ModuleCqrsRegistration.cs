@@ -2,6 +2,7 @@ using System.Reflection;
 using BuildingBlocks.Behaviors;
 using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Messaging;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -52,6 +53,9 @@ public static class ModuleCqrsRegistration
                 .AsImplementedInterfaces()
                 .WithScopedLifetime()
             .AddClasses(classes => classes.AssignableTo(typeof(IDomainEventHandler<>)), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime()
+            .AddClasses(classes => classes.AssignableTo(typeof(IValidator<>)), publicOnly: false)
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
 

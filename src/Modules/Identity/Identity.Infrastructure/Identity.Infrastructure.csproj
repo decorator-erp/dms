@@ -19,7 +19,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Identity.Application needs this grant despite never being referenced BY Identity.Infrastructure
+      (see Identity.Application.csproj's comment on the reverse reference) - it uses IJwtProvider,
+      IdentityModuleDbContext and JwtOptions directly, all internal.
+    -->
+    <InternalsVisibleTo Include="Identity.Application" />
     <InternalsVisibleTo Include="Identity.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Identity.Application.Tests" />
   </ItemGroup>
 
 </Project>

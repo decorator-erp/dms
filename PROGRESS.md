@@ -516,3 +516,67 @@ role does; an expired grant does not apply; an unknown user resolves empty) plus
 proving the token reflects `EffectivePermissionService`'s resolution and not just raw role claims — and
 round-trips through `ValidateToken` to the same user id). All against a real migrated Postgres via
 Testcontainers, real `UserManager`/`RoleManager`.
+
+**G1-05** — done — `src/Modules/Identity/Identity.Application/` (`DTOs/AuthResponse`,
+`Features/Auths/{Register,Login,RefreshToken,RevokeToken,ChangePassword}`), each a
+request record + command + `AbstractValidator` + handler, matching the shape PLAN.md's other feature
+tasks use. `tests/Modules/Identity.Application.Tests/` (`IdentityApplicationFixture`, `AuthFlowTests`).
+
+**Real gap found and fixed before this task could work at all:** `AddModuleCqrs<TContext>` (G0-03) never
+scanned for or registered `IValidator<T>` implementations — only command/query/domain-event handlers.
+`ValidationDecorator.CommandHandler<TCommand[,TResponse]>` depends on `IEnumerable<IValidator<TCommand>>`
+being resolvable from DI; since that's an `IEnumerable`, an unresolved validator doesn't throw, it just
+silently resolves to an empty list — every validator written for this task would have compiled, been
+registered as unused, and never once run. Fixed by adding one more `.AddClasses(...)` branch to the same
+`Scan(...)` call already scanning handlers, using the identical per-assembly, non-public-allowed pattern.
+Verified non-vacuous by temporarily deleting that branch and confirming `RegisterCommandValidator`'s
+`MinimumLength(8)` rule stopped firing (a two-character password stopped being rejected), then restoring
+it.
+
+**Two csproj wiring problems, both consequences of "Application references its own Infrastructure"
+(G1-04) not being symmetric:**
+- `Identity.Infrastructure.csproj` had no `InternalsVisibleTo` grant for `Identity.Application` — only
+  for the two test assemblies. `Identity.Application` uses `IJwtProvider`, `IdentityModuleDbContext` and
+  `JwtOptions`, all `internal`, and referencing a project doesn't imply `InternalsVisibleTo`. Added the
+  grant, with a comment pointing at why it's needed despite the reference running the other direction.
+- `Api.csproj` referenced every module's `*.Infrastructure` project (so `Assembly.Load("<Module>.Infrastructure")`
+  in `Program.cs` finds the DLL) but nothing referenced `Identity.Application` itself, so its DLL was
+  never copied into `Api`'s output directory — `IdentityModule.Register()`'s new
+  `Assembly.Load("Identity.Application")` call (feeding `AddModuleCqrs`) would have thrown
+  `FileNotFoundException` at Api startup despite the solution building cleanly, since Architecture.Tests
+  and the new test project both reference `Identity.Application` directly and would never surface a
+  missing-at-runtime-only DLL. Added a direct `Api` → `Identity.Application` `ProjectReference`, whose
+  only purpose is to get the DLL onto disk next to `Identity.Infrastructure.dll` — `Identity.Infrastructure`
+  itself still never references `Identity.Application` (that would be the circular reference G1-04
+  already ruled out), so this isn't a backdoor around that rule, just a deployment-layout fix.
+
+**`ChangePasswordCommand` has no backend counterpart** — the closest is `ResetPassword`, a
+token-based "I forgot my password" flow. `ChangePassword` (`UserManager.ChangePasswordAsync`, requires
+the current password) is written fresh, since the plan lists it as one of the five features without
+qualification.
+
+**No separate `ToResponse()` extension methods were added.** PLAN.md's task text says "response
+records + `ToResponse()` extensions", which reads as a description of this repo's general feature
+shape rather than a per-feature requirement — the backend's own `AuthService` has no such mapping step
+for any of these five operations (it constructs its response DTOs inline, same as here), so there was no
+existing mapping logic to extract into an extension method. Each handler constructs its `AuthResponse`
+directly from values it already computed; introducing a `ToResponse()` indirection over a
+three-property record with no alternate source shape would be an abstraction with nothing to abstract.
+
+**Testing approach, and why it isn't HTTP-level:** G1-07 (endpoints) doesn't exist yet, so there is no
+`/api/auth/login` route to call. `IdentityApplicationFixture` instead builds the exact DI graph
+`IdentityModule.Register()` builds — including `AddModuleCqrs<IdentityModuleDbContext>` over the real
+`Identity.Application` assembly, so handlers resolve wrapped in their real Validation → Logging →
+DomainEventDispatch chain rather than being new'd up directly — against a Testcontainers Postgres, and
+resolves `ICommandHandler<TCommand[,TResponse]>` from DI to invoke each feature. `SharedDbContext` is
+migrated first (in addition to `IdentityModuleDbContext`), since `RegisterCommandHandler` stages a row
+in `shared.outbox_messages` in the same `SaveChangesAsync` as the new user — without that migration the
+whole `Register` path would throw on the first call, not just the outbox assertion.
+
+**Verify:** `Identity.Application.Tests` — 4 tests. `Login_then_refresh_then_revoke_succeeds_and_revoked_token_is_rejected`
+covers the full cycle plus two reuse-rejection cases (replaying the token `RefreshToken` just rotated
+away, and replaying the token `RevokeToken` just revoked) in one flow, per the task's verify block.
+`Register_with_duplicate_email_is_rejected`, `Login_with_wrong_password_is_rejected`, and
+`ChangePassword_then_login_with_old_password_is_rejected_and_new_password_succeeds` cover the remaining
+three commands. All resolve real handlers through DI against a migrated Testcontainers Postgres, no
+handler is ever constructed directly with `new`.

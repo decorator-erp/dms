@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
+    <ProjectReference Include="..\Identity.Domain\Identity.Domain.csproj" />
+    <!--
+      Own Infrastructure, not listed in PLAN.md's reference-matrix table for *.Application - see the
+      G1-04 PROGRESS.md entry. "Handlers use their module's DbContext directly" (non-negotiable) and
+      arch rule 6's own wording ("outside its own module") both presuppose this is allowed; the matrix
+      table is a summary of the cross-module isolation rules the arch tests enforce, not an exhaustive
+      intra-module dependency graph.
+    -->
+    <ProjectReference Include="..\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Identity.Infrastructure does NOT need a grant here: it discovers this assembly's command
+      handlers via Assembly.Load + Scrutor reflection (see ModuleCqrsRegistration), which needs no
+      compile-time InternalsVisibleTo - only test code that directly names these internal command
+      types needs the grant.
+    -->
+    <InternalsVisibleTo Include="Identity.Application.Tests" />
+  </ItemGroup>
+
+</Project>

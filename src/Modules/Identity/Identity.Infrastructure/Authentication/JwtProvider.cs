@@ -47,7 +47,7 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
         return (new JwtSecurityTokenHandler().WriteToken(token), _options.ExpiryMinutes);
     }
 
-    public string? ValidateToken(string token)
+    public string? ValidateToken(string token, bool validateLifetime = true)
     {
         // MapInboundClaims defaults to true, which silently renames the "sub" claim to
         // ClaimTypes.NameIdentifier during validation - discovered by running this, not by
@@ -62,7 +62,7 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
             ValidAudience = _options.Audience,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key)),
-            ValidateLifetime = true,
+            ValidateLifetime = validateLifetime,
             ClockSkew = TimeSpan.Zero,
         };
 

@@ -1,3 +1,4 @@
+using System.Reflection;
 using BuildingBlocks;
 using BuildingBlocks.Web;
 using Identity.Contracts;
@@ -47,6 +48,8 @@ internal sealed class IdentityModule : IModule
                 IdentityPermissions.RolesManage,
                 IdentityPermissions.PermissionsManage,
             ]));
+
+        services.AddModuleCqrs<IdentityModuleDbContext>(Assembly.Load("Identity.Application"));
 
         return services;
     }
