@@ -127,3 +127,44 @@ exist yet. Noted for G0-07: "every `IModule` implementation lives in `*.Infrastr
 implied by rule 8 alone (rule 8 only stops `*.Application`/`*.Domain`; nothing stops `Api` itself from
 implementing `IModule`, which would still violate this), so it needs its own arch test at G0-07, not
 just reuse of rule 8.
+
+**G0-07** — done — `tests/Architecture.Tests/` (NetArchTest.Rules 1.3.2): `ModuleAssemblies` (scans
+this test project's own bin output for `*.Domain`/`*.Application`/`*.Infrastructure`/`*.Contracts`
+DLLs — project references, not `AppDomain.GetAssemblies()`, since a referenced assembly is guaranteed
+to be copied to the output whereas relying on what's already loaded depends on something having
+touched it first), `SolutionRoot` (walks up from the test's own output dir to find
+`DMS.Modular.slnx`, for the two rules that read a `.csproj` directly), then one test file per rule
+(1–8) plus `ModuleContractTests` for the "every `IModule` lives in `*.Infrastructure`" corollary noted
+at G0-06. Rule 9 is **not implemented yet** — it needs the Testcontainers fixture, per the plan's own
+text; deferred to G0-09.
+
+**Vacuity table — which rule becomes live at which task:**
+
+| Rule | Live today? | Becomes non-vacuous at |
+|---|---|---|
+| 1 (`*.Domain` ⇏ EF Core) | No | G1-02 (`Identity.Domain`) |
+| 2 (`*.Application`/`*.Domain` ⇏ ASP.NET) | No | G1-02 / G1-05 |
+| 3 (no cross-module layer reference) | No | needs **two** modules with a layer each — G2-02 (once `Hr.Domain` exists alongside `Identity.Domain`) |
+| 3b (no cross-module `InternalsVisibleTo`) — my addition, D1 | No | same as rule 3 |
+| 4 (only Contracts public, excl. migrations) | No | G1-02, the first `*.Domain`/`*.Application`/`*.Infrastructure` assembly |
+| 5 (integration event payload shape) | No | G1-01 (`UserRegisteredIntegrationEvent`, `UserDeactivatedIntegrationEvent`) |
+| 6 (no cross-module `DbContext` reference) | No | needs **two** module contexts — G2-03 (`HrDbContext` alongside `IdentityModuleDbContext`) |
+| 7 (`SharedKernel` zero project refs) | **Yes** | live since G0-02 |
+| 8a (`*.Application`/`*.Domain` ⇏ `BuildingBlocks.Web`) | No | G1-02 / G1-05 |
+| 8b (`BuildingBlocks` ⇏ ASP.NET) | **Yes** | live since G0-04 |
+| 9 (cross-schema FK direction) | Not implemented | G2-03 (first FK), implementation itself lands at G0-09 |
+| `ModuleContractTests` (IModule ⊂ Infrastructure) | No | G1-03 (`IdentityModule`) |
+
+**Non-vacuity double-checked, not assumed:** temporarily pointed rule 7's and rule 8b's file-reading
+checks at a csproj known to violate them (`BuildingBlocks.csproj` for rule 7 — it has a real
+`ProjectReference`; `BuildingBlocks.Web.csproj` for rule 8b — it has the real `FrameworkReference`)
+and confirmed both **fail** with the expected message, then reverted. A third check — literally adding
+a `ProjectReference` to `SharedKernel.csproj` itself — hit a circular-reference restore error instead
+(`BuildingBlocks` already references `SharedKernel`), which is itself a form of confirmation: the
+architecture genuinely prevents that specific violation at the build-graph level, before the arch test
+even gets to run.
+
+**Rules 1–6, 8a, 9 and `ModuleContractTests` scan an empty assembly set today and were not
+fault-injected** the same way — there is no module assembly yet to construct a violating example from.
+Each will get the same non-vacuity check the first time a real module assembly makes it possible (the
+"becomes non-vacuous at" column above), rather than being trusted on code-reading alone.
