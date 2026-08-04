@@ -16,21 +16,42 @@ namespace BuildingBlocks.Behaviors;
 /// this per closed (TCommand, TResponse) service type rather than via Scrutor's open-generic Decorate,
 /// which would rewrap every other module's already-decorated handlers with the wrong module's
 /// dispatcher the moment a second module registers.
+///
+/// <para>
+/// Wraps the inner handler call AND the dispatch loop in one explicit transaction — the command-path
+/// counterpart to <c>InboxDedupeDecorator</c>'s own F1 fix (Phase 2, decision #10). Flagged as a deferred
+/// TODO at G5-02 (no cascade existed yet to prove it against) and fixed here at G5-08, whose own
+/// gate-cascade verify ("a 3-level gate cascade resolves in one command's transaction") depends on it.
+/// Without the wrap, the inner handler's own <c>SaveChangesAsync</c> and <see cref="DomainEventDispatcher{TContext}.DispatchAsync"/>'s
+/// internal per-iteration saves (up to 10) are separate commits — a crash between any two of them leaves
+/// the direct write committed with its cascade unresolved. Harmless for every command with no cascade:
+/// one extra `BEGIN`/`COMMIT` around what was already a single atomic save.
+/// </para>
 /// </summary>
 internal static class DomainEventDispatchDecorator<TContext> where TContext : DbContext
 {
     internal sealed class CommandHandler<TCommand, TResponse>(
         ICommandHandler<TCommand, TResponse> innerHandler,
-        DomainEventDispatcher<TContext> dispatcher)
+        DomainEventDispatcher<TContext> dispatcher,
+        TContext dbContext)
         : ICommandHandler<TCommand, TResponse>
         where TCommand : ICommand<TResponse>
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+
             Result<TResponse> result = await innerHandler.HandleAsync(command, ct);
 
             if (result.IsSuccess)
+            {
                 await dispatcher.DispatchAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            else
+            {
+                await transaction.RollbackAsync(ct);
+            }
 
             return result;
         }
@@ -38,16 +59,26 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
 
     internal sealed class CommandHandler<TCommand>(
         ICommandHandler<TCommand> innerHandler,
-        DomainEventDispatcher<TContext> dispatcher)
+        DomainEventDispatcher<TContext> dispatcher,
+        TContext dbContext)
         : ICommandHandler<TCommand>
         where TCommand : ICommand
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+
             Result result = await innerHandler.HandleAsync(command, ct);
 
             if (result.IsSuccess)
+            {
                 await dispatcher.DispatchAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            else
+            {
+                await transaction.RollbackAsync(ct);
+            }
 
             return result;
         }

@@ -25,6 +25,13 @@ internal static class StageErrors
         "stages.InvalidStatusTransition", "That stage status transition is not allowed.");
 
     public static readonly Error NegativeCost = Error.BadRequest("stages.NegativeCost", "Cost cannot be negative.");
+
+    /// <summary>A <see cref="GateTrigger.Complete"/> gate on this stage is still <see cref="GateStatus.Pending"/>
+    /// — checked by <c>CompleteProjectStageCommandHandler</c> before <c>ProjectStage.Complete</c> runs at
+    /// all (G5-08's own facts table: "Complete gates block the owner's completion transition until
+    /// satisfied").</summary>
+    public static readonly Error GatesNotSatisfied = Error.Conflict(
+        "stages.GatesNotSatisfied", "This stage has unsatisfied gate conditions that must be resolved before it can be completed.");
 }
 
 internal static class TaskErrors
@@ -44,6 +51,11 @@ internal static class TaskErrors
         "tasks.SubTasksIncomplete", "All required sub-tasks must be done before completing this task.");
 
     public static readonly Error NegativeCost = Error.BadRequest("tasks.NegativeCost", "Cost cannot be negative.");
+
+    /// <summary>Same as <see cref="StageErrors.GatesNotSatisfied"/>, for a task-owned
+    /// <see cref="GateTrigger.Complete"/> gate.</summary>
+    public static readonly Error GatesNotSatisfied = Error.Conflict(
+        "tasks.GatesNotSatisfied", "This task has unsatisfied gate conditions that must be resolved before it can be completed.");
 }
 
 internal static class SubTaskErrors

@@ -30,6 +30,11 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
         if (employeeId is null)
             return Domain.ProjectErrors.AccessDenied;
 
+        var hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
+            g => g.ProjectStageId == stage.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
+        if (hasUnsatisfiedGates)
+            return Domain.StageErrors.GatesNotSatisfied;
+
         var result = stage.Complete(employeeId.Value);
         if (result.IsFailure)
             return result;

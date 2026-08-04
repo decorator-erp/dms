@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,23 @@ internal sealed class ProjectsModule : IModule
         // holds their handlers) - scanning applicationAssembly here found zero matches and silently
         // skipped every Decorate call, caught by ProjectFlowTests' scope-decorator test.
         services.AddProjectScopeDecorator(typeof(IProjectScoped).Assembly);
+
+        // The four IGateConditionTypeHandler implementations (ManualCheck/StageReference/TaskReference/
+        // Approval, G5-08) live in Projects.Application as `internal` classes - Projects.Infrastructure
+        // has no InternalsVisibleTo grant from Projects.Application (only Projects.Application.Tests
+        // does), so they can't be named directly here. Scrutor's reflection-based Scan needs only the
+        // PUBLIC interface type, same technique ModuleCqrsRegistration/ModuleIntegrationEventRegistration
+        // already use for handler discovery.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
+
+        // ApprovalDecidedIntegrationEventHandler lives in THIS assembly (Infrastructure), not
+        // Application - it calls out to Hr.Contracts.IHrDirectory to resolve the deciding employee,
+        // same "Infrastructure owns handlers that call another module's contract" reasoning HrModule's
+        // own EmployeeDeactivatedIntegrationEventHandler documents.
+        services.AddModuleIntegrationEvents<ProjectsDbContext>(typeof(ProjectsModule).Assembly);
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

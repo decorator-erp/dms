@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,7 +19,13 @@ public class DomainEventDispatchPipelineTests
         var services = new ServiceCollection();
         services.AddSingleton(tracker);
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-        services.AddDbContext<TestDbContext>(o => o.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+        services.AddDbContext<TestDbContext>(o => o
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            // G5-08's command-path transaction fix (DomainEventDispatchDecorator) always opens an
+            // explicit transaction; the InMemory provider has no real transactions and would otherwise
+            // escalate that to an error. This test only cares whether the event dispatches after
+            // success/not after failure, not about transactional isolation, so the no-op is fine here.
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
         services.AddModuleCqrs<TestDbContext>(typeof(DomainEventDispatchPipelineTests).Assembly);
         return services.BuildServiceProvider();
     }

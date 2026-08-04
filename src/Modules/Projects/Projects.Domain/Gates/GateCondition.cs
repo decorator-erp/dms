@@ -76,7 +76,14 @@ internal sealed class GateCondition : Entity, IAuditable
         Trigger = trigger;
     }
 
-    public Result MarkSatisfied(Guid satisfiedById, string? note = null)
+    /// <summary><paramref name="satisfiedById"/> is nullable: a manual
+    /// <c>SatisfyGateConditionCommand</c> always has a real employee behind it, but a CASCADE
+    /// satisfaction (a stage/task completion whose own <c>CompletedById</c>/<c>AssignedToId</c> is
+    /// unresolvable - e.g. an unassigned free-style task) has no one to attribute it to.
+    /// <see cref="ResolvedById"/> carries a raw-SQL FK to <c>hr.employees</c> (G5-04's migration) with no
+    /// "unknown employee" sentinel row, so passing a fabricated Guid here would violate that constraint
+    /// rather than degrade gracefully - <c>null</c> is the only value that's always valid.</summary>
+    public Result MarkSatisfied(Guid? satisfiedById, string? note = null)
     {
         if (Status == GateStatus.Satisfied)
             return Result.Success();
@@ -89,7 +96,7 @@ internal sealed class GateCondition : Entity, IAuditable
         return Result.Success();
     }
 
-    public Result MarkRejected(Guid rejectedById, string? note = null)
+    public Result MarkRejected(Guid? rejectedById, string? note = null)
     {
         Status = GateStatus.Rejected;
         ResolvedById = rejectedById;

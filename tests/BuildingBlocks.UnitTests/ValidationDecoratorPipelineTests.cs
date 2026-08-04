@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,7 +24,11 @@ public class ValidationDecoratorPipelineTests
         var services = new ServiceCollection();
         services.AddSingleton(tracker);
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-        services.AddDbContext<TestDbContext>(o => o.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+        services.AddDbContext<TestDbContext>(o => o
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            // See DomainEventDispatchPipelineTests' own remarks on this (G5-08's command-path
+            // transaction fix vs. the InMemory provider's lack of real transaction support).
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
         services.AddScoped<IValidator<ValidatedCommand>, ValidatedCommandValidator>();
         services.AddModuleCqrs<TestDbContext>(typeof(ValidationDecoratorPipelineTests).Assembly);
 

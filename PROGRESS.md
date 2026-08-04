@@ -1892,3 +1892,81 @@ bypass), asserting the outbox rows for each transition by type name (never deliv
 until G5-08). Scope decorator: outsider → `projects.NotFound`, added team member → success, both via the
 real `GetProjectQuery` handler resolved through DI. `dotnet build -warnaserror` / `dotnet test`
 (174/174 — 2 new) / `dotnet format --verify-no-changes` all clean.
+
+**G5-08** — done — `src/Modules/Projects/Projects.Application/Features/Gates/{GateConditionTypeHandlers,
+GateConditionHandlers,GateResolutionHandlers}.cs`; `Projects.Domain/Gates/GateCondition.cs`
+(`MarkSatisfied`/`MarkRejected` now take `Guid?`, not `Guid` — see below); `Projects.Domain/Errors/
+Errors.cs` gains `StageErrors.GatesNotSatisfied`/`TaskErrors.GatesNotSatisfied`;
+`Projects.Application/Features/{Stages/ProjectStageHandlers,Tasks/ProjectTaskHandlers}.cs`'s Complete
+handlers (G5-07) gain a pending-Complete-trigger-gate check; `Projects.Infrastructure/IntegrationEvents/
+ApprovalDecidedIntegrationEventHandler.cs` (new); `ProjectsModule.cs` gains the `IGateConditionTypeHandler`
+Scrutor scan and `AddModuleIntegrationEvents<ProjectsDbContext>`. `BuildingBlocks/Behaviors/
+DomainEventDispatchDecorator.cs` — the command-path atomicity fix (below). `tests/
+BuildingBlocks.IntegrationTests/{Fixtures,CommandPathCascadeTests}.cs` (2 new tests);
+`tests/BuildingBlocks.UnitTests/{DomainEventDispatchPipelineTests,ValidationDecoratorPipelineTests}.cs`
+(InMemory-provider fix, below); `tests/Modules/Projects.Application.Tests/GateFlowTests.cs` (new, 3
+tests).
+
+**The command-path atomicity gap deferred at G5-02 is fixed here, exactly as flagged.**
+`DomainEventDispatchDecorator<TContext>` called the inner command handler (which does its own
+`SaveChangesAsync`) and THEN called `DomainEventDispatcher.DispatchAsync` (its own per-iteration saves,
+up to 10) as separate commits — a crash between them left the direct write committed with its cascade
+unresolved. Fixed the same shape as F1 (`InboxDedupeDecorator`'s own fix, G4-04): wrap the whole
+handler-call-plus-dispatch sequence in one explicit `BeginTransactionAsync`/`CommitAsync`. **Non-vacuous
+by construction, not by inspection**: `CommandPathCascadeTests.cs` (new, mirrors `DomainEventCascadeTests`'s
+own two fixtures/tests but drives a COMMAND through the real `AddModuleCqrs<TContext>` pipeline instead
+of an integration event) proves both directions — a two-level cascade commits together, and the same
+fault-injection discipline as F1 (temporarily revert the transaction wrap in source, confirm the entity
+survives a mid-chain failure that should have rolled it back, then restore and reconfirm) was run for
+real before this task proceeded. This shared `BuildingBlocks` change affects all four modules'
+command-path pipelines, not just Projects' — confirmed safe (no regressions across the full suite) since
+wrapping an already-atomic single save in an explicit transaction is a no-op for every existing command
+with no cascade.
+
+**Side effect of the transaction fix, not part of the plan: two EF Core InMemory-provider unit tests
+broke and were fixed.** `DomainEventDispatchPipelineTests`/`ValidationDecoratorPipelineTests`
+(`BuildingBlocks.UnitTests`) use `UseInMemoryDatabase` for speed — the InMemory provider has no real
+transactions, and by default escalates `TransactionIgnoredWarning` to a thrown exception rather than a
+silent no-op. Fixed with `ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))`
+on both DbContext registrations — correct for these specific tests (they only assert whether an event
+dispatched, never anything transactional), not a blanket suppression.
+
+**Cross-module contract extension not specified by the plan: none this task** — `IApprovalRequester`/
+`IHrDirectory` already carried everything G5-08 needed (`GetDepartmentHeadsAsync` landed at G5-07).
+
+**The four `IGateConditionTypeHandler` implementations live in `Projects.Application` as `internal`
+classes, but `ProjectsModule.Register` (Infrastructure) has no `InternalsVisibleTo` grant to name them
+directly** (only `Projects.Application.Tests` does) — registered via Scrutor's reflection-based `Scan`
+against the PUBLIC `IGateConditionTypeHandler` interface instead, the same technique
+`ModuleCqrsRegistration`/`ModuleIntegrationEventRegistration` already use for handler discovery.
+
+**`GateConditionSatisfiedDomainEventHandler` is ONE domain-event handler reacting to
+`GateConditionSatisfiedDomainEvent`, not three separate "unlock + enqueue integration event" blocks
+duplicated at each call site (manual `SatisfyGateConditionCommand`, the stage/task-completion cascade,
+`ApprovalDecidedIntegrationEventHandler`)** — a deliberate simplification from the plan's own text ("the
+triggering handler also directly enqueues... in its own SaveChangesAsync"), enabled by the fact that
+`GateCondition` already raises this exact domain event for exactly this purpose, and this task's own
+command-path transaction fix (plus F1) is what makes staging the integration event inside a domain-event
+handler, rather than at the original call site, safe and atomic either way.
+
+**Real bug found and fixed while writing this task's own gate-cascade test, not by inspection:**
+`GateCondition.MarkSatisfied`/`MarkRejected` originally took a non-nullable `Guid resolvedById`. The
+cascade handlers (`StageCompletedGateResolutionHandler`/`TaskCompletedGateResolutionHandler`) fell back
+to `Guid.Empty` when the triggering stage/task's own `CompletedById`/`AssignedToId` was unresolvable
+(e.g. an unassigned task) — `GateCondition.ResolvedById` carries a raw-SQL FK to `hr.employees`
+(G5-04's migration) with no "unknown employee" sentinel row, so `Guid.Empty` violated the constraint on
+the very first test that exercised an unassigned task's completion cascading to a gate
+(`fk_gate_conditions_resolved_by`). Fixed by making `MarkSatisfied`/`MarkRejected` take `Guid?` and
+passing the unresolved value straight through as `null` — the only value that's always valid — rather
+than fabricating one.
+
+**Verify:** a real two-level gate cascade (complete Task A → its Task-type gate on Task B satisfies →
+Task B unlocks) resolves inside `CompleteProjectTaskCommand`'s own single call, proven through the real
+command handler (not a direct call to the cascade logic). The full approval-gate flow: create an
+Approval-type gate → `IApprovalRequester.RequestAsync` called, `ApprovalId` linked, gate `Pending` → the
+project owner (the resolved eligible approver, decision #1) decides via the real `DecideApprovalCommand`
+handler → delivered through the REAL path (`OutboxProcessor.ProcessPendingAsync`, not a direct in-process
+call) → gate `Satisfied`, dependent task unlocked. A `DesignBrief`-subject `ApprovalDecidedIntegrationEvent`
+reusing a REAL gate's own id as its subject id does NOT touch that gate (proves the `SubjectType` filter
+itself, not merely "no gate matched"). `dotnet build -warnaserror` / `dotnet test` (179/179 — 5 new) /
+`dotnet format --verify-no-changes` all clean.

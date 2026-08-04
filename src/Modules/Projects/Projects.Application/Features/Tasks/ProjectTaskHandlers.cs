@@ -65,6 +65,9 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
     }
 }
 
+/// <summary>Per G5-08's facts table: a <c>GateTrigger.Complete</c> gate blocks the owner's completion
+/// transition until satisfied - checked here, before <see cref="Domain.ProjectTask.Complete"/> even
+/// runs, so an unsatisfied gate never lets the task-level state machine transition at all.</summary>
 internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : ICommandHandler<CompleteProjectTaskCommand>
 {
     public async Task<Result> HandleAsync(CompleteProjectTaskCommand command, CancellationToken ct = default)
@@ -73,6 +76,11 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
             return Domain.TaskErrors.NotFound;
+
+        var hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
+            g => g.ProjectTaskId == task.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
+        if (hasUnsatisfiedGates)
+            return Domain.TaskErrors.GatesNotSatisfied;
 
         var result = task.Complete();
         if (result.IsFailure)

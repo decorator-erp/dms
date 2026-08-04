@@ -1,4 +1,5 @@
 using BuildingBlocks.Events;
+using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -129,6 +130,29 @@ public sealed class Level2DomainEventHandler(TestModuleDbContext db, CallCounter
 
         db.SideEffects.Add(new TestSideEffect(domainEvent.EntityId, nameof(Level2DomainEventHandler)));
         return Task.CompletedTask;
+    }
+}
+
+// --- Command-path cascade fixtures (G5-08's fix to DomainEventDispatchDecorator<TContext> — the
+// command-path counterpart to F1). Reuses CascadingEntity/Level1DomainEvent/Level2DomainEvent and both
+// their handlers above; only the trigger differs (a command, not an integration event). ---
+
+public sealed record TriggerCascadeCommand(Guid EntityId) : ICommand;
+
+/// <summary>Stages the entity write that raises the first domain event and calls its OWN
+/// <c>SaveChangesAsync</c> — unlike <see cref="CascadeIntegrationEventHandler"/>, a real command handler
+/// commits its own write directly (see e.g. <c>CompleteProjectStageCommandHandler</c>); the cascade that
+/// follows is a SEPARATE commit unless <c>DomainEventDispatchDecorator</c> wraps both in one
+/// transaction, which is exactly what this fixture proves.</summary>
+public sealed class TriggerCascadeCommandHandler(TestModuleDbContext db) : ICommandHandler<TriggerCascadeCommand>
+{
+    public async Task<Result> HandleAsync(TriggerCascadeCommand command, CancellationToken ct = default)
+    {
+        var entity = new CascadingEntity(command.EntityId);
+        entity.RaiseLevel1();
+        db.CascadingEntities.Add(entity);
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
     }
 }
 
