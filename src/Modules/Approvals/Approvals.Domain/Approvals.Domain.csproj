@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Approvals.Application" />
+    <InternalsVisibleTo Include="Approvals.Infrastructure" />
+    <InternalsVisibleTo Include="Approvals.UnitTests" />
+    <InternalsVisibleTo Include="Approvals.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Approvals.Application.Tests" />
+  </ItemGroup>
+
+</Project>

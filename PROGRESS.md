@@ -1408,3 +1408,42 @@ without any other change, confirming `MetaSelfEnforcementTests`' fail-closed des
 a brand-new module, not just HR/Identity); `dotnet format --verify-no-changes` clean. Rule 5 scans the
 two new integration events non-vacuously (`ApprovalSubjectType`/`ApprovalDecision` enums, `Guid`,
 `string`, `DateTimeOffset?` — no violation).
+
+**G4-02** — done — `src/Modules/Approvals/Approvals.Domain/{Enums,Approval,ApproverEntry}.cs`,
+`Errors/ApprovalErrors.cs`, `Events/ApprovalDecidedDomainEvent.cs`, `tests/Modules/Approvals.UnitTests/
+ApprovalTests.cs`. `Approval` collapses the backend's five nullable per-subject-type FK columns (exactly
+one non-null, DB-enforced) into one `SubjectType`+`SubjectId` pair — Approvals never navigates to the
+subject, so there is nothing for a per-type FK to reference. `Approvers`/`Decide`/`IsEligibleApprover`
+implement decision #1's redesign (set of eligible deciders, first valid decision wins) and decision #2's
+`isOverride` bypass (the caller — `Approvals.Application` at G4-04 — passes `isOverride` after checking
+`ICurrentUser.HasPermission(ApprovalsPermissions.DecideAny)`; the entity has no `ICurrentUser` access of
+its own). `ApprovalErrors.OpenApprovalExists` is ported but not enforced here — it's a DB existence check
+across other rows, which `Approval.Create` (a pure factory) can't perform; `Approvals.Application` checks
+it before calling `Create` (G4-04). `State` is computed from `Decision` per decision #3's mapping
+(`ChangesRequested` → `PendingApproval`, non-terminal). No `*DomainService` class was written — decision
+logic lives on the entity itself (`Decide`), per `docs/adding-a-module.md`'s naming-trap warning.
+
+**First real domain event in the codebase.** `ApprovalDecidedDomainEvent` is the first production
+`IDomainEvent` anywhere in `src/` — `DomainEventDispatcher`/`DomainEventDispatchDecorator` (G0-03) have
+only ever run against `BuildingBlocks.UnitTests`' synthetic `TestDomainEvent` until now. Raised
+unconditionally by `Decide` on every decision (Approved/Rejected/ChangesRequested alike), matching the
+backend's own `ApprovalDomainService.DecideAsync` (enqueues its domain event unconditionally, branches
+per subject/decision afterward) — the branching (does this decision affect a gate?) belongs to whichever
+module's domain-event/integration-event handler reacts to it, not to `Approval` itself.
+
+**Enum mirroring, forced by the reference matrix, not by choice:** `Approvals.Domain` defines its own
+`ApprovalSubjectType`/`ApprovalState`/`ApprovalType`/`ApprovalDecision`/`ApproverKind` (all `internal`,
+rule 4), structurally identical to `Approvals.Contracts`' same-named `public` enums but a distinct C#
+type — Domain cannot reference Contracts (Domain → SharedKernel only) and Contracts cannot reference
+Domain either (Contracts → SharedKernel + BuildingBlocks only), so neither side can share the other's
+type. `Approvals.Application` (G4-04) maps between them at the boundary — the enum-to-enum generalization
+of the same constraint HR's G2-01 solved with `ContractType`-as-string (recorded at G4-01, confirmed here
+now that both sides actually exist and compile independently).
+
+**Verify:** no EF Core reference (`Approvals.Domain.csproj` — only `SharedKernel`); 8 unit tests —
+create, approve by an eligible approver, reject requires a comment, `ChangesRequested` requires a comment
+and maps to a non-terminal state, decide by a non-approver without override is rejected
+(`NotAssignedApprover`), decide by a non-approver WITH `isOverride: true` succeeds, decide twice rejects
+the second call (`AlreadyDecided`, first decision untouched), and `Decide` raises exactly one
+`ApprovalDecidedDomainEvent` carrying the right decision/decider. `dotnet build -warnaserror` /
+`dotnet test` (87/87 — 8 new) / `dotnet format --verify-no-changes` all clean.

@@ -8,6 +8,7 @@
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Approvals/">
     <Project Path="src/Modules/Approvals/Approvals.Contracts/Approvals.Contracts.csproj" />
+    <Project Path="src/Modules/Approvals/Approvals.Domain/Approvals.Domain.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />
@@ -28,6 +29,7 @@
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/Modules/">
+    <Project Path="tests/Modules/Approvals.UnitTests/Approvals.UnitTests.csproj" />
     <Project Path="tests/Modules/Hr.Application.Tests/Hr.Application.Tests.csproj" />
     <Project Path="tests/Modules/Hr.Infrastructure.Tests/Hr.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Hr.UnitTests/Hr.UnitTests.csproj" />
