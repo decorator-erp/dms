@@ -1,0 +1,108 @@
+using SharedKernel;
+
+namespace Projects.Domain;
+
+/// <summary>Ported from <c>../backend/Domain/Entities/ProjectStage.cs</c>. <see cref="StageId"/> links
+/// back to the template <c>Stage</c> it was materialized from (nullable — a stage can be added directly,
+/// per the backend). <see cref="Lock"/>/<see cref="Unlock"/> are new relative to the backend's own factory
+/// defaults: an <c>Unlock</c>-trigger <c>GateCondition</c> created against this stage (G5-08) calls
+/// <see cref="Lock"/> at creation time — instantiation itself never locks a stage (decision #7).</summary>
+internal sealed class ProjectStage : Entity, IAuditable
+{
+    public Guid ProjectId { get; private set; }
+    public Guid? StageId { get; private set; }
+    public string Name { get; private set; } = string.Empty;
+    public string? Description { get; private set; }
+    public int Order { get; private set; }
+    public StageStatus Status { get; private set; }
+    public decimal ProgressPercent { get; private set; }
+    public int CompletedTasks { get; private set; }
+    public int TotalTasks { get; private set; }
+    public decimal? Cost { get; private set; }
+    public DateTime? EstimatedStartDate { get; private set; }
+    public DateTime? EstimatedEndDate { get; private set; }
+    public DateTime? ActualStartDate { get; private set; }
+    public DateTime? ActualEndDate { get; private set; }
+    public Guid? CompletedById { get; private set; }
+    public string? Notes { get; private set; }
+
+    private ProjectStage()
+    {
+        // EF materialization.
+    }
+
+    public static ProjectStage Create(
+        string name, int order, Guid projectId, int totalTasks = 0, Guid? stageId = null,
+        string? description = null, string? notes = null,
+        DateTime? estimatedStartDate = null, DateTime? estimatedEndDate = null, decimal? cost = null) =>
+        new()
+        {
+            Name = name,
+            Order = order,
+            ProjectId = projectId,
+            TotalTasks = totalTasks,
+            StageId = stageId,
+            Description = description,
+            Notes = notes,
+            EstimatedStartDate = estimatedStartDate,
+            EstimatedEndDate = estimatedEndDate,
+            Cost = cost,
+            Status = StageStatus.Active,
+        };
+
+    public Result SetCost(decimal? cost)
+    {
+        if (cost is < 0)
+            return StageErrors.NegativeCost;
+
+        Cost = cost;
+        return Result.Success();
+    }
+
+    public void RecalculateProgress(int completedTasks, int totalTasks)
+    {
+        CompletedTasks = completedTasks;
+        TotalTasks = totalTasks;
+        ProgressPercent = totalTasks == 0 ? 0m : Math.Round(100m * completedTasks / totalTasks, 2);
+    }
+
+    public Result Complete(Guid completedById)
+    {
+        if (Status != StageStatus.Active)
+            return StageErrors.InvalidStatusTransition;
+
+        Status = StageStatus.Completed;
+        CompletedById = completedById;
+        ActualEndDate = DateTime.UtcNow;
+        AddDomainEvent(new ProjectStageCompletedDomainEvent(Id, ProjectId, Name));
+        return Result.Success();
+    }
+
+    public Result Reject(string reason)
+    {
+        if (Status != StageStatus.Active)
+            return StageErrors.InvalidStatusTransition;
+
+        Status = StageStatus.Rejected;
+        Notes = reason;
+        AddDomainEvent(new ProjectStageRejectedDomainEvent(Id, ProjectId, Name));
+        return Result.Success();
+    }
+
+    /// <summary>Called when an <c>Unlock</c>-trigger gate is created against this stage.</summary>
+    public void Lock() => Status = StageStatus.Locked;
+
+    /// <summary>Called when this stage's <c>Unlock</c>-trigger gate is satisfied. No-op if the stage
+    /// isn't currently locked (e.g. it has no such gate).</summary>
+    public Result Unlock()
+    {
+        if (Status != StageStatus.Locked)
+            return Result.Success();
+
+        Status = StageStatus.Active;
+        if (ActualStartDate is null)
+            ActualStartDate = DateTime.UtcNow;
+
+        return Result.Success();
+    }
+}

@@ -1630,3 +1630,57 @@ concept is involved — same fix G1-06 applied to Identity's override commands.
 **Verify:** `dotnet build -warnaserror` / `dotnet test` (93/93, unchanged — Contracts adds no tests, same
 as G4-01) / `dotnet format --verify-no-changes` clean. `Architecture.Tests.csproj` gets the
 `ProjectReference` immediately (meta-test discipline).
+
+**G5-02** — done — `src/Modules/Projects/Projects.Domain/{Enums,Project,ProjectStage,ProjectTask,
+ProjectSubTask,TaskComment,StageTeam,StageTeamMember}.cs`, `Errors/Errors.cs`, `Events/ProjectEvents.cs`,
+`tests/Modules/Projects.UnitTests/` (4 files, 49 tests). Enums mirrored from Contracts per the forced
+duplication established at G4-01/G5-01 (`ProjectSector` excluded, decision #6). No `*DomainService` class
+written for any of the seven — state-machine logic lives on the entities themselves
+(`Project.ChangeStatus`, `ProjectStage.Complete`/`Reject`, `ProjectTask.Assign`/`Start`/`Complete`/
+`Reject`/`Cancel`/`Reopen`), per `docs/adding-a-module.md`'s naming-trap warning, explicitly called out
+for this module.
+
+**Domain events raised for the task/stage lifecycle, per the plan's own G5-02 text** — but the
+corresponding integration events (G5-01's `ProjectTaskCompletedIntegrationEvent` etc.) will be enqueued
+directly by the triggering COMMAND HANDLER (G5-07), not via a domain-event handler for these events —
+same atomicity reasoning as Approvals' G4-04 decision (a domain-event handler staging an outbox write
+lands in a second, separate `SaveChangesAsync`, since `DomainEventDispatchDecorator` runs after the
+command handler's own save already committed). These domain events DO get a real intra-module consumer,
+unlike Approvals' still-unconsumed `ApprovalDecidedDomainEvent`: gate-resolution handlers (G5-08) react to
+them to re-evaluate dependent `GateCondition`s — the cascade this drives.
+
+**A real gap found while writing this, not yet fixed — flagged now, fix scheduled for G5-08 where it's
+first exercised:** `PLAN-PHASE2.md`'s G5-08 verify text demands "a 3-level gate cascade resolves in one
+command's transaction." `DomainEventDispatchDecorator<TContext>` (G0-03, the command-path equivalent of
+what F1 just fixed on the integration-event path) calls the inner command handler — which does its own
+`SaveChangesAsync` — and THEN calls `dispatcher.DispatchAsync(ct)`, whose internal per-iteration saves are
+separate, un-transacted commits from the handler's own save and from each other. This is architecturally
+the identical bug class F1 fixed, on the command path instead of the integration-event path: a cascade
+that fails partway through (e.g. gate re-evaluation throws) would leave the triggering write committed but
+the cascade partially applied, with the client seeing an unhandled 500 rather than the true state. Not
+fixed here — G5-02 has no cascade to exercise it against yet; recorded so it doesn't get silently
+rediscovered or, worse, silently NOT discovered when G5-08's own verify block is written. Deliberately not
+named "F2" (that label is already taken in this log's G3 final report, for the unrelated project-collapse
+deferred decision).
+
+**Scope reduction applied for real, not just described**: no `Activate`/`Skip`/`Delete` methods on
+`ProjectStage` (only `Complete`/`Reject`/`Lock`/`Unlock`, matching what the reduced G5 feature surface
+actually calls); `ProjectTask.Create` enforces the `WorkflowType` XOR rule the backend's
+`ProjectTaskDomainService.CreateAsync` enforces, ported as a `Result`-returning static factory (the first
+entity in this port whose factory can fail — `Approval.Create` never needed to).
+
+**Verify:** no EF Core reference (`Projects.Domain.csproj` — only `SharedKernel`); 49 unit tests —
+`Project`: every one of the 13 `(from, to)` status-transition pairs enumerated explicitly (legal and
+illegal alike, per the plan's "not just the happy path" instruction), `ActualStartDate`/`ActualEndDate`
+side effects, same-status no-op. `ProjectStage`: complete/reject + domain events, double-complete
+rejected, locked-stage completion rejected, lock/unlock round-trip, negative-cost rejected, progress
+recalculation. `ProjectTask`: `WorkflowType` XOR enforcement (both directions), full assign→start→complete
+happy path asserting all three domain events fire in order, start-twice rejected, incomplete-required-
+subtasks blocks completion, reject/cancel/reopen transitions, lock/unlock. Plus `ProjectSubTask`,
+`TaskComment`, `StageTeam` (empty-head guard, duplicate-member rejected), `StageTeamMember`
+(`CanExecuteTasks` per role, role change). `dotnet build -warnaserror` / `dotnet test` (142/142 — 49 new)
+/ `dotnet format --verify-no-changes` all clean. (One incidental fix on the way in: xunit's `xUnit1000`
+analyzer forbids non-public test classes, and a public test method can't expose an `internal` enum
+parameter type (CS0051) — `[Theory]` data for `ProjectStatus`/`StageTeamMemberRole` travels as `int` and
+casts back inside the method body; noted since this will recur for every future `[Theory]` over an
+`internal` enum in this module.)

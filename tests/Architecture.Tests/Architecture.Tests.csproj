@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\Modules\Approvals\Approvals.Application\Approvals.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Projects\Projects.Domain\Projects.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Contracts\Hr.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Domain\Hr.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Application\Hr.Application.csproj" />

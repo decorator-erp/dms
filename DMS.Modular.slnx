@@ -14,6 +14,7 @@
   </Folder>
   <Folder Name="/src/Modules/Projects/">
     <Project Path="src/Modules/Projects/Projects.Contracts/Projects.Contracts.csproj" />
+    <Project Path="src/Modules/Projects/Projects.Domain/Projects.Domain.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />
@@ -36,6 +37,7 @@
   <Folder Name="/tests/Modules/">
     <Project Path="tests/Modules/Approvals.Application.Tests/Approvals.Application.Tests.csproj" />
     <Project Path="tests/Modules/Approvals.UnitTests/Approvals.UnitTests.csproj" />
+    <Project Path="tests/Modules/Projects.UnitTests/Projects.UnitTests.csproj" />
     <Project Path="tests/Modules/Hr.Application.Tests/Hr.Application.Tests.csproj" />
     <Project Path="tests/Modules/Hr.Infrastructure.Tests/Hr.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Hr.UnitTests/Hr.UnitTests.csproj" />
