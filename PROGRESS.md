@@ -2073,3 +2073,200 @@ within one module's test fixture.
 
 **Verify:** the new test passes; full suite (`dotnet test`, 185/185) clean. `dotnet build -warnaserror` /
 `dotnet format --verify-no-changes` clean.
+
+**G6-02** — done — `docs/adding-a-module.md` gains a new "Three more patterns" section (the
+pluggable-handler registry pattern — `IGateConditionTypeHandler` + Scrutor interface-scan registration;
+the subject-type-filtered subscription pattern — `ApprovalDecidedIntegrationEventHandler`'s early-return
+filter, and how to actually prove it works rather than just that it doesn't crash; the cross-schema FK
+allow-list extension procedure — the three places every new cross-schema FK touches together, plus the
+fault-injection discipline). `docs/cross-schema-foreign-keys.md` gains the `projects →` narrative
+paragraph (13 FKs, all named) that G5-04 built but never wrote up in this file — the `approvals →`
+paragraph existed from G4-03; the `projects →` one didn't, a real gap this task closes. No code changed;
+confirmed by re-running the full gate (`dotnet build -warnaserror` / `dotnet test`, 185/185 unchanged /
+`dotnet format --verify-no-changes`) after the doc edits.
+
+## Phase G6 boundary — non-negotiables re-checked, four modules
+
+1. **No repository pattern.** Every Approvals/Projects handler uses `ApprovalsDbContext`/`ProjectsDbContext`
+   directly — confirmed by grep, no `I*Repository` type exists anywhere in `src/Modules/{Approvals,
+   Projects}/`. ✓
+2. **One DbContext/schema/module, one database.** `ApprovalsDbContext` → schema `approvals`,
+   `ProjectsDbContext` → schema `projects`, same Postgres instance as `identity`/`hr`/`shared`. ✓
+3. **Cross-module reads only via `*.Contracts`.** Projects reads HR through `Hr.Contracts.IHrDirectory`
+   exclusively (employee/department resolution, assignment validation, department-head lookup for
+   instantiation) and Approvals through `Approvals.Contracts.IApprovalRequester` exclusively (gate
+   creation, decision lookup) — confirmed by arch rule 3, now exercised across four modules instead of
+   two. ✓
+4. **Cross-module writes only via outbox integration events.** Every cross-module write in Phase 2 —
+   Approvals requesting via `IApprovalRequester.RequestAsync` is itself a direct call, but the
+   NOTIFICATION of a decision back to Projects (`ApprovalDecidedIntegrationEvent`) goes through the
+   outbox, never a direct call from Approvals into Projects (Approvals has zero knowledge Projects
+   exists) — matches the sanctioned "Contracts write interface for the synchronous half, outbox for the
+   async notification half" shape decision #1 established. ✓
+5. **Only `*.Contracts` types are public.** Arch rule 4 passes with all four modules' full four-layer
+   structure in place. ✓
+6. **SharedKernel frozen ~9 files.** Still untouched — zero edits across all of Phase 2, same as Phase 1. ✓
+7. **Arch tests written before the code they constrain.** Held the same way it did at G0/G2: both new
+   modules' `ProjectReference`s were added to `Architecture.Tests.csproj` in their own G4-01/G5-01 tasks,
+   before any Domain/Application/Infrastructure code existed to violate anything.
+
+**Two non-negotiables needed a REAL fix during Phase 2, not just re-confirmation — both are the same bug
+class, one phase apart, and both were caught by a test written for the task's own verify block, not by
+inspection:** F1 (G4-04) fixed the integration-event-path atomicity gap in `InboxDedupeDecorator`; G5-08
+fixed the command-path equivalent in `DomainEventDispatchDecorator`, a gap explicitly flagged and
+deferred at G5-02 for exactly this reason. Neither is a non-negotiable in the numbered list above, but
+both sit directly underneath non-negotiable #4 (outbox writes must be atomic with the write that
+triggers them) — a crash-mid-cascade bug in either decorator would have silently violated #4 without
+ever showing up as a rule 3/4/6 arch-test failure, since arch tests check REFERENCES, not runtime
+transaction behavior. Recorded here as confirmation the phase-boundary discipline keeps finding exactly
+this class of gap, same as G1→G2's `SharedDbContext`/`AddOutbox()` wiring gap did.
+
+**A third, unrelated real bug surfaced the same way:** `ProjectScopeRegistration` scanning the wrong
+assembly (G5-07) — a live authorization hole (every `IProjectScoped` command/query ran with NO access
+check at all) that a happy-path-only test would never have caught, since the owner's `ReadAll` grant in
+every OTHER test masked it. All three bugs share a pattern worth stating for the next phase: the
+fault-injection/adversarial-test discipline this plan already mandates for arch rules caught real
+production bugs in areas the plan never asked to fault-inject, simply because the verify block demanded
+a DENIAL case exist, not just a happy path.
+
+## Scope-boundaries — deferred items (consolidated, both phases)
+
+Everything intentionally not built, why, and who owns it when it eventually gets built. Nothing here is
+a silent gap — each was disclosed in the task that decided it; this table exists so a future phase
+doesn't have to grep PROGRESS.md to find them all.
+
+| Item | Deferred at | Owner (future phase) | Why |
+|---|---|---|---|
+| `IUserDirectory`/`IUserAdministration` reactivation symmetry (login re-enable on employee reactivation) | G2-05 | HR, if ever needed | Only deactivation was specified as security-relevant |
+| Backend's combined "deactivate department + bulk-move members" as one command | G2-05 | HR | Two existing commands cover the same ground without new failure-semantics questions |
+| Four of the backend's seven default roles (`DepartmentHead`, `Client`, `Vendor`, `Contractor`) | G1-07 | Identity, per-module as those modules are built | Each exists only to carry another out-of-scope module's permissions |
+| Seven HR feature files that read Projects tables (D4) | G2 | HR, now that Projects exists | Was out of scope when HR was built; not revisited in Phase 2 since HR itself wasn't a Phase 2 task |
+| `ApprovalState.Draft`/`NotRequired`, `ApprovalSubjectType.DesignBrief`/`RequirementItem`/`BriefSpace`/`ProjectDocument` | G4-01 | CRM, Documents | Ported as enum values only (per "just values" reasoning) — this phase never produces them |
+| `ChangeItems` (owned JSON on `ChangesRequested` decisions) + the rework-round reopening loop | G4-01/G4-02 (decision #4) | CRM/client-review phase | No verify block in this plan exercises the rework loop; `Round` ported as an inert field |
+| Backend's client/manager-specific gate-driven approval inbox queries (4 of 6 backend query features) | G4-04 | Projects/CRM, if a richer approvals UI is needed | Built what `IApprovalRequester`'s surface + a subject-trail query need, not a 1:1 port |
+| `ProjectSector` enum | G5-01 (decision #6) | CRM | A CRM lead-intake concept in the backend, never a `Project` field at all |
+| `StageConditionType` enum | G5-01 (decision #5) | — (dead code) | Provably unreferenced in the backend itself; not a deferred feature, just not ported |
+| Bulk operations (`BulkAssign`/`BulkReorder`), search/filter variants (`GetDeleted`/`GetMine`/`Search`), dependency-tree endpoints | G5 phase scope reduction | Projects | ~116 backend feature files; this phase built one complete vertical slice, not full CRUD breadth |
+| Stage/Task `Activate`/`Skip` lifecycle transitions beyond Complete/Reject | G5 phase scope reduction | Projects | Same scope-reduction decision |
+| 6 rejected `ConditionType`s (`Attachment`, `Budget`, `CrmPeriodClosed`, `CrmBriefApproved`, `CrmItemsResolved`, `DocumentApproved`) | G5-03/G5-08 | Finance, Documents, CRM | Rejected at gate-creation time with a clear error naming the 4 supported types — the `IGateConditionTypeHandler` registry pattern means adding one is additive, never a breaking change |
+| `ProjectDocument*`/`ProjectFinancial*`/documents+financial endpoint families | G5 phase scope reduction, G5-09 | Documents, Finance | Not stubbed, not commented out — simply absent |
+| `DeleteProjectCommand`'s cascade cleanup of child rows | G5-07 | Projects, if hard-delete-with-children becomes a real use case | Matches the established `DeleteStageTemplateCommandHandler` pattern; intra-module refs are bare indexed Guids with no FK either |
+| G5-05's access matrix re-run through real HTTP (vs. DI-resolved handler / Infrastructure-layer coverage) | G5-10 | — (judged redundant) | The identical code path is already proven at G5-05 (Infrastructure), G5-07 (`ProjectScopeDecorator` via DI), and G5-09 (401/403 via real HTTP) — a fourth angle on the same path wasn't worth the setup cost |
+
+## Final report — Phase 2 (Approvals + Projects, G4–G6)
+
+### Task table
+
+| Task | Commit |
+|---|---|
+| F1 (arch rule 10 — cross-module command/query references forbidden; pre-Phase-2 follow-up) | `068900e` |
+| G4-01 (Approvals.Contracts) | `92f9e57` |
+| G4-02 (Approvals.Domain) | `627f55e` |
+| G4-03 (Approvals.Infrastructure) | `c169232` |
+| G4-04 (Approvals.Application + F1 integration-event atomicity fix) | `3007b95` |
+| G5-01 (Projects.Contracts) | `3debd6e` |
+| G5-02 (Projects.Domain core seven) | `035a84c` |
+| G5-03 (Projects.Domain templates + gates) | `36c5354` |
+| G5-04 (Projects.Infrastructure persistence) | `be68243` |
+| G5-05 (Projects.Infrastructure access guard) | `4260410` |
+| G5-06 (Projects.Application template features) | `c968283` |
+| G5-07 (Projects.Application project core features) | `0520e54` |
+| G5-08 (Projects.Application gates + Approvals subscription + command-path atomicity fix) | `6754d3c` |
+| G5-09 (Projects.Infrastructure endpoints + module registration) | `dbfb7be` |
+| G5-10 (Projects integration test suite) | `1d24c94` |
+| G6-01 (cross-module smoke, four modules) | `16a7409` |
+| G6-02 (docs + final report) | *(this commit)* |
+
+17 items (16 numbered tasks plus the pre-phase F1 follow-up carried in the same range), all green
+through the full gate (`dotnet build -warnaserror`, `dotnet test`, `dotnet format --verify-no-changes`)
+at every commit.
+
+### Test counts (Phase 2 end state)
+
+**185 tests total**, all passing, run twice consecutively at G5-10 with no flakiness observed:
+- **Architecture:** 14 (was 13 at Phase 1 close — rule 10 added by the F1 follow-up)
+- **Unit** (pure, no database): 79 — `Identity.UnitTests` 8, `Hr.UnitTests` 10, `Approvals.UnitTests` 8,
+  `Projects.UnitTests` 61, `BuildingBlocks.UnitTests` 3
+- **Integration** (real Postgres, Testcontainers or the real composition root): 92 —
+  `BuildingBlocks.IntegrationTests` 9 (was 5 at Phase 1 close — F1's cascade tests +
+  G5-08's command-path cascade tests), `Identity.Infrastructure.Tests` 8, `Identity.Application.Tests`
+  10, `Hr.Infrastructure.Tests` 5, `Hr.Application.Tests` 9, `Approvals.Application.Tests` 4,
+  `Projects.Infrastructure.Tests` 5, `Projects.Application.Tests` 21, `Integration.Tests` 10
+
+### Every decision this phase's plan did not fully specify (index — full reasoning in each task's own entry above)
+
+- **G4-01/G4-02:** `ApproverSpec` (referenced but never defined in the plan) redesigned as a multi-eligible,
+  single-decider shape; `ApprovalsPermissions.DecideAny` added to replace the backend's cross-module
+  `isAdminOverride` escape hatch without hard-coding another module's permission string;
+  `ApprovalState` repurposed as `Approval`'s own computed lifecycle rather than the backend's separate
+  CRM-artifact concept; the rework-loop/`ChangeItems` non-port (decision #4).
+- **G4-03/G4-04, F1:** the integration-event-path domain-event-dispatch atomicity gap — found, a first
+  fix drafted and caught as WRONG in review (would have produced up to 11 separate commits per cascade),
+  then fixed correctly by wrapping `InboxDedupeDecorator`'s handler-call-plus-cascade in one explicit
+  transaction; proven via fault injection (revert, confirm partial commit, restore, reconfirm), not by
+  inspection.
+- **G5-01 through G5-03:** `ProjectSector`/`StageConditionType` not ported (both provably unused/CRM-only
+  in the backend); enum-mapping via numeric casts instead of Approvals' exhaustive-switch precedent, backed
+  by `EnumMappingParityTests` (a real, disclosed trade-off given 12 pairs vs. Approvals' 5); instantiation
+  materializes the stage/task/subtask/team skeleton only, no gate auto-wiring (decision #7, since the
+  template-level condition definitions `StageConditionType` would have driven don't exist).
+- **G5-04:** the 13-FK cross-schema table (11 into `hr.`, 2 into `approvals.`), `ClientId` deliberately
+  FK-less; the rule-9 scratch-FK fault-injection performed for real, the first non-vacuous exercise of
+  that rule against a genuinely wrong direction rather than only the existing right-direction FKs.
+- **G5-07:** `IHrDirectory.GetDepartmentHeadsAsync` — a cross-module Contracts extension the plan's own
+  facts table assumed existed without naming where it would come from; `GetProjectsQuery`'s inline
+  access-filter join rather than extending `IProjectAccessGuard`'s public surface for one list query;
+  **`ProjectScopeRegistration` scanning the wrong assembly — a real, live authorization hole, found and
+  fixed by the task's own verify-block test**, not by inspection.
+- **G5-08:** the command-path domain-event-dispatch atomicity gap (deferred at G5-02, fixed here,
+  mirroring F1's shape exactly); the pluggable `IGateConditionTypeHandler` registry, DI-registered via
+  Scrutor interface-scan since `Projects.Infrastructure` has no `InternalsVisibleTo` grant to name the
+  `internal` implementations directly; `GateConditionSatisfiedDomainEventHandler` consolidated into ONE
+  handler for all three "gate became satisfied" call sites rather than duplicating "unlock + enqueue" at
+  each; **`GateCondition.MarkSatisfied`/`MarkRejected` changed from `Guid` to `Guid?`** — a real FK-violation
+  bug (a cascade resolution with no attributable employee tried to insert `Guid.Empty` against a real FK
+  to `hr.employees`) found by the task's own cascade test, not by inspection.
+- **G5-09:** `ProjectDirectory`'s own tiny enum-mapping shim (same `InternalsVisibleTo` gap as the gate
+  handler registry, one file, three enums) rather than restructuring the reference graph for one consumer.
+- **G5-10/G6-01:** the schema-isolation and four-module smoke tests both had to go through REAL HTTP
+  (`fixture.CreateClient()` + JWT), not G3-01's own DI-resolved-handler technique — `ICurrentUser`'s real
+  implementation needs an actual `HttpContext`, which every Projects command in these flows depends on.
+
+### Anything implemented more thinly than intended
+
+- **G4-04:** only 2 of the backend's 6 approval query features were built (`GetApprovalsBySubjectQuery`,
+  `GetMyPendingApprovalsQuery`) — the client/manager-specific gate-driven inbox queries are Projects/CRM-shaped,
+  not Approvals-owned, and nothing in this phase's verify blocks needs them.
+- **G5 (whole module):** ~116 backend feature files reduced to one complete vertical slice — see the
+  Scope-boundaries table above for the itemized list (bulk ops, search/filter variants, dependency trees,
+  Activate/Skip transitions, documents/financials). Architectural depth (every arch rule, every FK, every
+  cross-module contract, the full gate/approval cascade) is complete; CRUD surface breadth is not.
+- **G5-07:** `DeleteProjectCommandHandler` does a hard delete with no cascade cleanup of child rows —
+  matches the established template-CRUD pattern exactly, not a shortcut unique to this handler.
+- **G5-10:** the G5-05 access matrix was not re-proven a fourth time through real HTTP specifically —
+  judged redundant given three other angles on the identical code path already exist (see the
+  Scope-boundaries table).
+
+### Anything in the plan that looks wrong, having built it
+
+- **The plan's G5-07 text ("wires gate conditions from `StageConditionType` definitions" during template
+  instantiation) does not describe real backend behavior** — the actual backend instantiation method
+  creates zero `GateCondition` rows; every gate is created explicitly and separately via its own
+  commands. Resolved as decision #7 during planning (not discovered mid-execution), but worth flagging
+  again here since it's exactly the kind of plan/backend mismatch a future phase's planning pass should
+  watch for: read the actual source method, not just its name.
+- **The plan's own first draft of the domain-event-dispatch atomicity fix (decision #10) was itself
+  wrong** — a second-decorator design that would have produced up to 11 separate commits per cascade,
+  caught only because a review pass read `DomainEventDispatcher.DispatchAsync`'s actual source instead
+  of trusting its doc comment's "stages, does not save" framing. The lesson generalizes: when a fix's
+  correctness depends on another class's exact behavior, read that class, don't infer it from naming or
+  comments — this pattern recurred almost identically at G5-07 (`ProjectScopeRegistration`'s wrong-assembly
+  bug) and G5-08 (the command-path version of the same atomicity gap), each caught by a test that
+  actually exercised the failure path rather than by re-reading the code more carefully.
+- **`ApprovalsPermissions`/`ProjectsPermissions`' non-uniform naming** (`approvals.decide` vs.
+  `project.read` vs. `stages.manage` vs. `stage_tasks.assign` — no consistent module-prefix pluralization)
+  is confirmed, having built against it, to be exactly as the plan predicted: annoying to hold in your
+  head, deliberately ported verbatim rather than "cleaned up," and every endpoint file in G5-09 had to be
+  written with the permission table open in another window rather than by pattern-matching the string
+  shape. Worth a real decision (clean up vs. keep porting verbatim) before a fourth or fifth module adds
+  its own permission group in yet another naming convention.

@@ -201,6 +201,112 @@ All ten rules apply automatically once the module's assemblies are referenced in
     `ICommand`/`ICommand<T>`/`IQuery<T>` — see the "fifth thing" note above for why this exists
     alongside rule 4 rather than instead of it.
 
+## Three more patterns (from Phase 2 — Approvals + Projects)
+
+Phase 1 (Identity, HR) never needed these; Projects did, building on top of two prior modules instead of
+zero. Worth knowing before the third module that needs them re-derives them from scratch.
+
+### The pluggable-handler registry pattern
+
+When a module's own domain has an open-ended "kind" that other modules — including ones that don't exist
+yet — will want to add cases to, don't model it as a switch statement. Ship a strategy interface in
+`*.Contracts` and let each kind register its own implementation via DI.
+
+```csharp
+// Projects.Contracts — the interface, not the implementations
+public interface IGateConditionTypeHandler
+{
+    ConditionType Type { get; }
+    Task<Result> ValidateAsync(GateConditionContext context, CancellationToken ct = default);
+}
+```
+
+Implementations live wherever they need to live — `ManualCheckHandler`/`StageReferenceHandler`/
+`TaskReferenceHandler` are pure and could sit in `Projects.Domain`, but `ApprovalHandler` needs
+`Approvals.Contracts.IApprovalRequester` injected, which `*.Domain` can never reference — so all four
+live in `Projects.Application` as `internal` classes instead of forcing an artificial split. The owning
+module's `*.Infrastructure.Register` can't name `internal` implementation types across the
+`*.Application`/`*.Infrastructure` boundary (no `InternalsVisibleTo` grant exists for that direction —
+only test projects get one), so register them by scanning for the PUBLIC interface instead of listing
+concrete types:
+
+```csharp
+services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+    .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+        .AsImplementedInterfaces()
+        .WithScopedLifetime());
+```
+
+The consuming handler resolves the whole set and picks by key at runtime:
+
+```csharp
+var typeHandler = typeHandlers.SingleOrDefault(h => h.Type == command.ConditionType);
+if (typeHandler is null)
+    return Result.Failure<Guid>(GateConditionErrors.UnsupportedConditionType);
+```
+
+A condition type this phase doesn't support yet (`Budget`, `Attachment`, `DocumentApproved`, …) fails
+this lookup and returns a clear "not supported yet, supported types: X, Y, Z" error at creation time —
+never a stub, never a silent no-op. Adding a new kind later is "write one handler + let DI find it,"
+never a change to the dispatching code itself.
+
+### The subject-type-filtered subscription pattern
+
+When a sink module (Approvals, Notifications — anything that serves many other modules through one
+generic subject/event shape) publishes one integration event that many different owning modules could
+plausibly care about, each subscriber filters on the subject-type discriminator FIRST, before doing
+anything else, and returns silently for every type it doesn't own:
+
+```csharp
+public async Task HandleAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
+{
+    if (@event.SubjectType != ApprovalSubjectType.GateCondition)
+        return;
+    // ... only GateCondition-subject work below this line
+}
+```
+
+This is NOT the same thing as R2's "zero handlers registered for an event type" no-op — here a handler
+IS registered and DOES run for every decision of every subject type, and deliberately does nothing for
+the ones it doesn't own. Two consequences worth being deliberate about: (1) the filter must be the very
+first thing the handler does, before any query — cheap to check, and a query issued before the filter
+would be wasted work on every subject type this module doesn't care about; (2) prove the filter itself
+works, not just its absence of a crash — the way to do that is to reuse a REAL row's own id as the
+subject id of a fake event with the WRONG subject type, and assert that real row is untouched (see
+`Projects.Application.Tests.GateFlowTests.ApprovalDecidedEvent_ForADesignBriefSubject_DoesNotTouchAnyGate`)
+— a test that only checks "no gate matching a random guid changed" would pass even if the filter were
+deleted entirely, since no gate would match by id either way.
+
+### Extending the cross-schema FK allow-list
+
+Every new module that adds a cross-schema FK touches the same three places, together, in the same
+commit as the migration that needs them:
+
+1. **The migration itself** — raw `migrationBuilder.Sql(...)` in `Up` (and the matching `DROP CONSTRAINT`
+   in `Down`), quoted PascalCase columns, `ON DELETE RESTRICT`. See the wiring checklist above, step 5.
+2. **`tests/Architecture.Tests/Rule9CrossSchemaForeignKeyTests.cs`** — add the new module to the
+   `Modules` dictionary (assembly name + assembly-qualified `DbContext` type name) so its migration gets
+   scanned, and add every new `(fromSchema, toSchema)` pair this module introduces to `AllowedPairs`.
+   Both are required — a module present in `Modules` but missing a pair in `AllowedPairs` fails the
+   build the moment its own migration runs (the rule catches you writing the code, not reading about it
+   after); a pair added to `AllowedPairs` without the module in `Modules` is a lie the test can't check
+   (nothing scans that module's migration, so the constraint could point anywhere and the test would
+   stay green).
+3. **`docs/cross-schema-foreign-keys.md`** — one paragraph per module under "Allowed pairs for the
+   current design," naming every constraint by its actual `fk_*` name and what it points at (see the
+   `approvals →` and `projects →` paragraphs there for the shape). Not optional busywork: the next
+   builder reading this doc to understand the FK graph should never need to go read migrations to find
+   out what actually exists versus what the aspirational table at the top of the file merely allows.
+
+**Prove the check catches a violation for real, once per module, not just by inspection**: temporarily
+add a wrong-direction scratch FK (a throwaway column + raw SQL appended to the new migration, pointing
+the wrong way — e.g. from a module you depend ON, back to you), confirm
+`EveryCrossSchemaForeignKey_PointsInAnAllowedDirection` fails naming exactly that constraint, then revert
+and reconfirm green. `Rule9CrossSchemaForeignKeyTests`' own test suite stays vacuous — always green,
+never actually exercised against a bad direction — until some module does this once; G5-04 was the first
+real exercise of it in this codebase (a scratch `hr.employees → projects.projects` FK), and the fault
+injection is cheap enough that skipping it just means trusting the rule instead of proving it.
+
 ## Testing shape (mirror what Identity/HR already have)
 
 - `<Module>.UnitTests` — pure `*.Domain` entity behavior. No database.

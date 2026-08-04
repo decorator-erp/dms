@@ -88,6 +88,20 @@ AppUserId` itself via `Hr.Contracts.IHrDirectory` before requesting an approval.
 row in an EF-owned collection table, not its own aggregate, and a per-row FK would only duplicate the same
 constraint the `RequestedByUserId` FK already established for this table's write path.
 
+`projects → hr` and `projects → approvals` (added at G5-04, dms-modular Phase 2): 13 FKs total, all
+`ON DELETE RESTRICT` — 11 into `hr.employees`/`hr.departments` (`fk_projects_owner`,
+`fk_project_tasks_assigned_to`, `fk_project_tasks_department`, `fk_project_stages_completed_by`,
+`fk_project_sub_tasks_completed_by`, `fk_task_comments_employee`, `fk_stage_teams_head`,
+`fk_stage_teams_department`, `fk_stage_team_members_employee`, `fk_stage_tasks_department`,
+`fk_stage_departments_department` — every bare Guid the domain model documents as "→ hr.employees/
+hr.departments, never a navigation" gets the real constraint) and 2 into `approvals.approvals`
+(`fk_gate_conditions_resolved_by`, `fk_gate_conditions_approval` — a `GateCondition` links to the
+approval it requested and to whoever resolved it). `projects.projects."ClientId"` deliberately has no
+FK at all — CRM (the module that would own `clients`) doesn't exist yet; the column is a bare
+unvalidated `Guid`, same treatment `Approvals.RequestedByUserId` would need if Approvals ever gained a
+client-side actor. Rule 9's own scratch-FK fault-injection (G5-04) proved the check catches a
+wrong-direction FK for real, not just by inspection — see that task's PROGRESS.md entry.
+
 ## The three things that actually need care
 
 ### 1. Delete behaviour — never cascade across a schema boundary
