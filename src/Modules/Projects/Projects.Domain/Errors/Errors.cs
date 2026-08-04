@@ -8,6 +8,13 @@ internal static class ProjectErrors
 
     public static readonly Error InvalidStatusTransition = Error.Conflict(
         "projects.InvalidStatusTransition", "That project status transition is not allowed.");
+
+    /// <summary>Ported from the backend's <c>IProjectAccessService</c> — the permission-based row-level
+    /// guard's own denial (G5-05). 404-over-403 per <c>CLAUDE.md</c>'s authorization order (aggregate
+    /// state comes last; a caller who can't see the project shouldn't learn it exists) is enforced by
+    /// the <c>ProjectScopeDecorator</c>'s own mapping (G5-07), not by this error's own status code.</summary>
+    public static readonly Error AccessDenied = Error.Forbidden(
+        "projects.AccessDenied", "The current user does not have access to this project.");
 }
 
 internal static class StageErrors

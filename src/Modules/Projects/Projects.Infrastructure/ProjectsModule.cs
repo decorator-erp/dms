@@ -6,16 +6,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Infrastructure.Persistence;
+using Projects.Infrastructure.Services;
 
 namespace Projects.Infrastructure;
 
 /// <summary>
-/// Minimal for now — DbContext + permissions only. <c>IProjectAccessGuard</c> (G5-05),
 /// <c>AddModuleCqrs</c> (G5-06+, once <c>Projects.Application</c> exists), <c>IProjectDirectory</c>
-/// (G5-09), and endpoint mapping land incrementally as each piece is built — same split HR (G2-03→G2-06)
-/// and Approvals (G4-03→G4-04) used, for the identical reason: this module gets exercised by rule 9 and
-/// <c>ApiFixture</c> via a throwaway <c>Register</c> call the moment <c>ModuleDependencyOrder.SchemaOrder</c>
-/// includes <c>"projects"</c> (needed now so the migration can be tested for real), and
+/// (G5-09), and endpoint mapping still land incrementally as each piece is built — same split HR
+/// (G2-03→G2-06) and Approvals (G4-03→G4-04) used, for the identical reason: this module gets exercised
+/// by rule 9 and <c>ApiFixture</c> via a throwaway <c>Register</c> call the moment
+/// <c>ModuleDependencyOrder.SchemaOrder</c> includes <c>"projects"</c>, and
 /// <c>Assembly.Load("Projects.Application")</c> would throw before that assembly exists.
 /// </summary>
 internal sealed class ProjectsModule : IModule
@@ -26,6 +26,8 @@ internal sealed class ProjectsModule : IModule
     {
         services.AddDbContext<ProjectsDbContext>(options =>
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+
+        services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

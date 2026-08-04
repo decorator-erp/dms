@@ -38,6 +38,7 @@
   <Folder Name="/tests/Modules/">
     <Project Path="tests/Modules/Approvals.Application.Tests/Approvals.Application.Tests.csproj" />
     <Project Path="tests/Modules/Approvals.UnitTests/Approvals.UnitTests.csproj" />
+    <Project Path="tests/Modules/Projects.Infrastructure.Tests/Projects.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Projects.UnitTests/Projects.UnitTests.csproj" />
     <Project Path="tests/Modules/Hr.Application.Tests/Hr.Application.Tests.csproj" />
     <Project Path="tests/Modules/Hr.Infrastructure.Tests/Hr.Infrastructure.Tests.csproj" />

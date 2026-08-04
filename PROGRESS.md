@@ -1765,3 +1765,34 @@ rule 9 is exercised non-vacuously against a *wrong* direction rather than only p
 existing right-direction FKs. `dotnet build -warnaserror` / `dotnet test` (152/152, unchanged — no new
 tests this task, access-guard/CRUD coverage lands at G5-05+) / `dotnet format --verify-no-changes` all
 clean.
+
+**G5-05** — done — `src/Modules/Projects/Projects.Infrastructure/Services/ProjectAccessGuard.cs`,
+`Projects.Domain`'s `ProjectErrors.AccessDenied` addition, `ProjectsModule.cs` gains
+`services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>()`. `tests/Modules/
+Projects.Infrastructure.Tests/` (new project, 5 tests). Ported the backend's exact two-check shape:
+`ICurrentUser.HasPermission(ProjectsPermissions.Projects.ReadAll)` short-circuit, else
+`IHrDirectory.ResolveEmployeeIdAsync` (reusing HR's own per-scope memo, G2-06) then a stage-team
+membership query against Projects-owned tables only (`StageTeamMembers` → `StageTeams` →
+`ProjectStages`, joined, never a query into `hr.` tables). `FilterAccessibleProjectsAsync` is one
+set-based query — proven, not assumed, via the same `LogTo`/`RelationalEventId.CommandExecuted`
+command-counting technique `HrDirectoryTests` established at G2-06.
+
+**Test fixture needed all three prior modules (Identity, HR, Approvals) migrated before Projects,
+discovered by running it and reading the failure, not derived up front:** `ProjectsDbContext`'s own
+migration contains raw-SQL FKs to `hr.employees`/`hr.departments`/`approvals.approvals`, so those schemas
+must exist first. Employee rows are seeded via raw SQL (`INSERT INTO hr.employees ...`), not
+`Hr.Domain.Employee.Create` — `Hr.Domain` grants no `InternalsVisibleTo` to this test project, correctly,
+since it isn't part of HR; same reasoning `HrDirectoryTests` already documents for why it seeds
+`identity.users` the same way. Booting each module's real `Register()` (needed to run its migration) also
+requires `Assembly.Load("<Module>.Application")` to resolve, so the test project needed `Hr.Application`/
+`Identity.Application`/`Approvals.Application` project references purely to get those DLLs onto disk —
+not discovered until the first run threw `FileNotFoundException` naming `Identity.Application`,
+confirming the "Discovery, everywhere" reasoning `docs/adding-a-module.md` already documents applies
+here too, one layer removed (a *test* project booting three foreign modules' real `Register()` calls,
+not just the real host).
+
+**Verify:** security matrix, all real against a migrated Postgres — no permission + not a member →
+denied (`ProjectErrors.AccessDenied`); `ReadAll` → allowed regardless of membership; stage-team member →
+allowed; batch filter over 50 accessible + 1 inaccessible project issues exactly 1 SQL command and
+returns exactly the 50; empty id list short-circuits to zero commands. `dotnet build -warnaserror` /
+`dotnet test` (157/157 — 5 new) / `dotnet format --verify-no-changes` all clean.
