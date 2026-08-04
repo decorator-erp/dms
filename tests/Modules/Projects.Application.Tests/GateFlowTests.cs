@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Gates;
 using Projects.Contracts.Projects;
+using Projects.Contracts.Stages;
 using Projects.Contracts.Tasks;
 using Projects.Contracts.Templates;
 using Xunit;
@@ -148,6 +149,59 @@ public sealed class GateFlowTests(ProjectsApplicationFixture fixture)
         Assert.Equal(ProjectTaskStatus.Locked,
             (await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId))).Value!
                 .Single(t => t.Id == taskId).Status);
+    }
+
+    /// <summary>Closes the last leg of the plan's own flow list ("template → instantiate → team assign →
+    /// task lifecycle → approval gate → stage completion → next stage unlocked"): a Stage-type gate on
+    /// Stage B referencing Stage A locks Stage B at creation; completing Stage A satisfies that gate and
+    /// unlocks Stage B, all through the real command handlers.</summary>
+    [Fact]
+    public async Task StageCompletion_SatisfiesReferencingGate_AndUnlocksNextStage()
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        var (ownerUserId, _) = await RegisterEmployeeAsync(sp, "next-stage-owner");
+        currentUser.UserId = ownerUserId;
+        currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
+
+        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        var templateId = (await createTemplate.HandleAsync(
+            new CreateStageTemplateCommand($"Gate-{Guid.NewGuid():N}", StageTemplateType.Custom))).Value;
+
+        var createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+        var templateStageAId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Stage A", 1, 50m))).Value;
+        var templateStageBId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Stage B", 2, 50m))).Value;
+
+        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        var projectId = (await createProject.HandleAsync(new CreateProjectCommand(
+            $"P-{Guid.NewGuid():N}", "Next Stage Test", "1 Test Rd", global::Projects.Contracts.WorkflowType.Stage,
+            Guid.NewGuid(), StageTemplateId: templateId))).Value;
+
+        var getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
+        var stages = (await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId))).Value!;
+        var stageA = stages.Single(s => s.Name == "Stage A");
+        var stageB = stages.Single(s => s.Name == "Stage B");
+
+        var createGate = sp.GetRequiredService<ICommandHandler<CreateStageGateConditionCommand, Guid>>();
+        var gateResult = await createGate.HandleAsync(new CreateStageGateConditionCommand(
+            projectId, stageB.Id, ownerUserId, ConditionType.Stage, GateTrigger.Unlock, "Wait for Stage A",
+            ReferencedStageId: stageA.Id));
+        Assert.True(gateResult.IsSuccess);
+
+        var afterGateCreated = (await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId))).Value!;
+        Assert.Equal(StageStatus.Locked, afterGateCreated.Single(s => s.Id == stageB.Id).Status);
+
+        var complete = sp.GetRequiredService<ICommandHandler<CompleteProjectStageCommand>>();
+        var completeResult = await complete.HandleAsync(new CompleteProjectStageCommand(projectId, stageA.Id, ownerUserId));
+        Assert.True(completeResult.IsSuccess);
+
+        var afterCascade = (await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId))).Value!;
+        Assert.Equal(StageStatus.Active, afterCascade.Single(s => s.Id == stageB.Id).Status);
+
+        var getGates = sp.GetRequiredService<IQueryHandler<GetStageGateConditionsQuery, IReadOnlyList<GateConditionResponse>>>();
+        var gates = (await getGates.HandleAsync(new GetStageGateConditionsQuery(projectId, stageB.Id, ownerUserId))).Value!;
+        Assert.Equal(GateStatus.Satisfied, Assert.Single(gates).Status);
     }
 
     private static async Task<(string UserId, Guid EmployeeId)> RegisterEmployeeAsync(IServiceProvider sp, string label)

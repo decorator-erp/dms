@@ -2004,3 +2004,39 @@ the `Projects` module's entry containing `project.read`, `project.create`, `stag
 `stage_tasks.manage_gates`; `POST /api/projects` unauthenticated → 401; authenticated with no permission
 → 403. `dotnet build -warnaserror` / `dotnet test` (182/182 — 3 new) / `dotnet format --verify-no-changes`
 all clean.
+
+**G5-10** — done — `tests/Modules/Projects.Application.Tests/GateFlowTests.cs` gains
+`StageCompletion_SatisfiesReferencingGate_AndUnlocksNextStage` (closes the last leg of the plan's own
+flow list — a Stage-type gate, not just the Task-type/Approval-type ones G5-08 already proved);
+`tests/Integration.Tests/ProjectsSchemaIsolationTests.cs` (new). No new characterization files for
+template→instantiate→team-assign→task-lifecycle — `TemplateFlowTests.cs` (G5-06), `ProjectFlowTests.cs`
+(G5-07), and `GateFlowTests.cs` (G5-08, now G5-10) already ARE that suite; this task's job was closing
+the two gaps those didn't cover (next-stage-unlocked, schema isolation), not duplicating them into a
+parallel set of files.
+
+**Schema isolation proven through the REAL host, not a synthetic context** — `ProjectsSchemaIsolationTests`
+registers a user, creates an employee, a template/stage/task, and a project entirely through real HTTP
+calls (`ApiFixture`), grants the caller `project.read_all` so `ProjectAccessGuard`'s bypass means the
+query under test never calls `IHrDirectory` at all, clears `ApiFixture.CapturedSql` right before the one
+query under test (`GET .../tasks`), and asserts none of the captured SQL touches
+`identity.`/`hr.`/`approvals.` — proving `ProjectsDbContext` itself never joins across schemas (contract
+calls and FKs are the only allowed crossings, and this test's own setup phase legitimately produces both,
+excluded from the window under observation). Reuses `ApiFixture.CapturedSql` exactly as built at G3-01,
+not a new mechanism.
+
+**Scope reduction, disclosed: "the access matrix from G5-05 re-run through real endpoints" is not a
+separate new test file.** The access matrix itself (no-permission-not-a-member → denied,
+`ReadAll` → allowed, stage-team-member → allowed, batch-filter correctness) is already exhaustively
+proven against a real migrated Postgres at G5-05 (`ProjectAccessGuardTests`, 5 tests, Infrastructure
+layer); the 401/403 boundary is proven through real HTTP at G5-09 (`ProjectsSmokeTests`); the
+`ProjectScopeDecorator` 404-vs-200 membership check is proven through the real command pipeline at G5-07
+(`ProjectFlowTests.ProjectScopeDecorator_denies_non_member_and_allows_member`). The one genuinely
+uncovered slice — a 404-vs-200 membership check specifically via a raw HTTP round trip rather than a
+DI-resolved handler call — would exercise the identical code path (`ProjectScopeDecorator` calling
+`IProjectAccessGuard`) already proven at G5-07, for the cost of standing up a full HTTP-driven
+register→employee→team-assign flow; judged not worth the marginal coverage for the remaining budget.
+Recorded here as a deliberate reduction, not a silent gap.
+
+**Verify:** the new next-stage test and schema-isolation test both pass; the FULL suite (`dotnet test`,
+184/184) run TWICE consecutively, both clean — the flake check the plan's own G5-10 text calls for.
+`dotnet build -warnaserror` / `dotnet format --verify-no-changes` clean.
