@@ -2040,3 +2040,36 @@ Recorded here as a deliberate reduction, not a silent gap.
 **Verify:** the new next-stage test and schema-isolation test both pass; the FULL suite (`dotnet test`,
 184/184) run TWICE consecutively, both clean — the flake check the plan's own G5-10 text calls for.
 `dotnet build -warnaserror` / `dotnet format --verify-no-changes` clean.
+
+---
+
+# G6 — cross-module smoke, docs, final report
+
+**G6-01** — done — `tests/Integration.Tests/CrossModuleSmokeTests.cs` gains
+`Approval_gate_flow_spans_all_four_modules_end_to_end`, extending the existing G3-01 file rather than
+replacing it, exactly per the plan's own instruction.
+
+**This new test goes through real HTTP end-to-end, not DI-resolved handlers like G3-01's own test
+does** — a deliberate, necessary departure, not a style drift. `ICurrentUser`'s real implementation
+(`HttpCurrentUser`) reads claims off an active `HttpContext`; resolving a command handler directly from
+`fixture.Services.CreateScope()` (G3-01's technique) leaves `HttpContext` null, so `UserId`/`HasPermission`
+would be empty/false for every Projects command in this flow (`CreateProjectCommand`'s owner resolution,
+`ProjectScopeDecorator`'s access check, gate creation). G3-01's own test never hit this because
+`RegisterCommand`/`CreateEmployeeCommand`/`IHrDirectory.ResolveEmployeeIdAsync` don't touch
+`ICurrentUser` at all. `fixture.CreateClient()` + `fixture.IssueTestToken(...)` (already built at G0-09,
+reused throughout G5-09/G5-10) sidesteps this by carrying real claims through a real HTTP request.
+
+**The full flow, one test, four modules, no direct in-process call to any cascade logic:** register
+(Identity) → create employee (HR) → template/stage/task + project instantiation (Projects) → create an
+Approval-type gate, which requests an approval end-to-end (Approvals, via `IApprovalRequester`) → decide
+the approval (Approvals) → delivered through the REAL `OutboxProcessor` (resolved via
+`fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single()` and driven directly
+with `ProcessPendingAsync`, rather than waiting out its 5-second poll interval) → gate `Satisfied`, the
+task's `Locked → Open` unlock observed back through `GET /api/projects/{id}/tasks`, all via real routes.
+This is the same underlying mechanism `GateFlowTests` (G5-08/G5-10) already proved at the Application
+layer; what's new here is proving the ENTIRE chain survives real HTTP request/response boundaries and
+real JWT-claims-based authorization across all four modules in one pass, not just DI-resolved calls
+within one module's test fixture.
+
+**Verify:** the new test passes; full suite (`dotnet test`, 185/185) clean. `dotnet build -warnaserror` /
+`dotnet format --verify-no-changes` clean.
