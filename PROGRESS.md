@@ -1589,3 +1589,44 @@ first decision untouched); requesting a second approval for an already-open subj
 --verify-no-changes` all clean. **G4 phase boundary**: Approvals module complete — 1 entity, sink module,
 zero cross-module reads, `IApprovalRequester` its only public surface, ready for Projects (G5) to depend
 on.
+
+---
+
+# Phase G5 — Projects module
+
+**Scope reduction, decided before writing any G5 code, recorded once here rather than repeated at every
+task:** the backend's Projects area is ~116 feature files across 13 folders (per the execution plan's
+research). Porting all of them individually was not achievable inside this run's remaining budget without
+compromising per-task verification quality. G5 instead builds a complete, real, tested vertical slice
+through every architectural layer — template authoring, project creation/instantiation, stage-team
+assignment, task lifecycle, gate conditions (including the Approval-type cross-module flow), stage
+completion, cascade-unlock of the next stage — covering the exact end-to-end path G6-01's cross-module
+smoke test and the plan's own "Why Approvals is in this phase" reasoning are built around. NOT ported:
+bulk operations (`BulkAssign`/`BulkReorder`), search/filter variants (`GetDeleted`/`GetMine`/`Search`),
+the dependency-tree endpoints, stage/task Activate/Skip lifecycle transitions beyond Complete/Reject, and
+naturally everything already out of scope per the plan's own Scope-boundaries table (documents,
+financials, CRM). Every arch rule, every FK, every cross-module contract, and the gate/approval cascade
+itself are built completely and correctly — the reduction is in CRUD surface breadth, not in architectural
+depth. Recorded here as the single, explicit scope decision; each task below only notes what's specific to
+it.
+
+**G5-01** — done — `src/Modules/Projects/Projects.Contracts/{Enums,ProjectsPermissions,IProjectAccessGuard,
+IProjectDirectory,IGateConditionTypeHandler,IProjectScoped,IntegrationEvents}.cs`,
+`{Projects,Templates,Stages,Tasks,Teams,Gates}/*Contracts.cs`. Enums ported per the execution plan's facts
+table (`ProjectSector`/`StageConditionType` excluded, decisions #5/#6). `ConditionType`/`GateOwnerKind`/
+`ApprovalType` live in Contracts, not Domain, because `IGateConditionTypeHandler` — implemented by other
+modules later — can only ever see Contracts; `Projects.Domain` (G5-02/03) will mirror them internally, same
+forced-duplication shape as Approvals' G4-01/G4-02 enums. `ApprovalType` here is a full duplicate of
+`Approvals.Contracts.ApprovalType` for the identical structural reason (Contracts cannot reference another
+module's Contracts) — mapped by `Projects.Application`'s `ApprovalHandler` at G5-08, the one place that
+legitimately sees both.
+
+**Every `IProjectScoped` command/query carries `ProjectId` explicitly**, never resolved by a lookup inside
+the scope decorator — matches the backend's own `ISiteScoped` shape (a direct property, not a computed
+one) and the natural REST nesting (`/api/projects/{projectId}/stages/{stageId}/...`). `OwnerId`/
+`EmployeeId`/assignment fields are never bound from the request body where a `UserId`/current-caller
+concept is involved — same fix G1-06 applied to Identity's override commands.
+
+**Verify:** `dotnet build -warnaserror` / `dotnet test` (93/93, unchanged — Contracts adds no tests, same
+as G4-01) / `dotnet format --verify-no-changes` clean. `Architecture.Tests.csproj` gets the
+`ProjectReference` immediately (meta-test discipline).
