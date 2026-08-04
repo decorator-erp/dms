@@ -1970,3 +1970,37 @@ call) → gate `Satisfied`, dependent task unlocked. A `DesignBrief`-subject `Ap
 reusing a REAL gate's own id as its subject id does NOT touch that gate (proves the `SubjectType` filter
 itself, not merely "no gate matched"). `dotnet build -warnaserror` / `dotnet test` (179/179 — 5 new) /
 `dotnet format --verify-no-changes` all clean.
+
+**G5-09** — done — `src/Modules/Projects/Projects.Infrastructure/Endpoints/{ProjectEndpoints,
+TemplateEndpoints,StageEndpoints,TaskEndpoints,TeamEndpoints,GateEndpoints}.cs` (new — every in-scope
+feature: project CRUD+list, template CRUD (StageTemplate/Stage/StageTask/StageSubTask/StageDepartment),
+runtime stage complete/reject, task lifecycle + sub-tasks + comments, stage-team member/head management,
+gate CRUD for both stage- and task-owned gates); `Services/ProjectDirectory.cs` (new, implements
+`IProjectDirectory` as pure `Select`-to-DTO projections, no load-then-map, same convention `HrDirectory`
+established at G2-06); `ProjectsModule.cs` gains `services.AddScoped<IProjectDirectory, ProjectDirectory>()`
+and drops its now-stale "endpoints land incrementally" doc comment. `tests/Integration.Tests/
+ProjectsSmokeTests.cs` (new, 3 tests). Documents/financial endpoint families are not created at all —
+not stubbed, not commented out, simply absent, per the plan's own instruction.
+
+**Every `IProjectScoped` command's `UserId` is populated from `ICurrentUser` at the endpoint, never bound
+from the request body** — every request DTO record in these six files carries no user field at all
+(mirrors `UpdateProjectRequest`'s own shape: `Name`/`Description`/`Address`/... only), so `ICurrentUser`
+is injected as a plain minimal-API delegate parameter and `currentUser.UserId!` is passed directly into
+the command constructor at each call site. This is the endpoint half of G5-07's own explicit test (which
+proved the mechanism at the Application layer via `ProjectScopeDecorator`); nothing new to prove here
+beyond wiring it through, so no additional unit test was written for this specific point — the G5-09
+smoke tests exercise the route through real authorization instead.
+
+**`ProjectDirectory` needed a tiny private enum-mapping shim, not `Projects.Application`'s own
+`ProjectsEnumMapping`** — `Projects.Infrastructure` has no `InternalsVisibleTo` grant from
+`Projects.Application` (same gap `ProjectScopeRegistration`'s own remarks already document), so the
+internal mapping class isn't visible here. A three-line `file`-scoped shim (same numeric-cast trade-off
+`ProjectsEnumMapping` itself uses, for the same three status enums) was cheaper than restructuring the
+reference graph for one consumer.
+
+**Verify:** app boots with all four modules (already proven every task since G5-04 — `Program.Cs`/
+`Api.csproj` wiring was done then); `GET /api/permissions` (real HTTP, real host, `ApiFixture`) returns
+the `Projects` module's entry containing `project.read`, `project.create`, `stages.manage_gates`,
+`stage_tasks.manage_gates`; `POST /api/projects` unauthenticated → 401; authenticated with no permission
+→ 403. `dotnet build -warnaserror` / `dotnet test` (182/182 — 3 new) / `dotnet format --verify-no-changes`
+all clean.

@@ -13,10 +13,6 @@ using Projects.Infrastructure.Services;
 
 namespace Projects.Infrastructure;
 
-/// <summary>
-/// <c>IProjectDirectory</c> (G5-09) and endpoint mapping still land incrementally as each piece is
-/// built.
-/// </summary>
 internal sealed class ProjectsModule : IModule
 {
     public string Name => "Projects";
@@ -27,6 +23,7 @@ internal sealed class ProjectsModule : IModule
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
+        services.AddScoped<IProjectDirectory, ProjectDirectory>();
 
         var applicationAssembly = Assembly.Load("Projects.Application");
         services.AddModuleCqrs<ProjectsDbContext>(applicationAssembly);
