@@ -1821,3 +1821,74 @@ sub-task → read every level back) and template list/detail queries, all real i
 migrated four-module Postgres, resolving handlers via DI (never constructed directly) — matches the
 plan's own G5-06 verify text exactly. `dotnet build -warnaserror` / `dotnet test` (172/172 — 15 new) /
 `dotnet format --verify-no-changes` all clean.
+
+**G5-07** — done — `src/Modules/Projects/Projects.Application/Features/{Projects/ProjectHandlers,
+Stages/ProjectStageHandlers,Tasks/{ProjectTaskHandlers,ProjectSubTaskHandlers,TaskCommentHandlers},
+Teams/StageTeamHandlers}.cs`; `Projects.Domain`'s `Errors.cs` gains `TeamErrors.MissingHead`;
+`Projects.Infrastructure/Decorators/{ProjectScopeDecorator,ProjectScopeRegistration}.cs` (new);
+`ProjectsModule.cs` gains `services.AddProjectScopeDecorator(...)`; `Hr.Contracts/IHrDirectory.cs` gains
+`DepartmentHeadSummary`/`GetDepartmentHeadsAsync`, implemented in `Hr.Infrastructure/Services/
+HrDirectory.cs`. `tests/Modules/Projects.Application.Tests/ProjectFlowTests.cs` (new, 2 tests);
+`tests/Modules/Projects.Infrastructure.Tests/ProjectAccessGuardTests.cs`'s `StubHrDirectory` gains the
+new interface member.
+
+**Cross-module contract extension not specified by the plan: `IHrDirectory.GetDepartmentHeadsAsync`.**
+Instantiation (decision #7) must resolve every department referenced by a template's active
+`StageDepartment` rows to its head, hard-failing the whole operation if any is missing — but `IHrDirectory`
+had no department-level read at all (`Department` itself isn't exposed by HR's Contracts surface, only
+`Employee`). Added one batch method, same shape as `GetManyAsync`: never loop per department id. This is
+a legitimate HR-owned Contracts extension (HR decides what it exposes), not a boundary violation —
+recorded here because the plan's own facts table assumed the capability existed without naming where it
+would come from.
+
+**Instantiation (`CreateProjectCommandHandler.InstantiateAsync`) resolves every department head BEFORE
+staging a single row**, exactly per decision #7's hard-fail requirement: reads the whole template
+skeleton (stages, tasks, subtasks, active stage-departments) in four queries, resolves all referenced
+department heads in one batched call, and only then walks the stages, materializing
+`ProjectStage`/`ProjectTask`/`ProjectSubTask`/`StageTeam` rows with `Priority = Medium`,
+`Status = Open` hardcoded on every task per the facts table. If any department has no head, the method
+returns before adding anything to the tracker — no partial materialization, matching the backend's own
+block.
+
+**`GetProjectsQuery` is not `IProjectScoped`** (no single target project — it's a paged list), so
+`ProjectScopeDecorator` cannot wrap it. Its handler inlines the same `ReadAll`-bypass /
+stage-team-membership-join shape `ProjectAccessGuard` itself uses (G5-05) rather than extending
+`IProjectAccessGuard`'s public surface for one query — that guard's own batch method
+(`FilterAccessibleProjectsAsync`) needs a candidate id set up front, which a paged list doesn't have
+until after filtering. Documented as a deliberate, disclosed duplication of one join, not an oversight.
+
+**A real authorization bug was found and fixed by the scope-decorator test written for this task's own
+verify block, not by inspection:** `ProjectScopeRegistration.AddProjectScopeDecorator` (built earlier
+this task, before compaction) scanned `Assembly.Load("Projects.Application")` for types implementing
+`IProjectScoped` — but every such command/query record is declared in `Projects.Contracts`
+(`Projects.Application` only holds their *handlers*). Scanning the wrong assembly found zero matches and
+silently skipped every `Decorate` call — every `IProjectScoped` command/query would have run with NO
+access check at all, a live hole (any authenticated caller could act on any project). Caught the moment
+`ProjectFlowTests.ProjectScopeDecorator_denies_non_member_and_allows_member` actually asserted an
+outsider gets denied (`Assert.True(result.IsFailure)` failed — the outsider succeeded). Fixed by scanning
+`typeof(IProjectScoped).Assembly` instead. Fixing it then surfaced a second, related issue: G5-08's own
+gate commands (`Projects.Contracts.Gates`) already carry `IProjectScoped` but have no handler yet
+(built at G5-08, not this task) — Scrutor's `Decorate` throws if the target service isn't registered, so
+`ProjectScopeRegistration` now checks `services.Any(d => d.ServiceType == serviceType)` before decorating
+and silently skips types with no handler yet, rather than failing module registration for a feature this
+task doesn't build. Every type that DOES have a handler is still decorated normally, and the test proves
+it. This is exactly the kind of gap `PLAN-PHASE2.md`'s "verify, non-vacuous by construction" discipline
+exists to catch — a happy-path-only test (owner has `ReadAll`, never exercises denial) would have passed
+with the bug present.
+
+**`DeleteProjectCommandHandler` performs a hard delete with no cascade cleanup of child
+`ProjectStage`/`ProjectTask`/etc. rows** — matches the established `DeleteStageTemplateCommandHandler`
+pattern (G5-06) exactly; intra-module references here are bare indexed Guids with no FK constraint (see
+G5-04's own reasoning), so the database won't stop it either. Not exercised by this task's verify block
+(not named in the plan's G5-07 text); acceptable for this vertical slice's scope, noted here rather than
+silently shipped.
+
+**Verify:** full instantiate-and-run flow — register two real employees (Identity + HR) → department with
+an assigned head → template (stage + stage task + stage subtask + stage department) → create project
+with `StageTemplateId` set → assert the materialized `ProjectStage`/`ProjectTask`/`ProjectSubTask`/
+`StageTeam` skeleton, then run task lifecycle (assign → start → complete subtask → complete task →
+complete stage) as the now-team-member head under their OWN access (not the setup-time `ReadAll`
+bypass), asserting the outbox rows for each transition by type name (never delivery — no subscriber
+until G5-08). Scope decorator: outsider → `projects.NotFound`, added team member → success, both via the
+real `GetProjectQuery` handler resolved through DI. `dotnet build -warnaserror` / `dotnet test`
+(174/174 — 2 new) / `dotnet format --verify-no-changes` all clean.

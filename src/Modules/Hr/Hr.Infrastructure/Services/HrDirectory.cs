@@ -58,6 +58,18 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
             .Select(ed => ed.EmployeeId)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<DepartmentHeadSummary>> GetDepartmentHeadsAsync(
+        IReadOnlyCollection<Guid> departmentIds, CancellationToken ct)
+    {
+        if (departmentIds.Count == 0)
+            return [];
+
+        return await db.Departments
+            .Where(d => departmentIds.Contains(d.Id))
+            .Select(d => new DepartmentHeadSummary(d.Id, d.DepartmentHeadId))
+            .ToListAsync(ct);
+    }
+
     /// <summary>Exactly two calls total, regardless of how many ids are passed: one projection here,
     /// one batched <see cref="IUserDirectory.GetManyAsync"/> — zipped in memory. Never looped per id.</summary>
     public async Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)

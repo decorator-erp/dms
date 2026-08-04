@@ -20,6 +20,15 @@ public sealed record EmployeeProfile(
     Guid Id, string AppUserId, string FullName, string? Email,
     string JobTitle, Guid? PrimaryDepartmentId, bool IsActive);
 
+/// <summary>
+/// <see cref="HeadEmployeeId"/> mirrors <c>Hr.Domain.Department.DepartmentHeadId</c> — added for
+/// Projects' template-instantiation flow (materializing <c>StageTeam</c> rows per department), which
+/// must hard-fail if a department has no head. A batch lookup, not a single-id one, for the same reason
+/// <see cref="IHrDirectory.GetManyAsync"/> is batched: instantiation resolves every department on a
+/// template's stages in one call, never loops per id.
+/// </summary>
+public sealed record DepartmentHeadSummary(Guid DepartmentId, Guid? HeadEmployeeId);
+
 public interface IHrDirectory
 {
     // --- HR-only. No Identity involvement. ---
@@ -27,6 +36,7 @@ public interface IHrDirectory
     Task<EmployeeSummary?> GetAsync(Guid employeeId, CancellationToken ct);
     Task<IReadOnlyList<EmployeeSummary>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
     Task<IReadOnlyList<Guid>> DepartmentMembersAsync(Guid departmentId, CancellationToken ct);
+    Task<IReadOnlyList<DepartmentHeadSummary>> GetDepartmentHeadsAsync(IReadOnlyCollection<Guid> departmentIds, CancellationToken ct);
 
     // --- Composed with IUserDirectory.GetManyAsync. Costs one extra batched call. ---
     Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
+using Projects.Infrastructure.Decorators;
 using Projects.Infrastructure.Persistence;
 using Projects.Infrastructure.Services;
 
@@ -13,8 +14,7 @@ namespace Projects.Infrastructure;
 
 /// <summary>
 /// <c>IProjectDirectory</c> (G5-09) and endpoint mapping still land incrementally as each piece is
-/// built. <c>ProjectScopeDecorator</c> wiring (G5-07) happens here too, once the first
-/// <c>IProjectScoped</c> commands exist to decorate.
+/// built.
 /// </summary>
 internal sealed class ProjectsModule : IModule
 {
@@ -27,7 +27,15 @@ internal sealed class ProjectsModule : IModule
 
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
 
-        services.AddModuleCqrs<ProjectsDbContext>(Assembly.Load("Projects.Application"));
+        var applicationAssembly = Assembly.Load("Projects.Application");
+        services.AddModuleCqrs<ProjectsDbContext>(applicationAssembly);
+
+        // Outermost, called after AddModuleCqrs so it wraps Validation/Logging/DomainEventDispatch -
+        // see ProjectScopeRegistration's own remarks. Scans Projects.CONTRACTS, not Projects.Application:
+        // every IProjectScoped command/query record is declared in Projects.Contracts (Application only
+        // holds their handlers) - scanning applicationAssembly here found zero matches and silently
+        // skipped every Decorate call, caught by ProjectFlowTests' scope-decorator test.
+        services.AddProjectScopeDecorator(typeof(IProjectScoped).Assembly);
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

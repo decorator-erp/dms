@@ -248,6 +248,9 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         public Task<IReadOnlyList<Guid>> DepartmentMembersAsync(Guid departmentId, CancellationToken ct) =>
             throw new NotImplementedException("Not used by ProjectAccessGuard.");
 
+        public Task<IReadOnlyList<DepartmentHeadSummary>> GetDepartmentHeadsAsync(IReadOnlyCollection<Guid> departmentIds, CancellationToken ct) =>
+            throw new NotImplementedException("Not used by ProjectAccessGuard.");
+
         public Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
             throw new NotImplementedException("Not used by ProjectAccessGuard.");
     }
