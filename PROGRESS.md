@@ -1684,3 +1684,39 @@ analyzer forbids non-public test classes, and a public test method can't expose 
 parameter type (CS0051) — `[Theory]` data for `ProjectStatus`/`StageTeamMemberRole` travels as `int` and
 casts back inside the method body; noted since this will recur for every future `[Theory]` over an
 `internal` enum in this module.)
+
+**G5-03** — done — `src/Modules/Projects/Projects.Domain/Templates/{StageTemplate,Stage,StageTask,
+StageSubTask,StageDepartment}.cs`, `Gates/GateCondition.cs`, `Events/GateConditionSatisfiedDomainEvent.cs`,
+`Errors/Errors.cs` additions (`StageTemplateErrors`, `GateConditionErrors`), `Enums.cs` additions
+(`StageTemplateType`, `ConditionType`, `GateOwnerKind`, `GateStatus`, `GateTrigger`, `ApprovalType`),
+`tests/Modules/Projects.UnitTests/TemplateTests.cs` (12 tests). `StageDepartment` is a pure join row
+(no `Entity` base), same shape as `Hr.Domain.EmployeeDepartment`. Files under `Templates/`/`Gates/`
+folders use the FLAT `Projects.Domain` namespace, not `Projects.Domain.Templates`/`.Gates` — matches this
+module's own `Errors/`/`Events/` folders (folder organization is file-system only in this module,
+established at G5-02, kept consistent here rather than introducing a second convention).
+
+**The four `IGateConditionTypeHandler` implementations do NOT live in `Projects.Domain`**, despite the
+plan's G5-03 text listing them under this task — resolved via the plan's own hedge one sentence later
+("if Domain stays dependency-free, the handler goes in Application/Infrastructure"). All four need
+something Domain structurally cannot have: `StageReferenceHandler`/`TaskReferenceHandler` need
+`ProjectsDbContext` (to check the referenced stage/task exists, same project); `ApprovalHandler` needs
+`Approvals.Contracts.IApprovalRequester` (a cross-module Contracts reference — Domain → SharedKernel
+only). Even `ManualCheckHandler`, which needs neither, moves too, so the four-handler registry the
+gate-creation flow depends on lives in one place. All four deferred to G5-08, alongside `ApprovalHandler`
+where the plan already put it — this task instead ported the pure state machine
+(`GateCondition.Create`'s XOR-owner guard, `MarkSatisfied`/`MarkRejected`/`MarkPending`, the computed
+`IsSatisfied`/`IsRejected`/`IsPending`/`Scope` properties) and the five template entities that materialize
+into runtime rows at instantiation (G5-07).
+
+**`GateCondition.MarkSatisfied` is idempotent by design, not by accident** — a second call with
+`Status` already `Satisfied` returns `Result.Success()` without re-raising
+`GateConditionSatisfiedDomainEvent` (tested explicitly:
+`MarkSatisfied_Twice_IsIdempotent_DoesNotRaiseASecondEvent`). This matters once the cascade-resolution
+handler (G5-08) can be invoked more than once for the same gate (e.g. a stage-reference gate re-evaluated
+by two different triggering events) — a non-idempotent satisfy would double-fire the cascade.
+
+**Verify:** no EF Core reference; 12 new unit tests — `GateCondition.Create`'s XOR guard (both owners set,
+neither set, both rejected), `Scope` reflects the set owner, satisfy/reject/pending transitions plus the
+idempotent-double-satisfy case, `LinkApproval`. `StageDepartment`'s empty-id guard and soft-remove.
+`dotnet build -warnaserror` / `dotnet test` (154/154 — 61 in `Projects.UnitTests`, 12 new this task) /
+`dotnet format --verify-no-changes` all clean.

@@ -55,3 +55,35 @@ internal static class TeamErrors
     public static readonly Error MemberAlreadyExists = Error.Conflict(
         "teams.MemberAlreadyExists", "This employee is already a member of the stage team.");
 }
+
+internal static class StageTemplateErrors
+{
+    public static readonly Error NotFound = Error.NotFound("stage_templates.NotFound", "Stage template was not found.");
+
+    public static readonly Error StagesNotFound = Error.BadRequest(
+        "stage_templates.StagesNotFound", "The stage template has no stages defined.");
+}
+
+internal static class GateConditionErrors
+{
+    public static readonly Error NotFound = Error.NotFound("gate_conditions.NotFound", "Gate condition was not found.");
+
+    public static readonly Error InvalidScope = Error.BadRequest(
+        "gate_conditions.InvalidScope", "A gate condition must belong to exactly one of a stage or a task.");
+
+    public static readonly Error InvalidReference = Error.BadRequest(
+        "gate_conditions.InvalidReference", "The referenced stage or task is required for this condition type.");
+
+    public static readonly Error SelfReference = Error.BadRequest(
+        "gate_conditions.SelfReference", "A gate condition cannot reference its own owner.");
+
+    public static readonly Error ReferenceNotFound = Error.NotFound(
+        "gate_conditions.ReferenceNotFound", "The referenced stage or task was not found.");
+
+    public static readonly Error CrossProjectReference = Error.BadRequest(
+        "gate_conditions.CrossProjectReference", "A gate condition cannot reference a stage or task in another project.");
+
+    public static readonly Error UnsupportedConditionType = Error.BadRequest(
+        "gate_conditions.UnsupportedConditionType",
+        "This condition type is not supported yet. Supported types: Task, Stage, Approval, ManualCheck.");
+}

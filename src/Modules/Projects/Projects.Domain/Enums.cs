@@ -51,3 +51,53 @@ internal enum WorkflowType
     Stage = 1,
     FreeStyle = 2,
 }
+
+internal enum StageTemplateType
+{
+    System = 1,
+    Custom = 2,
+}
+
+/// <summary>Mirrors <c>Projects.Contracts.ConditionType</c> in full — see that file's own remarks on why
+/// this can't be shared directly. Only <see cref="Task"/>/<see cref="Stage"/>/<see cref="Approval"/>/
+/// <see cref="ManualCheck"/> have a handler this phase; the rest are rejected at gate creation.</summary>
+internal enum ConditionType
+{
+    Task = 1,
+    Stage = 2,
+    Approval = 3,
+    ManualCheck = 4,
+    Attachment = 5,
+    Budget = 6,
+    CrmPeriodClosed = 7,
+    CrmBriefApproved = 8,
+    CrmItemsResolved = 9,
+    DocumentApproved = 10,
+}
+
+internal enum GateOwnerKind
+{
+    Task = 1,
+    Stage = 2,
+}
+
+internal enum GateStatus
+{
+    Pending = 1,
+    Satisfied = 2,
+    Rejected = 3,
+}
+
+internal enum GateTrigger
+{
+    Unlock = 1,
+    Complete = 2,
+}
+
+/// <summary>Mirrors <c>Approvals.Contracts.ApprovalType</c> via <c>Projects.Contracts.ApprovalType</c> —
+/// the same forced-duplication chain, one link further down (Domain can't reference Contracts either).</summary>
+internal enum ApprovalType
+{
+    ManagerApproval = 1,
+    ClientReview = 2,
+}
