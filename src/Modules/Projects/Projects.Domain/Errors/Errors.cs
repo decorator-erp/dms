@@ -71,6 +71,20 @@ internal static class StageTemplateErrors
         "stage_templates.StagesNotFound", "The stage template has no stages defined.");
 }
 
+/// <summary>Errors for the TEMPLATE <c>Stage</c>/<c>StageTask</c>/<c>StageSubTask</c> entities — distinct
+/// from <see cref="StageErrors"/>, which is the RUNTIME <c>ProjectStage</c>'s own error set. The naming
+/// overlap mirrors the backend's own confusing-but-stable permission naming (decision #9) — not fixed
+/// here for the same reason.</summary>
+internal static class TemplateEntityErrors
+{
+    public static readonly Error StageNotFound = Error.NotFound("stages.TemplateStageNotFound", "Template stage was not found.");
+
+    public static readonly Error StageTaskNotFound = Error.NotFound("stage_tasks.TemplateNotFound", "Template stage task was not found.");
+
+    public static readonly Error StageSubTaskNotFound = Error.NotFound(
+        "stage_sub_tasks.TemplateNotFound", "Template stage sub-task was not found.");
+}
+
 internal static class GateConditionErrors
 {
     public static readonly Error NotFound = Error.NotFound("gate_conditions.NotFound", "Gate condition was not found.");

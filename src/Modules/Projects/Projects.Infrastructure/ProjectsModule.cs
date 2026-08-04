@@ -1,3 +1,4 @@
+using System.Reflection;
 using BuildingBlocks;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
@@ -11,12 +12,9 @@ using Projects.Infrastructure.Services;
 namespace Projects.Infrastructure;
 
 /// <summary>
-/// <c>AddModuleCqrs</c> (G5-06+, once <c>Projects.Application</c> exists), <c>IProjectDirectory</c>
-/// (G5-09), and endpoint mapping still land incrementally as each piece is built — same split HR
-/// (G2-03→G2-06) and Approvals (G4-03→G4-04) used, for the identical reason: this module gets exercised
-/// by rule 9 and <c>ApiFixture</c> via a throwaway <c>Register</c> call the moment
-/// <c>ModuleDependencyOrder.SchemaOrder</c> includes <c>"projects"</c>, and
-/// <c>Assembly.Load("Projects.Application")</c> would throw before that assembly exists.
+/// <c>IProjectDirectory</c> (G5-09) and endpoint mapping still land incrementally as each piece is
+/// built. <c>ProjectScopeDecorator</c> wiring (G5-07) happens here too, once the first
+/// <c>IProjectScoped</c> commands exist to decorate.
 /// </summary>
 internal sealed class ProjectsModule : IModule
 {
@@ -28,6 +26,8 @@ internal sealed class ProjectsModule : IModule
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
+
+        services.AddModuleCqrs<ProjectsDbContext>(Assembly.Load("Projects.Application"));
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

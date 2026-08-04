@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Projects.Contracts\Projects.Contracts.csproj" />
+    <ProjectReference Include="..\Projects.Domain\Projects.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as every other module: handlers use ProjectsDbContext
+         directly - "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Projects.Infrastructure\Projects.Infrastructure.csproj" />
+    <!-- Cross-module reads: task assignment validates the employee via Hr.Contracts.IHrDirectory (G5-07);
+         the Approval-type gate handler calls Approvals.Contracts.IApprovalRequester (G5-08). Cross-module
+         *.Contracts references are always allowed. -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Projects.Application.Tests" />
+  </ItemGroup>
+
+</Project>

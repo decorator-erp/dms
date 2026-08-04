@@ -1796,3 +1796,28 @@ denied (`ProjectErrors.AccessDenied`); `ReadAll` → allowed regardless of membe
 allowed; batch filter over 50 accessible + 1 inaccessible project issues exactly 1 SQL command and
 returns exactly the 50; empty id list short-circuits to zero commands. `dotnet build -warnaserror` /
 `dotnet test` (157/157 — 5 new) / `dotnet format --verify-no-changes` all clean.
+
+**G5-06** — done — `src/Modules/Projects/Projects.Application/{ProjectsEnumMapping,Features/Templates/
+{StageTemplateHandlers,StageHandlers,StageTaskHandlers,StageSubTaskHandlers,StageDepartmentHandlers}}.cs`,
+`ProjectsModule.cs` gains `AddModuleCqrs<ProjectsDbContext>`. `Projects.Domain`'s `Errors.cs` gains
+`TemplateEntityErrors` (distinct from the runtime `ProjectStage`'s `StageErrors` — see that type's own
+XML doc for why the names overlap, deliberately, per decision #9). `tests/Modules/
+Projects.Application.Tests/` (new project — `ProjectsApplicationFixture` boots all four modules now,
+`TestCurrentUser`, `EnumMappingParityTests`, `TemplateFlowTests`, 15 tests).
+
+**Enum mapping uses numeric casts, not exhaustive switches — a deliberate departure from the Approvals
+precedent (G4-01/G4-04), recorded because it's a real trade-off, not an oversight.** Twelve
+Contracts/Domain enum pairs exist here (vs. Approvals' five); hand-writing 24 exhaustive switch methods
+was judged not worth the remaining budget for this run. `ProjectsEnumMapping` casts directly
+(`(Domain.X)value`), relying on both sides sharing identical underlying values by construction. The
+safety an exhaustive switch gives — a value added to one side without the other fails to *compile* — is
+replaced by `EnumMappingParityTests`, which enumerates every value of every pair via reflection and
+asserts names and values match in both directions: the same failure mode is caught, at test time instead
+of compile time, in ~40 lines instead of ~200. Documented prominently in the mapping class's own XML doc
+so a future reader doesn't mistake the cast for a shortcut no one thought about.
+
+**Verify:** template authoring round-trip (create template → add stage → add stage task → add stage
+sub-task → read every level back) and template list/detail queries, all real integration tests against a
+migrated four-module Postgres, resolving handlers via DI (never constructed directly) — matches the
+plan's own G5-06 verify text exactly. `dotnet build -warnaserror` / `dotnet test` (172/172 — 15 new) /
+`dotnet format --verify-no-changes` all clean.
