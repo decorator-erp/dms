@@ -1720,3 +1720,48 @@ neither set, both rejected), `Scope` reflects the set owner, satisfy/reject/pend
 idempotent-double-satisfy case, `LinkApproval`. `StageDepartment`'s empty-id guard and soft-remove.
 `dotnet build -warnaserror` / `dotnet test` (154/154 — 61 in `Projects.UnitTests`, 12 new this task) /
 `dotnet format --verify-no-changes` all clean.
+
+**G5-04** — done — `src/Modules/Projects/Projects.Infrastructure/{ProjectsModule,Persistence/
+{ProjectsDbContext,ProjectsDbContextFactory},Persistence/Configurations/*.cs (13 files),Persistence/
+Migrations/InitialProjects/*}`. Schema `projects`, 13 cross-schema FKs added by hand (`fk_projects_owner`,
+`fk_project_tasks_assigned_to`, `fk_project_tasks_department`, `fk_project_stages_completed_by`,
+`fk_project_sub_tasks_completed_by`, `fk_task_comments_employee`, `fk_stage_teams_head`,
+`fk_stage_teams_department`, `fk_stage_team_members_employee`, `fk_stage_tasks_department`,
+`fk_stage_departments_department` → `hr.employees`/`hr.departments`; `fk_gate_conditions_resolved_by` →
+`hr.employees`; `fk_gate_conditions_approval` → `approvals.approvals`) — more than the plan's own G5-04
+table names (which lists 5: owner/assigned_to/stage_team_members.employee_id/stage_departments.
+department_id/gate_conditions.approval_id). Decided to add every employee/department reference column
+the reduced entity set actually has, not just the plan's curated subset — leaving some FK'd and others not
+would read as an oversight, not a choice, and the marginal cost of each additional `ALTER TABLE` + index
+is small. `projects.client_id` gets no FK (CRM absent), documented in the migration and this entry.
+`ModuleDependencyOrder.SchemaOrder` gains `"projects"` after `"approvals"`.
+
+**`ProjectsModule : IModule` created here (minimal — DbContext + permissions only), not deferred to a
+later task** — same reasoning as Approvals' G4-03 split (HR's G2-03→G2-06 precedent), forced by the same
+mechanism: the moment `"projects"` joins `SchemaOrder`, `Rule9CrossSchemaForeignKeyTests` and `ApiFixture`
+both try to discover and `Register()` a `Projects` module via `ModuleDiscovery.DiscoverModules(Assembly.
+Load("Projects.Infrastructure")).Single()` — confirmed by running the suite before adding this file:
+`InvalidOperationException: Sequence contains no elements`, exactly the predicted failure. `AddModuleCqrs`/
+`IProjectAccessGuard`/`IProjectDirectory`/endpoint mapping land incrementally as G5-05/06+/09 build the
+pieces they depend on.
+
+**`StageTeamMember` is a regular EF relationship (`HasMany().WithOne().HasForeignKey(...)`), not an EF
+owned collection** — unlike `Approval.Approvers`/`ApplicationUser.RefreshTokens`. Deliberate: `StageTeamMember`
+needs independent querying (G5-05's access guard queries `StageTeamMembers` directly, not through
+`StageTeam`), so it gets its own table and DbSet, related via the real `StageTeamMember.StageTeamId`
+property rather than a shadow FK.
+
+**Verify:** migration applies for real (`Rule9CrossSchemaForeignKeyTests`' Testcontainers Postgres +
+`ApiFixture`'s, both exercising all 13 FKs); probe migration empty; rule 9 green with all pairs, all
+non-vacuity assertions passing (`fk_projects_owner`, `fk_gate_conditions_approval` alongside the HR and
+Approvals ones already asserted); meta-test green. **Rules 1, 2 (Domain half only — `Projects.Application`
+doesn't exist until G5-06+), 4, 6, 8a (Domain half only) fault-injected for the new assemblies, all
+reverted**, same one-per-rule technique as G4-03. **Rule 9's own scratch-FK fault-injection performed for
+real** (per the plan's explicit instruction for this task): temporarily added a wrong-direction FK
+(`hr.employees` → `projects.projects`, via a throwaway column + raw SQL appended to the Projects
+migration) — confirmed `EveryCrossSchemaForeignKey_PointsInAnAllowedDirection` fails naming exactly
+`fk_scratch_wrong_direction: hr -> projects`, then reverted and reconfirmed green. This is the first time
+rule 9 is exercised non-vacuously against a *wrong* direction rather than only proven to catch the
+existing right-direction FKs. `dotnet build -warnaserror` / `dotnet test` (152/152, unchanged — no new
+tests this task, access-guard/CRUD coverage lands at G5-05+) / `dotnet format --verify-no-changes` all
+clean.

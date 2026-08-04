@@ -15,6 +15,7 @@
   <Folder Name="/src/Modules/Projects/">
     <Project Path="src/Modules/Projects/Projects.Contracts/Projects.Contracts.csproj" />
     <Project Path="src/Modules/Projects/Projects.Domain/Projects.Domain.csproj" />
+    <Project Path="src/Modules/Projects/Projects.Infrastructure/Projects.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />

@@ -44,6 +44,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["identity"] = ("Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure"),
             ["hr"] = ("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure"),
             ["approvals"] = ("Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure"),
+            ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
         };
 
     private PostgreSqlContainer _container = null!;
@@ -113,6 +114,8 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         // assertion above without proving anything.
         Assert.Contains(found, fk => fk is ("hr", "identity", "fk_employees_app_user"));
         Assert.Contains(found, fk => fk is ("approvals", "identity", "fk_approvals_requested_by_user"));
+        Assert.Contains(found, fk => fk is ("projects", "hr", "fk_projects_owner"));
+        Assert.Contains(found, fk => fk is ("projects", "approvals", "fk_gate_conditions_approval"));
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)

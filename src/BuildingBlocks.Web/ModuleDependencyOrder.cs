@@ -21,5 +21,6 @@ public static class ModuleDependencyOrder
         "identity",
         "hr",
         "approvals",
+        "projects",
     ];
 }

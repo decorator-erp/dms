@@ -33,6 +33,7 @@
       the assembly by name (Assembly.Load), not by referencing a type from it.
     -->
     <ProjectReference Include="..\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Projects\Projects.Infrastructure\Projects.Infrastructure.csproj" />
     <!-- Same reasoning as the Identity.Application/Hr.Application references below: ApprovalsModule.Register's
          Assembly.Load("Approvals.Application") needs this DLL present in Api's output directory. -->
     <ProjectReference Include="..\Modules\Approvals\Approvals.Application\Approvals.Application.csproj" />
