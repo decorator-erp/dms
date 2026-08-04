@@ -6,6 +6,9 @@
     <Project Path="src/SharedKernel/SharedKernel.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Approvals/">
+    <Project Path="src/Modules/Approvals/Approvals.Contracts/Approvals.Contracts.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />
     <Project Path="src/Modules/Hr/Hr.Contracts/Hr.Contracts.csproj" />

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Contracts\Hr.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Domain\Hr.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Hr\Hr.Application\Hr.Application.csproj" />

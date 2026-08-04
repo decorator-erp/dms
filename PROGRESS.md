@@ -1336,3 +1336,75 @@ commits, all green through the full gate (`dotnet build -warnaserror`, `dotnet t
   before G2-04 needed a published event actually delivered. Worth an explicit checklist line in a future
   plan: "confirm `Program.cs` registers everything `AddOutbox()`-adjacent" as part of the G0-05/G0-08
   verify blocks, not left to be discovered by the first feature that depends on it.
+
+---
+
+# Phase 2 — Approvals + Projects modules (G4–G6)
+
+Continues from Phase 1 (`4d360ce` + F1). Plan: `PLAN-PHASE2.md`. Execution plan (pre-run research,
+decisions resolved before coding, three review rounds — R-A/R-B, then F1 correcting a broken first draft
+of the domain-event-dispatch fix, then a final confirmation pass): saved at
+`C:\Users\lotfi\.claude\plans\read-plan-phase2-md-in-full-breezy-blum.md`. Runs G4-01 → G6-02 without
+checkpoints per the user's instruction; only the plan's own hard-stop conditions pause it.
+
+**G4-01** — done — `src/Modules/Approvals/Approvals.Contracts/{Enums,IApprovalRequester,
+IntegrationEvents,ApprovalsPermissions}.cs`, `src/Modules/Approvals/Approvals.Contracts/Approvals/
+ApprovalContracts.cs`. `DMS.Modular.slnx` gains the `/src/Modules/Approvals/` folder (Contracts only for
+now — Domain/Application/Infrastructure land at G4-02/03/04); `Architecture.Tests.csproj` gets the
+`ProjectReference` immediately, per `docs/adding-a-module.md` step 2 — arch rule 5 now scans both new
+integration events non-vacuously (enums/Guid/string/DateTimeOffset payloads only).
+
+**Decided, not specified by `PLAN-PHASE2.md`:**
+- **`ApproverSpec`** (referenced by the plan's `ApprovalRequest.Approvers` but never defined) is
+  `ApproverSpec(ApproverKind Kind, string ApproverUserId)` — a *set* of eligible deciders, first valid
+  decision wins, no formal quorum. This is a **redesign**, not a port: the backend's `Approval` stores
+  exactly one assigned approver per row (`AssignedEmployeeId`/`AssignedClientId`, XOR). Justified by (a)
+  the interface doc comment's singular "a pending approval" alongside a *plural* `Approvers` field, and
+  (b) the backend's own `ManagerApproval` gates already being decided by "the project owner OR the
+  active stage-team head" (`GetManagerApprovalRequestsQuery`) — a multi-eligible, single-decider shape
+  resolved ad hoc per query in the backend, now made a first-class part of the `Approval` row itself.
+  `ApproverUserId`/`RequestedByUserId` are Identity `ApplicationUser` string ids, never `Employee`
+  Guids — Approvals stays a schema-isolated sink with zero knowledge of `Employee`; the calling module
+  resolves `Employee → AppUserId` itself (e.g. `Hr.Contracts.IHrDirectory`) before calling
+  `RequestAsync`. Full reasoning in the execution plan's decision #1.
+- **`ApprovalsPermissions.DecideAny = "approvals.decide_any"`** added, not in the plan's text. The
+  backend's `isAdminOverride` (a `project.update` claim holder may decide on behalf of the assigned
+  approver) can't be ported as-is — Approvals hard-coding another module's permission string would break
+  the one-module-one-permission-namespace convention `IPermissionCatalog` exists to enforce. Dropping the
+  escape hatch with no replacement was flagged in review as a real deadlock risk (an approval assigned to
+  a departed/reassigned employee becomes undecidable forever, no reassignment command exists either).
+  `DecideAny` is the Approvals-owned replacement: same effect, no cross-module string. Not seeded to any
+  default role except `admin`. Execution plan decision #2/R-B.
+- **`ApprovalState` (backend: a CRM-artifact confirmation state, never a property of `Approval` itself)
+  is repurposed as `Approval`'s own computed lifecycle** — `Decision is null → PendingApproval`,
+  `Approved → Approved`, `Rejected → Rejected`, `ChangesRequested → PendingApproval` (non-terminal,
+  matches the backend's own "rework loop, not a rejection" gate-side treatment). `Draft`/`NotRequired`
+  are ported as values (per the plan's own "just values" reasoning for `ApprovalSubjectType`) but this
+  module never produces them. Execution plan decision #3.
+- **No automatic "rework round" reopening for `ChangesRequested`, and `ChangeItems` dropped along with
+  it.** The backend's `Round`/rework-loop (`ChangesRequested` → a fresh `Approval` row) and its owned-JSON
+  `ChangeItems` collection are real but exercised by no verify block in this plan. `Round` is ported as
+  an inert field (default 1, never incremented); `ChangeItems` is not ported at all — added to the
+  Scope-boundaries deferred table (owner: CRM/client-review phase) rather than silently dropped. Execution
+  plan decision #4.
+- **`ApprovalErrors` needs an entity-side lookup for a decider not in `Approvers`/lacking `DecideAny`**
+  — carried the backend's `NotAssignedApprover` name forward for this (403), alongside `AlreadyDecided`
+  (409), `CommentRequired` (400), `NotFound` (404), `OpenApprovalExists` (409), `InvalidSubject` (400) —
+  all from `../backend/Domain/Errors/ApprovalErrors.cs`; these land in `Approvals.Domain` at G4-02.
+- **Enum/type-sharing constraint the plan's code block doesn't call out**: `Approvals.Contracts` defines
+  its own `ApprovalSubjectType`/`ApprovalState`/`ApprovalType`/`ApprovalDecision`/`ApproverKind` enums
+  directly (used by-value in `ApprovalRequest`/`ApprovalSnapshot`/the integration events — real enum
+  types, not the string-workaround HR's `ContractType` used). `Approvals.Domain` (G4-02) cannot reference
+  `Approvals.Contracts` (reference matrix: Domain → SharedKernel only) and `Approvals.Contracts` cannot
+  reference `Approvals.Domain` either (Contracts → SharedKernel + BuildingBlocks only) — so Domain will
+  define its own mirror enums for the `Approval` entity's internal state, with `Approvals.Application`
+  mapping between the two sets at the boundary. Same constraint HR's G2-01 solved with a string; this is
+  the enum-to-enum generalization, forced by the plan's code block typing the Contracts records with real
+  enums rather than strings.
+
+**Verify:** `dotnet build DMS.Modular.slnx -warnaserror` clean; `dotnet test DMS.Modular.slnx` — 76/76
+passing (14 architecture, up from 13 — the new `ProjectReference` is picked up by `ModuleAssemblies`
+without any other change, confirming `MetaSelfEnforcementTests`' fail-closed design works as intended for
+a brand-new module, not just HR/Identity); `dotnet format --verify-no-changes` clean. Rule 5 scans the
+two new integration events non-vacuously (`ApprovalSubjectType`/`ApprovalDecision` enums, `Guid`,
+`string`, `DateTimeOffset?` — no violation).
