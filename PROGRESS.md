@@ -1519,3 +1519,73 @@ non-vacuity re-asserted (`Assert.Contains(..., fk => fk is ("approvals", "identi
 `ProjectReference` picked up automatically); rules 1/4/6 fault-injected as above. `dotnet build
 -warnaserror` / `dotnet test` (87/87, unchanged count — no new tests this task, `ApprovalRequester` gets
 covered end-to-end at G4-04) / `dotnet format --verify-no-changes` all clean.
+
+**G4-04** — done — `src/Modules/Approvals/Approvals.Application/{ApprovalEnumMapping,Features/Approvals/
+{Decide/DecideApprovalCommandHandler,GetMyPending/GetMyPendingApprovalsQueryHandler,GetBySubject/
+GetApprovalsBySubjectQueryHandler}}.cs`, `Approvals.Infrastructure/Endpoints/ApprovalEndpoints.cs`,
+`ApprovalsModule.cs` (now wires `AddModuleCqrs<ApprovalsDbContext>` — no `AddModuleIntegrationEvents`,
+since Approvals has no `IIntegrationEventHandler<T>` of its own, only publishes), `Approvals.Domain`'s
+`ApprovalErrors.Unauthenticated` (new, not in the backend — this module's own auth guard shape).
+`tests/Modules/Approvals.Application.Tests/` (`ApprovalsApplicationFixture`, `TestCurrentUser`,
+`ApprovalFlowTests`, 4 tests). Plumbing: `Api.csproj` → `Approvals.Application` reference,
+`Architecture.Tests.csproj` and `DMS.Modular.slnx` gain the fourth Approvals project.
+
+**F1 (decision #10) built here, in `BuildingBlocks/Outbox/InboxDedupeDecorator.cs` +
+`ModuleIntegrationEventRegistration.cs`** — the execution plan's own text (post-review) already specifies
+the fix in full; implemented exactly as written: `InboxDedupeDecorator<TContext,TEvent>` gains a
+`DomainEventDispatcher<TContext>` dependency and wraps handler + cascade + inbox row in one explicit
+`BeginTransactionAsync`/`CommitAsync`. `AddModuleIntegrationEvents<TContext>` additionally self-registers
+`IDomainEventQueue`/`DomainEventDispatcher<TContext>` via `TryAdd` so it no longer implicitly depends on
+`AddModuleCqrs` having run first (every module still calls both, in that order — this just removes a
+latent ordering assumption). Non-vacuous proof, in `tests/BuildingBlocks.IntegrationTests/
+DomainEventCascadeTests.cs` (new fixtures in `Fixtures.cs`: `CascadingEntity`, `Level1DomainEvent`/
+`Level2DomainEvent`, `CascadeIntegrationEventHandler`, `Level1DomainEventHandler`/
+`Level2DomainEventHandler` reusing `FailureController`): a two-level cascade (integration-event handler →
+domain event → its handler enqueues a second domain event via `IDomainEventQueue` → its handler) commits
+all three writes together; a forced throw inside the level-2 handler (after the level-1 dispatch
+iteration's own internal `SaveChangesAsync` already ran) rolls back everything when retried cleanly
+afterward. **Fault-injected for real, not just written and trusted:** temporarily removed the
+`BeginTransactionAsync`/`CommitAsync` wrap and reran the mid-cascade-failure test — it failed exactly as
+the execution plan predicted (`Expected: 0, Actual: 1` — the level-1 write survived without the inbox row
+or the level-2 write), confirming the old bug reproduces; restored the wrap, reconfirmed all 7
+`BuildingBlocks.IntegrationTests` green. `CascadingEntity`'s `Id` is deliberately constructed from the
+triggering `@event.EventId` (not a fresh random Guid) so assertions can filter to one test's own rows —
+the shared `OutboxFixture` Postgres container has no reset between tests in this collection, and an
+unfiltered `CountAsync()` first surfaced this as a false failure (a test-isolation bug in the test itself,
+not in F1 — caught and fixed before trusting the result). A new EF migration
+(`tests/BuildingBlocks.IntegrationTests/Migrations/*_AddCascadingEntities*`) was needed for the new
+`cascading_entities` table.
+
+**Decided, not specified by `PLAN-PHASE2.md`:**
+- **`ApprovalDecidedIntegrationEvent` is enqueued directly inside `DecideApprovalCommandHandler`**, in the
+  same `SaveChangesAsync` as `approval.Decide(...)`'s write — the same direct-enqueue shape
+  `DeactivateEmployeeCommandHandler` (G2-04, HR) uses — rather than via a handler for the
+  `ApprovalDecidedDomainEvent` the entity also raises. Reasoned through explicitly: `DomainEventDispatchDecorator`
+  runs AFTER a command handler returns and already committed, so anything staged inside a domain-event
+  handler for THIS event would land in a second, separate transaction — reintroducing exactly the
+  atomicity gap F1 exists to prevent, one level up. `ApprovalDecidedDomainEvent` stays raised with zero
+  registered handlers today (R2's zero-handler no-op, same as `ApprovalRequestedIntegrationEvent`) —
+  available for a future intra-module reaction, not dead code.
+- **`GetApprovalsBySubjectQuery`/`GetMyPendingApprovalsQuery` are the only two of the backend's six
+  Approvals features ported**, per the execution plan's own scoping note — the backend's gate-driven
+  client/manager inbox queries are Projects/CRM-shaped and belong to those modules.
+- **The plan's "decide without `approvals.decide` → 403" verify line is only partly covered here.**
+  That specific check is the ASP.NET route-level permission gate (`RequirePermission`/
+  `HasPermissionAttribute`/`PermissionAuthorizationHandler`) — a mechanism this codebase has never tested
+  end-to-end via a real HTTP call for ANY module yet (grepped; no existing test asserts a 403 anywhere).
+  Not a gap introduced here — recorded so it isn't mistaken for one later. What IS tested here, at the
+  Application layer, is the more interesting authorization case unique to this module:
+  `DecideApprovalCommandHandler`'s own `NotAssignedApprover` (403) vs. `DecideAny`-override (200)
+  decision, which is business logic, not framework plumbing — `Decide_ByNonApprover_IsForbidden_
+  UnlessCallerHasDecideAny`.
+
+**Verify:** full flow green (`Request_then_decide_then_outbox_delivers_with_zero_handlers` — request via
+`IApprovalRequester` → decide via `ICommandHandler<DecideApprovalCommand>` → snapshot reflects the
+decision → `OutboxProcessor.ProcessPendingAsync` twice, both safe no-ops, no subscriber exists);
+`NotAssignedApprover`/`DecideAny` pair; deciding an already-decided approval → 409 (`AlreadyDecided`,
+first decision untouched); requesting a second approval for an already-open subject → 409
+(`OpenApprovalExists`). `dotnet build -warnaserror` / `dotnet test` (93/93 — 4 new
+`Approvals.Application.Tests` + 2 new F1 `BuildingBlocks.IntegrationTests`) / `dotnet format
+--verify-no-changes` all clean. **G4 phase boundary**: Approvals module complete — 1 entity, sink module,
+zero cross-module reads, `IApprovalRequester` its only public surface, ready for Projects (G5) to depend
+on.

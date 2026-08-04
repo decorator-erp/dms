@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <ProjectReference Include="..\Approvals.Domain\Approvals.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as Hr.Application: handlers use ApprovalsDbContext directly -
+         "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Approvals.Application.Tests" />
+  </ItemGroup>
+
+</Project>

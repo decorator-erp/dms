@@ -23,6 +23,25 @@ namespace BuildingBlocks.IntegrationTests.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BuildingBlocks.IntegrationTests.CascadingEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("cascading_entities", "test_module");
+                });
+
             modelBuilder.Entity("BuildingBlocks.IntegrationTests.TestSideEffect", b =>
                 {
                     b.Property<Guid>("Id")

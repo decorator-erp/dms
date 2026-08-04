@@ -1,3 +1,4 @@
+using System.Reflection;
 using Approvals.Contracts;
 using Approvals.Infrastructure.Persistence;
 using Approvals.Infrastructure.Services;
@@ -11,12 +12,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Approvals.Infrastructure;
 
 /// <summary>
-/// <c>AddModuleCqrs</c>/<c>AddModuleIntegrationEvents</c> and endpoint mapping deliberately are NOT wired
-/// here yet — <c>Approvals.Application</c> doesn't exist until G4-04, and this module gets exercised by
-/// G4-03's own migration/rule-9 tests via a throwaway <c>Register</c> call
-/// (<c>Rule9CrossSchemaForeignKeyTests</c>'s pattern): calling <c>Assembly.Load("Approvals.Application")</c>
-/// before that DLL exists would throw. Same split HR used (G2-03 persistence-only, G2-06 added
-/// endpoints once G2-04/05's Application handlers existed) — completed at G4-04.
+/// No <c>AddModuleIntegrationEvents</c> call — unlike HR, Approvals has no
+/// <c>IIntegrationEventHandler&lt;T&gt;</c> of its own (it only publishes, via
+/// <c>db.Outbox().Enqueue(...)</c> directly in its command handlers; nothing in this module subscribes to
+/// another module's events). Per <c>docs/adding-a-module.md</c>: call it only "if this module handles any
+/// integration events" — Approvals doesn't, yet.
 /// </summary>
 internal sealed class ApprovalsModule : IModule
 {
@@ -36,6 +36,8 @@ internal sealed class ApprovalsModule : IModule
             ]));
 
         services.AddScoped<IApprovalRequester, ApprovalRequester>();
+
+        services.AddModuleCqrs<ApprovalsDbContext>(Assembly.Load("Approvals.Application"));
 
         return services;
     }

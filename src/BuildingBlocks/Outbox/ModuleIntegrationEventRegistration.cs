@@ -1,7 +1,10 @@
 using System.Reflection;
+using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Events;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SharedKernel;
 
 namespace BuildingBlocks.Outbox;
 
@@ -20,6 +23,15 @@ public static class ModuleIntegrationEventRegistration
         this IServiceCollection services, Assembly assembly)
         where TContext : DbContext
     {
+        // TryAdd, not AddModuleCqrs's plain AddScoped: InboxDedupeDecorator now depends on
+        // DomainEventDispatcher<TContext> (F1 — see that decorator's own remarks) to drain the cascade a
+        // handler's write may trigger, in the same transaction as the inbox row. Every module in this
+        // codebase calls AddModuleCqrs<TContext> before this method, which already registers both — these
+        // TryAdd calls exist so this method is self-sufficient regardless of call order, not because the
+        // established order is expected to change.
+        services.TryAddScoped<IDomainEventQueue, DomainEventQueue>();
+        services.TryAddScoped<DomainEventDispatcher<TContext>>();
+
         services.Scan(scan => scan.FromAssemblies(assembly)
             .AddClasses(classes => classes.AssignableTo(typeof(IIntegrationEventHandler<>)), publicOnly: false)
                 .AsImplementedInterfaces()

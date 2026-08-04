@@ -23,4 +23,10 @@ internal static class ApprovalErrors
 
     public static readonly Error InvalidSubject =
         Error.BadRequest("approvals.InvalidSubject", "The approval subject is invalid.");
+
+    /// <summary>Not in the backend — added at G4-04 for <c>Approvals.Application</c>'s own auth guard
+    /// (<c>ICurrentUser.UserId is null</c>), the same shape Identity's permission-override commands use
+    /// their own module's <c>AuthErrors.UnAuthorization</c> for.</summary>
+    public static readonly Error Unauthenticated =
+        Error.Unauthorized("approvals.Unauthenticated", "The current user could not be identified.");
 }

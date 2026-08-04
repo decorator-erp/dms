@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 
 namespace BuildingBlocks.IntegrationTests;
 
@@ -30,6 +31,7 @@ public sealed class TestSideEffect
 public sealed class TestModuleDbContext(DbContextOptions<TestModuleDbContext> options) : DbContext(options)
 {
     public DbSet<TestSideEffect> SideEffects => Set<TestSideEffect>();
+    public DbSet<CascadingEntity> CascadingEntities => Set<CascadingEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,7 +41,94 @@ public sealed class TestModuleDbContext(DbContextOptions<TestModuleDbContext> op
             b.ToTable("side_effects");
             b.HasKey(x => x.Id);
         });
+        modelBuilder.Entity<CascadingEntity>(b =>
+        {
+            b.ToTable("cascading_entities");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Ignore(x => x.DomainEvents);
+        });
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+    }
+}
+
+// --- F1 fixtures: a two-level domain-event cascade triggered by an integration-event handler's write,
+// exercising InboxDedupeDecorator's transaction wrap (see that class's own remarks for why it needs one). ---
+
+/// <summary>An aggregate whose write raises a domain event — stands in for a real module entity like
+/// <c>Approval</c> (G4-02) or <c>GateCondition</c> (G5-03), which do the same. Constructed with the
+/// triggering integration event's own <c>EventId</c> as its <see cref="SharedKernel.Entity.Id"/> so a
+/// test can correlate every row this chain produces back to one event, even when the shared
+/// <see cref="OutboxFixture"/> container carries rows left over from other tests in the collection.</summary>
+public sealed class CascadingEntity : Entity
+{
+    public CascadingEntity(Guid id) : base(id)
+    {
+    }
+
+    public void RaiseLevel1() => AddDomainEvent(new Level1DomainEvent(Id));
+}
+
+/// <summary>Raised by <see cref="CascadingEntity.RaiseLevel1"/>; its handler enqueues
+/// <see cref="Level2DomainEvent"/> via <see cref="IDomainEventQueue"/> rather than through a tracked
+/// entity, exercising the queue's own drain path (the second of the dispatcher's two event sources) not
+/// just the ChangeTracker one <see cref="CascadingEntity"/> already covers.</summary>
+public sealed record Level1DomainEvent(Guid EntityId) : IDomainEvent;
+
+/// <summary>Second-level cascade event — forces <c>DomainEventDispatcher.DispatchAsync</c> through a
+/// second loop iteration (its own internal <c>SaveChangesAsync</c>), which is exactly the multi-commit
+/// shape F1 must wrap in one transaction rather than leave as separate commits.</summary>
+public sealed record Level2DomainEvent(Guid EntityId) : IDomainEvent;
+
+public sealed record CascadeTestEvent(Guid EventId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>
+/// The integration-event handler InboxDedupeDecorator wraps directly. Stages the entity write that
+/// raises the first domain event — does NOT call SaveChangesAsync itself, per the decorator's contract.
+/// </summary>
+public sealed class CascadeIntegrationEventHandler(TestModuleDbContext db) : IIntegrationEventHandler<CascadeTestEvent>
+{
+    public Task HandleAsync(CascadeTestEvent @event, CancellationToken ct)
+    {
+        var entity = new CascadingEntity(@event.EventId);
+        entity.RaiseLevel1();
+        db.CascadingEntities.Add(entity);
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class Level1DomainEventHandler(TestModuleDbContext db, IDomainEventQueue queue, CallCounter counter)
+    : IDomainEventHandler<Level1DomainEvent>
+{
+    public Task Handle(Level1DomainEvent domainEvent, CancellationToken cancellationToken)
+    {
+        counter.Count++;
+        db.SideEffects.Add(new TestSideEffect(domainEvent.EntityId, nameof(Level1DomainEventHandler)));
+        queue.Enqueue(new Level2DomainEvent(domainEvent.EntityId));
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>Reuses <see cref="FailureController"/> as the mid-cascade failure trigger for F1's
+/// fault-injection test — throwing here happens AFTER the level-1 write's own dispatch-loop iteration has
+/// already called <c>SaveChangesAsync</c> internally, which is exactly the scenario that distinguishes a
+/// transaction-wrapped chain (nothing survives) from an unwrapped one (level-1 survives, level-2 and the
+/// inbox row don't).</summary>
+public sealed class Level2DomainEventHandler(TestModuleDbContext db, CallCounter counter, FailureController failure)
+    : IDomainEventHandler<Level2DomainEvent>
+{
+    public Task Handle(Level2DomainEvent domainEvent, CancellationToken cancellationToken)
+    {
+        counter.Count++;
+
+        if (failure.FailNextCall)
+        {
+            failure.FailNextCall = false;
+            throw new InvalidOperationException("forced mid-cascade failure for the test");
+        }
+
+        db.SideEffects.Add(new TestSideEffect(domainEvent.EntityId, nameof(Level2DomainEventHandler)));
+        return Task.CompletedTask;
     }
 }
 
