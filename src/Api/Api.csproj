@@ -32,6 +32,7 @@
       implementations are internal - only *.Contracts is public). Program.cs discovers them by loading
       the assembly by name (Assembly.Load), not by referencing a type from it.
     -->
+    <ProjectReference Include="..\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
     <!--
       Identity.Application is never referenced by Identity.Infrastructure (that would be circular -

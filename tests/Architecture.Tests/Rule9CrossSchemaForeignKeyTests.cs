@@ -29,6 +29,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
     private static readonly (string From, string To)[] AllowedPairs =
     [
         ("hr", "identity"),
+        ("approvals", "identity"),
         ("crm", "identity"), ("crm", "hr"),
         ("sites", "projects"), ("sites", "crm"),
         ("projects", "identity"), ("projects", "hr"), ("projects", "crm"), ("projects", "approvals"),
@@ -42,6 +43,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         {
             ["identity"] = ("Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure"),
             ["hr"] = ("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure"),
+            ["approvals"] = ("Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure"),
         };
 
     private PostgreSqlContainer _container = null!;
@@ -106,10 +108,11 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         Assert.True(violations.Count == 0,
             $"Cross-schema foreign keys pointing the wrong way: {string.Join(", ", violations)}");
 
-        // Non-vacuity check (T4-style): confirm the one FK this solution actually has today was found,
-        // not just that none were found wrong-way-round - an empty result set trivially satisfies the
+        // Non-vacuity check (T4-style): confirm the FKs this solution actually has today were found, not
+        // just that none were found wrong-way-round - an empty result set trivially satisfies the
         // assertion above without proving anything.
         Assert.Contains(found, fk => fk is ("hr", "identity", "fk_employees_app_user"));
+        Assert.Contains(found, fk => fk is ("approvals", "identity", "fk_approvals_requested_by_user"));
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)

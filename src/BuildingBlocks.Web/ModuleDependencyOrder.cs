@@ -20,5 +20,6 @@ public static class ModuleDependencyOrder
         "shared",
         "identity",
         "hr",
+        "approvals",
     ];
 }

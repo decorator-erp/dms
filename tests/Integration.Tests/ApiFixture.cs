@@ -69,7 +69,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             // __EFMigrationsHistory lives in the default "public" schema regardless of a context's
             // HasDefaultSchema (confirmed by inspection), so restricting to these three schemas already
             // leaves it untouched — no explicit TablesToIgnore needed.
-            SchemasToInclude = ["identity", "hr", "shared"],
+            SchemasToInclude = ["identity", "hr", "approvals", "shared"],
             DbAdapter = DbAdapter.Postgres,
         });
 
@@ -154,6 +154,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 await MigrateModuleSchemaAsync(
                     "Hr.Infrastructure",
                     "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
+                break;
+
+            case "approvals":
+                await MigrateModuleSchemaAsync(
+                    "Approvals.Infrastructure",
+                    "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
                 break;
         }
     }

@@ -1447,3 +1447,75 @@ and maps to a non-terminal state, decide by a non-approver without override is r
 the second call (`AlreadyDecided`, first decision untouched), and `Decide` raises exactly one
 `ApprovalDecidedDomainEvent` carrying the right decision/decider. `dotnet build -warnaserror` /
 `dotnet test` (87/87 — 8 new) / `dotnet format --verify-no-changes` all clean.
+
+**G4-03** — done — `src/Modules/Approvals/Approvals.Infrastructure/{ApprovalsModule,Persistence/
+{ApprovalsDbContext,ApprovalsDbContextFactory},Persistence/Configurations/ApprovalConfiguration,
+Persistence/Migrations/InitialApprovals/*,Services/ApprovalRequester}.cs`. Schema `approvals`; cross-schema
+FK `approvals.approvals."RequestedByUserId" → identity.users("Id")` (`ON DELETE RESTRICT`, hand-written
+`migrationBuilder.Sql`, same pattern as `hr.employees`' FK to `identity.users`) — added `("approvals",
+"identity")` to `Rule9CrossSchemaForeignKeyTests.AllowedPairs` (previously absent, as G4-03's own plan
+text anticipated) and to `docs/cross-schema-foreign-keys.md`, both in this commit, with reasoning.
+`ModuleDependencyOrder.SchemaOrder` gains `"approvals"` after `"hr"`. Plumbing touched beyond the plan's
+own text (same category as Phase 1's G1-05 `Api.csproj` gap): `src/Api/Program.cs`'s `Assembly.Load` list,
+`Api.csproj` → `Approvals.Infrastructure` reference, `ApiFixture.MigrateSchemaAsync`'s switch +
+`RespawnerOptions.SchemasToInclude`.
+
+**Split `ApprovalsModule.Register` across two tasks, same shape as HR's G2-03→G2-06 split, decided before
+writing any code:** `AddModuleCqrs`/`AddModuleIntegrationEvents` and endpoint mapping are NOT wired here —
+`Approvals.Application` doesn't exist until G4-04, and `Rule9CrossSchemaForeignKeyTests`/`ApiFixture` both
+invoke `Register` directly via a throwaway `ServiceCollection` to migrate the schema; calling
+`Assembly.Load("Approvals.Application")` before that DLL exists would throw `FileNotFoundException` and
+break G4-03's own verify. `Register` here only wires `AddDbContext`, the `IModulePermissions` singleton,
+and `IApprovalRequester`'s registration — all resolvable without `Approvals.Application`. Completed at
+G4-04.
+
+**`ApprovalRequester : IApprovalRequester` lives in Infrastructure, not routed through the CQRS
+pipeline — a deliberate architectural read, recorded because it's a real, debatable call:**
+`IApprovalRequester.RequestAsync` is a synchronous cross-module WRITE another module's command handler
+calls directly (Projects' gate-creation handler, G5-08) — on its face this looks like exactly what
+`CLAUDE.md`'s "Cross-module writes: integration events on the outbox. Never direct calls" forbids. Two
+things distinguish it from a forbidden bypass: (1) it is exposed through the OWNING module's own
+`*.Contracts` interface, the same shape `Identity.Contracts.IUserAdministration` already establishes as
+legitimate ("write operations other modules may perform," defined and owned by the target module, not a
+reach into its tables) — the outbox involvement in HR's case is about *when* `IUserAdministration` gets
+called (from an integration-event handler, already decoupled/retriable), not a rule that the interface
+itself may never be a write; (2) the caller needs the new approval's `Guid` id back **synchronously** to
+store on its own row (`GateCondition.ApprovalId`) — an outbox-queued event structurally cannot return a
+value to its enqueuer, so an async design isn't an available option here at all, unlike HR's
+fire-and-forget deactivation. Accepted, documented tradeoff: if the caller's own `SaveChangesAsync` later
+fails, the `Approval` row created here has already committed in `approvals.` schema and stays orphaned
+(never decided, harmless clutter — not a correctness issue, no compensating saga built, since nothing in
+this plan asks for one). Full reasoning in `ApprovalRequester`'s own doc comment.
+
+**Enum mapping (Contracts ↔ Domain) lives in `ApprovalRequester` itself**, six small exhaustive `switch`
+expressions — `Approvals.Infrastructure` legitimately references both projects, so this is a natural,
+un-forced place for it (unlike Domain/Contracts, which structurally can't see each other — G4-01/G4-02).
+
+**Migration probe:** `dotnet ef migrations add Probe` produced an empty `Up`/`Down` (model and migration
+agree exactly), confirmed by inspection, then removed by hand — `dotnet ef migrations remove` itself
+needs to reach the real dev Postgres (`localhost:5433`, not running; only Testcontainers is used for
+tests in this environment) to check applied-migration history, so its normal safety check couldn't run;
+deleting the two generated `Probe` files directly was safe here specifically because the diff was
+provably empty (the model snapshot file has zero references to `Probe` after generating it — confirmed by
+grep before deleting, not assumed).
+
+**Fault-injected, all three reverted after confirming red:** rule 4 (temporarily made `ApprovalErrors`
+public — not `Approval` itself, which fails to compile public with `internal` enum-typed members;
+`ApprovalErrors`'s members are already-public `SharedKernel.Error`, so it fault-injects cleanly) → red,
+naming `Approvals.Domain.ApprovalErrors` → reverted, green. Rule 6 (temporary `ProjectReference` from
+`Approvals.Infrastructure` to `Hr.Infrastructure` + a temporary `InternalsVisibleTo` grant the other way,
+since `HrDbContext` is `internal` and needs to be nameable to construct the violation + an unused
+constructor parameter of that type on `ApprovalRequester`) → red, naming
+`Approvals.Infrastructure.Services.ApprovalRequester` → both reverted, green. Rule 1 (temporary
+`Microsoft.EntityFrameworkCore` `PackageReference` on `Approvals.Domain.csproj` alone did **not** trip the
+rule — NetArchTest's dependency scan is IL-level, and an unused package reference produces no actual type
+dependency for Cecil to find; had to add a temporary file with a real `DbContextOptions` field before it
+went red) → reverted, green.
+
+**Verify:** migration applies (exercised for real via `Rule9CrossSchemaForeignKeyTests`' Testcontainers
+Postgres and `ApiFixture`'s, not by inspection); probe migration empty; rule 9 green with the new pair,
+non-vacuity re-asserted (`Assert.Contains(..., fk => fk is ("approvals", "identity",
+"fk_approvals_requested_by_user"))`, alongside the pre-existing HR assertion); meta-test green (new
+`ProjectReference` picked up automatically); rules 1/4/6 fault-injected as above. `dotnet build
+-warnaserror` / `dotnet test` (87/87, unchanged count — no new tests this task, `ApprovalRequester` gets
+covered end-to-end at G4-04) / `dotnet format --verify-no-changes` all clean.

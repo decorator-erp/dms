@@ -9,6 +9,7 @@
   <Folder Name="/src/Modules/Approvals/">
     <Project Path="src/Modules/Approvals/Approvals.Contracts/Approvals.Contracts.csproj" />
     <Project Path="src/Modules/Approvals/Approvals.Domain/Approvals.Domain.csproj" />
+    <Project Path="src/Modules/Approvals/Approvals.Infrastructure/Approvals.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />

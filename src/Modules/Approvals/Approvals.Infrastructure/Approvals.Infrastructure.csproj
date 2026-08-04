@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <ProjectReference Include="..\Approvals.Domain\Approvals.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Approvals.Application needs this despite never being referenced BY Approvals.Infrastructure -
+         same reasoning as Hr.Infrastructure.csproj's identical grant: it uses ApprovalsDbContext directly. -->
+    <InternalsVisibleTo Include="Approvals.Application" />
+    <InternalsVisibleTo Include="Approvals.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Approvals.Application.Tests" />
+  </ItemGroup>
+
+</Project>

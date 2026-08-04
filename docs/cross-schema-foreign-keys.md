@@ -68,6 +68,7 @@ Allowed pairs for the current design:
 
 ```
 hr        → identity
+approvals → identity
 crm       → identity, hr
 sites     → projects, crm
 projects  → identity, hr, crm, approvals
@@ -76,6 +77,16 @@ documents → projects, hr, approvals
 notify    → identity
 (shared.outbox / shared.inbox reference nothing)
 ```
+
+`approvals → identity` (added at G4-03, dms-modular Phase 2): `approvals.approvals."RequestedByUserId" →
+identity.users("Id")`, `ON DELETE RESTRICT`. Approvals models the requester as a bare Identity
+`ApplicationUser` id rather than an HR `Employee` id (a deliberate divergence from the backend this
+module was ported from, which used an `Employee` FK) — Approvals is a schema-isolated sink module with no
+reason to depend on HR at all, and the calling module (e.g. Projects) already resolves `Employee →
+AppUserId` itself via `Hr.Contracts.IHrDirectory` before requesting an approval. Each eligible approver
+(`approval_approvers.ApproverUserId`) is the same kind of id but deliberately carries **no** FK — it's a
+row in an EF-owned collection table, not its own aggregate, and a per-row FK would only duplicate the same
+constraint the `RequestedByUserId` FK already established for this table's write path.
 
 ## The three things that actually need care
 
