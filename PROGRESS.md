@@ -2207,7 +2207,39 @@ grep PROGRESS.md to find them all"). They are listed here so it does.
 | Decision | Raised at | Status |
 |---|---|---|
 | F2 — collapse `.Application`/`.Infrastructure` into one project per module | `REVIEW-FINAL.md:48-54` | **Closed, won't-do.** Destroys arch rule 8; see "F2 — closed (won't-do)" above. |
-| Outbox wake-on-write (`OutboxSignal` + `Outbox:FallbackPollSeconds`) | `docs/low-resource-hosting.md:19-42` | **Open**, undecided. Deferred at `PLAN-PHASE2.md:25-26`, hard stop at `:341`. |
+| Outbox wake-on-write (`OutboxSignal` + `Outbox:FallbackPollSeconds`) | `docs/low-resource-hosting.md:19-42` | **Adopted, not yet built.** Design settled; two binding constraints below. Owner: whichever phase next touches `BuildingBlocks/Outbox`. |
+
+### Outbox wake-on-write — adopted
+
+Adopt the `OutboxSignal` design from `docs/low-resource-hosting.md:19-42`: replace `OutboxProcessor`'s
+`PeriodicTimer` (`OutboxProcessor.cs:27`, hardcoded 5s) with `await signal.WaitAsync(fallback, ct)`, and
+nudge from the write path. It is the rare change that improves both axes at once — happy-path delivery
+latency goes from up to 5s to ~0, and the idle query rate drops 12x at the proposed 60s fallback. There
+is no architecture to trade away: `ProcessPendingAsync` is already public precisely so something other
+than the timer can drive it, so this is filling in a seam the design left open, not cutting a new one.
+
+Deciding it now rather than carrying it: it was deferred at `PLAN-PHASE2.md:25-26` as "separate decision,
+separate task", and a standing-decisions table that opens with an undecided row repeats the F2 mistake
+this section was written to correct.
+
+**Two constraints bind the implementation, and neither is stated in the design doc.** Both come from the
+same fact: raising the fallback to 60s makes every missed nudge 12x more expensive than it is today.
+
+1. **The nudge must fire after commit, never before.** A nudge published before the transaction commits
+   can wake the processor early enough to query before the row is visible, and the message then waits
+   for the full fallback. Under today's 5s timer a mistimed nudge is invisible; at 60s it is a
+   user-visible stall. Prefer nudging where post-commit dispatch already happens rather than adding a
+   second place that has to be got right — see `InboxDedupeDecorator`/`DomainEventDispatchDecorator`
+   for the established commit-boundary shape.
+2. **The fallback is the only cross-instance path.** `OutboxSignal` is in-process, so a second instance's
+   writes are invisible until the sweep. At one instance — the stated target in
+   `docs/low-resource-hosting.md:3` — 60s is fine. If a second instance is ever run, the fallback must
+   come back down; it is a deployment-coupled constant, not a free tuning knob.
+
+Verification when built must include a nudge-path test *and* a fallback-path test with the signal never
+nudged. Testing only the nudge path would pass identically against a broken nudge, since the fallback
+sweep delivers the message either way — the same class of false-green that made rules 2 and 8 look safe
+under F2.
 
 ## Final report — Phase 2 (Approvals + Projects, G4–G6)
 
