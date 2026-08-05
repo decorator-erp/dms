@@ -27,6 +27,14 @@ non-negotiables require it, e.g. Application → own Infrastructure, below):
 | `*.Infrastructure` | All of the above + `BuildingBlocks.Web` |
 | `Api` | Everything |
 
+**Why four and not three.** Collapsing `*.Application` into `*.Infrastructure` was proposed (F2) and
+**rejected** — the layout is settled, don't re-open it per module. Arch rule 8 asserts that no
+`*.Application` assembly references `BuildingBlocks.Web`, checked against the physical assembly
+reference graph; a merged project must reference it for its endpoints, so handlers would gain
+compile-time sight of the web layer and the rule could no longer be stated at all. Extracting a
+`<Module>.Endpoints` project instead is still four projects. The trade-off, including what the merge
+would have bought, is recorded under "F2 — closed (won't-do)" in `PROGRESS.md`.
+
 ## What goes where
 
 **`*.Contracts`** — three things, and nothing else:
@@ -49,7 +57,10 @@ these types there from the start (see `Identity.Contracts.Auth`/`.Permissions`/`
 `Hr.Contracts.Employees`/`.Departments` for the shape) — Identity's own history is the counter-example:
 its command types started in `Identity.Application` and had to be relocated at G1-07, once endpoints
 were built and the cycle became a compile error, touching every feature file a second time. Don't repeat
-that; decide this before writing the first feature, not after the first endpoint.
+that; decide this before writing the first feature, not after the first endpoint. This placement is
+permanent, not provisional: F2 — the project collapse that would have let these types go back to
+`internal` — is closed (see the layout section above), so treat Contracts as their proper home rather
+than somewhere they are parked.
 
 Making these types public in `*.Contracts` has a cost this pattern doesn't remove — it only contains
 it: nothing about "public" stops another module from referencing your `*.Contracts`, naming your command

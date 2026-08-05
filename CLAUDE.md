@@ -12,6 +12,7 @@ Modular monolith. Anatomy: ../backend/docs/backend/architecture-anatomy.md · Pl
 - Sync cross-module calls are depth-1. A→B→C means the design is wrong.
 - Every contract that returns one thing also returns many. No exceptions.
 - Only *.Contracts types are public.
+- Four projects per module: Contracts, Domain, Application, Infrastructure. Not three — collapsing Application into Infrastructure kills arch rule 8 (F2, closed).
 - SharedKernel is frozen at ~9 files.
 - Authorization order: route claims (403) → module scope decorator (404) → aggregate state (409).
 

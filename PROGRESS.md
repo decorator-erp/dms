@@ -1206,6 +1206,9 @@ not implemented.** It would remove the circular-reference tension at its root (c
 mechanical refactor with no urgency today. Decide before starting module #3 — if adopted, rule 10 stays
 regardless, as defense in depth.
 
+→ **Decided: closed as won't-do.** See "F2 — closed (won't-do)" below, near the deferred-items table.
+The "decide before module #3" directive above is spent; do not act on it.
+
 ---
 
 # Final report
@@ -2129,6 +2132,47 @@ fault-injection/adversarial-test discipline this plan already mandates for arch 
 production bugs in areas the plan never asked to fault-inject, simply because the verify block demanded
 a DENIAL case exist, not just a happy path.
 
+## F2 — closed (won't-do)
+
+**F2 (collapse `.Application`/`.Infrastructure` into one implementation project per module) is closed.
+The four-project layout is permanent.** Raised at `REVIEW-FINAL.md:48-54`, deferred at the Post-close-out
+follow-up above with "decide before starting module #3"; four modules exist and that deadline passed
+unremarked, so it is decided here rather than carried into another phase.
+
+**The deciding evidence, which F2's original write-up did not have: the merge destroys arch rule 8.**
+`tests/Architecture.Tests/Rule8BuildingBlocksWebTests.cs:19` asserts that no `*.Application` assembly
+references `BuildingBlocks.Web`, via `assembly.GetReferencedAssemblies()` — the physical assembly
+reference graph. A merged implementation project **must** reference `BuildingBlocks.Web`, because its
+endpoints implement `IEndpoint`/`IModule`. Every handler in that assembly would then have compile-time
+sight of the web layer, and no reference-graph assertion can distinguish "the endpoint parts may see it"
+from "the handler parts may not." The guarantee does not degrade — it ceases to exist. Rule 8 is a
+project-boundary guarantee, and the merge deletes the boundary.
+
+**Rule 2 would survive, but weakened.** `Rule1And2Tests.cs:46-52` already works type-by-type
+(`SafeGetTypes` + member-namespace inspection) and only *selects* assemblies by the `.Application`
+suffix, so it is salvageable by swapping the assembly filter for a namespace filter. That drops it from
+"enforced by the assembly reference graph" to "enforced by namespace convention."
+
+**Both would have gone vacuous silently.** `ModuleAssemblies.WithSuffix(".Application")` returns an empty
+set once no such assembly exists, so rules 2 and 8 would have passed by scanning nothing — no test
+failure, no signal. F2's "mechanical refactor, tests green throughout" framing would have been literally
+true and completely misleading. This is exactly the fail-open mode `ModuleAssemblies`' own doc comment
+warns about.
+
+**There is no clever third option, and this is the part most likely to be re-litigated.** The obvious
+rescue — keep handlers and endpoints in separate assemblies by extracting a `<Module>.Endpoints` project
+— is still four projects per module. It relabels the split rather than removing it, so it buys none of
+what F2 was for while costing a fresh round of churn. Any future re-litigator must answer rule 8 first:
+name the mechanism that keeps handlers provably unable to see `BuildingBlocks.Web` without a project
+boundary between them.
+
+**What stays as a consequence.** Command/query wrapper types remain public in `*.Contracts` — that is
+now the permanent design, not a workaround awaiting F2 — and **arch rule 10 remains the guard** on the
+hole publicness opens, exactly as it would have under F2 ("if adopted, rule 10 stays regardless"). The
+four `Assembly.Load("<Module>.Application")` call sites in the `<Module>Module.Register` methods stay
+too. The cost of closing F2 is those two documented workarounds becoming permanent; the cost of adopting
+it was a compiler-enforced boundary. That is a bad trade in the direction F2 proposed.
+
 ## Scope-boundaries — deferred items (consolidated, both phases)
 
 Everything intentionally not built, why, and who owns it when it eventually gets built. Nothing here is
@@ -2152,6 +2196,18 @@ doesn't have to grep PROGRESS.md to find them all.
 | `ProjectDocument*`/`ProjectFinancial*`/documents+financial endpoint families | G5 phase scope reduction, G5-09 | Documents, Finance | Not stubbed, not commented out — simply absent |
 | `DeleteProjectCommand`'s cascade cleanup of child rows | G5-07 | Projects, if hard-delete-with-children becomes a real use case | Matches the established `DeleteStageTemplateCommandHandler` pattern; intra-module refs are bare indexed Guids with no FK either |
 | G5-05's access matrix re-run through real HTTP (vs. DI-resolved handler / Infrastructure-layer coverage) | G5-10 | — (judged redundant) | The identical code path is already proven at G5-05 (Infrastructure), G5-07 (`ProjectScopeDecorator` via DI), and G5-09 (401/403 via real HTTP) — a fourth angle on the same path wasn't worth the setup cost |
+
+## Standing architectural decisions
+
+The table above is feature and port scope cuts, each owned by a future module. These two are different in
+kind — whole-solution decisions with no owning module — and were tracked only in prose, which meant the
+deferred-items table did not actually meet its own stated purpose ("so a future phase doesn't have to
+grep PROGRESS.md to find them all"). They are listed here so it does.
+
+| Decision | Raised at | Status |
+|---|---|---|
+| F2 — collapse `.Application`/`.Infrastructure` into one project per module | `REVIEW-FINAL.md:48-54` | **Closed, won't-do.** Destroys arch rule 8; see "F2 — closed (won't-do)" above. |
+| Outbox wake-on-write (`OutboxSignal` + `Outbox:FallbackPollSeconds`) | `docs/low-resource-hosting.md:19-42` | **Open**, undecided. Deferred at `PLAN-PHASE2.md:25-26`, hard stop at `:341`. |
 
 ## Final report — Phase 2 (Approvals + Projects, G4–G6)
 
