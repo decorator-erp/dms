@@ -1,0 +1,48 @@
+using BuildingBlocks;
+using Documents.Domain;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Documents.Infrastructure.Persistence.Configurations;
+
+internal sealed class ProjectDocumentConfiguration : IEntityTypeConfiguration<ProjectDocument>
+{
+    public void Configure(EntityTypeBuilder<ProjectDocument> builder)
+    {
+        builder.ToTable("project_documents");
+        builder.ConfigureEntityConventions();
+
+        builder.Property(d => d.FileName).HasMaxLength(512).IsRequired();
+        builder.Property(d => d.StoragePath).HasMaxLength(1024).IsRequired();
+        builder.Property(d => d.ContentType).HasMaxLength(256).IsRequired();
+        builder.Property(d => d.FileExtension).HasMaxLength(32);
+        builder.Property(d => d.Description);
+
+        // Optimistic concurrency via Postgres' own system column - protects a lost update between two
+        // concurrent writers on the same row (e.g. a move racing a lock), ported from the backend.
+        // Npgsql's EF Core provider (10.0.3) has no dedicated UseXminAsConcurrencyToken helper - this is
+        // the standard manual shadow-property mapping: xmin is DB-generated on every insert/update, read
+        // back and compared, never written by EF itself.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
+        // ProjectId/UploadedById: bare Guid FKs to projects.projects/hr.employees, raw-SQL constraints
+        // in the migration (G7-04) - cross-schema, EF cannot emit them. ProjectStageId/ProjectTaskId:
+        // same, but nullable.
+        builder.HasIndex(d => d.ProjectId);
+        builder.HasIndex(d => d.FolderId);
+        builder.HasIndex(d => d.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
+        builder.HasIndex(d => d.ProjectTaskId).HasFilter("\"ProjectTaskId\" IS NOT NULL");
+
+        // Lineage: exactly one row per (root, version), and a descending index for "give me the latest
+        // version in this lineage" lookups (UploadDocumentRevisionCommand, the review-eligibility check).
+        builder.HasIndex(d => new { d.RootDocumentId, d.Version }).IsUnique();
+        builder.HasIndex(d => new { d.RootDocumentId, d.Version })
+            .HasDatabaseName("ix_project_documents_root_version_desc")
+            .IsDescending(false, true);
+
+        // FolderId (same schema, a real EF-managed FK) is configured from DocumentFolder's own side
+        // (HasMany(f => f.Documents).WithOne()...) - see DocumentFolderConfiguration, and
+        // StageTeamConfiguration/StageTeamMemberConfiguration for the identical parent-configures-the-
+        // relationship split already established in Projects.
+    }
+}

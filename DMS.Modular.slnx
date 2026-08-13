@@ -33,6 +33,7 @@
   <Folder Name="/src/Modules/Documents/">
     <Project Path="src/Modules/Documents/Documents.Contracts/Documents.Contracts.csproj" />
     <Project Path="src/Modules/Documents/Documents.Domain/Documents.Domain.csproj" />
+    <Project Path="src/Modules/Documents/Documents.Infrastructure/Documents.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
