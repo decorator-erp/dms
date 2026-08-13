@@ -2805,3 +2805,57 @@ cross-schema plus the `RootDocumentId` self-reference) via `psql \d` and a direc
 not by inspecting the C# diff alone; probe migration empty both before and after the `RootDocumentId`
 fix; rule 9 green with all seven new assertions passing; full gate — `dotnet build -warnaserror` 0/0,
 `dotnet format --verify-no-changes` clean, `dotnet test` **218/218 unchanged**.
+
+**G7-05** — done — new `src/Modules/Documents/Documents.Infrastructure/Services/
+LocalFileStorageService.cs`, registered as a singleton in `DocumentsModule.Register` (matching the
+backend's own lifetime); `src/Api/appsettings.json` gains a `FileStorage` section; new
+`tests/Modules/Documents.Infrastructure.Tests/` (24 tests, no Postgres — pure file I/O).
+
+Ported as specified: config keys (`FileStorage:RootPath` default `uploads`,
+`FileStorage:MaxUploadBytes` default 52,428,800), GUID-named files (`{Guid:N}{extension}`, original name
+never touches disk), `FileMode.CreateNew` for collision-proofing.
+
+**Three hardenings the plan asked for, plus one bug found and fixed that the plan didn't name:**
+
+1. **Path traversal — two distinct defenses, not one, per a closer reading of the plan's own wording**
+   ("sanitize, then assert the resolved path is under root"). `subFolder` is sanitized for genuinely
+   benign mess (normalized separators, empty/`.` segments dropped) but a `..` segment is now **rejected
+   outright** — the backend silently strips `..` and continues, which technically can't escape root
+   (the strip happens before path construction) but doesn't match "reject path traversal" or "must fail
+   closed" as literally written. The final resolved path is still asserted under root regardless, as a
+   backstop independent of the reject-on-`..` check. `originalFileName` is rejected outright on any path
+   separator or `..`.
+2. **A real bug in the backend's own root-containment check, found while implementing the backstop, not
+   assumed present.** The backend's check is a bare `fullPath.StartsWith(root)`. A sibling directory
+   `uploads-evil` satisfies `"uploads-evil".StartsWith("uploads")` — a genuine escape past the intended
+   boundary. Fixed here: containment requires an exact match or a directory-separator-bounded prefix
+   (`root + Path.DirectorySeparatorChar`). Covered by `Save_SubFolderWithDotDot_FailsClosed` and the
+   `OpenReadAsync`/`DeleteAsync` traversal tests, though the specific `uploads-evil` sibling case isn't
+   exercised as its own test — worth naming as a residual gap rather than claiming full coverage.
+3. **`MaxUploadBytes` enforced during the copy, not after.** A seekable stream with a known `Length`
+   over the cap is rejected before any I/O touches disk. Every stream — seekable or not — is ALSO
+   checked chunk-by-chunk while copying (80 KB buffer), aborting and deleting the partial file the
+   moment the running total would exceed the cap. Tested with a hand-written `NonSeekableStream` test
+   double specifically to prove the chunk-by-chunk path is exercised, not just the length-precheck fast
+   path a seekable `MemoryStream` would always hit.
+4. **Extension allow-list, deny-by-default — the closest available equivalent to "content-type
+   allow-list," recorded as a deliberate interface-driven substitution, not silently done.**
+   `IFileStorageService.SaveAsync` (G7-01, ported as-is from the backend's own interface) has no
+   `contentType` parameter — only `originalFileName`. Validates the file EXTENSION instead, checked
+   against `FileStorage:AllowedFileExtensions` if configured, else a hardcoded document/image/archive
+   list that never includes `.exe`/`.dll`/`.bat`/`.sh`/`.ps1`/`.cmd`. No extension at all is rejected too
+   — deny-by-default, not merely deny-known-bad.
+
+**A real test bug found and fixed, not a production bug:** an early draft of
+`Save_ContentAtExactlyMaxUploadBytes_Succeeds` called `OpenReadAsync` and asserted on the result without
+disposing the returned `FileStream`. On Windows that held the file locked (`FileShare.Read`, not
+released until GC), which made `Dispose()`'s own `Directory.Delete(recursive: true)` throw
+`IOException: ... being used by another process` — non-deterministically, since it depends on whether
+the CLR had collected the stream by the time cleanup ran. Fixed by properly `await using`-disposing the
+stream, not by loosening or removing the directory cleanup.
+
+**Verify:** `dotnet build -warnaserror` 0/0; 24 new tests green (round-trip; both traversal cases;
+benign-mess `subFolder` sanitized, not rejected; size cap on both seekable and non-seekable streams;
+six known executable extensions rejected by the default list; `OpenReadAsync`/`DeleteAsync` returning
+null/no-op rather than throwing on a missing or traversal-crafted path; the 50 MB default); full gate —
+`dotnet format --verify-no-changes` clean, `dotnet test` **242/242** (218 + 24 new).
