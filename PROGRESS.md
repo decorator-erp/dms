@@ -3045,3 +3045,256 @@ than `ProjectsSchemaIsolationTests`' three-schema version, since `GetProjectDocu
 no cross-module lookup at all, not even a permission-gated bypass). Full gate — `dotnet format
 --verify-no-changes` clean, `dotnet test` **262/262** (256 + 6 new) across all 18 test projects; all 14
 Architecture.Tests green with five modules on the classpath.
+
+**G8-01** — done — `docs/adding-a-module.md` (append), `docs/cross-schema-foreign-keys.md` (already
+current — see below), this `PROGRESS.md` phase boundary and final report.
+
+`docs/adding-a-module.md` gains a new "Four more patterns (from Phase 3 — Documents)" section: the
+trailing-optional-parameter rule for extending a gate/strategy context (`GateConditionContext`), the
+companion rule that a context field needing to be *remembered* past its own validation call also needs a
+persisted column on the aggregate (A1's general shape, not just its one instance), the bidirectional
+`*.Contracts` pattern and the precise reason it is not a cycle (two DIFFERENT `*.Infrastructure`
+assemblies each pointing at the OTHER module's `*.Contracts`, never at each other's `*.Infrastructure`),
+and the four-item file-upload hardening checklist (path traversal, chunk-by-chunk size enforcement,
+extension allow-list, `FormOptions.MultipartBodyLengthLimit` + `.DisableAntiforgery()`).
+
+`docs/cross-schema-foreign-keys.md` needed **no new content** — checked, not assumed: G7-02 and G7-04
+already recorded the `documents → projects`/`documents → hr` allowed pairs and the deliberately-absent
+`GateCondition.ReferencedDocumentId` FK in their own commits, and G7-08 added zero migrations. Read the
+file end-to-end to confirm before writing this entry rather than trusting the task list's phrasing that
+implied fresh work here.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` 262/262 unchanged (docs/PROGRESS-only change);
+`dotnet format --verify-no-changes` clean; `git status` clean except this task's own commits.
+
+## Phase G8 boundary — non-negotiables re-checked, five modules
+
+1. **No repository pattern.** Every Documents handler uses `DocumentsDbContext` directly — confirmed by
+   grep, no `I*Repository` type anywhere in `src/Modules/Documents/`. ✓
+2. **One DbContext/schema/module, one database.** `DocumentsDbContext` → schema `documents`, same
+   Postgres instance as `identity`/`hr`/`approvals`/`projects`/`shared`. ✓
+3. **Cross-module reads only via `*.Contracts`.** Documents reads Projects through
+   `Projects.Contracts.IProjectDirectory` exclusively (stage/task resolution for upload scope) and HR
+   through `Hr.Contracts.IHrDirectory` exclusively (uploader/approver resolution) — confirmed by arch
+   rule 3, now exercised across five modules. The REVERSE direction is new at this phase: Projects also
+   reads nothing from Documents directly — it only ever reacts to Documents' own published integration
+   events, never calls into `IDocumentQueries` itself (nothing in this phase's scope needed Projects to
+   read a document's data, only to react to its lifecycle). ✓
+4. **Cross-module writes only via outbox integration events.** `DocumentUploadedIntegrationEvent`/
+   `DocumentApprovedIntegrationEvent` (Documents → Projects) and the existing
+   `ApprovalDecidedIntegrationEvent` (Approvals → Documents, the SECOND-EVER subscriber to that event
+   type, which is what surfaced the `AddModuleIntegrationEvents` decorator bug — see G7-07) all go
+   through the outbox, never a direct call. ✓
+5. **Only `*.Contracts` types are public.** Arch rule 4 passes with all five modules' full four-layer
+   structure in place. ✓
+6. **SharedKernel frozen ~9 files.** Still untouched — zero edits across all of Phase 3, same as Phases 1
+   and 2. ✓
+7. **Arch tests written before the code they constrain.** Held the same way at G7-01: `Documents.Contracts`
+   was added to `Architecture.Tests.csproj` in the SAME task that created the project, before any
+   Domain/Application/Infrastructure code existed for it to constrain.
+
+**Two real bugs found this phase sit underneath non-negotiables that look satisfied by inspection but
+weren't exercised until a SECOND module did the thing a first module already did:**
+- **G7-07:** `AddModuleIntegrationEvents`'s use of Scrutor's blanket `Decorate(serviceType, decoratorType)`
+  silently re-wrapped an already-decorated handler the moment a SECOND module (Documents) subscribed to
+  an event type a first module (Projects) already handled (`ApprovalDecidedIntegrationEvent`) — a
+  registration bug directly underneath non-negotiable #4 (cross-module writes go through the outbox) that
+  no single-subscriber module could ever have exposed, no matter how thoroughly tested, because the bug
+  only exists in the INTERACTION between two registrations.
+- **G7-08:** `GateEndpoints`' `CreateGateRequest` DTO not carrying `ReferencedDocumentId` through to the
+  command was invisible to every G7-07 test (which called handlers directly, never through the HTTP
+  binding layer) — a gap in the SAME class as G5-10/G6-01's own finding that DI-resolved-handler tests and
+  real-HTTP tests catch genuinely different bugs, recorded again here because it recurred almost exactly.
+  A `RequestSizeLimit`/antiforgery-shaped gap (missing `.DisableAntiforgery()`) was in the same category:
+  invisible to any test that never issues a real multipart HTTP request.
+
+Both were caught by this phase's own verify blocks — G7-07's cross-module test suite and G7-08's
+characterization suite respectively — not by inspection, continuing the pattern named at every prior
+phase boundary in this file.
+
+## Scope-boundaries — deferred items, Documents' own seams
+
+Same table shape as the Phase 2 boundary above — everything Documents intentionally left for a later
+phase, and why, so Phase 4 (CRM) doesn't have to grep this file to find them.
+
+| Item | Deferred at | Owner (future phase) | Why |
+|---|---|---|---|
+| Audit rows for Documents operations (`AuditModules.Documents` in the backend) | G7-02 (correction 10) | — (no audit service exists in this repo yet) | Nothing in this codebase writes audit rows for ANY module; not a Documents-specific gap |
+| Upload/approval notifications | G7-02 (correction 10) | Notifications module | The integration events already publish with zero handlers today — adding a Notifications subscriber later is purely additive, no republishing needed |
+| `GateCondition.ClientReviewDueDays` (review-SLA column) | G7-02 (correction 10) | Documents/CRM, if a review-SLA feature is ever built | The backend has no tests for this either — genuinely new work, not a port gap |
+| `ICrmGateReader`-style CRM lookup for `DocumentApprovedHandler`'s "is this the client's own document" check | G7-07 | CRM | This phase validates same-project instead — CRM doesn't exist yet to validate against |
+| `RequestDocumentReviewCommand`'s `ReviewInProgress` duplicate-request guard | G7-07 | Documents, once `IApprovalRequester` gains an "open approval for subject X" query or Documents tracks its own pending-approval id | `IApprovalRequester` has no such query today; closing this needs a Contracts extension this phase's verify list didn't require |
+| `IDocumentQueries.ForStageAsync`'s task-under-stage reach-through (listing/UI concern) | G7-01/G7-07 | Documents, if a UI needs "everything visible at this stage" rather than "everything directly attached to it" | The GATE-satisfaction reach-through (the one thing this phase's verify block needed) lives on Projects' subscriber instead, which can resolve it in one step without a batched cross-module round trip a listing query would need |
+| Orphaned blobs from a soft-deleted `ProjectDocument` whose row is never restored | G7-02 (correction 4) | Documents, if disk usage ever becomes a real operational concern | A cleanup job, not a correctness gap — the bytes are inert until then |
+| `ProjectDocumentRepository`-style dependency-tree/bulk endpoints, search/filter variants | G7 phase scope reduction (mirrors G5's own Projects scope cut) | Documents | This phase built one complete vertical slice (upload → gate → approval), not full CRUD breadth, same trade-off Projects made in Phase 2 |
+| Full zero-copy `MultipartReader`-based upload streaming (bypassing ASP.NET Core's own form-value-provider entirely) | G7-08 | Documents/Api, if the 1 GB hosting target's memory pressure ever proves this insufficient in practice | `IFormFile` binding + `FormOptions.MultipartBodyLengthLimit` + `SaveAsync`'s chunk-by-chunk cap is real hardening (no full in-memory buffer, no unbounded disk write), but ASP.NET Core still buffers a section to a temp file before the handler runs — a deliberate, documented, lesser hardening than the theoretical maximum, chosen because it doesn't require reopening `IFileStorageService`'s G7-01 contract (`FileSizeBytes` known up front) |
+
+## Standing architectural decisions — Phase 3 additions
+
+Continuing the table the Phase 2 boundary started, for decisions with no single owning module.
+
+| Decision | Raised at | Status |
+|---|---|---|
+| Bidirectional `*.Contracts` references between two modules | G7-07 (structural item 2) | **Adopted, proven non-cyclic.** First instance: `Documents.Infrastructure → Projects.Contracts` and `Projects.Infrastructure → Documents.Contracts`. See `docs/adding-a-module.md`'s new section for the general rule; expect this shape to recur whenever a later module (Finance, CRM) both contributes a gate/strategy handler to an existing registry AND needs to react to that owning module's own events. |
+| `GateConditionContext`/`GateCondition` extension pattern for a new gate-contributing module | G7-02 (structural item 1) | **Adopted, documented.** Trailing-optional-parameter on the context record; a matching persisted column on `GateCondition` itself if the value must be remembered past create-time validation (A1). Expect Finance (`Budget`) and CRM (`CrmPeriodClosed`/`CrmBriefApproved`/`CrmItemsResolved`) to each need one more such extension. |
+
+## Final report — Phase 3 (H1–G8)
+
+### Task table
+
+| Task | Commit(s) |
+|---|---|
+| H1-01 (package upgrade sweep) | `eedde28`, `03790e1` |
+| H1-02 (`.gitattributes`) | `c995f2b`, `daaca27` |
+| H1-03 (`Program.cs` → `DI.cs`, seeding restored, dead file deleted) | `becac0a`, `f6f2b3e` |
+| H1-04 (docs + decision records, mislabeled `H1-03` in its own commit message — left as-is per the git-safety rule against amending) | `aab784d`, `9f1aa00` |
+| W1-01 (outbox wake-on-write) | `2f1811e`, `1295e82` |
+| G7-01 (Documents.Contracts) | `1818fe6`, `c83bf21` |
+| G7-02 (`GateConditionContext`/`GateCondition.ReferencedDocumentId` (A1), Documents.Domain) | `542f81e`, `78761c6` |
+| G7-03 (Documents.Infrastructure — persistence) | `ab343eb`, `9a58562` |
+| G7-04 (cross-schema FKs, `documents → projects/hr`) | `3b93ef4`, `63dcd2b` |
+| G7-05 (Documents.Infrastructure — file storage) | `47b725f`, `9851104` |
+| G7-06 (Documents.Application — folders + templates) | `baec724`, `63e41b0` |
+| G7-07 (Documents.Application — files, gates, Projects subscription) | `e45b406`, `44f6f41` |
+| G7-08 (Documents endpoints, module registration, integration suite) | `16da164`, `19a118d` |
+| G8-01 (docs + final report) | *(this commit)* |
+
+14 tasks, 27 commits (13 tasks × 2 — one for the work, one for its own `PROGRESS.md` line — plus G8-01's
+docs/report commit), all green through the full gate at every commit, no amends, no reverts.
+
+### Test counts (Phase 3 end state)
+
+**262 tests total**, all passing, across 18 test projects:
+
+| Suite | Count | Suite | Count |
+|---|---|---|---|
+| `Architecture.Tests` | 14 | `Hr.Infrastructure.Tests` | 5 |
+| `BuildingBlocks.UnitTests` | 3 | `Hr.Application.Tests` | 9 |
+| `Identity.UnitTests` | 8 | `Approvals.UnitTests` | 8 |
+| `Hr.UnitTests` | 10 | `Approvals.Application.Tests` | 4 |
+| `Projects.UnitTests` | 61 | `Projects.Infrastructure.Tests` | 5 |
+| `Documents.UnitTests` | 30 | `Projects.Application.Tests` | 21 |
+| `BuildingBlocks.IntegrationTests` | 11 | `Documents.Infrastructure.Tests` | 24 |
+| `Identity.Infrastructure.Tests` | 8 | `Documents.Application.Tests` | 14 |
+| `Identity.Application.Tests` | 10 | `Integration.Tests` | 17 |
+
+Growth from the Phase 2 boundary's 185: 186 (H1's seeding-loop restoration test) → 188 (W1's two
+wake-on-write tests) → 188 (G7-01, Contracts-only) → 218 (G7-02, +30 Domain unit tests — entities, errors,
+lineage, cycle guards) → 242 (G7-05, +24 file-storage hardening tests) → 250 (G7-06, +8 folder/template
+integration tests) → 256 (G7-07, +6 cross-module gate-satisfaction tests, the phase's proof task) → 262
+(G7-08, +6 endpoint/characterization tests). G7-03/G7-04 (persistence, cross-schema FKs) added no new
+test files, matching G5-04's own precedent — migration-only tasks verify via `dotnet ef` applying cleanly
+and the probe-migration-empty check, not new xUnit files.
+
+### Every decision this phase's plan did not fully specify (index — full reasoning in each task's own entry above)
+
+- **H1-01 through H1-04:** the entire H1 section, effectively — `PLAN-PHASE3.md`'s own description of the
+  working tree was wrong in three specific ways (see the H1 close-out section above and the plan-accuracy
+  note below); every H1 decision (commit the sweep alone, restore seeding, delete the dead file, leave
+  `HttpCurrentUser` where it is) was this session's own re-diagnosis, not the plan's.
+- **W1-01:** three test-fixture `TryAddSingleton<OutboxSignal>()` self-sufficiency fixes required by but
+  not specified in the plan's own design; a real test-authoring bug (polling an in-memory counter instead
+  of the durable `ProcessedUtc` column) found via cross-test flakiness, not by inspection.
+- **G7-01:** `Documents.Contracts` does NOT reference `Projects.Contracts`, contrary to the plan's literal
+  text — checked against every existing `*.Contracts` project's own precedent first (none references
+  another module's Contracts); the real dependency belongs on `Documents.Application` instead, per the
+  reference matrix.
+- **G7-02:** structural items 1a/1b (`GateConditionContext`/`GateCondition` extension, the A1 addition)
+  fully designed and implemented as the review process's own required addition; three backend bugs fixed
+  rather than ported (folder-cycle guard, default-folder name collision, move-folder-as-`Renamed` audit
+  non-port).
+- **G7-05:** the file-upload hardening triad (path traversal, chunk-by-chunk size cap, extension
+  allow-list) — the backend's own `IFileStorageService` has none of this; all three are new work, not a
+  port, chosen because a public upload endpoint accepting arbitrary bytes without them is a real
+  vulnerability class, not a hypothetical one.
+- **G7-07:** the `DocumentApprovedIntegrationEvent` design (Documents publishes, Projects subscribes) —
+  the plan's own text read as if Documents could satisfy a `GateCondition` directly, which cross-schema
+  table access forbids; TWO real bugs found and fixed, both outside Documents' own module boundary
+  (`CreateStageGateConditionCommand`/`CreateTaskGateConditionCommand` never threading `ReferencedDocumentId`
+  through, and the `AddModuleIntegrationEvents` decorator double-wrap).
+- **G7-08:** the route scheme (upload and list-by-scope sharing one path prefix per HTTP verb) chosen over
+  the backend's own `by-project`/`by-stage` suffix convention; TWO more real bugs found and fixed
+  (`GateEndpoints`' HTTP-layer DTO gap, and the antiforgery/`GlobalExceptionHandler` status-code chain);
+  the plan's own "oversized upload → 413" corrected to 400 once built and verified against the framework's
+  actual behavior.
+
+### Anything implemented more thinly than intended
+
+- **G7-07:** `RequestDocumentReviewCommand`'s `ReviewInProgress` duplicate-open-review guard is defined
+  (`ProjectDocumentErrors.ReviewInProgress` exists) but never checked — `IApprovalRequester` has no
+  "is there an open approval for subject X" query, and closing this needs either a Contracts extension or
+  Documents tracking its own pending-approval id, neither of which was in this task's own verify list.
+  Recorded in the scope-boundaries table above, not silently dropped.
+- **G7-08:** upload streaming is `IFormFile` binding + configured size limits, not a full zero-copy
+  `MultipartReader` implementation that would bypass ASP.NET Core's own form-value-provider entirely — a
+  deliberate, documented lesser hardening (see the scope-boundaries table) chosen to avoid reopening
+  `IFileStorageService`'s G7-01 contract shape.
+- **G7 (whole module):** `IDocumentQueries.ForStageAsync`/`ForTaskAsync` do the direct-scope-only read the
+  plan's own G7-01 facts table originally implied was a reach-through — the reach-through this phase's
+  verify block actually needed (gate satisfaction) was built on Projects' subscriber side instead, which
+  is strictly better for that one purpose (no cross-module round trip) but means a hypothetical "show me
+  everything visible at this stage" LISTING query still doesn't reach through. Recorded as a real,
+  disclosed gap, not silently absorbed into "done."
+
+### Anything in the plan that looks wrong, having built it
+
+- **`PLAN-PHASE3.md`'s H1 section, in full** — see the H1 close-out section above for the itemized
+  corrections (a fabricated CRLF flip, an unreviewed package sweep it never mentioned, a phantom
+  `HttpCurrentUser` move, a miscounted doc list). The general lesson recorded there — "a plan's
+  description of the working tree is a claim to verify, not a fact to build on" — is this phase's single
+  most important finding, because it recurred at the PLANNING-DOCUMENT level rather than the
+  source-code level where Phase 2's identical lesson ("read the actual source method, not just its
+  name") first appeared. The failure mode is the same; only the artifact being misread changed.
+- **The plan's G7-07 text read as though Documents could satisfy a `GateCondition` directly** ("satisfies
+  matching DocumentApproved gates by RootDocumentId," phrased without naming which module's code does the
+  satisfying). Cross-schema table access forbids this outright — `GateCondition` lives in `projects.`,
+  never touched from Documents. The actual design (a new `DocumentApprovedIntegrationEvent`, Documents
+  publishes, Projects subscribes) is the ONLY shape rule 6/the reference matrix permits, but it required
+  inferring the mechanism the plan's prose left implicit, not just following instructions. Worth flagging
+  for Phase 4's own planning pass: when a plan describes a cross-module EFFECT without naming which
+  module's CODE produces it, treat that as underspecified, not as "the mechanism is obvious."
+- **"Oversized upload → 413" was wrong once built** — see G7-08's own PROGRESS.md entry for the full
+  correction. ASP.NET Core's actual, correct status for a `FormOptions.MultipartBodyLengthLimit`
+  violation is 400 Bad Request; 413 is a different mechanism (`IHttpMaxRequestBodySizeFeature`) this
+  configuration never touches. Not a bug — the plan predicted the wrong status code for a real, working
+  hardening feature.
+- **The package-upgrade question G8-01 is explicitly asked to answer: committed, at H1-01, unchanged.**
+  The full gate was green against the swept package set before anything else in this phase touched the
+  tree (`dotnet build -warnaserror` 0/0, the only test failures traced to the UNRELATED, already-present
+  seeding regression H1-03 fixed two tasks later) — see H1-01's own entry for the live `SSH.NET` audit
+  finding fixed along the way. No revert was needed at any point after.
+
+### What Documents taught that should change the Phase 4 CRM plan
+
+CRM is the next module in `docs/adding-a-module.md`'s own list, and it is structurally closer to
+Documents than to any earlier module: like Documents, CRM will need to CONTRIBUTE gate condition types
+(`CrmPeriodClosed`/`CrmBriefApproved`/`CrmItemsResolved`, all currently rejected at gate-creation time)
+to a registry Projects already owns, and — per the deferred-items table above — CRM is also the eventual
+owner of the `ICrmGateReader`-style validation `DocumentApprovedHandler` approximated with a same-project
+check this phase. Four concrete lessons worth writing into the Phase 4 plan before it is finalized, not
+rediscovering during execution:
+
+1. **Budget the `GateConditionContext`/`GateCondition` extension as its own explicit sub-task, not a
+   footnote.** It touches THREE files across TWO modules (the context record and a new `GateCondition`
+   column + migration, both in `Projects.Contracts`/`Projects.Domain`, even though the FEATURE lives in
+   CRM) — easy to under-scope as "just add a field" when it is actually a cross-module change with its
+   own migration. G7-02 budgeted this correctly only because the review process caught it as a required
+   addition (A1); a first-draft plan should name it explicitly, not rely on a review round to add it back.
+2. **If CRM will subscribe to an integration event ANY other module already handles, say so explicitly and
+   flag the `AddModuleIntegrationEvents` registration bug this phase found and fixed as a prerequisite,
+   not an incidental one.** The Scrutor-decorator double-wrap bug (G7-07) was latent for four phases
+   because no two modules had ever shared a subscribed event type before Documents. CRM reacting to
+   `ApprovalDecidedIntegrationEvent` (a third subscriber) or any OTHER already-subscribed event type will
+   exercise the FIXED code path, but the fix itself should be called out as "already handled, verify it
+   still holds with three subscribers" rather than assumed silently safe.
+3. **Plan a bidirectional-Contracts pair explicitly, don't discover it mid-task.** CRM contributing gate
+   handlers means `Crm.Infrastructure → Projects.Contracts`; if CRM also needs to react to Projects' own
+   events (likely, given the gate-satisfaction shape), that is `Projects.Infrastructure → Crm.Contracts`
+   too — the exact shape this phase established and documented. Naming both directions in the plan up
+   front, with the "why this isn't a cycle" reasoning already written into `docs/adding-a-module.md`,
+   removes a full task's worth of design work from CRM's own execution.
+4. **Any CRM feature that accepts a file (brief attachments, if any survive the CRM scope cut) should
+   reuse `Documents.Contracts.IFileStorageService`/the upload command shape directly, not re-invent
+   upload hardening.** The path-traversal/size-cap/extension-allowlist triad took real design work this
+   phase (G7-05) precisely because the backend's own equivalent had none of it; CRM re-deriving the same
+   protections from scratch would be pure waste when the module already exists to depend on.

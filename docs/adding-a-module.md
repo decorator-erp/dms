@@ -318,6 +318,113 @@ never actually exercised against a bad direction — until some module does this
 real exercise of it in this codebase (a scratch `hr.employees → projects.projects` FK), and the fault
 injection is cheap enough that skipping it just means trusting the rule instead of proving it.
 
+## Four more patterns (from Phase 3 — Documents)
+
+Documents is the first module whose own domain (file attachments, document approval) needed to plug
+INTO another module's already-shipped extension point (Projects' gate system) rather than merely
+consuming a directory/integration-event contract. Two structural firsts and a hardening checklist worth
+keeping close at hand.
+
+### Extending a gate/strategy context (`GateConditionContext`-style)
+
+When a NEW module contributes a new case to an existing pluggable-handler registry (the pattern two
+sections up), its `ValidateAsync(TContext, ct)` call needs a piece of data no earlier case ever needed —
+Documents' `DocumentApprovedHandler` needs to know WHICH document lineage a gate references, and neither
+`ManualCheckHandler` nor `ApprovalHandler` (Projects' own Phase 2 cases) ever needed a document id at
+all. The context record is not module-private — it lives in the OWNING module's `*.Contracts`
+(`Projects.Contracts.GateConditionContext`), so extending it is a decision the owning module makes on the
+new contributor's behalf, guided by one rule:
+
+> **A trailing optional parameter is the only shape allowed.** `Guid? ReferencedDocumentId = null` added
+> after every existing parameter — never inserted in the middle, never required, never removed or
+> repurposed. Every existing caller (positional or named args) keeps compiling unchanged; every existing
+> `IGateConditionTypeHandler` implementation that never reads the new field is unaffected.
+
+This is additive-only by construction, not by convention someone has to remember — a breaking change
+here would mean editing the middle of the parameter list or making the new field required, both of which
+are easy to *notice* in review even without a rule written down, but worth stating so the next module
+doesn't have to rediscover why "just add a parameter" is safe here and isn't everywhere.
+
+### The companion rule: a context field that must be *remembered* also needs a persisted column
+
+Extending the CONTEXT record is necessary but not sufficient. `GateConditionContext` only lives for the
+duration of one `ValidateAsync` call — if the gate type's validation needs to check something again
+LATER (Documents' `DocumentApprovedHandler` doesn't re-validate at satisfaction time, but the
+SATISFACTION path still needs to know which document lineage this specific gate is waiting on, long
+after creation returned), the value must ALSO land on the aggregate itself, not just pass through:
+
+1. The property on the entity (`GateCondition.ReferencedDocumentId`), threaded through its `Create`
+   factory alongside the fields already there.
+2. The EF configuration entry for the new column.
+3. A migration for the owning module's own schema (this is a `projects` migration, not a `documents`
+   one — the column lives on `GateCondition`, which Documents never touches directly).
+4. **No FK if the reference points at a module the owner doesn't depend on** — see
+   `docs/cross-schema-foreign-keys.md`'s `GateCondition.ReferencedDocumentId` paragraph for the full
+   reasoning (`projects → documents` would invert the module graph; Documents depends on Projects, not
+   the reverse). A bare unvalidated `Guid`, validated in the CONTRIBUTING module's own application code
+   against its own `DbContext`, is correct here, not a gap to close later.
+
+Skipping this and only extending the context record produces a handler that validates correctly at
+CREATE time and then has nothing to check against at SATISFY time — a bug that unit tests of
+`ValidateAsync` alone will never catch, since satisfaction is a separate code path entirely.
+
+### The bidirectional Contracts pattern — two modules, each depending on the other's `*.Contracts`
+
+Documents implements `Projects.Contracts.IGateConditionTypeHandler` (needs `Projects.Contracts`) AND
+Projects subscribes to `Documents.Contracts.DocumentUploadedIntegrationEvent`/
+`DocumentApprovedIntegrationEvent` (needs `Documents.Contracts`) — the first time in this codebase two
+modules reference each other's `*.Contracts` at all, in BOTH directions. This looks like it should be a
+cycle. It is not, and the reason generalizes to any future pair that ends up here:
+
+> **`*.Contracts` may only reference `SharedKernel`/`BuildingBlocks`** (the reference matrix at the top of
+> this doc) — never its own module's `Domain`/`Application`/`Infrastructure`, and never another module's
+> `Contracts` either. Two `*.Contracts` assemblies referencing EACH OTHER would violate this on both
+> sides and never compile; what actually happens is `Documents.Infrastructure → Projects.Contracts` and
+> `Projects.Infrastructure → Documents.Contracts` — two DIFFERENT layers (`*.Infrastructure`, which the
+> reference matrix already allows to reach any `*.Contracts`), each depending on the OTHER module's
+> `Contracts`, never on each other's `Infrastructure`. The dependency graph among `*.Contracts` assemblies
+> themselves stays a flat, cycle-free layer underneath everything; `*.Infrastructure` assemblies are free
+> to point at each other's `Contracts` in any combination without that ever becoming circular, because
+> `Infrastructure` sits strictly above `Contracts` in every module, symmetrically.
+
+Confirm this by building, not by reasoning about it in the abstract — `dotnet build -warnaserror`
+resolving with no circular-reference error IS the proof; MSBuild would refuse to build a genuine cycle
+outright, so a green build is not weak evidence here, it is the whole proof. Record which two `*.Contracts`
+each new `*.Infrastructure` reference is added for, in both csproj files' own comments, so the next reader
+doesn't have to reconstruct which direction is which from the diff alone.
+
+### File-upload hardening checklist
+
+Any module accepting user-supplied file content (`IFormFile` or a raw request body) needs all four of
+these — Documents' `LocalFileStorageService` (G7-05) and its upload endpoints (G7-08) are the reference
+implementation:
+
+1. **Path traversal.** Sanitize `subFolder`/`originalFileName` inputs, reject `..` outright, and after
+   resolving the final absolute path, assert it is still under the configured root
+   (`resolvedPath.StartsWith(root + Path.DirectorySeparatorChar)`, not a bare `StartsWith(root)` — the
+   separator-bounded check is what stops a sibling directory whose name happens to start with the same
+   prefix, e.g. `uploads` vs `uploads-evil`, from passing a naive check).
+2. **Size cap enforced during the copy, not only from a pre-known `Length`.** A seekable stream over the
+   cap is rejected before any I/O touches disk as a fast path, but every stream — seekable or not — is
+   ALSO checked chunk-by-chunk while copying, aborting and deleting the partial file the instant the
+   running total would exceed the cap. A non-seekable source (a raw multipart section stream, unlike a
+   buffered `IFormFile`) has no `Length` to pre-check at all, so the chunk-by-chunk path is not optional
+   hardening, it is the ONLY enforcement for that case.
+3. **Extension allow-list, deny-by-default** — check the actual file extension against a configured
+   allow-list (or a conservative hardcoded default that never includes `.exe`/`.dll`/`.bat`/`.sh`/
+   `.ps1`/`.cmd`), never a deny-list of known-bad extensions. No extension at all is rejected too.
+4. **`FormOptions.MultipartBodyLengthLimit`, configured from the SAME source-of-truth config key the
+   storage service's own byte-cap reads** (`FileStorage:MaxUploadBytes` for Documents) — this rejects a
+   wildly oversized request before the multipart form parser spends any time on it, but is defense in
+   depth, not a substitute for point 2: the storage service's own chunk-by-chunk enforcement is what
+   actually protects the disk regardless of what the HTTP layer lets through. **Every endpoint binding
+   `IFormFile`/`IFormFileCollection` needs `.DisableAntiforgery()`** — ASP.NET Core auto-attaches
+   antiforgery metadata to such endpoints as a default, and this codebase has no antiforgery middleware
+   configured at all, so without this call every such endpoint throws `InvalidOperationException` on the
+   FIRST real request, not at startup — easy to miss until an actual multipart POST is exercised, which a
+   unit test resolving handlers directly (bypassing HTTP entirely) never does. A genuine end-to-end HTTP
+   test (`WebApplicationFactory`, real multipart body) is the only thing that catches this.
+
 ## Testing shape (mirror what Identity/HR already have)
 
 - `<Module>.UnitTests` — pure `*.Domain` entity behavior. No database.
