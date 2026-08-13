@@ -45,6 +45,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["hr"] = ("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure"),
             ["approvals"] = ("Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure"),
             ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
+            ["documents"] = ("Documents.Infrastructure", "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure"),
         };
 
     private PostgreSqlContainer _container = null!;
@@ -116,6 +117,16 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         Assert.Contains(found, fk => fk is ("approvals", "identity", "fk_approvals_requested_by_user"));
         Assert.Contains(found, fk => fk is ("projects", "hr", "fk_projects_owner"));
         Assert.Contains(found, fk => fk is ("projects", "approvals", "fk_gate_conditions_approval"));
+
+        // G7-04: all seven documents -> projects/hr FKs, not just a representative sample - the plan's
+        // own verify text asks for every one to be present.
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_project_documents_project"));
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_project_documents_project_stage"));
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_project_documents_project_task"));
+        Assert.Contains(found, fk => fk is ("documents", "hr", "fk_project_documents_uploaded_by"));
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project"));
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project_stage"));
+        Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project_task"));
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)

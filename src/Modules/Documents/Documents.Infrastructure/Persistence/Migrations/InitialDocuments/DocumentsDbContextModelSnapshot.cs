@@ -286,6 +286,8 @@ namespace Documents.Infrastructure.Persistence.Migrations.InitialDocuments
                     b.HasIndex("ProjectTaskId")
                         .HasFilter("\"ProjectTaskId\" IS NOT NULL");
 
+                    b.HasIndex("UploadedById");
+
                     b.HasIndex("RootDocumentId", "Version")
                         .IsUnique()
                         .IsDescending(false, true)
@@ -308,6 +310,12 @@ namespace Documents.Infrastructure.Persistence.Migrations.InitialDocuments
                         .WithMany("Documents")
                         .HasForeignKey("FolderId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Documents.Domain.ProjectDocument", null)
+                        .WithMany()
+                        .HasForeignKey("RootDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Documents.Domain.DocumentFolder", b =>

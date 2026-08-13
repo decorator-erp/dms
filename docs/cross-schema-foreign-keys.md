@@ -110,6 +110,21 @@ invert the module graph. Bare unvalidated `Guid`, validated in application code 
 gets recorded here for the same reason a present one does — so the next reader finds a decision, not an
 oversight.
 
+`documents → projects` and `documents → hr` (added at G7-04, Phase 3): 7 FKs total, all
+`ON DELETE RESTRICT` — 3 into `projects.projects`/`projects.project_stages`/`projects.project_tasks`
+from `documents.project_documents` (`fk_project_documents_project`,
+`fk_project_documents_project_stage`, `fk_project_documents_project_task`), 1 into `hr.employees`
+(`fk_project_documents_uploaded_by`), and the identical 3-into-`projects.*` shape again from
+`documents.document_folders` (`fk_document_folders_project`, `fk_document_folders_project_stage`,
+`fk_document_folders_project_task`) — a folder and a document share the exact same project/stage/task
+scoping shape, so their FK sets mirror each other one-for-one. `document_folders.ParentFolderId` and
+`project_documents.FolderId` are intra-schema same-schema FKs to `document_folders`, already configured
+at G7-03 — EF emits them normally, they were never part of this task.
+`project_documents.RootDocumentId` (the lineage self-reference) is intra-schema too, but was actually
+*missing* from G7-03's configuration — caught while writing this section, added here as a small
+correction rather than a separate task: a real EF-managed FK, `ON DELETE CASCADE`, in its own migration
+(`AddProjectDocumentRootDocumentIdForeignKey`).
+
 ## The three things that actually need care
 
 ### 1. Delete behaviour — never cascade across a schema boundary
