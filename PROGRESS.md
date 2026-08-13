@@ -2583,3 +2583,46 @@ failures.
 not themselves part of W1's design); the two new tests pass; full gate — `dotnet build -warnaserror`
 0/0, `dotnet format --verify-no-changes` clean, `dotnet test` **188/188**, run twice consecutively with
 no flakiness.
+
+# Part G7 — Documents module
+
+**G7-01** — done — `src/Modules/Documents/Documents.Contracts/` (new project): `IDocumentQueries.cs`,
+`IFileStorageService.cs`, `DocumentsPermissions.cs`, `IntegrationEvents.cs`,
+`Documents/DocumentContracts.cs` (Files, 13), `Folders/FolderContracts.cs` (10),
+`FileTemplates/FileTemplateContracts.cs` (7). `DMS.Modular.slnx` and
+`tests/Architecture.Tests/Architecture.Tests.csproj` both gain the new project immediately.
+
+`IDocumentQueries` pairs single (`GetAsync`) with batch (`GetManyAsync`) per the Contracts rule ("every
+lookup has a batch sibling, no exceptions") — `PLAN-PHASE3.md`'s shorthand only named
+`ForProjectAsync`/`ForStageAsync`/`ForTaskAsync` + `GetManyAsync`, but `IHrDirectory`/`IProjectDirectory`
+both pair single+batch for their own by-id lookups (`GetAsync`/`GetManyAsync`,
+`GetProjectAsync`/`GetProjectsAsync`), so a single-id `GetAsync` was added to match, not left out on the
+plan's literal wording. `ForStageAsync` reach-through documented explicitly (correction 8 from the
+backend survey): a stage-scoped lookup must include documents attached to a task under that stage, or an
+`Attachment` gate on a stage can never resolve when the deliverable was actually attached at the task
+level, which is the common case per the backend's own `ProjectDocumentRepository.GetByStageAsync`.
+
+**One deviation from `PLAN-PHASE3.md`'s stated verify condition, decided during this task, not before
+it:** the plan said `Documents.Contracts` would reference `Projects.Contracts`. Checked precedent first —
+neither `Approvals.Contracts` nor `Projects.Contracts` (nor any other `*.Contracts` project in this
+codebase) references another module's `Contracts`; every one is `SharedKernel`+`BuildingBlocks` only.
+None of `Documents.Contracts`' own types need a `Projects.Contracts` type — they carry `ProjectId`/
+`ProjectStageId`/`ProjectTaskId` as bare `Guid`s, the same pattern `IHrDirectory`/`IProjectDirectory`
+already use for cross-module ids. The real dependency — implementing
+`Projects.Contracts.IGateConditionTypeHandler` — belongs on `Documents.Application` (G7-07), which
+*does* get a `Projects.Contracts` reference, matching the reference matrix
+(`*.Application` may reference other modules' `*.Contracts`). Kept `Documents.Contracts` minimal instead
+of adding an unused reference now.
+
+**Registration timing:** `DMS.Modular.slnx` and `Architecture.Tests.csproj` were updated in this same
+task, not deferred to G7-03 as `PLAN-PHASE3.md`'s G7-03 bullet ("add the four projects...") might
+suggest read literally. Checked the actual G4-01 precedent in this file: `Approvals.Contracts` was wired
+into both immediately at G4-01, with Domain/Application/Infrastructure following at G4-02/03/04 — the
+same incremental pattern this task follows. By G7-03 (when Domain/Infrastructure/Application all exist),
+all four will be registered; they just aren't registered as one batch.
+
+**Verify:** `dotnet build -warnaserror` 0/0; rule 5 and rule 10 pass non-vacuously against the new
+assembly (14/14 arch tests green, up from 14 — `Documents.Contracts` adds one integration event type and
+30 command/query types to what those two rules scan, with zero findings); full gate —
+`dotnet format --verify-no-changes` clean, `dotnet test` **188/188** unchanged (Contracts-only, no
+runtime behavior to add coverage for yet).
