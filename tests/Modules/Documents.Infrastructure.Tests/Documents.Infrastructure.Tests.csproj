@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- No Postgres/Testcontainers here, unlike every other module's *.Infrastructure.Tests -
+         LocalFileStorageService is pure file I/O against a real temp directory, no database involved. -->
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Modules\Documents\Documents.Infrastructure\Documents.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

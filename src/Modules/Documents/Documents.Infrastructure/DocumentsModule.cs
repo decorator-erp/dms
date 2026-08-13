@@ -2,6 +2,7 @@ using BuildingBlocks;
 using BuildingBlocks.Web;
 using Documents.Contracts;
 using Documents.Infrastructure.Persistence;
+using Documents.Infrastructure.Services;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -24,6 +25,10 @@ internal sealed class DocumentsModule : IModule
     {
         services.AddDbContext<DocumentsDbContext>(options =>
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+
+        // Singleton, matching the backend - stateless beyond the resolved root path, computed once from
+        // configuration at construction (G7-05).
+        services.AddSingleton<IFileStorageService, LocalFileStorageService>();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

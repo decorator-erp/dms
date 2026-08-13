@@ -54,5 +54,6 @@
     <Project Path="tests/Modules/Identity.Infrastructure.Tests/Identity.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Identity.UnitTests/Identity.UnitTests.csproj" />
     <Project Path="tests/Modules/Documents.UnitTests/Documents.UnitTests.csproj" />
+    <Project Path="tests/Modules/Documents.Infrastructure.Tests/Documents.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>
