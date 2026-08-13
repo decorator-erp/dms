@@ -2765,3 +2765,43 @@ inspection), confirmed structurally correct via `\d` on all three tables; probe 
 1/4/6/8a fault-injected and reverted; full gate — `dotnet build -warnaserror` 0/0,
 `dotnet format --verify-no-changes` clean, `dotnet test` **218/218 unchanged** (Infrastructure/migration
 work, no new runtime behavior to add coverage for yet — that starts at G7-05/06).
+
+**G7-04** — done — seven raw-SQL cross-schema FKs (`documents → projects/hr`), one new migration for the
+`UploadedById` index + those FKs, one MORE migration for a real gap found and fixed in this task,
+`tests/Architecture.Tests/Rule9CrossSchemaForeignKeyTests.cs`, `docs/cross-schema-foreign-keys.md`.
+
+**A real gap from G7-03, found while writing this task's own text, fixed here rather than deferred.**
+`PLAN-PHASE3.md`'s G7-04 description treats `project_documents.RootDocumentId` as an already-configured
+intra-schema self-reference ("EF configures them normally... not part of this task") — it wasn't. G7-03
+never added the FK; only the unique lineage index existed. Added
+`ProjectDocumentConfiguration`'s `HasOne<ProjectDocument>().WithMany().HasForeignKey(d =>
+d.RootDocumentId).OnDelete(Cascade)`, matching the backend, in its own migration
+(`AddProjectDocumentRootDocumentIdForeignKey`) applied and verified **before** the cross-schema
+migration in this same task. Confirmed for real, not assumed: a v1 document's `RootDocumentId` equals
+its own `Id` in the same `INSERT`, which works because Postgres checks FK constraints at statement end,
+not per-row — verified by actually inserting through the real migration path and re-running the probe,
+not by reasoning about it in the abstract. `docs/cross-schema-foreign-keys.md`'s own text was corrected
+to say this was fixed during G7-04, not pre-existing — the doc shouldn't imply a gap was never there.
+
+**The seven FKs**, all `ON DELETE RESTRICT`: `project_documents.{ProjectId, ProjectStageId,
+ProjectTaskId, UploadedById}` and `document_folders.{ProjectId, ProjectStageId, ProjectTaskId}`, into
+`projects.projects`/`projects.project_stages`/`projects.project_tasks`/`hr.employees`. Both allow-list
+pairs (`documents → projects`, `documents → hr`) were already present in rule 9's `AllowedPairs` from
+G7-01's planning — nothing to add there. `UploadedById` needed its own new index first (every other
+referencing column was already indexed at G7-03, confirmed by checking each configuration before
+assuming a gap) — an ordinary EF-diffable migration, ahead of the raw-SQL constraints in the same file,
+matching the established Projects G5-04 shape (index-then-constraint, one migration).
+
+**`Rule9CrossSchemaForeignKeyTests` was silently skipping `documents` before this task** — `"documents"`
+joined `ModuleDependencyOrder.SchemaOrder` at G7-03, but the test's own `Modules` dictionary had no
+matching entry, so its `foreach` loop's `TryGetValue` just `continue`d past it every run without
+migrating the schema or checking its FKs. Added the entry and all seven non-vacuity assertions — the
+plan's own verify text ("every FK present in `pg_constraint`") reads as exhaustive, not sampled, so all
+seven are asserted individually rather than a representative few.
+
+**Verify:** both migrations applied for real against the local `docker-compose` Postgres, which already
+carried Identity/HR/Approvals/Projects schemas from prior phases — confirmed all eight FKs (seven
+cross-schema plus the `RootDocumentId` self-reference) via `psql \d` and a direct `pg_constraint` query,
+not by inspecting the C# diff alone; probe migration empty both before and after the `RootDocumentId`
+fix; rule 9 green with all seven new assertions passing; full gate — `dotnet build -warnaserror` 0/0,
+`dotnet format --verify-no-changes` clean, `dotnet test` **218/218 unchanged**.
