@@ -2626,3 +2626,69 @@ assembly (14/14 arch tests green, up from 14 — `Documents.Contracts` adds one 
 30 command/query types to what those two rules scan, with zero findings); full gate —
 `dotnet format --verify-no-changes` clean, `dotnet test` **188/188** unchanged (Contracts-only, no
 runtime behavior to add coverage for yet).
+
+**G7-02** — done — three parts, one commit (A1 makes it a three-part rather than two-part task; noted
+here per the review's instruction). (a) `Projects.Contracts/IGateConditionTypeHandler.cs`:
+`GateConditionContext` gains `Guid? ReferencedDocumentId = null`. (b) A1:
+`Projects.Domain/Gates/GateCondition.cs` gains the persisted `ReferencedDocumentId` column, threaded
+through `Create()`; migration `20260813174628_AddGateConditionReferencedDocumentId`, no FK. (c) new
+`src/Modules/Documents/Documents.Domain/`: `ProjectDocument`, `DocumentFolder`, `FileTemplate`,
+`FileTemplateCategory`, `ProjectDocumentErrors`/`DocumentFolderErrors`/`FileTemplateErrors`,
+`DocumentUploadedDomainEvent`. New `tests/Modules/Documents.UnitTests/` (30 tests).
+
+**Why A1 was necessary, confirmed by tracing the actual satisfaction path, not assumed:** a
+`DocumentApproved` gate's `ValidateAsync` receives a `GateConditionContext` and returns once — nothing
+about that call outlives it. But satisfaction happens later and separately: G7-07's plan has an approved
+`ProjectDocument`-subject decision resolve its `RootDocumentId`, then look up *pending gates referencing
+that root* to satisfy them. Without a persisted column, "which lineage is this gate waiting on" is
+information the gate would have discarded the moment `ValidateAsync` returned. Verified `GateCondition`
+had `ReferencedStageId`/`ReferencedTaskId` but no `ReferencedDocumentId` before this task (Phase 2 built
+it correctly, since no document gate type existed then) — this is the missing piece, not a duplicate of
+anything already there.
+
+**No FK, by design, not by oversight.** `ReferencedDocumentId` points at
+`documents.project_documents.RootDocumentId`, a table in a schema that migrates AFTER `projects`
+(`ModuleDependencyOrder.SchemaOrder`, `"documents"` appended at G7-03) — and even once it exists,
+`projects → documents` is the wrong direction for rule 9's allow-list (only `documents → projects` is
+listed; Documents depends on Projects, not the reverse). A bare unvalidated `Guid`, same treatment
+`projects.projects."ClientId"` got before CRM existed — validated in application code (Documents' own
+`DocumentApprovedHandler`, G7-07) against Documents' own `DbContext`, never by the database. Documented
+in both the migration's own XML remarks and `docs/cross-schema-foreign-keys.md`.
+
+**The probe check the review flagged as the single most valuable one in the phase:** generated the
+migration, then read its `Up`/`Down` before writing anything else — exactly one `AddColumn<Guid>` for
+`ReferencedDocumentId`, exactly one matching `DropColumn` in `Down`, nothing else. Confirms four modules'
+worth of prior migrations didn't drift the model in some other way that would have ridden along silently.
+
+**Two corrections from the backend survey, carried into the entities, both load-bearing for G7-07:**
+- `ProjectDocument`'s lineage key is `RootDocumentId` (a v1 document self-references its own `Id`;
+  `CreateRevision` carries the same root forward with `Version + 1`), not `Version` alone —
+  `PLAN-PHASE3.md`'s own pre-resolved-facts section said only "`Version`, starts 1, increments," which
+  would have made a `DocumentApproved` gate unbuildable: G7-07's satisfaction path needs the root id to
+  resolve pending gates, and nothing about a bare `Version` counter provides one.
+- `IsLocked` (set when a `ProjectDocument`-subject approval decides Approved, G7-07) blocks `MoveToFolder`
+  and `Deactivate`, explicitly does **not** block `CreateRevision` — matching the backend's own asymmetry
+  exactly, not a simplification.
+
+**`DocumentFolder.MoveTo`'s cycle guard is new work, not a port** — the backend has none at all (a
+folder `A→B` then `B→A` silently detaches a tree branch; the `ParentFolder` FK is `Restrict`, which
+doesn't catch it either). Modeled as a pure function over a caller-supplied ancestor map
+(`IReadOnlyDictionary<Guid, Guid?>`) rather than walking the database itself, so it stays unit-testable
+without EF/a container — `Documents.Application` (G7-06) is responsible for loading that map, the exact
+"entity holds the pure state machine, Application does the relational lookup" split `GateCondition`'s
+own remarks already establish for cross-row reference checks.
+
+**Also new, and unit-tested for the same reason:** `DocumentFolder`'s scope rule is "at most one of
+stage/task, or neither" (project-wide) — explicitly NOT `GateCondition`'s strict XOR, where neither is
+invalid. Getting this backwards (rejecting the project-wide case) would have been a plausible mistake
+carried over from the more familiar XOR pattern; a dedicated test (`Create_NeitherStageNorTask_
+IsValid_ProjectWide`) pins the correct behavior. `FileTemplate.Update`'s own-name-doesn't-collide-with-
+itself case is tested the same way, for the same reason (a naive uniqueness check is a one-line mistake
+away from rejecting a template updating its own unrelated fields).
+
+**Verify:** `dotnet build -warnaserror` 0/0; rule 1 confirms no EF reference in `Documents.Domain`;
+Projects' own three test suites (`Projects.UnitTests` 61, `Projects.Application.Tests` 21,
+`Projects.Infrastructure.Tests` 5) all green **unchanged** — proves the `GateConditionContext`/
+`GateCondition` extensions are source-compatible, not merely "the build still compiles"; 30 new
+`Documents.UnitTests` green; full gate — `dotnet format --verify-no-changes` clean, `dotnet test`
+**218/218** (188 + 30 new).
