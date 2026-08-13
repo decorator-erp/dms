@@ -69,7 +69,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             // __EFMigrationsHistory lives in the default "public" schema regardless of a context's
             // HasDefaultSchema (confirmed by inspection), so restricting to these three schemas already
             // leaves it untouched — no explicit TablesToIgnore needed.
-            SchemasToInclude = ["identity", "hr", "approvals", "projects", "shared"],
+            SchemasToInclude = ["identity", "hr", "approvals", "projects", "documents", "shared"],
             DbAdapter = DbAdapter.Postgres,
         });
 
@@ -102,6 +102,10 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Issuer", JwtIssuer);
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
+        // Small on purpose (default is 50 MB) - keeps DocumentsSmokeTests' oversized-upload test's payload
+        // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
+        // is a handful of bytes, well under this cap.
+        builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
         builder.ConfigureLogging(logging => logging.AddProvider(new SqlCapturingLoggerProvider(_capturedSql)));
     }
 
@@ -166,6 +170,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 await MigrateModuleSchemaAsync(
                     "Projects.Infrastructure",
                     "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure");
+                break;
+
+            case "documents":
+                await MigrateModuleSchemaAsync(
+                    "Documents.Infrastructure",
+                    "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure");
                 break;
         }
     }

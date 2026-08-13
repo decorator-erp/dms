@@ -51,14 +51,14 @@
     <!-- Same reasoning as the Identity.Application reference above: HrModule.Register's
          Assembly.Load("Hr.Application") needs this DLL present in Api's output directory. -->
     <ProjectReference Include="..\Modules\Hr\Hr.Application\Hr.Application.csproj" />
-    <!--
-      Added at G7-03, ahead of the rest of Documents' wiring, purely so the `dotnet ef migrations add`
-      CLI (startup project Api) can find DocumentsDbContext's assembly in Api's build output - the EF
-      CLI requires this regardless of whether Program.cs actually loads the module yet. Program.cs's own
-      Assembly.Load("Documents.Infrastructure") + moduleAssemblies registration, and the matching
-      Documents.Application reference, land at G7-08 once the module has endpoints to actually serve.
-    -->
+    <!-- Added at G7-03, ahead of the rest of Documents' wiring, purely so the `dotnet ef migrations add`
+         CLI (startup project Api) can find DocumentsDbContext's assembly in Api's build output. Program.cs's
+         own Assembly.Load("Documents.Infrastructure") + moduleAssemblies registration land at G7-08, now
+         that the module has endpoints to actually serve. -->
     <ProjectReference Include="..\Modules\Documents\Documents.Infrastructure\Documents.Infrastructure.csproj" />
+    <!-- Same reasoning as the Identity.Application/Hr.Application references above: DocumentsModule.Register's
+         Assembly.Load("Documents.Application") needs this DLL present in Api's output directory. -->
+    <ProjectReference Include="..\Modules\Documents\Documents.Application\Documents.Application.csproj" />
   </ItemGroup>
 
 </Project>

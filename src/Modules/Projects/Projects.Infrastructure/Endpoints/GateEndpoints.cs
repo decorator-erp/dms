@@ -33,7 +33,7 @@ internal sealed class GateEndpoints : IEndpoint
         {
             var result = await handler.HandleAsync(new CreateStageGateConditionCommand(
                 projectId, stageId, currentUser.UserId!, request.ConditionType, request.Trigger, request.Label,
-                request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType), ct);
+                request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType, request.ReferencedDocumentId), ct);
             return result.Match(id => Results.Ok(new { GateConditionId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.ManageGates);
 
@@ -51,7 +51,7 @@ internal sealed class GateEndpoints : IEndpoint
         {
             var result = await handler.HandleAsync(new CreateTaskGateConditionCommand(
                 projectId, taskId, currentUser.UserId!, request.ConditionType, request.Trigger, request.Label,
-                request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType), ct);
+                request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType, request.ReferencedDocumentId), ct);
             return result.Match(id => Results.Ok(new { GateConditionId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.ManageGates);
 
@@ -75,7 +75,8 @@ internal sealed class GateEndpoints : IEndpoint
 
     private sealed record CreateGateRequest(
         ConditionType ConditionType, GateTrigger Trigger, string Label,
-        Guid? ReferencedTaskId, Guid? ReferencedStageId, ApprovalType? ApprovalType);
+        Guid? ReferencedTaskId, Guid? ReferencedStageId, ApprovalType? ApprovalType,
+        Guid? ReferencedDocumentId = null);
 
     private sealed record SatisfyGateRequest(string? Note);
 }

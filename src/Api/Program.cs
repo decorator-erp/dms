@@ -22,6 +22,7 @@ var moduleAssemblies = new[]
     Assembly.Load("Hr.Infrastructure"),
     Assembly.Load("Approvals.Infrastructure"),
     Assembly.Load("Projects.Infrastructure"),
+    Assembly.Load("Documents.Infrastructure"),
 };
 var modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
 

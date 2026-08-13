@@ -5,6 +5,7 @@ using BuildingBlocks.Web;
 using Documents.Contracts;
 using Documents.Infrastructure.Persistence;
 using Documents.Infrastructure.Services;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -16,7 +17,8 @@ namespace Documents.Infrastructure;
 /// <summary>
 /// G7-07: the pluggable <c>IGateConditionTypeHandler</c> registration and <c>AddModuleIntegrationEvents</c>
 /// both land here, alongside the Files feature and gate handlers (<c>AttachmentHandler</c>,
-/// <c>DocumentApprovedHandler</c>) they scan for — structural item 2 fully wired.
+/// <c>DocumentApprovedHandler</c>) they scan for — structural item 2 fully wired. G7-08 adds
+/// <c>IDocumentQueries</c> and the endpoint mapping's <c>FormOptions</c> hardening.
 /// </summary>
 internal sealed class DocumentsModule : IModule
 {
@@ -30,6 +32,18 @@ internal sealed class DocumentsModule : IModule
         // Singleton, matching the backend - stateless beyond the resolved root path, computed once from
         // configuration at construction (G7-05).
         services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+        services.AddScoped<IDocumentQueries, DocumentQueries>();
+
+        // Same fallback default LocalFileStorageService's own constructor uses (kept in sync there, not
+        // shared via a constant - a small, documented duplication, same trade-off ProjectsEnumMappingShim
+        // already accepts elsewhere in this codebase). Caps the multipart form parser's own work at
+        // roughly the configured ceiling, rejecting a wildly oversized body before a form value provider
+        // spends any time on it - SaveAsync's own chunk-by-chunk enforcement (G7-05) remains the
+        // authoritative backstop regardless of what this allows through.
+        var maxUploadBytes = long.TryParse(cfg["FileStorage:MaxUploadBytes"], out var configuredMax) && configuredMax > 0
+            ? configuredMax
+            : 52_428_800;
+        services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxUploadBytes);
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,
