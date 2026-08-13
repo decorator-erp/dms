@@ -2518,3 +2518,68 @@ planning-document level rather than the source-code level:
 claim to verify against the actual repository state, never a fact to build a task on directly — the same
 discipline this project already applies to source code (read the method, not its doc comment or its
 name) applies equally to the plan document itself.
+
+# Part W1 — Outbox wake-on-write
+
+**W1-01** — done — new `src/BuildingBlocks/Outbox/OutboxSignal.cs`; modified
+`src/BuildingBlocks/Outbox/OutboxProcessor.cs`, `.../InboxDedupeDecorator.cs`,
+`.../ModuleIntegrationEventRegistration.cs`, `.../OutboxServiceCollectionExtensions.cs`,
+`src/BuildingBlocks/Behaviors/DomainEventDispatchDecorator.cs`, `src/BuildingBlocks/ModuleCqrsRegistration.cs`,
+`Directory.Packages.props`, `src/Api/appsettings.json`; new
+`tests/BuildingBlocks.IntegrationTests/WakeOnWriteTests.cs`.
+
+Per `docs/low-resource-hosting.md` §2: `OutboxProcessor` waits on a new `OutboxSignal` (a bounded
+`SemaphoreSlim`, singleton) instead of a fixed `PeriodicTimer` polling every 5s. A post-commit nudge
+delivers near-instantly on the happy path; `Outbox:FallbackPollSeconds` (default 60, config-driven) is
+what still reaches a crashed request or a second process instance. **The fallback is not removed** — it
+is the correctness guarantee the signal only optimizes around, per the plan's own explicit instruction.
+
+**Nudge sites**, both strictly after their own commit:
+- `InboxDedupeDecorator`, after `transaction.CommitAsync` — covers an integration-event handler whose
+  own write enqueues a further outbox row.
+- Both nested `CommandHandler` classes in `DomainEventDispatchDecorator<TContext>`, inside the
+  `IsSuccess` branch after commit — covers the common case of a command enqueueing a cross-module event.
+
+**Found and fixed while wiring the nudge, not part of the original scope but required for the plan's own
+"existing outbox tests green unchanged" verify condition:** registering `OutboxSignal` only via
+`AddOutbox()` broke three test fixtures that call `AddModuleCqrs`/`AddModuleIntegrationEvents` directly
+against a minimal container without the full outbox wired up —
+`IdentityApplicationFixture`, `DomainEventDispatchPipelineTests`, `ValidationDecoratorPipelineTests`, all
+resolving `ICommandHandler<T>` through `DomainEventDispatchDecorator`'s now-required `OutboxSignal`
+constructor parameter. Fixed by having both `AddModuleCqrs` and `AddModuleIntegrationEvents`
+`TryAddSingleton<OutboxSignal>()` themselves — the identical self-sufficiency pattern
+`ModuleIntegrationEventRegistration`'s existing `TryAddScoped` calls already document ("self-sufficient
+regardless of call order"). In the real host `AddOutbox()` always runs first (from `DI.cs`'s `AddApi`),
+so the `TryAdd` calls are no-ops there and every module still shares one signal instance — verified by
+inspection of `Program.cs`'s call order, not assumed.
+
+**Two new tests** (`WakeOnWriteTests.cs`), matching the plan's explicit requirement that neither alone
+is sufficient:
+1. **Nudge path** — a real command enqueues an event with `FallbackPollSeconds = 300`; asserts delivery
+   within 5s, which only the nudge can explain.
+2. **Fallback path** — a row inserted directly via raw SQL (`NpgsqlConnection`, bypassing
+   `db.Outbox().Enqueue(...)` and every decorator that would nudge) with `FallbackPollSeconds = 1`;
+   asserts the fallback alone still delivers it. This is the test that stops a later reader deleting the
+   fallback as "redundant now that wake-on-write exists."
+
+**A real bug found and fixed in the tests themselves, not in `OutboxProcessor`:** the first draft polled
+the in-memory `CallCounter` (incremented synchronously inside the handler, before the surrounding
+transaction commits) as the signal to call `processor.StopAsync()`. That races `StopAsync`'s
+cancellation against the still-in-flight commit — cancelling it mid-flight leaves the row's
+`ProcessedUtc` unset (no compensating decrement on the plain `int` counter), so a *later* test's fresh
+processor finds that row still "pending" and reprocesses it for real, incrementing its own counter.
+Observed exactly this: `Fallback_...` failed intermittently with `Expected: 1, Actual: 2` only when run
+as part of the full suite (never in isolation), which is what pointed at cross-test row leakage rather
+than a design flaw. Root-caused precisely — not assumed — by tracing through `ProcessOneAsync`'s
+sequencing: the handler's counter increment happens before `InboxDedupeDecorator`'s own transaction
+commit and before `shared.SaveChangesAsync` marks the row processed, so a cancellation landing in that
+window aborts persistence while leaving the counter elevated. Fixed by waiting on the durable
+`OutboxMessage.ProcessedUtc` for the specific event id instead of the counter, so `StopAsync` only ever
+runs once nothing is in flight. Confirmed fixed: `BuildingBlocks.IntegrationTests` run four times
+consecutively (once isolated to the new file, three more as part of the full project) with zero
+failures.
+
+**Verify:** existing outbox tests green unchanged (with the three fixture fixes above, required by but
+not themselves part of W1's design); the two new tests pass; full gate — `dotnet build -warnaserror`
+0/0, `dotnet format --verify-no-changes` clean, `dotnet test` **188/188**, run twice consecutively with
+no flakiness.
