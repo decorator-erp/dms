@@ -13,6 +13,13 @@ namespace Documents.Contracts.Documents;
 /// <see cref="RootDocumentId"/> equals a v1 document's own id, and every later revision carries the
 /// same root with an incremented <see cref="Version"/>. There is no parent-document id, only root +
 /// version.
+///
+/// <c>UploadedByUserId</c> on every upload command is the Identity <c>ApplicationUser</c> id (a
+/// string), never an Employee <c>Guid</c> directly — the same "carry the acting user's Identity id, let
+/// the handler resolve it to an Employee via <c>Hr.Contracts.IHrDirectory</c>" pattern
+/// <c>SatisfyGateConditionCommand.UserId</c> already establishes in Projects. An earlier draft of these
+/// commands had no actor field at all, discovered missing while wiring the first upload handler at
+/// G7-07 — fixed here before any handler shipped against the gap.
 /// </summary>
 public sealed record ProjectDocumentResponse(
     Guid Id,
@@ -46,6 +53,7 @@ public sealed record UploadProjectDocumentCommand(
     string FileName,
     string ContentType,
     long FileSizeBytes,
+    string UploadedByUserId,
     Guid? FolderId = null,
     string? Description = null) : ICommand<Guid>;
 
@@ -58,6 +66,7 @@ public sealed record UploadStageDocumentCommand(
     string FileName,
     string ContentType,
     long FileSizeBytes,
+    string UploadedByUserId,
     Guid? FolderId = null,
     string? Description = null) : ICommand<Guid>;
 
@@ -69,6 +78,7 @@ public sealed record UploadTaskDocumentCommand(
     string FileName,
     string ContentType,
     long FileSizeBytes,
+    string UploadedByUserId,
     Guid? FolderId = null,
     string? Description = null) : ICommand<Guid>;
 
@@ -82,12 +92,14 @@ public sealed record UploadDocumentRevisionCommand(
     string FileName,
     string ContentType,
     long FileSizeBytes,
+    string UploadedByUserId,
     string? Description = null) : ICommand<Guid>;
 
 /// <summary>Copies a <c>FileTemplate</c>'s stored bytes into a new document attached to
 /// <paramref name="ProjectTaskId"/>, always resolving/creating the task's default folder (unlike the
 /// plain task upload, which only does so when no explicit folder is given).</summary>
-public sealed record ApplyFileTemplateToTaskCommand(Guid ProjectTaskId, Guid FileTemplateId) : ICommand<Guid>;
+public sealed record ApplyFileTemplateToTaskCommand(
+    Guid ProjectTaskId, Guid FileTemplateId, string UploadedByUserId) : ICommand<Guid>;
 
 public sealed record MoveProjectDocumentCommand(Guid DocumentId, Guid? FolderId) : ICommand;
 
@@ -106,9 +118,9 @@ public sealed record GetProjectDocumentsByProjectQuery(Guid ProjectId)
 public sealed record GetProjectDocumentsByFolderQuery(Guid FolderId)
     : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
 
-/// <summary>Reach-through to task-scoped documents under this stage — same rule as
-/// <see cref="IDocumentQueries.ForStageAsync"/>, and for the identical reason (an <c>Attachment</c> gate
-/// on a stage must see documents attached at the task level too).</summary>
+/// <summary>Directly stage-scoped documents only — see <c>IDocumentQueries.ForStageAsync</c>'s own
+/// remarks for why the task-under-this-stage reach-through lives on the gate-satisfaction side (G7-07)
+/// instead of here.</summary>
 public sealed record GetProjectDocumentsByStageQuery(Guid ProjectStageId)
     : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
 
@@ -116,3 +128,17 @@ public sealed record GetProjectDocumentsByTaskQuery(Guid ProjectTaskId)
     : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
 
 public sealed record GetProjectDocumentDownloadQuery(Guid DocumentId) : IQuery<ProjectDocumentDownloadResponse>;
+
+/// <summary>
+/// Not one of G7-01's original 31 — added at G7-07 because making
+/// <c>ApprovalSubjectType.ProjectDocument</c> real (the plan's own G7-07 text) requires an actual way to
+/// REQUEST a review, and none of the 31 counted features covered it. The backend resolves the reviewer
+/// as "the project's client" via a CRM lookup this build doesn't have (CRM is Phase 4) — this port names
+/// the approver explicitly instead (<paramref name="ApproverEmployeeId"/>), resolved to an
+/// <c>Approvals.Contracts.ApproverSpec</c> via <c>Hr.Contracts.IHrDirectory</c>. Rejected if the
+/// document is locked, isn't the latest version in its lineage, or already has an open review —
+/// <c>ProjectDocumentErrors.Locked</c>/<c>NotLatestVersion</c>/<c>ReviewInProgress</c>, all already
+/// defined at G7-02 for exactly this.
+/// </summary>
+public sealed record RequestDocumentReviewCommand(
+    Guid DocumentId, Guid ApproverEmployeeId, string RequestedByUserId) : ICommand<Guid>;

@@ -24,6 +24,7 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
     private PostgreSqlContainer _container = null!;
     private ServiceProvider _provider = null!;
 
+    public OutboxProcessor OutboxProcessor { get; private set; } = null!;
     public string ConnectionString => _container.GetConnectionString();
 
     public async Task InitializeAsync()
@@ -85,6 +86,8 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
         {
             await identityModule.SeedAsync(scope.ServiceProvider);
         }
+
+        OutboxProcessor = _provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
     }
 
     private async Task MigrateAsync(string assemblyQualifiedContextTypeName)

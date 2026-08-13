@@ -25,3 +25,20 @@ public sealed record DocumentUploadedIntegrationEvent(
     int Version,
     Guid UploadedById,
     DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>
+/// Published by Documents' own <c>ApprovalDecidedIntegrationEventHandler</c> (G7-07) when a
+/// <c>ProjectDocument</c>-subject approval decides Approved — the SAME bidirectional shape
+/// <see cref="DocumentUploadedIntegrationEvent"/> already establishes for <c>Attachment</c> gates, one
+/// condition type over: Documents cannot satisfy a <c>GateCondition</c> directly (it lives in
+/// <c>projects.</c>, never touched from here), so it publishes this instead and
+/// <c>Projects.Infrastructure</c> subscribes to satisfy matching <c>DocumentApproved</c> gates
+/// (<c>ConditionType.DocumentApproved &amp;&amp; ReferencedDocumentId == RootDocumentId</c>).
+/// <see cref="RootDocumentId"/>, not the specific decided version's id — a gate waits on the LINEAGE,
+/// and <c>GateCondition.ReferencedDocumentId</c> (G7-02's A1) stores the root for exactly this reason.
+/// </summary>
+public sealed record DocumentApprovedIntegrationEvent(
+    Guid EventId,
+    Guid RootDocumentId,
+    Guid ProjectId,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

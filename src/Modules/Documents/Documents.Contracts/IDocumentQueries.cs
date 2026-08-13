@@ -24,12 +24,16 @@ public interface IDocumentQueries
 
     Task<IReadOnlyList<DocumentSummary>> ForProjectAsync(Guid projectId, CancellationToken ct);
 
-    /// <summary>Reach-through: includes documents attached to a task under this stage, not just
-    /// directly stage-scoped rows — matches the backend's own
-    /// <c>ProjectDocumentRepository.GetByStageAsync</c>/<c>ExistsForStageAsync</c>. An <c>Attachment</c>
-    /// gate on a stage must be satisfiable by a document uploaded to a task under it, or the gate can
-    /// never resolve for the (common) case where the deliverable was actually attached at the task
-    /// level.</summary>
+    /// <summary>
+    /// Directly stage-scoped documents only — NOT the task-under-this-stage reach-through the backend's
+    /// <c>ProjectDocumentRepository.GetByStageAsync</c> performs. That reach-through still exists (an
+    /// <c>Attachment</c> gate on a stage must be satisfiable by a document uploaded to a task under it),
+    /// but it's implemented on the GATE-SATISFACTION side instead (G7-07:
+    /// <c>Projects.Infrastructure</c>'s <c>DocumentUploadedIntegrationEvent</c> handler already has
+    /// direct access to <c>ProjectTask.ProjectStageId</c> and can resolve it in one step; this method
+    /// would need a batched round-trip through <c>Projects.Contracts.IProjectDirectory</c> to do the
+    /// same reach-through for a listing/UI concern this phase's verify block doesn't require).
+    /// </summary>
     Task<IReadOnlyList<DocumentSummary>> ForStageAsync(Guid stageId, CancellationToken ct);
 
     Task<IReadOnlyList<DocumentSummary>> ForTaskAsync(Guid taskId, CancellationToken ct);

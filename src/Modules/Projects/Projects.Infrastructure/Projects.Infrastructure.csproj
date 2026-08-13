@@ -18,6 +18,12 @@
          *.Contracts references are always allowed. -->
     <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
     <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- G7-07, structural item 2's second direction: subscribes to
+         Documents.Contracts.DocumentUploadedIntegrationEvent/DocumentApprovedIntegrationEvent to
+         satisfy Attachment/DocumentApproved gates. Legal and not a cycle - see
+         Documents.Infrastructure.csproj's matching Projects.Contracts reference for the other
+         direction and PROGRESS.md's G7-07 entry for the full reasoning. -->
+    <ProjectReference Include="..\..\Documents\Documents.Contracts\Documents.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

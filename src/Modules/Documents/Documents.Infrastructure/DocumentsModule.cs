@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Documents.Contracts;
 using Documents.Infrastructure.Persistence;
@@ -8,14 +9,14 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Projects.Contracts;
 
 namespace Documents.Infrastructure;
 
 /// <summary>
-/// G7-06: <c>AddModuleCqrs</c> now wired, since <c>Documents.Application</c>'s first real features
-/// (Folders, FileTemplates) exist to scan. The pluggable <c>IGateConditionTypeHandler</c> registration
-/// and <c>AddModuleIntegrationEvents</c> both still land at G7-07, alongside the Files feature and gate
-/// handlers they scan for.
+/// G7-07: the pluggable <c>IGateConditionTypeHandler</c> registration and <c>AddModuleIntegrationEvents</c>
+/// both land here, alongside the Files feature and gate handlers (<c>AttachmentHandler</c>,
+/// <c>DocumentApprovedHandler</c>) they scan for — structural item 2 fully wired.
 /// </summary>
 internal sealed class DocumentsModule : IModule
 {
@@ -41,7 +42,24 @@ internal sealed class DocumentsModule : IModule
                 DocumentsPermissions.FileTemplatesManage,
             ]));
 
-        services.AddModuleCqrs<DocumentsDbContext>(Assembly.Load("Documents.Application"));
+        var applicationAssembly = Assembly.Load("Documents.Application");
+        services.AddModuleCqrs<DocumentsDbContext>(applicationAssembly);
+
+        // AttachmentHandler/DocumentApprovedHandler live in Documents.Application as `internal` classes
+        // (Documents.Infrastructure has no InternalsVisibleTo grant from Documents.Application - only
+        // the two test assemblies do), so they can't be named directly here. Scrutor's reflection-based
+        // Scan needs only the PUBLIC interface type - same technique ProjectsModule already uses for its
+        // own four IGateConditionTypeHandler implementations.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
+
+        // ApprovalDecidedIntegrationEventHandler lives in THIS assembly (Infrastructure), not
+        // Application - it calls out to Approvals.Contracts.IIntegrationEventHandler<...>, same
+        // "Infrastructure owns handlers that call another module's contract" reasoning
+        // ProjectsModule's own ApprovalDecidedIntegrationEventHandler registration documents.
+        services.AddModuleIntegrationEvents<DocumentsDbContext>(typeof(DocumentsModule).Assembly);
 
         return services;
     }

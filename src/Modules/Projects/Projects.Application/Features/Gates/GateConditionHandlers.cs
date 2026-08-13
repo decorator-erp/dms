@@ -40,7 +40,8 @@ internal sealed class CreateStageGateConditionCommandHandler(
             return Result.Failure<Guid>(Domain.GateConditionErrors.UnsupportedConditionType);
 
         var context = new GateConditionContext(
-            stage.Id, command.ProjectId, GateOwnerKind.Stage, command.ReferencedTaskId, command.ReferencedStageId, command.ApprovalType);
+            stage.Id, command.ProjectId, GateOwnerKind.Stage, command.ReferencedTaskId, command.ReferencedStageId,
+            command.ApprovalType, command.ReferencedDocumentId);
         var validation = await typeHandler.ValidateAsync(context, ct);
         if (validation.IsFailure)
             return Result.Failure<Guid>(validation.Error);
@@ -48,7 +49,7 @@ internal sealed class CreateStageGateConditionCommandHandler(
         var gateResult = Domain.GateCondition.Create(
             stage.Id, null, ProjectsEnumMapping.ToDomain(command.ConditionType), ProjectsEnumMapping.ToDomain(command.Trigger),
             command.Label, command.ReferencedTaskId, command.ReferencedStageId,
-            command.ApprovalType is { } at ? ProjectsEnumMapping.ToDomain(at) : null);
+            command.ApprovalType is { } at ? ProjectsEnumMapping.ToDomain(at) : null, command.ReferencedDocumentId);
         if (gateResult.IsFailure)
             return Result.Failure<Guid>(gateResult.Error);
 
@@ -93,7 +94,8 @@ internal sealed class CreateTaskGateConditionCommandHandler(
             return Result.Failure<Guid>(Domain.GateConditionErrors.UnsupportedConditionType);
 
         var context = new GateConditionContext(
-            task.Id, command.ProjectId, GateOwnerKind.Task, command.ReferencedTaskId, command.ReferencedStageId, command.ApprovalType);
+            task.Id, command.ProjectId, GateOwnerKind.Task, command.ReferencedTaskId, command.ReferencedStageId,
+            command.ApprovalType, command.ReferencedDocumentId);
         var validation = await typeHandler.ValidateAsync(context, ct);
         if (validation.IsFailure)
             return Result.Failure<Guid>(validation.Error);
@@ -101,7 +103,7 @@ internal sealed class CreateTaskGateConditionCommandHandler(
         var gateResult = Domain.GateCondition.Create(
             null, task.Id, ProjectsEnumMapping.ToDomain(command.ConditionType), ProjectsEnumMapping.ToDomain(command.Trigger),
             command.Label, command.ReferencedTaskId, command.ReferencedStageId,
-            command.ApprovalType is { } at ? ProjectsEnumMapping.ToDomain(at) : null);
+            command.ApprovalType is { } at ? ProjectsEnumMapping.ToDomain(at) : null, command.ReferencedDocumentId);
         if (gateResult.IsFailure)
             return Result.Failure<Guid>(gateResult.Error);
 

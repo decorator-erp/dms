@@ -10,14 +10,23 @@ public sealed record GateConditionResponse(
     string Label, Guid? ReferencedTaskId, Guid? ReferencedStageId, ApprovalType? ApprovalType,
     GateStatus Status, Guid? ApprovalId);
 
+/// <summary><see cref="ReferencedDocumentId"/> added at G7-07 — a trailing optional positional parameter,
+/// additive and source-compatible, mirroring <c>GateConditionContext</c>'s own G7-02 extension. Without
+/// it a <see cref="Projects.Contracts.ConditionType.DocumentApproved"/> gate could never actually be
+/// created through this command surface: <c>GateConditionContext</c>/<c>GateCondition.Create</c> both
+/// already accepted the value, but nothing threaded a caller-supplied one in.</summary>
 public sealed record CreateStageGateConditionCommand(
     Guid ProjectId, Guid StageId, string UserId, ConditionType ConditionType, GateTrigger Trigger, string Label,
-    Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null)
+    Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null,
+    Guid? ReferencedDocumentId = null)
     : ICommand<Guid>, IProjectScoped;
 
+/// <summary>Same <see cref="ReferencedDocumentId"/> addition as <see cref="CreateStageGateConditionCommand"/>,
+/// for the same reason.</summary>
 public sealed record CreateTaskGateConditionCommand(
     Guid ProjectId, Guid TaskId, string UserId, ConditionType ConditionType, GateTrigger Trigger, string Label,
-    Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null)
+    Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null,
+    Guid? ReferencedDocumentId = null)
     : ICommand<Guid>, IProjectScoped;
 
 public sealed record DeleteGateConditionCommand(Guid ProjectId, Guid GateConditionId, string UserId)

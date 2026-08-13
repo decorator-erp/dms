@@ -14,6 +14,16 @@
     <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\Documents.Contracts\Documents.Contracts.csproj" />
     <ProjectReference Include="..\Documents.Domain\Documents.Domain.csproj" />
+    <!-- G7-07, structural item 2's first direction: Documents implements
+         Projects.Contracts.IGateConditionTypeHandler (AttachmentHandler/DocumentApprovedHandler live in
+         Documents.Application, but DocumentsModule's Scrutor scan for them, here in Infrastructure,
+         needs to name the interface type). Legal and not a cycle - Projects.Contracts references only
+         SharedKernel/BuildingBlocks, never its own module's implementation. See
+         Projects.Infrastructure.csproj's matching Documents.Contracts reference for the other direction. -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- Cross-module read: ApprovalDecidedIntegrationEventHandler (G7-07) subscribes to
+         Approvals.Contracts.ApprovalDecidedIntegrationEvent, filtered to ApprovalSubjectType.ProjectDocument. -->
+    <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,6 +16,13 @@
          validation, DefaultFolderResolver's naming) via Projects.Contracts.IProjectDirectory, never a
          join into projects. tables. Cross-module *.Contracts references are always allowed. -->
     <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- Cross-module read: resolving an approver Employee's AppUserId via Hr.Contracts.IHrDirectory
+         (RequestDocumentReviewCommand, G7-07). -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <!-- Cross-module write: requesting a ProjectDocument-subject approval via
+         Approvals.Contracts.IApprovalRequester (G7-07) - the same shape Projects' own
+         GateApprovalRequests already uses for its own gate approvals. -->
+    <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

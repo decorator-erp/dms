@@ -28,6 +28,11 @@ internal static class ProjectDocumentErrors
 
     public static readonly Error NotLatestVersion = Error.Conflict(
         "project_documents.NotLatestVersion", "Only the latest version in a document's lineage can be reviewed.");
+
+    /// <summary>The acting user (resolved via <c>Hr.Contracts.IHrDirectory</c> from their Identity user
+    /// id) has no Employee record — added at G7-07 alongside the upload commands' actor field.</summary>
+    public static readonly Error UploaderNotFound = Error.BadRequest(
+        "project_documents.UploaderNotFound", "The uploading user has no employee record.");
 }
 
 internal static class DocumentFolderErrors
@@ -52,6 +57,23 @@ internal static class DocumentFolderErrors
 
     public static readonly Error NameCollision = Error.Conflict(
         "document_folders.NameCollision", "A folder with this name already exists at this location.");
+}
+
+/// <summary>Errors for <c>DocumentApprovedHandler</c>'s create-time gate validation (G7-07) — kept
+/// separate from <see cref="ProjectDocumentErrors"/> since these describe a GATE reference problem, not
+/// a document operation. The backend's equivalent handler returns Projects' own domain errors, which
+/// this module cannot reference (Documents.Application has no visibility into Projects.Domain,
+/// internal and cross-module) — these are Documents' own.</summary>
+internal static class GateReferenceErrors
+{
+    public static readonly Error InvalidReference = Error.BadRequest(
+        "gate_reference.InvalidReference", "A referenced document is required for this condition type.");
+
+    public static readonly Error DocumentNotFound = Error.NotFound(
+        "gate_reference.DocumentNotFound", "The referenced document lineage was not found.");
+
+    public static readonly Error CrossProjectReference = Error.BadRequest(
+        "gate_reference.CrossProjectReference", "A gate condition cannot reference a document in another project.");
 }
 
 internal static class FileTemplateErrors
