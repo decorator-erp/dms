@@ -2692,3 +2692,76 @@ Projects' own three test suites (`Projects.UnitTests` 61, `Projects.Application.
 `GateCondition` extensions are source-compatible, not merely "the build still compiles"; 30 new
 `Documents.UnitTests` green; full gate — `dotnet format --verify-no-changes` clean, `dotnet test`
 **218/218** (188 + 30 new).
+
+**G7-03** — done — `src/Modules/Documents/Documents.Infrastructure/` (new project): `DocumentsDbContext`
+(schema `documents`, `ConfigureOutbox(ownsMigration: false)`), `DocumentsDbContextFactory`
+(design-time-only, matching every other module's own), three `IEntityTypeConfiguration<T>` classes,
+`DocumentsModule : IModule`, initial migration. `ModuleDependencyOrder.SchemaOrder` gains `"documents"`
+appended last — a clean append, no reordering question, since `documents` depends on `projects`/`hr`/
+`approvals`, all of which already migrate earlier.
+
+**`DocumentsModule : IModule` registered here with `AddDbContext` + `IModulePermissions` only, no
+`AddModuleCqrs`** — `Documents.Application` doesn't exist until G7-06/07, and calling
+`Assembly.Load("Documents.Application")` before that DLL exists would throw. Same split every prior
+module's own bootstrap follows (`docs/adding-a-module.md`'s wiring checklist step 4: "Register without
+`AddModuleCqrs` yet").
+
+**Indexes — one surprise, resolved by inspecting the real output, not assumed correct from the C#
+model.** Configured `(RootDocumentId, Version)` with two separate `HasIndex` calls — one `.IsUnique()`,
+one named+descending — expecting two physical indexes. EF Core collapsed them into **one**: calling
+`HasIndex` again with the identical property list returns the SAME `IndexBuilder`, so the second call
+reconfigured the first rather than adding a second index. Verified this is actually the *better* outcome,
+not a bug to fight: applying the migration to real Postgres and inspecting via `\d` shows
+`"ix_project_documents_root_version_desc" UNIQUE, btree ("RootDocumentId", "Version" DESC)` — one index
+satisfying both the uniqueness constraint and the "give me the latest version" descending-scan
+optimization the plan asked for as two separate requirements. Left as the single combined index rather
+than forcing two.
+
+**`xmin` concurrency token — no Npgsql helper exists, verified by inspection of the installed package,
+not by trusting memory of the API surface.** `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.3 has no
+`UseXminAsConcurrencyToken` extension (confirmed: grepped the installed DLL's string table for `xmin` —
+zero matches, only `NpgsqlEntityTypeBuilderExtensions`/`NpgsqlPropertyBuilderExtensions` exist as
+classes, neither with an xmin-specific method). Used the standard manual recipe instead —
+`builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion()` — and, since this is the first use
+of Postgres' system `xmin` column anywhere in this codebase, didn't trust that the recipe avoids
+conflicting with the reserved column name just because it compiled: started the local `docker-compose`
+Postgres, ran `dotnet ef database update` for real, and confirmed via `SELECT xmin, "Id" FROM
+documents.project_documents` and `\d` that Npgsql's migration SQL generator correctly omits DDL for
+`xmin` (it recognizes the reserved name and never tries to create it), and that the column is queryable
+as expected.
+
+**Probe migration:** generated, `Up`/`Down` both empty (confirmed by reading the generated file, not
+assumed), removed via `dotnet ef migrations remove` — ran cleanly against the real dev Postgres this
+time (unlike G4-03's note that it wasn't running then), so the tool's normal applied-migration-history
+safety check worked without a workaround.
+
+**`Api.csproj` gains a bare `Documents.Infrastructure` reference here, ahead of the rest of the module's
+wiring** — `dotnet ef migrations add --project ... --startup-project src/Api` requires the DbContext's
+assembly to be present in Api's build output regardless of whether `Program.cs` actually loads the
+module yet. `Program.cs`'s own `Assembly.Load("Documents.Infrastructure")` +
+`moduleAssemblies` registration, and the matching `Documents.Application` reference, are explicitly
+deferred to G7-08 once the module has endpoints worth serving — noted in the `.csproj`'s own comment so
+a future reader doesn't mistake the partial wiring for an oversight.
+
+**Fault-injected, all four reverted after confirming red — same one-per-rule technique as G4-03/G5-04,
+and the SAME "unused reference produces no real dependency" lesson G4-03 first found for rule 1 recurred
+twice more here:**
+- Rule 4: temporarily made `ProjectDocumentErrors` public → red, naming
+  `Documents.Domain.ProjectDocumentErrors` → reverted.
+- Rule 8a (Domain half only — `Documents.Application` doesn't exist yet): a bare `ProjectReference` from
+  `Documents.Domain.csproj` to `BuildingBlocks.Web.csproj`, with nothing in the code actually using a
+  type from it, did **not** trip the test — confirmed empirically, not assumed from the G4-03 precedent.
+  Needed a scratch file with a real `BuildingBlocks.Web.IModule`-typed public property before it went
+  red, naming `Documents.Domain` → reverted (both the reference and the scratch file).
+- Rule 1: same lesson a third time — an unused `Microsoft.EntityFrameworkCore` `PackageReference` alone
+  didn't trip it; needed a scratch file with a real `DbContextOptions`-typed property → red, naming
+  `ScratchRule1Fault` → reverted.
+- Rule 6: temporary `Documents.Infrastructure` → `Projects.Infrastructure` reference + a temporary
+  `InternalsVisibleTo` grant the other way (`ProjectsDbContext` is `internal`) + a scratch file naming
+  it → red, naming `ScratchRule6Fault in Documents.Infrastructure` → all three reverted.
+
+**Verify:** migration applied for real against the local `docker-compose` Postgres (not just
+inspection), confirmed structurally correct via `\d` on all three tables; probe migration empty; rules
+1/4/6/8a fault-injected and reverted; full gate — `dotnet build -warnaserror` 0/0,
+`dotnet format --verify-no-changes` clean, `dotnet test` **218/218 unchanged** (Infrastructure/migration
+work, no new runtime behavior to add coverage for yet — that starts at G7-05/06).
