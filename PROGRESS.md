@@ -2358,3 +2358,66 @@ at every commit.
   written with the permission table open in another window rather than by pattern-matching the string
   shape. Worth a real decision (clean up vs. keep porting verbatim) before a fourth or fifth module adds
   its own permission group in yet another naming convention.
+
+# Phase 3 — Housekeeping, outbox wake-on-write, Documents module (H1–G8)
+
+Continues from Phase 2 (`e4be811`, wake-on-write recorded as adopted but not yet built). Plan:
+`PLAN-PHASE3.md`. Its own H1 section described the working tree inaccurately (see H1-01 below); replaced
+by an execution plan built from a direct re-diagnosis, three review rounds (plan/revised/final — the
+second adding required addition A1), saved at
+`C:\Users\lotfi\.claude\plans\cosmic-hopping-pancake.md`. Runs H1-01 → G8-01 without checkpoints per the
+user's instruction; only the plan's own hard-stop conditions pause it.
+
+**H1-01** — done — `Directory.Packages.props`, `src/BuildingBlocks/EntityModelConfigurationExtensions.cs`,
+`src/Modules/Approvals/Approvals.Infrastructure/ApprovalsModule.cs`, and 25 test `.csproj`/fixture files.
+
+`PLAN-PHASE3.md`'s H1 premise did not hold: it described the 32-file working-tree diff as a CRLF↔LF
+line-ending flip from a folder rename, with the only real change being the `Program.cs`→`DI.cs`
+extraction. Neither claim survived inspection. `core.autocrlf=true` was already normalizing the index;
+`git diff --ignore-cr-at-eol` produced the identical 156/127 line delta as a plain `git diff` — there was
+no line-ending component to this diff at all. The actual content was an unreviewed NuGet package
+upgrade sweep: Respawn 6.2.1→7.0.0, Microsoft.NET.Test.Sdk 17.14.1→18.8.1, coverlet.collector
+6.0.4→10.0.1, Testcontainers.PostgreSql 4.9.0→4.13.0 (plus its breaking `PostgreSqlBuilder` constructor
+change, already patched in three fixtures by whoever ran the sweep), Azure.Identity 1.14.2→1.21.0,
+System.Drawing.Common 7.0.0→10.0.10, xunit.runner.visualstudio 3.1.4→3.1.5, plus a newly-added
+`Microsoft.EntityFrameworkCore.Tools` reference. `HttpCurrentUser`, which the plan separately claimed had
+moved to `BuildingBlocks.Web.Authorization`, was untouched at `src/Api/HttpCurrentUser.cs` the entire
+time. Root cause of the misdiagnosis (recorded for the record, not litigated further): the tree was
+originally read from a Linux container mount without `core.autocrlf`, so a CRLF working tree compared
+against an LF index read as churn on every line of every file touched.
+
+Measured the real baseline before committing anything: `dotnet build -warnaserror` clean (0/0), `dotnet
+test` 182/185 — the 3 `Integration.Tests` failures (`Register_then_create_employee_resolves_through_
+IHrDirectory_with_no_identity_sql`, `Approval_gate_flow_spans_all_four_modules_end_to_end`,
+`ProjectsSchemaIsolationTests.GetProjectTasks_WithReadAllBypass_...`) all trace to the untracked
+`Program.cs`'s commented-out `SeedAsync` startup loop (no seeded `"employee"` role → `RegisterCommand`
+returns failure) — a regression that rides along with the `DI.cs` extraction and is fixed at H1-03, not
+here. Confirmed by reading `CrossModuleSmokeTests.cs:29-46` directly rather than assuming from the
+assertion messages. Green enough, and isolated enough from the package sweep, to commit the sweep alone.
+
+Three fixes made while verifying, beyond a bare `git add`:
+- **A live audit finding, not a diagnosis error**: pinning the two original packages
+  (Azure.Identity/System.Drawing.Common) alone left `dotnet build -warnaserror` failing on a *different*
+  package — `SSH.NET 2025.1.0` (a transitive dependency of Testcontainers 4.13.0's SSH-tunnel-to-remote-
+  Docker support, unused here since only a local Docker socket is targeted), flagged high-severity via
+  `GHSA-q939-rpr3-3284`. This only surfaced after a `dotnet restore`/`dotnet build` cycle invalidated a
+  stale NuGet audit cache from earlier in the session — the very first build this session reported 0
+  warnings against the same tree, which was the cache, not the truth. Pinned `SSH.NET` to `2026.0.0` in
+  `Directory.Packages.props`, and — because Central Package Management pins have no effect without a
+  matching `PackageReference` in the consuming project (`CentralPackageTransitivePinningEnabled` is off
+  here, confirmed absent from every `.props`/`.targets` in the repo) — added the explicit reference to
+  all 10 projects that pull in `Testcontainers.PostgreSql`, the same pattern `Integration.Tests.csproj`
+  already used for its own two pins.
+- Dropped the newly-added `Microsoft.EntityFrameworkCore.Tools` reference from both
+  `Directory.Packages.props` and `BuildingBlocks.csproj`. No task or doc across four modules' worth of
+  `dotnet ef` usage ever needed it — only `.Design`, and only on the startup project plus
+  `SharedDbContext`'s owning assembly (`PROGRESS.md`'s own G1 entry, `docs/adding-a-module.md:148`).
+  Unjustified addition, removed.
+- Reverted stray trailing whitespace and a blank line in `ApprovalsModule.cs` — unrelated to the sweep,
+  and failing `dotnet format --verify-no-changes`.
+
+**Verify:** `dotnet build -warnaserror` 0 warnings/0 errors; `dotnet test` 182/185 unchanged from the
+pre-commit measurement (the 3 failures are the known, deferred-to-H1-03 seeding regression, confirmed by
+re-running after every fix in this task); `dotnet format --verify-no-changes` clean except for the one
+known, not-yet-deleted `src/Api/Extensions/OutboxDbMigrationExtension.cs` (H1-03's file, untracked,
+outside this commit's scope).
