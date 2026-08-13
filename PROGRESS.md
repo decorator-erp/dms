@@ -2859,3 +2859,53 @@ benign-mess `subFolder` sanitized, not rejected; size cap on both seekable and n
 six known executable extensions rejected by the default list; `OpenReadAsync`/`DeleteAsync` returning
 null/no-op rather than throwing on a missing or traversal-crafted path; the 50 MB default); full gate —
 `dotnet format --verify-no-changes` clean, `dotnet test` **242/242** (218 + 24 new).
+
+**G7-06** — done — new `src/Modules/Documents/Documents.Application/`: Folders (10: `Create`,
+`CreateForStage`, `CreateForTask`, `Delete`, `Move`, `Rename`, `GetByProject`, `GetByStage`,
+`GetByTask`, `GetChildren`), `DefaultFolderResolver`, FileTemplates (7: `Create`, `Update`, `Delete`,
+`Activate`, `Deactivate`, `GetAll`, `GetById`). `DocumentsModule.Register` now wires `AddModuleCqrs`.
+New `tests/Modules/Documents.Application.Tests/` (8 tests, five-module Testcontainers fixture).
+
+**A design mistake caught and replaced before it shipped, not after:** the first draft of
+`CreateStageFolderCommandHandler` tried to infer the owning project id from an existing sibling folder
+under the same stage (`db.DocumentFolders.FirstOrDefault(f => f.ProjectStageId == ...)`) rather than
+asking Projects directly. This breaks the instant a stage has zero folders yet — exactly the FIRST
+folder ever created for it, the most common case, not an edge case. Replaced with a real
+`Projects.Contracts.IProjectDirectory.GetStageAsync`/`GetTaskAsync` call before writing the handler
+`Documents.Application.csproj` actually references — `Documents.Application` gains a `Projects.Contracts`
+reference (allowed per the reference matrix: `*.Application` may reference other modules' `*.Contracts`).
+
+**`DocumentFolder.MoveTo`'s cycle guard (unit-tested at G7-02) is now exercised through the real command
+path**, not just in isolation: `MoveDocumentFolderCommandHandler` loads the whole project's
+folder-id → parent-id map once and hands it to the pure Domain-layer algorithm. Also re-checks
+sibling-name uniqueness before touching the database — the backend's own equivalent handler skips this
+and lets a raw, unhandled `DbUpdateException` surface on a collision instead (noted in G7-01's own
+Contracts doc comments as a deliberate non-port).
+
+**`DefaultFolderResolver` closes G7-02's correction 5 for real, not just in the unit-tested naming
+logic.** Default folder names now carry the scope's own id (`"Task: Draft plan (3f2a91be...)"`), so two
+different tasks sharing a display name — a real, unremarkable case, not contrived — no longer collide
+against the `(ProjectId, ParentFolderId, Name)` unique index the way the backend's unsuffixed names do.
+Verified with two GENUINELY DISTINCT real tasks, not a fabricated second id: a first draft of the test
+used `Guid.NewGuid()` for the second task, which correctly tripped `fk_project_documents_project_task`
+(G7-04) — a real constraint doing its job, not a bug. Fixed by provisioning a real second task via a
+stage template with two identically-named stage-tasks, then reading both real ids back through
+`GetProjectTasksByProjectQuery`, not by weakening the assertion to accept a fake id.
+
+**No manual stage/task creation command exists anywhere in `Projects.Contracts` — only template
+instantiation.** Confirmed by grepping every `Create*Command` across `Stages`/`Tasks`/`Projects`
+Contracts folders before writing the fixture, not assumed. This means `DocumentsApplicationFixture`
+(new, five modules: Identity/HR/Approvals/Projects/Documents against one Testcontainers Postgres) and
+every folder test needing a real stage/task id goes through the same department → stage-template →
+`CreateProjectCommand` flow `ProjectFlowTests` (Projects.Application.Tests) already established, not a
+shortcut — the same shape, one module wider.
+
+**Verify:** `dotnet build -warnaserror` 0/0; rule 5/6/8/10 all still green non-vacuously against the new
+`Documents.Application` assembly (14/14 arch tests); 8 new integration tests green (folder tree CRUD;
+move/rename; the move-cycle rejection through the real command, not just the Domain unit test;
+default-folder creation for a real stage and a real task; the same-display-name collision case with two
+real tasks; file template CRUD including duplicate-name rejection); full gate —
+`dotnet format --verify-no-changes` clean, `dotnet test` **250/250** (242 + 8 new). One full-suite run
+mid-task failed nearly everywhere with `DockerUnavailableException` — Docker Desktop had stopped during
+a session gap, not a code regression; confirmed by re-running after restarting Docker and
+`docker compose up -d`, back to 250/250 clean.
