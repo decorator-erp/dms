@@ -2909,3 +2909,73 @@ real tasks; file template CRUD including duplicate-name rejection); full gate �
 mid-task failed nearly everywhere with `DockerUnavailableException` — Docker Desktop had stopped during
 a session gap, not a code regression; confirmed by re-running after restarting Docker and
 `docker compose up -d`, back to 250/250 clean.
+
+**G7-07** — done — the phase's real proof task, per the plan's own words. New
+`Documents.Application/Features/Documents/` (13 handlers: `Upload`, `UploadToStage`, `UploadToTask`,
+`UploadRevision`, `ApplyTemplate`, `Move`, `Delete`, `GetById`, `GetByProject`, `GetByFolder`,
+`GetByStage`, `GetByTask`, `Download`, plus one extracted `DocumentUploadCommit` helper for the
+save-blob → insert-row → compensate-on-failure shape all four uploads share) and
+`Features/Gates/` (`AttachmentHandler` no-op validate, `DocumentApprovedHandler` validates the
+referenced lineage exists in the same project via Documents' own `DbContext`). New
+`RequestDocumentReviewCommand`/Handler makes `ApprovalSubjectType.ProjectDocument` real. New
+`Documents.Infrastructure/IntegrationEvents/ApprovalDecidedIntegrationEventHandler` locks the document
+and re-publishes `DocumentApprovedIntegrationEvent` (new, Documents.Contracts). New
+`Projects.Infrastructure/IntegrationEvents/DocumentUploadedIntegrationEventHandler` (satisfies
+`Attachment` gates, including the stage-reach-through-a-task-under-it rule) and
+`DocumentApprovedIntegrationEventHandler` (satisfies `DocumentApproved` gates by `RootDocumentId`).
+`DocumentsModule.Register` gains the `IGateConditionTypeHandler` Scrutor scan and
+`AddModuleIntegrationEvents`. Structural item 2 — the first bidirectional `*.Contracts` pair
+(`Documents.Infrastructure` → `Projects.Contracts`, `Projects.Infrastructure` → `Documents.Contracts`)
+— confirmed non-cyclic by a clean `dotnet build -warnaserror`, not just by the reference-matrix
+reasoning in the plan.
+
+**A real gap in G7-02, not a test-writing mistake, caught while writing this task's own verify block:**
+`GateConditionContext.ReferencedDocumentId` and `GateCondition.Create`'s matching parameter existed
+since G7-02, but `CreateStageGateConditionCommand`/`CreateTaskGateConditionCommand` (the actual HTTP/
+command surface in `Projects.Contracts`) were never extended to carry a caller-supplied value through —
+so a `DocumentApproved` gate could never actually be CREATED, at all, through the real command path;
+`GateConditionHandlers`' two create handlers built `GateConditionContext` from only the command's
+pre-existing fields. Fixed by adding `Guid? ReferencedDocumentId = null` as a trailing optional
+parameter to both commands (same additive, source-compatible shape G7-02 already established for
+`GateConditionContext` itself) and threading it into both the context construction and the
+`GateCondition.Create` call in both handlers.
+
+**A second, more serious gap found the same way — a genuine `BuildingBlocks` registration bug, not
+Documents- or Projects-specific, that only a SECOND module sharing an event type could expose:**
+`ApprovalDecidedIntegrationEvent` has had exactly one subscriber since G5-08
+(`Projects.Infrastructure.ApprovalDecidedIntegrationEventHandler`); this task adds the second-ever
+(`Documents.Infrastructure`'s own). `ModuleIntegrationEventRegistration.AddModuleIntegrationEvents` used
+Scrutor's `services.Decorate(serviceType, decoratorType)` per handler interface — which decorates EVERY
+descriptor currently registered under that service type, not just the ones the current call just added.
+Documents' registration call ran after Projects' (module discovery order), so it re-wrapped Projects'
+ALREADY-decorated handler (`InboxDedupeDecorator<ProjectsDbContext,...>`) in a second, outer
+`InboxDedupeDecorator<DocumentsDbContext,...>` — using the WRONG `TContext` for Projects' own handler,
+and producing a closed-generic `Type.FullName` (both context types' assembly-qualified names embedded)
+that overflowed `InboxMessage.HandlerName`'s `varchar(256)` column outright — a hard `DbUpdateException`
+crash in the direct-publish test, silently swallowed (message marked failed, never asserted) in the
+outbox-driven one. First surfaced by `ProjectDocumentSubjectDecision_NeverReachesProjectsOwnGateConditionSubscriber`
+(direct `IEventBus.PublishAsync`, no try/catch to hide it) and confirmed by
+`DocumentApprovedGate_CreationSucceeds_...`'s document never actually locking. Fixed in
+`ModuleIntegrationEventRegistration.cs`: capture `services.Count` before the `Scan()` call, then decorate
+only the descriptors added since that count (identified by list position, not by service type), each
+replaced in place with a manually-constructed factory descriptor (`ActivatorUtilities.CreateInstance`
+for both the inner handler and the decorator) — never Scrutor's blanket `Decorate`. This is a
+`BuildingBlocks` fix, not a Documents/Projects one; every existing single-subscriber module's wiring is
+unaffected (confirmed by the full 256/256 gate below), and the fix is exactly what makes a second
+subscriber to the same event type work correctly, which is exactly what this task needed.
+
+**Verify:** `dotnet build -warnaserror` 0/0, including the bidirectional Contracts pair resolving with
+no circular-reference error; 6 new integration tests in `FileFlowTests` (new
+`DocumentsApplicationFixture.OutboxProcessor` property, mirroring `ProjectsApplicationFixture`'s) —
+`Attachment` and `DocumentApproved` gate creation transitioning from Phase 2's
+`GateConditionErrors.UnsupportedConditionType` to success, both asserted explicitly; upload → outbox →
+`OutboxProcessor.ProcessPendingAsync` → `Attachment` gate satisfied, on both the direct task/stage owner
+and the stage-reach-through-a-task-under-it case; a `DocumentApproved` gate satisfied through TWO real
+outbox hops (`ApprovalDecidedIntegrationEvent` locks + re-enqueues, a SEPARATE
+`ProcessPendingAsync` call delivers the newly-enqueued `DocumentApprovedIntegrationEvent` — a row
+enqueued mid-pass is not in that pass's own pending snapshot); the subject-type-filter id-reuse proof
+(a `ProjectDocument`-subject decision never touches a real `GateCondition` sharing its id); delete
+excludes from a list query but keeps the blob on disk; a soft-deleted revision does not break resolving
+the next revision's lineage. Full gate — `dotnet format --verify-no-changes` clean, `dotnet test`
+**256/256** (250 + 6 new) across all 16 test projects, including the pre-existing G5-08 gate-cascade
+suite (`Projects.Application.Tests`) still green after the registration fix.
