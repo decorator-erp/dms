@@ -2421,3 +2421,15 @@ pre-commit measurement (the 3 failures are the known, deferred-to-H1-03 seeding 
 re-running after every fix in this task); `dotnet format --verify-no-changes` clean except for the one
 known, not-yet-deleted `src/Api/Extensions/OutboxDbMigrationExtension.cs` (H1-03's file, untracked,
 outside this commit's scope).
+
+**H1-02** — done — `.gitattributes`, `git add --renormalize .`.
+
+`core.autocrlf=true` was already doing the index-side normalization on this machine (per H1-01's own
+diagnosis), so the renormalize was expected to produce nothing beyond the new file itself — and did:
+`git diff -w HEAD~1 HEAD` after the commit shows only `.gitattributes`'s own 10 added lines, zero content
+change to any existing tracked file. Committed anyway because `core.autocrlf` is a per-machine setting;
+the next contributor without it configured would otherwise reintroduce the exact churn H1-01 diagnosed
+away.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` 182/185 unchanged (no behavior touched);
+`git diff -w HEAD~1 HEAD` confirms the near-emptiness.
