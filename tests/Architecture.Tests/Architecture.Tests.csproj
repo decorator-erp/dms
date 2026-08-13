@@ -51,6 +51,7 @@
     <ProjectReference Include="..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Documents\Documents.Domain\Documents.Domain.csproj" />
   </ItemGroup>
 
 </Project>

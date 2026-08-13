@@ -32,6 +32,7 @@
   </Folder>
   <Folder Name="/src/Modules/Documents/">
     <Project Path="src/Modules/Documents/Documents.Contracts/Documents.Contracts.csproj" />
+    <Project Path="src/Modules/Documents/Documents.Domain/Documents.Domain.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
@@ -51,5 +52,6 @@
     <Project Path="tests/Modules/Identity.Application.Tests/Identity.Application.Tests.csproj" />
     <Project Path="tests/Modules/Identity.Infrastructure.Tests/Identity.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Identity.UnitTests/Identity.UnitTests.csproj" />
+    <Project Path="tests/Modules/Documents.UnitTests/Documents.UnitTests.csproj" />
   </Folder>
 </Solution>

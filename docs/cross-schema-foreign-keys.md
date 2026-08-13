@@ -102,6 +102,14 @@ unvalidated `Guid`, same treatment `Approvals.RequestedByUserId` would need if A
 client-side actor. Rule 9's own scratch-FK fault-injection (G5-04) proved the check catches a
 wrong-direction FK for real, not just by inspection — see that task's PROGRESS.md entry.
 
+`projects.gate_conditions."ReferencedDocumentId"` (added G7-02, Phase 3) is the same pattern one level
+later: it would point at `documents.project_documents`, but `projects → documents` runs the wrong way —
+Documents depends on Projects (`documents → projects` is in the allow-list below), so a reverse FK would
+invert the module graph. Bare unvalidated `Guid`, validated in application code by Documents' own
+`DocumentApprovedHandler` against its own `DbContext`, never by the database. A deliberately-absent FK
+gets recorded here for the same reason a present one does — so the next reader finds a decision, not an
+oversight.
+
 ## The three things that actually need care
 
 ### 1. Delete behaviour — never cascade across a schema boundary

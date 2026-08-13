@@ -123,6 +123,9 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<Guid?>("ProjectTaskId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ReferencedDocumentId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("ReferencedStageId")
                         .HasColumnType("uuid");
 

@@ -21,6 +21,16 @@ internal sealed class GateCondition : Entity, IAuditable
     public Guid? ReferencedTaskId { get; private set; }
     public Guid? ReferencedStageId { get; private set; }
     public ApprovalType? ApprovalType { get; private set; }
+
+    /// <summary>Added at G7-02 (A1) for <see cref="Domain.ConditionType.DocumentApproved"/>: the
+    /// document lineage (<c>ProjectDocument.RootDocumentId</c>, in Documents' own schema) this gate
+    /// waits on. No FK — cross-schema in the direction rule 9's allow-list forbids
+    /// (<c>projects → documents</c> would invert the module graph; Documents depends on Projects, not
+    /// the reverse). Same treatment as <c>Project.ClientId</c> before CRM: a bare unvalidated
+    /// <see cref="Guid"/>, validated in application code by Documents' own
+    /// <c>DocumentApprovedHandler</c> against its own <c>DbContext</c>. Documented in the migration and
+    /// in <c>docs/cross-schema-foreign-keys.md</c>.</summary>
+    public Guid? ReferencedDocumentId { get; private set; }
     public GateStatus Status { get; private set; }
     public Guid? ResolvedById { get; private set; }
     public DateTime? ResolvedAt { get; private set; }
@@ -49,7 +59,8 @@ internal sealed class GateCondition : Entity, IAuditable
 
     public static Result<GateCondition> Create(
         Guid? projectStageId, Guid? projectTaskId, ConditionType conditionType, GateTrigger trigger, string label,
-        Guid? referencedTaskId = null, Guid? referencedStageId = null, ApprovalType? approvalType = null)
+        Guid? referencedTaskId = null, Guid? referencedStageId = null, ApprovalType? approvalType = null,
+        Guid? referencedDocumentId = null)
     {
         if (projectStageId.HasValue == projectTaskId.HasValue)
             return GateConditionErrors.InvalidScope;
@@ -64,6 +75,7 @@ internal sealed class GateCondition : Entity, IAuditable
             ReferencedTaskId = referencedTaskId,
             ReferencedStageId = referencedStageId,
             ApprovalType = approvalType,
+            ReferencedDocumentId = referencedDocumentId,
             Status = GateStatus.Pending,
         };
     }
