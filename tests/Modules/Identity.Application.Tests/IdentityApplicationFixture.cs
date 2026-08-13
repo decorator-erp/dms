@@ -29,7 +29,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _container = new PostgreSqlBuilder().WithImage("postgres:17").Build();
+        _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
         var configuration = new ConfigurationBuilder()

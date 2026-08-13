@@ -52,7 +52,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _container = new Testcontainers.PostgreSql.PostgreSqlBuilder().WithImage("postgres:17").Build();
+        _container = new Testcontainers.PostgreSql.PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
         foreach (var schema in ModuleDependencyOrder.SchemaOrder)
