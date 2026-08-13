@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -21,6 +22,10 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
         services.AddSingleton(counter);
         services.AddSingleton(failure);
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        // OutboxProcessor reads Outbox:FallbackPollSeconds (W1) - every test here drives it directly via
+        // ProcessPendingAsync, never through the wait loop, so an empty configuration (falling back to
+        // the 60s default) is enough; nothing in this file depends on the actual fallback duration.
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddDbContext<SharedDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddDbContext<TestModuleDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox();

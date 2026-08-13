@@ -32,6 +32,10 @@ public static class ModuleIntegrationEventRegistration
         services.TryAddScoped<IDomainEventQueue, DomainEventQueue>();
         services.TryAddScoped<DomainEventDispatcher<TContext>>();
 
+        // InboxDedupeDecorator now nudges OutboxSignal after every commit (W1) - same self-sufficiency
+        // reasoning as the two TryAdd calls above, and as AddModuleCqrs's identical TryAdd.
+        services.TryAddSingleton<OutboxSignal>();
+
         services.Scan(scan => scan.FromAssemblies(assembly)
             .AddClasses(classes => classes.AssignableTo(typeof(IIntegrationEventHandler<>)), publicOnly: false)
                 .AsImplementedInterfaces()

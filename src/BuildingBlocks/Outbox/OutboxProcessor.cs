@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BuildingBlocks.Events;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,9 +9,18 @@ using Microsoft.Extensions.Logging;
 namespace BuildingBlocks.Outbox;
 
 /// <summary>
-/// Polls <c>shared.outbox_messages</c> for unprocessed rows and publishes each through
+/// Waits on <see cref="OutboxSignal"/> for either a wake-on-write nudge or the fallback interval,
+/// then polls <c>shared.outbox_messages</c> for unprocessed rows and publishes each through
 /// <see cref="IEventBus"/>. Each message is re-fetched and processed in its own scope, so one
 /// message's failure can't affect another's.
+///
+/// The wake-on-write nudge (via <see cref="InboxDedupeDecorator{TContext,TEvent}"/> and
+/// <c>DomainEventDispatchDecorator{TContext}</c>, both after their own commit) makes delivery near-
+/// instant on the happy path. The fallback interval — <c>Outbox:FallbackPollSeconds</c>, default 60 —
+/// is what still delivers a row from a crashed request (whose nudge never fired) or a second process
+/// instance (whose nudge this one never observes); see docs/low-resource-hosting.md §2. Never remove
+/// the fallback in exchange for the signal — the signal is the optimization, the fallback is the
+/// correctness guarantee.
 ///
 /// An event with no registered handler is marked processed on the first pass — <see cref="EventBus"/>
 /// resolving zero handlers is a successful no-op, not a stall. An event whose handler throws is left
@@ -21,30 +31,39 @@ namespace BuildingBlocks.Outbox;
 /// </summary>
 public sealed class OutboxProcessor(
     IServiceScopeFactory scopeFactory,
+    OutboxSignal signal,
+    IConfiguration configuration,
     ILogger<OutboxProcessor> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+
+    private readonly TimeSpan _fallbackInterval = TimeSpan.FromSeconds(
+        int.TryParse(configuration["Outbox:FallbackPollSeconds"], out var seconds) ? seconds : 60);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(PollInterval);
-        do
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                // Whether this returns because of a real nudge or because the fallback timed out, the
+                // next step is identical: go process whatever's pending now. OutboxSignal.WaitAsync
+                // deliberately returns plain Task, not Task<bool>, so there's nothing to branch on here.
+                await signal.WaitAsync(_fallbackInterval, stoppingToken);
                 await ProcessPendingAsync(stoppingToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                // Host shutting down - loop condition below ends the loop.
+            }
+            catch (Exception ex)
             {
                 logger.LogError(ex, "Outbox processing cycle failed");
             }
         }
-        while (!stoppingToken.IsCancellationRequested
-            && await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    /// <summary>Processes whatever is currently pending, once, without the poll loop. Public so tests
+    /// <summary>Processes whatever is currently pending, once, without the wait loop. Public so tests
     /// (and a manual "flush now" trigger) can drive it directly.</summary>
     public async Task ProcessPendingAsync(CancellationToken ct)
     {

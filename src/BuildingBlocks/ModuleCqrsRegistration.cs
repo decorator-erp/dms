@@ -2,6 +2,7 @@ using System.Reflection;
 using BuildingBlocks.Behaviors;
 using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,6 +42,15 @@ public static class ModuleCqrsRegistration
     {
         services.TryAddScoped<IDomainEventQueue, DomainEventQueue>();
         services.AddScoped<DomainEventDispatcher<TContext>>();
+
+        // DomainEventDispatchDecorator now nudges OutboxSignal after every successful command's commit
+        // (W1). TryAdd, not AddOutbox's plain AddSingleton: several test fixtures call AddModuleCqrs
+        // directly, against a minimal container that never calls AddOutbox() (they don't need the real
+        // OutboxProcessor running) - this keeps AddModuleCqrs self-sufficient regardless of call order,
+        // same reasoning as AddModuleIntegrationEvents's own TryAdd calls below. In the real host,
+        // AddOutbox() always runs first (from DI.cs's AddApi), so this TryAdd is a no-op there and every
+        // module still shares the exact same OutboxProcessor-observed signal.
+        services.TryAddSingleton<OutboxSignal>();
 
         services.Scan(scan => scan.FromAssemblies(assembly)
             .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<>)), publicOnly: false)

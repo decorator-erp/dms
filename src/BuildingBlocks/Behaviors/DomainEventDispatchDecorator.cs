@@ -1,5 +1,6 @@
 using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
@@ -33,7 +34,8 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
     internal sealed class CommandHandler<TCommand, TResponse>(
         ICommandHandler<TCommand, TResponse> innerHandler,
         DomainEventDispatcher<TContext> dispatcher,
-        TContext dbContext)
+        TContext dbContext,
+        OutboxSignal signal)
         : ICommandHandler<TCommand, TResponse>
         where TCommand : ICommand<TResponse>
     {
@@ -47,6 +49,11 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
             {
                 await dispatcher.DispatchAsync(ct);
                 await transaction.CommitAsync(ct);
+
+                // After commit, never before - see InboxDedupeDecorator's identical nudge for why.
+                // Most commands enqueue nothing, so this is a cheap no-op call most of the time; the
+                // ones that do call db.Outbox().Enqueue(...) are what this exists for.
+                signal.Nudge();
             }
             else
             {
@@ -60,7 +67,8 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
     internal sealed class CommandHandler<TCommand>(
         ICommandHandler<TCommand> innerHandler,
         DomainEventDispatcher<TContext> dispatcher,
-        TContext dbContext)
+        TContext dbContext,
+        OutboxSignal signal)
         : ICommandHandler<TCommand>
         where TCommand : ICommand
     {
@@ -74,6 +82,11 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
             {
                 await dispatcher.DispatchAsync(ct);
                 await transaction.CommitAsync(ct);
+
+                // After commit, never before - see InboxDedupeDecorator's identical nudge for why.
+                // Most commands enqueue nothing, so this is a cheap no-op call most of the time; the
+                // ones that do call db.Outbox().Enqueue(...) are what this exists for.
+                signal.Nudge();
             }
             else
             {

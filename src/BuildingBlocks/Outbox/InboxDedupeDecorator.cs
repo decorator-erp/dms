@@ -41,7 +41,8 @@ namespace BuildingBlocks.Outbox;
 internal sealed class InboxDedupeDecorator<TContext, TEvent>(
     IIntegrationEventHandler<TEvent> innerHandler,
     DomainEventDispatcher<TContext> dispatcher,
-    TContext dbContext)
+    TContext dbContext,
+    OutboxSignal signal)
     : IIntegrationEventHandler<TEvent>
     where TContext : DbContext
     where TEvent : IIntegrationEvent
@@ -65,5 +66,11 @@ internal sealed class InboxDedupeDecorator<TContext, TEvent>(
         await dbContext.SaveChangesAsync(ct);
 
         await transaction.CommitAsync(ct);
+
+        // After commit, never before — a nudge on an uncommitted row races the processor into finding
+        // nothing. The inner handler (or the cascade the dispatcher just drained) may itself have
+        // enqueued further outbox rows via db.Outbox().Enqueue(...); this is what wakes the processor
+        // for those, instead of waiting out the fallback interval.
+        signal.Nudge();
     }
 }
