@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Documents.Contracts\Documents.Contracts.csproj" />
+    <ProjectReference Include="..\Documents.Domain\Documents.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as every other module's Application (e.g. Hr.Application,
+         G2-04): handlers use DocumentsDbContext directly - "no repository pattern". -->
+    <ProjectReference Include="..\Documents.Infrastructure\Documents.Infrastructure.csproj" />
+    <!-- Cross-module read: resolving a stage/task's owning ProjectId and display Name (folder-scope
+         validation, DefaultFolderResolver's naming) via Projects.Contracts.IProjectDirectory, never a
+         join into projects. tables. Cross-module *.Contracts references are always allowed. -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Documents.Application.Tests" />
+  </ItemGroup>
+
+</Project>
