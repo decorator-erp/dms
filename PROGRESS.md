@@ -2979,3 +2979,69 @@ excludes from a list query but keeps the blob on disk; a soft-deleted revision d
 the next revision's lineage. Full gate — `dotnet format --verify-no-changes` clean, `dotnet test`
 **256/256** (250 + 6 new) across all 16 test projects, including the pre-existing G5-08 gate-cascade
 suite (`Projects.Application.Tests`) still green after the registration fix.
+
+**G7-08** — done — `DocumentsModule : IModule` registered in `Program.cs`'s `moduleAssemblies` and wired
+into `Api.csproj` (both `Documents.Infrastructure` and `Documents.Application`, the latter purely so
+`Assembly.Load` finds the DLL, same as every other module). Five new endpoint files in
+`Documents.Infrastructure/Endpoints/`: `DocumentFolderEndpoints` (10 routes), `FileTemplateEndpoints` (7,
+including multipart create), `DocumentUploadEndpoints` (5 — the four uploads plus apply-template, split
+out because every one touches multipart content or copies bytes server-side), `DocumentEndpoints` (8,
+the non-upload CRUD/queries), `DocumentDownloadEndpoints` (1, its own file — the only route in the module
+streaming a response body via `Results.Stream` rather than returning JSON). New
+`Documents.Infrastructure/Services/DocumentQueries.cs` implements `IDocumentQueries` (the cross-module
+read contract G7-01 defined but nothing implemented until now) the same `Select`-projection convention
+`HrDirectory`/`ProjectDirectory` established. `DocumentsModule.Register` configures
+`FormOptions.MultipartBodyLengthLimit` from `FileStorage:MaxUploadBytes` (same fallback default
+`LocalFileStorageService`'s own constructor uses, a small documented duplication) — caps the multipart
+parser's own work at roughly the configured ceiling; `SaveAsync`'s chunk-by-chunk enforcement (G7-05)
+remains the authoritative backstop regardless of what this allows through. Routes chosen over the
+backend's own `by-project`/`by-stage` suffix scheme: upload and list-by-scope share the SAME path prefix
+per scope (`/api/projects/{id}/documents`, `/api/project-stages/{id}/documents`,
+`/api/project-tasks/{id}/documents`) across different HTTP verbs — perfectly legal routing, cleaner than
+the backend's own disambiguation suffixes, which existed there for reasons that don't apply here.
+
+**Two more real gaps found while wiring the HTTP surface, both necessary for G7-07's own work to be
+reachable at all, not new scope:**
+1. `GateEndpoints`' `CreateGateRequest` (Projects.Infrastructure) never carried the `ReferencedDocumentId`
+   field G7-07 added to `CreateStageGateConditionCommand`/`CreateTaskGateConditionCommand` — so even
+   after that fix, a `DocumentApproved` gate could still not be created through the actual HTTP route,
+   only through a direct in-process command call (as G7-07's own tests did). Fixed by adding the field to
+   the request DTO and threading it through both POST handlers, same additive shape.
+2. Every `IFormFile`-binding endpoint (five upload routes, one template-create route) threw
+   `InvalidOperationException` at request time: ASP.NET Core auto-attaches antiforgery metadata to any
+   endpoint binding `IFormFile`/`IFormFileCollection`, and this app has never configured antiforgery
+   middleware (`app.UseAntiforgery()` doesn't exist in `Program.cs`) — confirmed this is exactly why the
+   backend's own equivalent endpoints call `.DisableAntiforgery()`, which an earlier reading of those
+   files (G7-08 planning) had dismissed as unnecessary since "antiforgery isn't configured," backwards
+   reasoning corrected once the real 500 surfaced. Fixed by adding `.DisableAntiforgery()` to all six
+   routes. This in turn surfaced a THIRD gap: `Api/GlobalExceptionHandler.cs` forced HTTP 500 for every
+   unhandled exception, including `Microsoft.AspNetCore.Http.BadHttpRequestException` instances that
+   already carry the framework's own correct `StatusCode` (400, for a `MultipartBodyLengthLimit`
+   violation caught while the request delegate's own form binder reads the body, before any handler
+   runs). Fixed to respect that exception type's own `StatusCode` instead of overriding it — a small,
+   general correctness fix to shared `Api` infrastructure, not Documents-specific, verified not to change
+   behavior for any other exception type (everything else still forces 500).
+
+**Plan correction, recorded rather than silently changed:** G7-08's own verify text says "oversized
+upload → 413." Built and run, the actual (and correct) ASP.NET Core status for a
+`FormOptions.MultipartBodyLengthLimit` violation is **400 Bad Request** — confirmed by reading the
+framework's own `BadHttpRequestException.StatusCode` off the real exception, not assumed. 413 Payload Too
+Large is a different mechanism entirely (`IHttpMaxRequestBodySizeFeature.MaxRequestBodySize`, the
+whole-request-body limit Kestrel itself enforces before any form parsing starts), which this
+configuration never touches. The test asserts 400, matching what the framework actually does, not what
+the plan predicted it would do.
+
+**Verify:** `dotnet build -warnaserror` 0/0; app boots with all five modules; `GET /api/permissions`
+carries all 6 Documents/FileTemplates strings (`DocumentsSmokeTests`); unauthenticated → 401 and
+authenticated-without-permission → 403 on a mutating Documents route; oversized multipart upload → 400
+(see the plan-correction note above), against a 5&nbsp;MB test-collection-wide cap (`ApiFixture` overrides
+`FileStorage:MaxUploadBytes`) so the test stays fast; `CrossModuleSmokeTests` extended to a five-module
+characterization flow — project → folder tree → Attachment gate created → upload (satisfies it through
+real outbox delivery) → revision → download (the REVISION's bytes, not v1's) → DocumentApproved gate
+created → request review → approve → two real outbox hops → document locked and gate satisfied — run
+TWICE inside one test for a flake check, each pass its own fresh actor/project; `DocumentsSchemaIsolationTests`
+proves a Documents-owned read issues no SQL touching `identity.`/`hr.`/`approvals.`/`projects.` (stronger
+than `ProjectsSchemaIsolationTests`' three-schema version, since `GetProjectDocumentByIdQueryHandler` has
+no cross-module lookup at all, not even a permission-gated bypass). Full gate — `dotnet format
+--verify-no-changes` clean, `dotnet test` **262/262** (256 + 6 new) across all 18 test projects; all 14
+Architecture.Tests green with five modules on the classpath.
