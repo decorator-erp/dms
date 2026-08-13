@@ -2433,3 +2433,39 @@ away.
 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` 182/185 unchanged (no behavior touched);
 `git diff -w HEAD~1 HEAD` confirms the near-emptiness.
+
+**H1-03** — done — `src/Api/DI.cs` (new), `src/Api/Program.cs`, `tests/Integration.Tests/SeedingTests.cs`
+(new); deleted `src/Api/Extensions/OutboxDbMigrationExtension.cs`.
+
+The refactor itself is exactly what it looked like: `DI.cs`'s `AddApi(IServiceCollection, IConfiguration)`
+holds everything `Program.cs` used to inline — JWT auth, authorization, CORS, health checks, the
+`SharedDbContext` + `AddOutbox()` wiring found missing back at G2-04 — leaving `Program.cs` as pure
+composition-root glue. First time this diff was actually read start-to-end (it had never passed through
+a task's own verify block before landing in the working tree), which is what surfaced the two problems
+riding along with it:
+
+- The module `SeedAsync` startup loop was commented out. This is the exact, sole cause of the 3
+  `Integration.Tests` failures H1-01 measured and deferred to this task — restoring the loop turned
+  182/185 into 186/186 (185 plus the new test below), with no other change. Confirmed the mechanism
+  precisely: `RoleSeeder.SeedAsync` is unconditional and creates `admin`/`manager`/`employee`;
+  `RegisterCommand`'s role-lookup fails closed with no seeded role to resolve, which is what
+  `CrossModuleSmokeTests`'s `Register_then_create_employee_...` test was actually reporting as
+  `Assert.True() Failure — Actual: False`.
+- `src/Api/Extensions/OutboxDbMigrationExtension.cs` — deleted. `ApplyOutboxMigrations` was defined and
+  never called anywhere in the tree (confirmed: one occurrence in `src/`, its own declaration).
+  Migrate-the-shared-schema-on-boot is an ops decision nobody made; wiring it up unasked would have been
+  a bigger unreviewed change than leaving it out.
+
+Added `SeedingTests.cs` rather than resolving `RoleManager<ApplicationRole>` from the host container —
+`ApplicationRole` is `internal` to `Identity.Domain` with no `InternalsVisibleTo` grant to
+`Integration.Tests`. Queries `identity.roles` directly via `NpgsqlConnection` (same pattern
+`IdentitySchemaTests.cs` already uses) after issuing a real request through the host, and asserts the
+three seeded role names — a direct proof the restored loop ran, not an inference from a downstream
+command succeeding.
+
+Also: stripped a UTF-8 BOM from `DI.cs` (no other file in the repo carries one) and reordered its
+`using` directives to match the rest of the codebase.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet format --verify-no-changes` clean (first time this
+task's own dead file stopped blocking it); `dotnet test` **186/186** — the 3 previously-failing
+`Integration.Tests` now pass unchanged, plus the new `SeedingTests` test.
