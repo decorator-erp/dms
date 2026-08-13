@@ -2469,3 +2469,52 @@ Also: stripped a UTF-8 BOM from `DI.cs` (no other file in the repo carries one) 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet format --verify-no-changes` clean (first time this
 task's own dead file stopped blocking it); `dotnet test` **186/186** — the 3 previously-failing
 `Integration.Tests` now pass unchanged, plus the new `SeedingTests` test.
+
+**H1-04** — done (commit `aab784d` — mislabeled `H1-03` in its own message; caught after the commit
+landed and left as-is per this project's git-safety rule against amending) — the untracked
+planning/review files (`PLAN-PHASE2.md`, `PLAN-PHASE3.md`, six Phase 2 `REVIEW-*.md` rounds, three Phase
+3 `REVIEW-PHASE3-*.md` rounds), plus `docs/hosting-cost-analysis.md` (new, replacing seven files) and
+`docs/domain-event-engine.md` (new, as-is).
+
+Consolidated `azure-hosting-cost-estimate.md`, `hostinger-hosting-cost-estimate.md`,
+`traditional-vps-hosting-cost-estimate.md`, `outbox-hosting-cost.md`, `outbox-vs-no-outbox.md`,
+`outbox-vs-traditional-monolith-cost.md`, and `reduced-cost-hosting-options.md` — seven overlapping
+"what does this cost" explorations, not `PLAN-PHASE3.md`'s claimed eight (there were only seven; the
+eighth, `docs/low-resource-hosting.md`, is the adopted decision record and correctly stays separate) —
+into one `docs/hosting-cost-analysis.md`, organized as Part 1 (does the outbox/modular-monolith
+architecture itself add hosting cost — no, a few dollars a month at most) and Part 2 (provider pricing:
+Azure PaaS, self-managed VPS via Hetzner and Hostinger, HA vs. no-HA). `docs/domain-event-engine.md` is a
+reference doc, not a cost doc — committed unmodified.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` 186/186 unchanged (docs-only change, still ran
+the full gate per the execution contract); `git status` clean except this task's own commit.
+
+## Phase boundary — H1 close-out
+
+H1 is done. Working tree clean, gate green (186/186, up from the 185 documented at the Phase 2 boundary
+— the one net addition is `SeedingTests.cs`), four commits in strict dependency order
+(`eedde28`/`03790e1` package sweep, `c995f2b` `.gitattributes`, `becac0a`/`f6f2b3e` the real `DI.cs`
+refactor with its two riding-along fixes, `aab784d` docs). G7-01 is unblocked.
+
+**What `PLAN-PHASE3.md`'s H1 section got wrong, for the phase record** — not to relitigate, but because
+it is exactly the failure mode this project's own `PROGRESS.md` already names twice at the Phase 2
+boundary ("read the actual source method, not just its name"), now recurring one level up at the
+planning-document level rather than the source-code level:
+- **Claimed** a 59-file, ±6,000-line CRLF↔LF flip from a folder rename. **Actual:** 32 files, 157/128
+  real lines, and `git diff --ignore-cr-at-eol` produced the identical delta to a plain `git diff` — zero
+  line-ending component. (Root cause, not excused by but explaining the error: the tree was first read
+  from a Linux container mount without `core.autocrlf`, so a CRLF working tree read against an LF index
+  as churn on every line of every file touched.)
+- **Claimed** the only real change was `Program.cs` → `DI.cs`. **Actual:** that refactor was real, but
+  bundled with an unreviewed 10-package upgrade sweep (three major versions) and two silent regressions
+  (seeding disabled, a dead migration-extension file) that had never passed through a task's verify
+  block.
+- **Claimed** `HttpCurrentUser` had moved to `BuildingBlocks.Web.Authorization`. **Actual:** never
+  moved — decided in this phase's planning to leave it in `Api`, since it is an HTTP-host concern with
+  exactly one consumer and moving it would have risked arch rule 8 for no benefit.
+- **Claimed** eight hosting-cost docs. **Actual:** seven, plus the one decision record.
+
+**The general lesson, worth carrying past this phase:** a plan's description of the working tree is a
+claim to verify against the actual repository state, never a fact to build a task on directly — the same
+discipline this project already applies to source code (read the method, not its doc comment or its
+name) applies equally to the plan document itself.
