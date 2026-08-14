@@ -3638,3 +3638,50 @@ updated `Rule9CrossSchemaForeignKeyTests`, and the fault-injection `docs/adding-
 (scratch wrong-direction FK → confirm the check catches it by name → revert → reconfirm green) — this
 last one specifically could not be performed at all in this environment and must be done once Docker is
 available, before merge, alongside the rest of the Docker-gated verification this phase is accumulating.
+
+**G9-09** — done — `src/Modules/Crm/Crm.Application/` (new project): `CrmEnumMapping.cs` (all 25
+Contracts↔Domain enum pairs — 23 name-and-value pairs plus the two deliberately-renamed
+value-only pairs, `CrmApprovalState`↔`ApprovalState` and `RequirementPriority`↔`TaskPriority` — written
+in full now, same reasoning `ProjectsEnumMapping` had for writing all twelve of its own pairs upfront
+rather than growing the file every task), and 21 validator+handler files across `Features/Clients/`
+(9), `Features/Contacts/` (4), `Features/Leads/` (8), `Features/Notes/` (4) — 25 commands/queries
+total. `CrmModule.Register` gains `AddModuleCqrs<CrmDbContext>` and `AddCrmScopeDecorator` (a no-op
+today — no `ICrmScoped` command exists yet; the Portal slice at G9-14 is the first). `tests/Modules/
+Crm.Application.Tests/` (new project): `EnumMappingParityTests.cs` (25 pairs, pure reflection, no
+Postgres — confirms the mapping is internally consistent even for the enums no handler exercises yet),
+`CrmApplicationFixture.cs`/`TestCurrentUser.cs` (Identity+HR+CRM DI graph, same shape as
+`ProjectsApplicationFixture`), `ClientLeadNoteFlowTests.cs` (6 tests resolving handlers from DI,
+proving the wiring rather than the logic in isolation).
+
+**`CreateClientCommandHandler` validates `AppUserId` against `Identity.Contracts.IUserDirectory`
+before creating the row** — the application-code check that stands where `crm.clients.AppUserId`'s own
+hard FK (G9-08) would otherwise surface as a raw Postgres exception on `SaveChangesAsync` instead of a
+graceful `Result` failure. Same reasoning as every other cross-schema reference validated at the
+handler level in this codebase.
+
+**Two implementation gaps found and closed while wiring these handlers, neither anticipated by the
+plan:** `Crm.Domain.CrmClientNoteErrors` didn't exist — G9-06 gave `CrmClientNote` no error class at
+all, since its `Create`/`Update` never fail; the gap only surfaced once a handler needed a `NotFound`
+to return. Added here rather than retroactively editing G9-06's commit. Separately,
+`Crm.Contracts.Leads.CrmLeadIntakeData` and `Crm.Domain.CrmLeadIntakeData` share a name — both ported
+from the same backend record — which `Crm.Application` (referencing both namespaces) makes ambiguous;
+resolved with a `DomainIntakeData` alias in `SaveCrmLeadIntakeCommandHandler` and explicit
+`Contracts.Leads.` qualification in `GetCrmLeadIntakeQueryHandler`, rather than renaming either
+record — the Contracts/Domain name PAIRS matching is the port's own convention (see G9-01/G9-03's
+remarks); only the two enums with real cross-module name collisions were renamed, and this record pair
+has no such collision, just an intra-assembly ambiguity with a purely local fix.
+
+**Identity's `DefaultRoles` has no seeded `"client"` role** — `DefaultRoles.cs`'s own remarks say the
+backend's `Client` role was deliberately dropped "until a module that needs it exists." That module
+now exists. `ClientLeadNoteFlowTests` sidesteps this by registering its test users under the
+`"employee"` role (role membership carries no meaning for `ICrmAccessGuard`, which resolves the client
+actor purely from `crm.clients.AppUserId` matching), but this is a test-fixture workaround, not a
+verdict on the real question: **whether Identity needs an actual `"client"` role added for Portal
+permission-claim issuance to work end-to-end is still open, flagged explicitly for G9-14.**
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `EnumMappingParityTests` 25/25 (new), `Crm.UnitTests` still 195/195,
+`Crm.Infrastructure.Tests`' reflection-only tests still 4/4. **Not run in this environment**:
+`ClientLeadNoteFlowTests` (6 new tests, needs the three-module Testcontainers fixture) — could not be
+executed per the standing Docker-unavailable note; must run before merge alongside everything else this
+phase has accumulated under that note.

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Crm.Contracts\Crm.Contracts.csproj" />
+    <ProjectReference Include="..\Crm.Domain\Crm.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as every other module: handlers use CrmDbContext directly -
+         "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Crm.Infrastructure\Crm.Infrastructure.csproj" />
+    <!-- Cross-module read: CrmAccessGuard's employee branch (already implemented, G9-08) and lead
+         conversion/meeting-request handlers resolving the acting user to an employee via
+         Hr.Contracts.IHrDirectory. -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <!-- Cross-module read: client-account resolution via Identity.Contracts (client portal actor,
+         G9-09's ConvertLeadCommandHandler links the new Client to the Identity user the lead names). -->
+    <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
+    <!-- Cross-module write: CrmBriefApprovedHandler/CrmItemsResolvedHandler/CrmPeriodClosedHandler
+         (Projects.Contracts.IGateConditionTypeHandler, G9-13) and requesting a DesignBrief/
+         RequirementItem/BriefSpace-subject approval via Approvals.Contracts.IApprovalRequester (G9-10). -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- Cross-module read: artifact-document creation validates DocumentId via
+         Documents.Contracts.IDocumentQueries.GetAsync (G9-12) - the replacement for the FK structural
+         item 1 drops. -->
+    <ProjectReference Include="..\..\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Crm.Application.Tests" />
+  </ItemGroup>
+
+</Project>

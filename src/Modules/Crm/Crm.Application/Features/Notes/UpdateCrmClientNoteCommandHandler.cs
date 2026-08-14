@@ -1,0 +1,32 @@
+using BuildingBlocks.Messaging;
+using Crm.Contracts.Notes;
+using Crm.Domain;
+using Crm.Infrastructure.Persistence;
+using FluentValidation;
+using SharedKernel;
+
+namespace Crm.Application.Features.Notes;
+
+internal sealed class UpdateCrmClientNoteCommandValidator : AbstractValidator<UpdateCrmClientNoteCommand>
+{
+    public UpdateCrmClientNoteCommandValidator()
+    {
+        RuleFor(x => x.NoteId).NotEmpty();
+        RuleFor(x => x.Content).NotEmpty();
+    }
+}
+
+internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmClientNoteCommand>
+{
+    public async Task<Result> HandleAsync(UpdateCrmClientNoteCommand command, CancellationToken ct = default)
+    {
+        var note = await db.CrmClientNotes.FindAsync([command.NoteId], ct);
+        if (note is null)
+            return CrmClientNoteErrors.NotFound;
+
+        note.Update(command.Content);
+        await db.SaveChangesAsync(ct);
+
+        return Result.Success();
+    }
+}

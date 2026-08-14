@@ -64,6 +64,10 @@
          Program.cs's own Assembly.Load("Crm.Infrastructure") + moduleAssemblies registration land at
          G9-14, now that the module has endpoints to actually serve. -->
     <ProjectReference Include="..\Modules\Crm\Crm.Infrastructure\Crm.Infrastructure.csproj" />
+    <!-- Same reasoning as the Identity.Application/Hr.Application/Documents.Application references
+         above: CrmModule.Register's Assembly.Load("Crm.Application") needs this DLL present in Api's
+         output directory. -->
+    <ProjectReference Include="..\Modules\Crm\Crm.Application\Crm.Application.csproj" />
   </ItemGroup>
 
 </Project>

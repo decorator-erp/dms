@@ -172,6 +172,11 @@ internal static class CrmArtifactErrors
         "crm.artifacts.InvalidAuthor", "An artifact must be authored by exactly one of an employee or a contact.");
 }
 
+internal static class CrmClientNoteErrors
+{
+    public static readonly Error NotFound = Error.NotFound("crm.notes.NotFound", "Client note was not found.");
+}
+
 internal static class CrmMeetingErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.meetings.NotFound", "Meeting was not found.");

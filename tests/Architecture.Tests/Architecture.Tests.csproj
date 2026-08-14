@@ -57,6 +57,7 @@
     <ProjectReference Include="..\..\src\Modules\Crm\Crm.Contracts\Crm.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Crm\Crm.Domain\Crm.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Crm\Crm.Infrastructure\Crm.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Crm\Crm.Application\Crm.Application.csproj" />
   </ItemGroup>
 
 </Project>
