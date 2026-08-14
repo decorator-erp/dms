@@ -11,11 +11,15 @@ using Xunit;
 namespace Projects.Application.Tests;
 
 /// <summary>
-/// Boots all four modules' real DI graphs (Identity, HR, Approvals, Projects) plus
+/// Boots all five modules' real DI graphs (Identity, HR, Approvals, CRM, Projects) plus
 /// <c>SharedDbContext</c>/<c>AddOutbox()</c> against one Testcontainers Postgres — needed because
-/// <c>ProjectsDbContext</c>'s own migration has raw-SQL FKs to <c>hr.</c>/<c>approvals.</c>, and because
-/// this is the first fixture that will eventually exercise the full cross-module flow (G5-08's Approval
-/// gate). Same shape as <c>HrApplicationFixture</c>/<c>ApprovalsApplicationFixture</c>, one module wider.
+/// <c>ProjectsDbContext</c>'s own migration has raw-SQL FKs to <c>hr.</c>/<c>approvals.</c>/<c>crm.</c>
+/// (the last one added at G9-13, closing the Phase 2 <c>ClientId</c> deferral), and because this is the
+/// first fixture that will eventually exercise the full cross-module flow (G5-08's Approval gate). CRM
+/// joins here (not later) purely so <c>ProjectFlowTests</c>/<c>GateFlowTests</c> can seed a real
+/// <c>crm.clients</c> row through <c>Crm.Application</c>'s own <c>CreateClientCommand</c> handler before
+/// creating a project — the FK would otherwise reject every existing test's fabricated <c>ClientId</c>.
+/// Same shape as <c>HrApplicationFixture</c>/<c>ApprovalsApplicationFixture</c>, two modules wider.
 /// </summary>
 public sealed class ProjectsApplicationFixture : IAsyncLifetime
 {
@@ -58,6 +62,7 @@ public sealed class ProjectsApplicationFixture : IAsyncLifetime
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
             System.Reflection.Assembly.Load("Hr.Infrastructure"),
             System.Reflection.Assembly.Load("Approvals.Infrastructure"),
+            System.Reflection.Assembly.Load("Crm.Infrastructure"),
             System.Reflection.Assembly.Load("Projects.Infrastructure"));
 
         foreach (var module in modules)
@@ -71,9 +76,12 @@ public sealed class ProjectsApplicationFixture : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
+        // ModuleDependencyOrder.SchemaOrder order: crm before projects (the AddClientForeignKey
+        // migration needs crm.clients to already exist).
         await MigrateAsync("Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
         await MigrateAsync("Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
         await MigrateAsync("Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
+        await MigrateAsync("Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
         await MigrateAsync("Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure");
 
         var identityModule = modules.Single(m => m.Name == "Identity");

@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Crm.Contracts;
 using Crm.Infrastructure.Decorators;
@@ -9,14 +10,14 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Projects.Contracts;
 
 namespace Crm.Infrastructure;
 
 /// <summary>
-/// `Register` still grows across the remaining Phase 4 tasks — the `IGateConditionTypeHandler` Scrutor
-/// scan and `AddModuleIntegrationEvents` at G9-13 once the gate handlers and the `ApprovalDecided`
-/// subscriber exist, `IClientDirectory`/`ICrmGateReader`/`ICrmBriefReader` implementations as they land
-/// — same incremental shape `DocumentsModule`'s own history took across G7-01→G7-08.
+/// `Register` still grows at G9-14 (endpoints/permissions are already wired; only the module-registration
+/// side effects specific to the anonymous surface remain) — same incremental shape `DocumentsModule`'s
+/// own history took across G7-01→G7-08.
 /// </summary>
 internal sealed class CrmModule : IModule
 {
@@ -28,6 +29,8 @@ internal sealed class CrmModule : IModule
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<ICrmAccessGuard, CrmAccessGuard>();
+        services.AddScoped<ICrmGateReader, CrmGateReader>();
+        services.AddScoped<IClientDirectory, ClientDirectory>();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(Name, CrmPermissions.All));
 
@@ -37,6 +40,24 @@ internal sealed class CrmModule : IModule
         // Must run AFTER AddModuleCqrs - Scrutor's Decorate wraps in call order, so the scope check
         // needs the Validation→Logging→DomainEventDispatch chain already registered to wrap outermost.
         services.AddCrmScopeDecorator(typeof(ICrmScoped).Assembly);
+
+        // The three IGateConditionTypeHandler implementations (Crm.Application/Features/Gates) are
+        // `internal` there, with no InternalsVisibleTo grant to Crm.Infrastructure - Scrutor's scan
+        // needs only the PUBLIC interface type, same technique DocumentsModule/ProjectsModule already
+        // use for their own gate-handler registrations.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
+
+        // ApprovalDecidedIntegrationEventHandler lives in THIS assembly (Infrastructure), not
+        // Application - it calls out to Approvals.Contracts.IIntegrationEventHandler<...> and needs
+        // ICrmGateReader, same "Infrastructure owns handlers that call another module's contract"
+        // reasoning DocumentsModule's own registration documents. CRM is the third subscriber to
+        // ApprovalDecidedIntegrationEvent (after Projects on GateCondition, Documents on
+        // ProjectDocument) - safe because AddModuleIntegrationEvents (G7-07's fix) only decorates
+        // descriptors added by THIS call's own scan, never re-wraps another module's registration.
+        services.AddModuleIntegrationEvents<CrmDbContext>(typeof(CrmModule).Assembly);
 
         return services;
     }

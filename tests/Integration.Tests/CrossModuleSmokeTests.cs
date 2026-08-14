@@ -109,13 +109,14 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             new { Name = "Needs Approval", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
         Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
 
+        var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
         var projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"P-{suffix}",
             Name = "G6 Smoke",
             Address = "1 Test Rd",
             WorkflowType = 1,
-            ClientId = Guid.NewGuid(),
+            ClientId = clientId,
             StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
@@ -214,13 +215,14 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 new { Name = "Needs Doc", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
             Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
 
+            var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
             var projectResponse = await client.PostAsJsonAsync("/api/projects", new
             {
                 Code = $"P-{suffix}",
                 Name = "G7 Smoke",
                 Address = "1 Test Rd",
                 WorkflowType = 1,
-                ClientId = Guid.NewGuid(),
+                ClientId = clientId,
                 StageTemplateId = templateId,
             });
             Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);

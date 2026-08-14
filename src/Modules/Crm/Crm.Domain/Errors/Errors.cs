@@ -191,6 +191,16 @@ internal static class CrmClientNoteErrors
     public static readonly Error NotFound = Error.NotFound("crm.notes.NotFound", "Client note was not found.");
 }
 
+/// <summary>The three CRM <c>IGateConditionTypeHandler</c> implementations' own errors (G9-13) —
+/// separate from <see cref="CrmBriefErrors"/>/<see cref="CrmPeriodErrors"/>/<see cref="CrmItemErrors"/>
+/// since these are shape-validation failures on a gate DEFINITION, not on the CRM entity the gate
+/// eventually reads.</summary>
+internal static class CrmGateErrors
+{
+    public static readonly Error UnsupportedOwner = Error.BadRequest(
+        "crm.gates.UnsupportedOwner", "This gate condition type only supports a stage-owned gate.");
+}
+
 internal static class CrmMeetingErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.meetings.NotFound", "Meeting was not found.");

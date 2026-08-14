@@ -52,13 +52,14 @@ public sealed class DocumentsSchemaIsolationTests(ApiFixture fixture)
             new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
         Assert.Equal(HttpStatusCode.OK, stageResponse.StatusCode);
 
+        var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
         var projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"P-{suffix}",
             Name = "Schema Isolation Test",
             Address = "1 Test Rd",
             WorkflowType = 1,
-            ClientId = Guid.NewGuid(),
+            ClientId = clientId,
             StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);

@@ -27,12 +27,18 @@ public sealed record MeetingScheduledIntegrationEvent(
     : IIntegrationEvent;
 
 /// <summary>
-/// The three gate-satisfaction events. Each carries <see cref="ProjectStageId"/> so
-/// <c>Projects.Infrastructure</c> can match and satisfy the owning gate without a callback — the
-/// push half of this phase's push-and-pull gate seam (<c>ICrmGateReader</c> is the pull half).
-/// <c>CrmItemsResolved</c> is the only one of the three that can be task-owned (per the backend's
-/// <c>CrmItemsResolvedHandler</c> supporting both owner kinds), so only it also carries
-/// <see cref="CrmItemsResolvedIntegrationEvent.ProjectTaskId"/>.
+/// The three gate-satisfaction events. <see cref="CrmBriefApprovedIntegrationEvent"/>/
+/// <see cref="CrmPeriodClosedIntegrationEvent"/> carry a required <c>ProjectStageId</c> — both source
+/// entities (<c>CrmDesignBrief</c>, <c>CrmRequirementPeriod</c>) are stage-owner-only, matching the
+/// backend's handlers (G9-13's own verify: <c>OwnerKind</c>-only validation). <c>CrmItemsResolved</c>
+/// is the only one of the three that can be task-owned (the backend's <c>CrmItemsResolvedHandler</c>
+/// supports both), so <b>both</b> its id fields are nullable with an implicit XOR — exactly one is
+/// set, mirroring <c>GateCondition</c>'s own <c>ProjectStageId</c>/<c>ProjectTaskId</c> scope split —
+/// rather than forcing a task-owned resolution to also resolve and carry its owning stage id, which
+/// would need a needless <c>Projects.Contracts.IProjectDirectory</c> call CRM's own data (the brief's
+/// or period's own <c>ProjectStageId</c>, the entry's own <c>ProjectTaskId</c>) never requires. This
+/// is a correction from G9-01's initial shape (a required <c>ProjectStageId</c>), found while wiring
+/// the real publisher at G9-13 — see that task's PROGRESS.md entry.
 /// </summary>
 public sealed record CrmBriefApprovedIntegrationEvent(
     Guid EventId, Guid BriefId, Guid ProjectStageId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
@@ -41,5 +47,5 @@ public sealed record CrmPeriodClosedIntegrationEvent(
     Guid EventId, Guid PeriodId, Guid ProjectStageId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
 
 public sealed record CrmItemsResolvedIntegrationEvent(
-    Guid EventId, Guid ProjectStageId, Guid? ProjectTaskId, DateTimeOffset OccurredAtUtc)
+    Guid EventId, Guid? ProjectStageId, Guid? ProjectTaskId, DateTimeOffset OccurredAtUtc)
     : IIntegrationEvent;

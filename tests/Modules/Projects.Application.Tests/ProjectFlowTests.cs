@@ -48,10 +48,11 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
 
             var departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
             var (templateId, _) = await CreateTemplateAsync(sp, departmentId);
+            var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
 
             var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
             var projectResult = await createProject.HandleAsync(new CreateProjectCommand(
-                $"P-{Guid.NewGuid():N}", "New Build", "123 Main St", WorkflowType.Stage, Guid.NewGuid(),
+                $"P-{Guid.NewGuid():N}", "New Build", "123 Main St", WorkflowType.Stage, clientId,
                 StageTemplateId: templateId));
             Assert.True(projectResult.IsSuccess);
             projectId = projectResult.Value;
@@ -141,10 +142,11 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
 
             var departmentId = await CreateDepartmentWithHeadAsync(sp, memberEmployeeId);
             var (templateId, _) = await CreateTemplateAsync(sp, departmentId);
+            var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
 
             var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
             var projectId2 = (await createProject.HandleAsync(new CreateProjectCommand(
-                $"P-{Guid.NewGuid():N}", "Scope Test", "1 Test Rd", WorkflowType.Stage, Guid.NewGuid(),
+                $"P-{Guid.NewGuid():N}", "Scope Test", "1 Test Rd", WorkflowType.Stage, clientId,
                 StageTemplateId: templateId))).Value;
             projectId = projectId2;
 

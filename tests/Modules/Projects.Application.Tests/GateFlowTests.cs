@@ -173,10 +173,11 @@ public sealed class GateFlowTests(ProjectsApplicationFixture fixture)
         var templateStageAId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Stage A", 1, 50m))).Value;
         var templateStageBId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Stage B", 2, 50m))).Value;
 
+        var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
         var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
         var projectId = (await createProject.HandleAsync(new CreateProjectCommand(
             $"P-{Guid.NewGuid():N}", "Next Stage Test", "1 Test Rd", global::Projects.Contracts.WorkflowType.Stage,
-            Guid.NewGuid(), StageTemplateId: templateId))).Value;
+            clientId, StageTemplateId: templateId))).Value;
 
         var getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
         var stages = (await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId))).Value!;
@@ -238,10 +239,11 @@ public sealed class GateFlowTests(ProjectsApplicationFixture fixture)
         for (var i = 0; i < taskNames.Length; i++)
             Assert.True((await createStageTask.HandleAsync(new CreateStageTaskCommand(stageId, taskNames[i], i + 1))).IsSuccess);
 
+        var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
         var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
         var projectId = (await createProject.HandleAsync(new CreateProjectCommand(
             $"P-{Guid.NewGuid():N}", "Gate Test Project", "1 Test Rd", global::Projects.Contracts.WorkflowType.Stage,
-            Guid.NewGuid(), StageTemplateId: templateId))).Value;
+            clientId, StageTemplateId: templateId))).Value;
 
         var getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
         var tasks = (await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId))).Value!;

@@ -138,6 +138,17 @@ also carry a same-schema `Guid?` alternate-author column (`AddedByContactId`,
 `RequestedByContactId`/`ProposedByContactId`, `CreatedByContactId`) — real EF-managed FKs to
 `crm.crm_contacts`, configured normally, never part of this cross-schema migration.
 
+`projects → crm` (added at G9-13, Phase 4): one FK, `ON DELETE RESTRICT` —
+`fk_projects_client`, `projects.projects."ClientId"` → `crm.clients("Id")`, in its own
+`AddClientForeignKey` migration (run after `crm`'s own `InitialCrm`/`CrossSchemaForeignKeys`
+migrations, per `ModuleDependencyOrder.SchemaOrder`'s `crm` insertion ahead of `projects`). Closes the
+Phase 2 deferral this section already flagged: `Project.ClientId` was a bare unvalidated `Guid` because
+CRM did not exist. Application-code validation sits alongside the constraint, not instead of it —
+`CreateProjectCommandHandler` calls `Crm.Contracts.IClientDirectory.ExistAsync` before
+`Project.Create` is ever invoked, so an unknown client is rejected with a 404-style domain error before
+the insert reaches the database; the FK is the backstop for every other write path (migrations,
+scripts, future callers) that doesn't go through that handler.
+
 **`crm → projects` does not exist, and cannot, for a structural reason distinct from every other
 absent FK recorded in this document.** Every prior deliberate absence (`projects.ClientId` before this
 phase, `GateCondition.ReferencedDocumentId`) was a case where the FK direction would have inverted the

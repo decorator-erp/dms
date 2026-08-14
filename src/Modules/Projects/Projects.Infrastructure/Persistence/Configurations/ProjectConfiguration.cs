@@ -23,9 +23,12 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 
         builder.HasIndex(p => p.Code).IsUnique();
 
-        // ClientId: no FK - CRM absent, unvalidated Guid (documented in the migration +
-        // docs/cross-schema-foreign-keys.md). OwnerId: bare Guid FK to hr.employees, raw-SQL constraint
-        // added in the migration (EF cannot emit it - two different models).
+        // ClientId: FK to crm.clients (G9-13, closing the Phase 2 deferral) - raw-SQL constraint in
+        // the AddClientForeignKey migration (EF cannot emit it - two different models), validated in
+        // application code by CreateProjectCommandHandler via Crm.Contracts.IClientDirectory before
+        // Project.Create is ever called. OwnerId: bare Guid FK to hr.employees, same raw-SQL-migration
+        // shape, added at G5-07. Both documented in docs/cross-schema-foreign-keys.md.
+        builder.HasIndex(p => p.ClientId);
         builder.HasIndex(p => p.OwnerId);
     }
 }

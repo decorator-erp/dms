@@ -15,6 +15,13 @@ internal static class ProjectErrors
     /// the <c>ProjectScopeDecorator</c>'s own mapping (G5-07), not by this error's own status code.</summary>
     public static readonly Error AccessDenied = Error.Forbidden(
         "projects.AccessDenied", "The current user does not have access to this project.");
+
+    /// <summary>G9-13: closes the Phase 2 deferral — <c>Project.ClientId</c> now must name a real
+    /// <c>crm.clients</c> row, checked via <c>Crm.Contracts.IClientDirectory.ExistAsync</c> in
+    /// <c>CreateProjectCommandHandler</c> before <c>Project.Create</c> is ever called (validation lives
+    /// in the handler, never in the aggregate, per the plan's explicit note).</summary>
+    public static readonly Error ClientNotFound = Error.NotFound(
+        "projects.ClientNotFound", "The specified client was not found.");
 }
 
 internal static class StageErrors

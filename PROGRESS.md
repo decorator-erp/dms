@@ -3802,3 +3802,100 @@ SDK feature actually produces) and force-adding the two previously-invisible dir
 silently-excluded source file is a correctness defect in the repository itself, not a style nit — a
 future reader diffing this phase's commits against what's actually on disk needs to know G9-01's
 listed file set was incomplete until this task closed the gap.
+
+**G9-13** — done — the gate-integration core, both directions, plus the Projects `ClientId` FK ripple.
+
+**CRM side.** `Crm.Infrastructure/Services/CrmGateReader.cs` implements `ICrmGateReader` (four methods)
+over `CrmDbContext` — the pull half of the seam, backing `SatisfyGateConditionCommandHandler`'s manual
+path for the three CRM condition types (decision 2: a manual satisfy verifies against real CRM state,
+covering the gate created after its condition already became true). `Crm.Infrastructure/Services/ClientDirectory.cs`
+implements `IClientDirectory` (`GetAsync`/`GetManyAsync`/`ExistAsync`/`ResolveByAppUserIdAsync`), all
+projecting straight to `ClientSummary` via `Select`. `Crm.Application/Features/Gates/CrmGateHandlers.cs`
+adds the three `IGateConditionTypeHandler` implementations (`CrmBriefApprovedHandler`,
+`CrmItemsResolvedHandler`, `CrmPeriodClosedHandler`) — **Lesson 1 confirmed exactly as the plan
+predicted**: all three read only `context.OwnerKind`, no `GateConditionContext` extension needed,
+correcting the standing expectation `PROGRESS.md:3136-3139` recorded ("expect CRM to need one more such
+extension") — G10-01's own report must restate this correction explicitly, not just note the check.
+`CrmModule.cs` registers all three plus a Scrutor scan (`AssignableTo<IGateConditionTypeHandler>`,
+`publicOnly: false`, matching every other module's own gate-handler registration technique) and calls
+`AddModuleIntegrationEvents<CrmDbContext>` for the new subscriber below.
+
+**`Crm.Infrastructure/IntegrationEvents/ApprovalDecidedIntegrationEventHandler.cs`** — CRM's own
+subscriber to `Approvals.Contracts.ApprovalDecidedIntegrationEvent`, filtered (before any query) to
+`DesignBrief`/`BriefSpace`/`RequirementItem` — the third subscriber to this event, after Projects
+(`GateCondition`) and Documents (`ProjectDocument`), per Phase 3 lesson 2. **Replaces the backend's
+`ICrmApprovalCallbacks`** — a DI-cycle workaround whose own doc comment says it exists only so the
+Approval domain service doesn't take a direct dependency on CRM; the outbox removes the need for that
+seam entirely, recorded here as the deliberate replacement. `ApprovalDecision.ChangesRequested` maps to
+each entity's own `MarkRejected()` — a deliberate divergence from the repo's general convention
+(`ChangesRequested` → non-terminal `PendingApproval`) because CRM's ported state machine has no fourth
+bucket to put it in. `PublishIfResolvedAsync` checks both the stage scope (via the row's parent) and
+task scope (the row's own `ProjectTaskId`) independently, since a brief-space/requirement-item row can
+carry both, publishing a separate `CrmItemsResolvedIntegrationEvent` per resolved scope.
+
+**A real design correction found while wiring the real publisher (not the plan's spec):**
+`CrmItemsResolvedIntegrationEvent`'s `ProjectStageId` was `Guid` (required) at G9-01; `CrmItemsResolvedHandler`
+is the one CRM gate type that supports both `GateOwnerKind.Stage` and `.Task` (unlike `CrmBriefApproved`/
+`CrmPeriodClosed`, which are stage-only), so a task-owned resolution had nothing correct to put in a
+required stage id. Changed to `Guid? ProjectStageId` alongside the existing `Guid? ProjectTaskId`, an
+implicit XOR mirroring `GateCondition`'s own scope split — publishing exactly one populated id per
+scope resolved, never a needless `IProjectDirectory` lookup CRM's own data never required.
+
+**Projects side.** `Projects.Infrastructure/IntegrationEvents/` gains three new subscribers
+(`CrmBriefApprovedIntegrationEventHandler`, `CrmPeriodClosedIntegrationEventHandler`,
+`CrmItemsResolvedIntegrationEventHandler`), each matching pending gates by `ConditionType` +
+`ProjectStageId`/`ProjectTaskId` and calling `gate.MarkSatisfied(null)` — same shape as
+`DocumentUploadedIntegrationEventHandler`/`DocumentApprovedIntegrationEventHandler`, `satisfiedById:
+null` for the same system-cascade reason. **No `ProjectsModule.cs` change needed for discovery** —
+`AddModuleIntegrationEvents<ProjectsDbContext>(typeof(ProjectsModule).Assembly)` already scans the
+whole assembly (G5-08), so the three new handlers are picked up automatically.
+
+**`projects.projects.ClientId → crm.clients.Id`, closing the Phase 2 deferral.** Two layers, not one:
+`CreateProjectCommandHandler` now injects `Crm.Contracts.IClientDirectory` and calls `ExistAsync` before
+`Project.Create`, returning the new `ProjectErrors.ClientNotFound` (404-shaped) on an unknown client;
+the `AddClientForeignKey` migration adds the real `fk_projects_client` constraint (`ON DELETE
+RESTRICT`, its own index) as the backstop for every write path that doesn't go through that handler —
+raw SQL, same reason as every other cross-schema FK in this repo (EF cannot emit a FK between two
+different `DbContext` models). `Projects.Application`/`Projects.Infrastructure` both gain a
+`Crm.Contracts` reference. `ProjectConfiguration.cs`'s stale "no FK - CRM absent" comment is rewritten.
+`docs/cross-schema-foreign-keys.md` gets the `projects → crm` entry.
+
+**The ripple `PLAN-PHASE4.md` flagged but didn't scope in detail turned out to be eight files across
+three test projects, exactly as sized.** `ProjectsApplicationFixture`/`DocumentsApplicationFixture` now
+boot `Crm.Infrastructure` too (migrated in `SchemaOrder`, `crm` before `projects`) so
+`ProjectFlowTests`/`GateFlowTests`/`FolderFlowTests` can seed a real `crm.clients` row through
+`Crm.Application`'s own `CreateClientCommand` handler before creating a project — a new
+`CrmTestSeeding.SeedClientAsync(sp, appUserId)` helper (duplicated per test project, not shared, since
+the test projects don't reference each other) wraps that call. `ProjectAccessGuardTests.cs` (its own
+raw-SQL fixture, no CRM `Application` boot) migrates `Crm.Infrastructure`'s schema and gets its own
+`SeedClientAsync()` that inserts a fresh `identity.users` row plus a `crm.clients` row via
+`NpgsqlConnection` — the same raw-SQL-seeding precedent `SeedEmployeeAsync` already established for a
+cross-schema dependency outside this test project's own `InternalsVisibleTo` reach.
+`Integration.Tests` gets a new shared `CrmTestSeeding.cs` (`CrossModuleSmokeTests`,
+`ProjectsSchemaIsolationTests`, `DocumentsSchemaIsolationTests`) — raw SQL there too, **not** a
+DI-resolved CRM command, because `CrmModule` is migrated into every `ApiFixture` database (since G9-07)
+but **not yet registered into the API host's own `moduleAssemblies`** — that's G9-14's job alongside
+CRM's endpoints, so no `Crm.Application` handler is reachable from `ApiFixture.Services` yet.
+`ProjectsSmokeTests.cs`'s own two `ClientId = Guid.NewGuid()` call sites (401/403 checks) needed **no**
+change — both fail at auth middleware before the handler, let alone the FK, is ever reached; confirmed
+by inspection before leaving them alone, not assumed.
+
+**Deferred to G9-15, not this task:** the plan's phase-level "three-subscriber assertion" (a
+`DesignBrief` decision reaches CRM only, reusing a real row's id under the wrong subject type) belongs
+to `CrossModuleSmokeTests`' six-module extension, which is explicitly G9-15's own scope — writing it
+now against a CRM with no HTTP surface yet (G9-14) would mean rewriting it again next task for no
+reason.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `Crm.UnitTests` 195/195, `EnumMappingParityTests` 25/25,
+`CategoryPathHelperTests` 6/6, `CrmDbContextConfigurationTests` 4/4 (24-config count still holds — no
+new entity, no new configuration, this task only added handlers/subscribers), every other module's own
+`*.UnitTests` project, and `Architecture.Tests` 13/14 (the one failure is the live-migration-order
+Testcontainers test — Docker-dependent, not new to this task). **Not run in this environment**:
+`CrmAccessGuardTests`, `ProjectAccessGuardTests`, `ProjectFlowTests`, `GateFlowTests`,
+`ClientLeadNoteFlowTests`, `BriefSpaceFlowTests`, `CatalogFlowTests`, `PeriodItemArtifactFlowTests`,
+`FolderFlowTests`, `CrossModuleSmokeTests`, `ProjectsSmokeTests` (its two auth-gate tests aside),
+`ProjectsSchemaIsolationTests`, `DocumentsSchemaIsolationTests`, `IdentitySchemaTests`, `SmokeTests`,
+`SeedingTests`, `DocumentsSmokeTests` — every Testcontainers-dependent suite in the repo, standing
+Docker-unavailable note; all of it must run before this phase merges, including the gate-satisfaction-
+through-the-outbox and `ClientId`-validation checks the plan's own verification section requires.

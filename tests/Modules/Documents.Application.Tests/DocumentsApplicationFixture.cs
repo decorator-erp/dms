@@ -11,13 +11,16 @@ using Xunit;
 namespace Documents.Application.Tests;
 
 /// <summary>
-/// Boots all five modules' real DI graphs (Identity, HR, Approvals, Projects, Documents) plus
+/// Boots all six modules' real DI graphs (Identity, HR, Approvals, CRM, Projects, Documents) plus
 /// <c>SharedDbContext</c>/<c>AddOutbox()</c> against one Testcontainers Postgres — same shape as
 /// <c>ProjectsApplicationFixture</c>, one module wider. Needed because Documents' own folder-scoped
 /// commands (<c>CreateStageFolderCommand</c>/<c>CreateTaskFolderCommand</c>) resolve a real stage/task
 /// via <c>Projects.Contracts.IProjectDirectory</c> — no manual stage/task creation command exists
 /// anywhere in Projects.Contracts, only template instantiation, so getting a real stage/task id for a
-/// Documents test means going through the full Identity → HR → Projects flow, not a shortcut.
+/// Documents test means going through the full Identity → HR → Projects flow, not a shortcut. CRM joins
+/// here at G9-13 for the same reason it joined <c>ProjectsApplicationFixture</c>: <c>Project.ClientId</c>
+/// now carries a real FK to <c>crm.clients</c>, so <c>FolderFlowTests</c> needs a real client row before
+/// it can create a project at all.
 /// </summary>
 public sealed class DocumentsApplicationFixture : IAsyncLifetime
 {
@@ -61,6 +64,7 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
             System.Reflection.Assembly.Load("Hr.Infrastructure"),
             System.Reflection.Assembly.Load("Approvals.Infrastructure"),
+            System.Reflection.Assembly.Load("Crm.Infrastructure"),
             System.Reflection.Assembly.Load("Projects.Infrastructure"),
             System.Reflection.Assembly.Load("Documents.Infrastructure"));
 
@@ -75,9 +79,12 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
+        // ModuleDependencyOrder.SchemaOrder order: crm before projects (the AddClientForeignKey
+        // migration needs crm.clients to already exist).
         await MigrateAsync("Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
         await MigrateAsync("Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
         await MigrateAsync("Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
+        await MigrateAsync("Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
         await MigrateAsync("Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure");
         await MigrateAsync("Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure");
 

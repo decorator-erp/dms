@@ -229,6 +229,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClientId");
+
                     b.HasIndex("Code")
                         .IsUnique();
 

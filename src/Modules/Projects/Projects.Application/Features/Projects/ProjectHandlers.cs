@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
+using Crm.Contracts;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
@@ -30,8 +31,15 @@ internal sealed class CreateProjectCommandValidator : AbstractValidator<CreatePr
 /// stage/task/subtask/team skeleton only — no gate auto-wiring, since there's no template-level
 /// condition definition left to wire from once <c>StageConditionType</c> was dropped as dead code
 /// (G5-03).
+///
+/// <para>G9-13: <c>command.ClientId</c> is validated against <c>crm.clients</c> via
+/// <see cref="IClientDirectory.ExistAsync"/> before <c>Project.Create</c> is called — closing the
+/// Phase 2 deferral that left this field an unvalidated Guid. Validation lives here, in the handler,
+/// never in <c>Project.Create</c> itself (the plan's explicit note) — the aggregate has no way to
+/// reach a cross-module contract.</para>
 /// </summary>
-internal sealed class CreateProjectCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory, ICurrentUser currentUser)
+internal sealed class CreateProjectCommandHandler(
+    ProjectsDbContext db, IHrDirectory hrDirectory, IClientDirectory clientDirectory, ICurrentUser currentUser)
     : ICommandHandler<CreateProjectCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(CreateProjectCommand command, CancellationToken ct = default)
@@ -39,6 +47,10 @@ internal sealed class CreateProjectCommandHandler(ProjectsDbContext db, IHrDirec
         var ownerId = currentUser.UserId is null ? null : await hrDirectory.ResolveEmployeeIdAsync(currentUser.UserId, ct);
         if (ownerId is null)
             return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
+
+        var existingClientIds = await clientDirectory.ExistAsync([command.ClientId], ct);
+        if (existingClientIds.Count == 0)
+            return Result.Failure<Guid>(Domain.ProjectErrors.ClientNotFound);
 
         var project = Domain.Project.Create(
             command.Code, command.Name, command.Address, ProjectsEnumMapping.ToDomain(command.WorkflowType),

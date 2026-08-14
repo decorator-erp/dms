@@ -36,6 +36,12 @@
     <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Application\Approvals.Application.csproj" />
     <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- G9-13: the fixture now boots CRM too, so ProjectFlowTests/GateFlowTests can seed a real
+         crm.clients row through Crm.Application's own CreateClientCommand handler before creating a
+         project - projects.projects.ClientId carries a real FK to crm.clients as of this task. -->
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Infrastructure\Crm.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Application\Crm.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Contracts\Crm.Contracts.csproj" />
     <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />

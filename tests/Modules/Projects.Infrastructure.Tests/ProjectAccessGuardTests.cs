@@ -33,13 +33,15 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         await _container.StartAsync();
 
         // projects.projects."OwnerId" -> hr.employees, hr.employees."AppUserId" -> identity.users,
-        // projects.gate_conditions."ApprovalId" -> approvals.approvals - all three must exist before
-        // ProjectsDbContext's own migration (with its raw-SQL FKs) can apply.
+        // projects.gate_conditions."ApprovalId" -> approvals.approvals, projects.projects."ClientId" ->
+        // crm.clients (G9-13) - all four must exist before ProjectsDbContext's own migration (with its
+        // raw-SQL FKs) can apply.
         await MigrateModuleAsync(
             "Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
         await MigrateModuleAsync("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
         await MigrateModuleAsync(
             "Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
+        await MigrateModuleAsync("Crm.Infrastructure", "Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
 
         await using var db = CreateContext(_ => { });
         await db.Database.MigrateAsync();
@@ -198,14 +200,56 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
     private async Task<Guid> SeedProjectAsync(Guid ownerId)
     {
+        var clientId = await SeedClientAsync();
         var project = Domain.Project.Create(
-            $"P-{Guid.NewGuid():N}", "Test Project", "123 Main St", Domain.WorkflowType.Stage, Guid.NewGuid(), ownerId);
+            $"P-{Guid.NewGuid():N}", "Test Project", "123 Main St", Domain.WorkflowType.Stage, clientId, ownerId);
 
         await using var db = CreateContext(_ => { });
         db.Projects.Add(project);
         await db.SaveChangesAsync();
 
         return project.Id;
+    }
+
+    /// <summary>G9-13: <c>projects.projects."ClientId"</c> now carries a real FK to <c>crm.clients</c>,
+    /// so every seeded project needs a real client row - raw SQL, same reasoning as
+    /// <see cref="SeedEmployeeAsync"/> (no <c>InternalsVisibleTo</c> grant to <c>Crm.Domain</c> from
+    /// this test project, correctly; it isn't part of CRM). A fresh <c>identity.users</c> row backs the
+    /// client's own <c>AppUserId</c> FK (G9-08) rather than reusing the employee's - this guard's own
+    /// tests only ever assert on <c>Project</c>/<c>StageTeam</c> state, so a client sharing an identity
+    /// with its project's employee would prove nothing extra and cost an unnecessary parameter thread.</summary>
+    private async Task<Guid> SeedClientAsync()
+    {
+        var clientAppUserId = $"client-{Guid.NewGuid():N}";
+        var clientId = Guid.NewGuid();
+
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync();
+
+        await using (var userCommand = connection.CreateCommand())
+        {
+            userCommand.CommandText = """
+                INSERT INTO identity.users
+                    ("Id", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",
+                     "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount")
+                VALUES (@id, 'Test', 'Client', true, 0, now(), true, false, false, false, 0);
+                """;
+            userCommand.Parameters.AddWithValue("id", clientAppUserId);
+            await userCommand.ExecuteNonQueryAsync();
+        }
+
+        await using (var clientCommand = connection.CreateCommand())
+        {
+            clientCommand.CommandText = """
+                INSERT INTO crm.clients ("Id", "AppUserId", "Address", "IsActive", "CreatedAtUtc")
+                VALUES (@id, @appUserId, '1 Client Rd', true, now());
+                """;
+            clientCommand.Parameters.AddWithValue("id", clientId);
+            clientCommand.Parameters.AddWithValue("appUserId", clientAppUserId);
+            await clientCommand.ExecuteNonQueryAsync();
+        }
+
+        return clientId;
     }
 
     private async Task SeedStageTeamMembershipAsync(Guid projectId, Guid employeeId)
