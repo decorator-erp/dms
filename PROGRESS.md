@@ -4372,3 +4372,33 @@ regression needed: `DocumentApprovedIntegrationEvent` has exactly one handler, s
 subscriber" for an abort to skip — the race was entirely inside `OutboxProcessor`, one level below
 `EventBus`. Per the settled decision, `EventBus` stays as-is; the ordering-coupling and no-max-attempts/
 dead-letter gaps it still carries are recorded as a named risk for the Sites phase below (E2-05).
+
+**E2-02** — done — `ClientLeadNoteFlowTests.cs`, `BriefSpaceFlowTests.cs`, `PeriodItemArtifactFlowTests.cs`
+(fixtures); `SaveCrmLeadIntakeCommandHandler.cs`, `GetCrmLeadIntakeQueryHandler.cs` (production fix).
+Ten `Crm.Application.Tests` flow tests failed with `Npgsql 23503` FK violations — every one of G9-08's
+nine `hr.employees` FKs plus `crm_artifact_documents.BriefId`'s same-schema FK to `crm_design_briefs`.
+All ten fixtures were written against `Guid.NewGuid()` placeholders for what the domain always required
+as a real actor; those FKs were never live until Docker arrived. Production code was correct — the tests
+were authored blind against constraints that could never fire.
+
+**The generalizable lesson, stated once here:** *a fix applied to existing fixtures must also be applied
+to the fixtures written in the same phase.* The `ClientId` FK ripple (G9-13) was correctly chased through
+every **pre-existing** test project (`Projects.Application.Tests`, `Projects.Infrastructure.Tests`,
+`Documents.Application.Tests`) the moment it was introduced — but CRM's own **new** fixtures, written in
+that same phase, needed the identical treatment for their own new FKs and didn't get it, for the same
+reason none of Phase 4's CRM-touching-a-real-database code had ever run: Docker wasn't available to catch
+it. `ClientLeadNoteFlowTests` gained a `SeedEmployeeAsync` helper (mirrors `Projects.Application.Tests`'
+`CrmTestSeeding` shape); `BriefSpaceFlowTests.CreateProjectAsync` now returns the employee id it already
+created internally instead of discarding it; `PeriodItemArtifactFlowTests.CreateProjectAsync` already
+returned it — those call sites just needed to stop discarding it — plus a new `SeedContactAsync` helper
+and a real seeded `CrmDesignBrief` in place of a fabricated `BriefId`.
+
+**Fixing the FK violations surfaced a second, distinct, previously-hidden bug**, the kind only a real
+database run can catch: `LeadIntake_SaveThenRead_RoundTrips` got past its FK insert for the first time
+ever and immediately hit a real defect. `SaveCrmLeadIntakeCommandHandler` and `GetCrmLeadIntakeQueryHandler`
+both called `.Include(i => i.Residential)` — but `CrmLeadIntakeConfiguration.Ignore(i => i.Residential)`
+means EF has no navigation there at all (deliberately configured from the child's own side, parent-
+configures-nothing). `Include` on an ignored property **throws**, it does not silently no-op. Both
+handlers now query `CrmLeadIntakeResidentials` directly by `LeadIntakeId` instead. No test could have
+caught this until the FK fix above let execution reach the line — a red test can hide a second, different
+red directly behind the first failure.
