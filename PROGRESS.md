@@ -3541,3 +3541,58 @@ validated in G9-12's handler) so a reader lands on the reason without cross-refe
 source-matches XOR and the NotRequired-also-counts-as-locked case for superseding a client-authored
 item, client-note CRUD, and the artifact document's two independent XORs: subject and author). No EF
 Core reference (rule 1). Architecture tests 13/13 green.
+
+**Standing environment note, from this task onward: Docker is unavailable in this execution
+environment.** `docker info`/`docker ps` hang indefinitely against the named pipe; Docker Desktop's
+process is running but its WSL2 backend (`docker-desktop` distro) reports Stopped, and the
+`com.docker.service` Windows service is Stopped too — confirmed by inspection, not a transient hiccup,
+and not something this session can fix from inside a sandboxed shell. Every rule/suite that depends on
+Testcontainers.PostgreSql — **rule 9**, every module's `*.Application.Tests`, every
+`*.Infrastructure.Tests` except this module's own (reflection-only, see below), and all of
+`Integration.Tests` — **cannot run here**. Each remaining task's verify runs everything that does not
+need a live Postgres (build, format, all `*.UnitTests`, `Crm.Infrastructure.Tests`) and states plainly
+what it could not exercise. **This must be closed out for real** — before merge, someone runs the full
+`dotnet test DMS.Modular.slnx` with Docker available and confirms the suites this environment skipped.
+G10-01's final report restates this as an open item, not a silent gap.
+
+**G9-07** — done — `src/Modules/Crm/Crm.Infrastructure/` (new project): `Persistence/CrmDbContext.cs`
+(schema `crm`, `ConfigureOutbox(ownsMigration: false)`, 24 `DbSet`s), `Persistence/CrmDbContextFactory.cs`
+(design-time), 24 `Persistence/Configurations/*.cs` files (one per entity — `ClientChild` stays
+JSON-owned inside `ClientConfiguration`, `CatalogAttributeValueRules` gets none, matching G9-02→G9-06's
+tally), `CrmModule.cs` (`Register` does `AddDbContext` + the `IModulePermissions` singleton only —
+`AddModuleCqrs` waits for G9-09, the gate/integration-event wiring for G9-13, per
+`docs/adding-a-module.md`'s own staged-`Register` precedent). Initial migration
+`Persistence/Migrations/InitialCrm/` generated via `dotnet ef migrations add` — design-time only, no
+live database needed, so this step was NOT blocked by the Docker gap above.
+
+**The entity/configuration count is settled at 24 by counting, not by assuming either plan's number** —
+`tests/Modules/Crm.Infrastructure.Tests/CrmDbContextConfigurationTests.cs` (new project, 4 tests, pure
+reflection, no Postgres/Testcontainers involved) asserts: exactly 24 `DbSet<T>` properties on
+`CrmDbContext`; exactly 24 `IEntityTypeConfiguration<T>` types in the assembly; and — the check that
+actually matters, since the first two counts matching doesn't rule out two DbSets missing a
+configuration while two unrelated types have a stray one — that the two SETS of entity types are
+identical, not just equal in size. The generated migration independently confirms this: `grep -c
+CreateTable` on the migration file returns exactly 24. `REVIEW-PHASE4-EXEC.md`'s pre-execution count
+(23 backend `Crm*Configuration` files + `ClientConfiguration` = 24) is now independently verified by
+the harness itself, not merely asserted in a review document.
+
+**`SchemaOrder` gains `"crm"` as an INSERTION, between `"approvals"` and `"projects"` — the first
+insertion since G0-08, every prior module having appended.** `src/BuildingBlocks.Web/ModuleDependencyOrder.cs`
+now documents why this is legal: the rule the list protects is "never reorder past an EXISTING
+dependency," and nothing already migrated has ever pointed outward at `crm` (the schema didn't exist),
+so no prior ordering constraint is disturbed. Three hand-maintained places needed the same insertion,
+found by reading each rather than assumed from the plan's list: `ModuleDependencyOrder.SchemaOrder`
+itself, `ApiFixture.MigrateSchemaAsync`'s `switch` (new `case "crm":`), and `ApiFixture`'s
+`RespawnerOptions.SchemasToInclude`. `Api.csproj` gains a `Crm.Infrastructure` reference (G7-03's own
+precedent for Documents) purely so `dotnet ef migrations add --startup-project src/Api` can find the
+assembly — `Program.cs`'s own `Assembly.Load`/`moduleAssemblies` registration waits for G9-14, once
+the module has endpoints to serve, same staging Documents used.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `Crm.Infrastructure.Tests` 4/4 (the count-and-assert above), every
+module's own `*.UnitTests` unaffected (195 Crm + 61 Projects + 30 Documents + 10 Hr + 8 Identity + 8
+Approvals = 312, plus 3 `BuildingBlocks.UnitTests`), Architecture tests 13/13 (rules 1–8, 10 — rule 9
+needs Docker, see the standing note above). **Not run in this environment:** migration-apply-in-new-order,
+rule 9, and every `*.Application.Tests`/`*.Infrastructure.Tests` (other than this module's own) —
+all Testcontainers-dependent, all pre-existing and unaffected by this task's changes (confirmed: their
+only failure is `DockerUnavailableException` at fixture construction, before any test body runs).

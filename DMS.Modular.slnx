@@ -39,6 +39,7 @@
   <Folder Name="/src/Modules/Crm/">
     <Project Path="src/Modules/Crm/Crm.Contracts/Crm.Contracts.csproj" />
     <Project Path="src/Modules/Crm/Crm.Domain/Crm.Domain.csproj" />
+    <Project Path="src/Modules/Crm/Crm.Infrastructure/Crm.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
@@ -62,5 +63,6 @@
     <Project Path="tests/Modules/Documents.Infrastructure.Tests/Documents.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Documents.Application.Tests/Documents.Application.Tests.csproj" />
     <Project Path="tests/Modules/Crm.UnitTests/Crm.UnitTests.csproj" />
+    <Project Path="tests/Modules/Crm.Infrastructure.Tests/Crm.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

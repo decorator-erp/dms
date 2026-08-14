@@ -59,6 +59,11 @@
     <!-- Same reasoning as the Identity.Application/Hr.Application references above: DocumentsModule.Register's
          Assembly.Load("Documents.Application") needs this DLL present in Api's output directory. -->
     <ProjectReference Include="..\Modules\Documents\Documents.Application\Documents.Application.csproj" />
+    <!-- Added at G9-07, same reasoning as Documents' G7-03 precedent: purely so the `dotnet ef migrations
+         add` CLI (startup project Api) can find CrmDbContext's assembly in Api's build output.
+         Program.cs's own Assembly.Load("Crm.Infrastructure") + moduleAssemblies registration land at
+         G9-14, now that the module has endpoints to actually serve. -->
+    <ProjectReference Include="..\Modules\Crm\Crm.Infrastructure\Crm.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
