@@ -4402,3 +4402,39 @@ configures-nothing). `Include` on an ignored property **throws**, it does not si
 handlers now query `CrmLeadIntakeResidentials` directly by `LeadIntakeId` instead. No test could have
 caught this until the FK fix above let execution reach the line — a red test can hide a second, different
 red directly behind the first failure.
+
+**E2-03** — done — `CrossModuleSmokeTests.cs`, `CrmSmokeTests.cs` (tests);
+`ApprovalDecidedIntegrationEventHandler.cs` (production fix). Two of my own G9-14/G9-15 test bugs, plus a
+second previously-hidden production defect the first fix let the flow reach far enough to hit.
+
+**Bug 1 — a missing permission masquerading as a JSON bug.** `Crm_flow_spans_all_six_modules_...` threw
+`JsonException: input contains no JSON tokens` reading `GET /api/projects/{id}/stages`'s response — an
+empty body from an unasserted 403, because the test's own token granted `stages.manage`/
+`stages.manage_gates` but never `stages.read`. Added the permission; also asserted the response status
+before deserializing, so the *next* missing permission costs one assertion failure instead of another
+diagnosis cycle chasing a `JsonException` back to its real cause.
+
+**Bug 2 — a genuine, previously-hidden gate-count race, found only because bug 1's fix let the flow
+reach it for the first time.** With the 403 gone, the flow progressed further than it ever had and the
+`CrmItemsResolved` gate stayed `Pending` after both real outbox hops. Root cause:
+`ApprovalDecidedIntegrationEventHandler.HandleBriefSpaceAsync`/`HandleRequirementItemAsync` call
+`entry.MarkApproved()`/`item.MarkApproved()`, then immediately ask `CrmGateReader.CountUnresolvedForStageAsync`
+whether that resolved the last unresolved row — but every `CrmGateReader` query is `AsNoTracking`, which
+always issues fresh SQL rather than consulting the change tracker, so the count still saw THIS row's
+**pre-mutation** status and could never reach zero on the very request that resolves the last one. Fixed
+with an explicit `db.SaveChangesAsync(ct)` between the mutation and the count — still entirely inside
+`InboxDedupeDecorator`'s one ambient transaction, so atomicity holds; the same multiple-internal-saves-
+inside-one-commit pattern that decorator's own remarks already establish for `DomainEventDispatcher`'s
+drain loop. The class's own doc comment claimed this handler never calls its own `SaveChangesAsync` —
+true until this fix, now corrected to say so, per the standing rule that a doc comment whose claim a
+change falsifies must be corrected in the same commit, not left to rot.
+
+**Bug 3 — a test-ordering dependency masquerading as independent tests.** `SubmitPublicLead_Unauthenticated_..._Returns202`
+and `SubmitPublicLead_BurstPastTheLimit_Returns429` shared one server-side 5/min IP-keyed rate-limit
+window with no `ApiFixture.ResetAsync` between them (see E2-05's own entry on that method), so whichever
+ran first exhausted the window for the other — not a limiter bug, an ordering coupling. Merged into one
+sequential test: the first of six requests asserts `202` (anonymous reachability), the sixth asserts `429`
+(the limiter is really wired). Both proofs survive; the ordering dependency does not.
+
+**Only one test remains red across the entire 532-test suite after this task: `SeedingIdempotencyTests`
+(E2-04).**
