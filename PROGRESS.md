@@ -4324,3 +4324,19 @@ was created. This section exists so a reader of ONLY the final report, not the f
 still gets the complete picture: this phase is code-complete and every non-Docker check is green, but it
 has never been run against a real database, and that is the one gate standing between this branch and
 being safely mergeable.
+
+# Part E2 — Step 2: the first real run against a real database
+
+Docker became available. `REVIEW-PHASE4-COMPLETE.md` prescribed a strict two-step order: run the suite
+for real and report what fails (no fixes), then fix what surfaced as numbered tasks. Plan reviewed and
+approved, with two additions (A1, A2), in `REVIEW-E2-PLAN.md`.
+
+**E2-00** — done — `CrossModuleSmokeTests.cs` (fix). The three-subscriber assertion — this phase's own
+diagnostic for lesson 2 (the G7-07 registration bug's third exercise, now that CRM is the third
+`ApprovalDecidedIntegrationEvent` subscriber) — resolved `IEventBus` from `fixture.Services`, the root
+provider. `IEventBus` is scoped, so the test threw at resolution and had never once asserted anything;
+it was part of the 168 tests Docker's absence prevented from ever running, but it would have failed
+immediately even once Docker arrived. Fixed with the same `CreateAsyncScope` pattern this file's other
+tests already use. Now genuinely executes and passes: a fake `ApprovalDecidedIntegrationEvent` reusing a
+real brief's own id, but tagged `GateCondition` instead of `DesignBrief`, leaves that brief untouched —
+proving CRM's subject-type filter runs before any query, not after.
