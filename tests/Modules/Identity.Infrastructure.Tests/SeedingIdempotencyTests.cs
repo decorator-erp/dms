@@ -1,6 +1,7 @@
 using BuildingBlocks.Web;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Persistence.Seeders;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -64,9 +65,11 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
         Assert.Equal(claims1, claims2);
         Assert.Equal(users1, users2);
 
-        // Not just "unchanged" - the actual expected shape: 3 default roles, the two full-access roles
-        // carrying every catalog permission, exactly one seeded admin user.
-        Assert.Equal(3, roles1);
+        // Not just "unchanged" - the actual expected shape: DefaultRoles.All.Length roles (asserted
+        // against the constant, not a literal, so this can never silently drift from it again - the
+        // same fix shape as CrmSmokeTests' Assert.Equal(CrmPermissions.All.Count, ...)), the two
+        // full-access roles carrying every catalog permission, exactly one seeded admin user.
+        Assert.Equal(DefaultRoles.All.Length, roles1);
         Assert.Equal(1, users1);
     }
 
