@@ -349,7 +349,7 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
 
             var token = fixture.IssueTestToken(
-                appUserId, "employees.create", "stages.manage", "stages.manage_gates", "project.create",
+                appUserId, "employees.create", "stages.read", "stages.manage", "stages.manage_gates", "project.create",
                 "project.read_all", "stage_tasks.read", "clients.create", "crm.briefs.manage", "crm.briefs.send",
                 "crm.items.create", "crm.items.send", "crm.periods.open", "crm.periods.close",
                 "approvals.decide", "approvals.read");
@@ -397,7 +397,9 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
             var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-            var stages = await (await client.GetAsync($"/api/projects/{projectId}/stages")).Content.ReadFromJsonAsync<List<ProjectStageBody>>();
+            var stagesResponse = await client.GetAsync($"/api/projects/{projectId}/stages");
+            Assert.Equal(HttpStatusCode.OK, stagesResponse.StatusCode);
+            var stages = await stagesResponse.Content.ReadFromJsonAsync<List<ProjectStageBody>>();
             var stageId = Assert.Single(stages!).Id;
 
             var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();

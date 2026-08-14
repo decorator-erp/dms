@@ -48,38 +48,41 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    /// <summary>The anonymous surface's own reachability proof: no bearer token, yet the response is
+    /// <summary>
+    /// E2-03: merges what were two separate tests (reachability, burst) into one sequential six-request
+    /// drive against the SAME fixed-window limit (5/minute/IP, per <c>Api.DI.AddApi</c>) - split across
+    /// two tests, both shared that one server-side IP partition with no <c>ApiFixture.ResetAsync</c>
+    /// between them (never called - see that method's own doc comment), so whichever test's six requests
+    /// ran first exhausted the window for the other, and the loser saw <c>TooManyRequests</c> instead of
+    /// its own expected status. One test removes the ordering dependency while keeping both proofs:
+    ///
+    /// <para>The anonymous surface's own reachability proof - no bearer token, yet the FIRST response is
     /// NEVER 401/403 (the shape every other CRM route returns for the same missing-auth case) - the
     /// request reaches the handler itself, which then succeeds (202) or fails closed on its own terms
     /// (503 if <c>Crm:PublicLeadIntakeOwnerId</c> were ever unset - see <c>ApiFixture.PublicLeadIntakeOwnerId</c>,
-    /// which this fixture always configures, so 202 is the actual expected outcome here).</summary>
+    /// which this fixture always configures, so 202 is the actual expected outcome here).</para>
+    ///
+    /// <para>A burst past the limit trips 429 on the SIXTH request - proving the limiter is actually
+    /// wired, not just declared. All requests share one <see cref="HttpClient"/> (and therefore one
+    /// client-side connection), but the limiter partitions by <c>HttpContext.Connection.RemoteIpAddress</c>
+    /// server-side, which is what actually matters here.</para>
+    /// </summary>
     [Fact]
-    public async Task SubmitPublicLead_Unauthenticated_IsReachable_Returns202()
+    public async Task SubmitPublicLead_FirstOfSixIsReachable_SixthTripsTheRateLimit()
     {
         var client = fixture.CreateClient();
         var suffix = Guid.NewGuid().ToString("N");
 
-        var response = await client.PostAsJsonAsync("/api/crm/public/leads", new
+        var first = await client.PostAsJsonAsync("/api/crm/public/leads", new
         {
             FirstName = "Anon",
             LastName = $"Prospect-{suffix}",
             Email = $"anon-{suffix}@example.com",
         });
-
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-    }
-
-    /// <summary>A burst past the fixed-window limit (5/minute/IP, per <c>Api.DI.AddApi</c>) trips 429 -
-    /// proving the limiter is actually wired, not just declared. All requests share one <see cref="HttpClient"/>
-    /// (and therefore one client-side connection), but the limiter partitions by
-    /// <c>HttpContext.Connection.RemoteIpAddress</c> server-side, which is what actually matters here.</summary>
-    [Fact]
-    public async Task SubmitPublicLead_BurstPastTheLimit_Returns429()
-    {
-        var client = fixture.CreateClient();
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
 
         HttpResponseMessage? last = null;
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 5; i++)
         {
             last = await client.PostAsJsonAsync("/api/crm/public/leads", new
             {

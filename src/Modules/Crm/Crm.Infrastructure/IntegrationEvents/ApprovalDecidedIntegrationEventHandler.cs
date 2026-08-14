@@ -31,8 +31,15 @@ namespace Crm.Infrastructure.IntegrationEvents;
 /// from the backend — has no fourth bucket to put it in; recorded here as a deliberate choice, not an
 /// oversight.</para>
 ///
-/// <para>Stages every write via the shared <see cref="CrmDbContext"/>, never calls its own
-/// <c>SaveChangesAsync</c>, per <c>InboxDedupeDecorator</c>'s contract.</para>
+/// <para>Stages every write via the shared <see cref="CrmDbContext"/> and never calls its own
+/// <c>SaveChangesAsync</c> to COMMIT — that stays <c>InboxDedupeDecorator</c>'s job. <b>E2-03
+/// correction:</b> <see cref="HandleBriefSpaceAsync"/>/<see cref="HandleRequirementItemAsync"/> DO each
+/// call <c>db.SaveChangesAsync</c> once, mid-handler — needed so <c>PublishIfResolvedAsync</c>'s
+/// <c>AsNoTracking</c> unresolved-count queries see the mutation just made on the SAME row they're about
+/// to count, since a no-tracking query always issues fresh SQL rather than reading the change tracker.
+/// Still entirely inside <c>InboxDedupeDecorator</c>'s one ambient transaction, so atomicity holds — the
+/// same "multiple internal saves are fine, only the final commit matters" pattern that decorator's own
+/// remarks already establish for <c>DomainEventDispatcher</c>'s drain loop.</para>
 /// </summary>
 internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, ICrmGateReader gateReader)
     : IIntegrationEventHandler<ApprovalDecidedIntegrationEvent>
@@ -89,6 +96,15 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
         else
             entry.MarkRejected();
 
+        // Flush now, ahead of InboxDedupeDecorator's own final SaveChangesAsync - PublishIfResolvedAsync's
+        // CountUnresolvedForStageAsync/CountUnresolvedForTaskAsync run AsNoTracking queries, which always
+        // hit the database via SQL rather than reading the change tracker, so without this the count
+        // below still sees THIS row's PRE-mutation status and can never reach zero on the request that
+        // resolves the last one. Still inside InboxDedupeDecorator's one ambient transaction - same
+        // "multiple internal saves are fine, only the final commit matters" pattern that decorator's own
+        // remarks already establish for DomainEventDispatcher's drain loop.
+        await db.SaveChangesAsync(ct);
+
         var brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == entry.BriefId, ct);
         await PublishIfResolvedAsync(brief?.ProjectStageId, entry.ProjectTaskId, ct);
     }
@@ -102,6 +118,9 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
             item.MarkApproved();
         else
             item.MarkRejected();
+
+        // See HandleBriefSpaceAsync's identical call for why this flush is required before counting.
+        await db.SaveChangesAsync(ct);
 
         var period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.PeriodId, ct);
         await PublishIfResolvedAsync(period?.ProjectStageId, item.ProjectTaskId, ct);
