@@ -35,8 +35,11 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
             command.Data.DesignerExperience is { } experience ? CrmEnumMapping.ToDomain(experience) : null,
             command.Data.DesignerExperienceReason);
 
+        // No .Include(i => i.Residential) - CrmLeadIntakeConfiguration.Ignore(i => i.Residential)
+        // means EF has no navigation to traverse there (it's configured from the child's own side,
+        // parent-configures-nothing, per that configuration's own remarks); Include on an ignored
+        // property throws "does not represent a property access", not a silent no-op.
         var intake = await db.CrmLeadIntakes
-            .Include(i => i.Residential)
             .FirstOrDefaultAsync(i => i.LeadId == command.LeadId, ct);
 
         Result result;
@@ -57,11 +60,17 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         // Sector switch: detach a stale residential child that no longer matches. Re-attaching a fresh
         // one for the new sector is the caller's own follow-up request against the residential-specific
         // command set (out of this vertical slice's scope) - this handler only keeps the invariant
-        // "Residential exists only while Sector == Residential" from going stale.
-        if (intake.Residential is not null && data.Sector != ProjectSector.Residential)
+        // "Residential exists only while Sector == Residential" from going stale. Queried directly by
+        // LeadIntakeId, same reason Include can't be used above.
+        if (data.Sector != ProjectSector.Residential)
         {
-            db.CrmLeadIntakeResidentials.Remove(intake.Residential);
-            intake.DetachResidential();
+            var residential = await db.CrmLeadIntakeResidentials
+                .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
+            if (residential is not null)
+            {
+                db.CrmLeadIntakeResidentials.Remove(residential);
+                intake.DetachResidential();
+            }
         }
 
         await db.SaveChangesAsync(ct);

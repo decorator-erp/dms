@@ -25,12 +25,12 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
         await using var scope = fixture.CreateScope();
         var sp = scope.ServiceProvider;
         var (clientAppUserId, clientId) = await CreateClientAsync(sp, "brief-client");
-        var projectId = await CreateProjectAsync(sp, clientId);
+        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
 
         var createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         var headData = new CrmBriefHeadData((UnitType)1, (UnitCondition)1, Address: "Original Addr");
         var briefResult = await createBrief.HandleAsync(
-            new CreateCrmDesignBriefCommand(projectId, Guid.NewGuid(), null, headData));
+            new CreateCrmDesignBriefCommand(projectId, employeeId, null, headData));
         Assert.True(briefResult.IsSuccess);
         var briefId = briefResult.Value;
 
@@ -60,15 +60,15 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
         await using var scope = fixture.CreateScope();
         var sp = scope.ServiceProvider;
         var (_, clientId) = await CreateClientAsync(sp, "space-client");
-        var projectId = await CreateProjectAsync(sp, clientId);
+        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
 
         var createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         var briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
-            projectId, Guid.NewGuid(), null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
+            projectId, employeeId, null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
 
         var createEntry = sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>();
         var entryResult = await createEntry.HandleAsync(
-            new CreateCrmBriefSpaceCommand(briefId, Guid.NewGuid(), SpaceId: null, Requirements: "north-facing light"));
+            new CreateCrmBriefSpaceCommand(briefId, employeeId, SpaceId: null, Requirements: "north-facing light"));
         Assert.True(entryResult.IsSuccess);
         var entryId = entryResult.Value;
 
@@ -90,7 +90,7 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
         await using var scope = fixture.CreateScope();
         var sp = scope.ServiceProvider;
         var (_, clientId) = await CreateClientAsync(sp, "roundtrip-client");
-        var projectId = await CreateProjectAsync(sp, clientId);
+        var (projectId, _) = await CreateProjectAsync(sp, clientId);
 
         var createType = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>();
         var typeResult = await createType.HandleAsync(
@@ -143,9 +143,12 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     }
 
     /// <summary>Real project creation via <c>Projects.Application</c>'s own handler — needs a real
-    /// employee owner, resolved the identical way <c>ProjectFlowTests.RegisterEmployeeAsync</c>
-    /// does.</summary>
-    private static async Task<Guid> CreateProjectAsync(IServiceProvider sp, Guid clientId)
+    /// employee owner, resolved the identical way <c>ProjectFlowTests.RegisterEmployeeAsync</c> does.
+    /// E2-02: also returns that employee's id, since G9-08's <c>fk_crm_design_briefs_created_by</c>/
+    /// <c>fk_crm_brief_spaces_created_by</c> now require a real <c>hr.employees</c> row for every
+    /// <c>CreatedById</c> this file passes — same shape as <c>PeriodItemArtifactFlowTests</c>'s own
+    /// <c>CreateProjectAsync</c>.</summary>
+    private static async Task<(Guid ProjectId, Guid EmployeeId)> CreateProjectAsync(IServiceProvider sp, Guid clientId)
     {
         var suffix = Guid.NewGuid().ToString("N");
         var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
@@ -153,8 +156,9 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
             new RegisterRequest($"owner-{suffix}@example.com", "P@ssw0rd123!", "Owner", "Test", null, "employee")))).Value!;
 
         var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        Assert.True((await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(ownerAppUserId, "PM", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"))).IsSuccess);
+        var employeeResult = await createEmployee.HandleAsync(
+            new CreateEmployeeCommand(ownerAppUserId, "PM", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
+        Assert.True(employeeResult.IsSuccess);
 
         var currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerAppUserId;
@@ -164,6 +168,6 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
             new CreateProjectCommand($"P-{suffix}", "Test Project", "123 Main St", WorkflowType.Stage, clientId));
         Assert.True(projectResult.IsSuccess);
 
-        return projectResult.Value;
+        return (projectResult.Value, employeeResult.Value);
     }
 }

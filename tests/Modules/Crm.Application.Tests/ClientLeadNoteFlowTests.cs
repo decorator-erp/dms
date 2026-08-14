@@ -4,6 +4,7 @@ using Crm.Contracts.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Contracts.Leads;
 using Crm.Contracts.Notes;
+using Hr.Contracts.Employees;
 using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -63,7 +64,7 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     {
         await using var scope = fixture.CreateScope();
         var sp = scope.ServiceProvider;
-        var ownerId = Guid.NewGuid();
+        var ownerId = await SeedEmployeeAsync(sp, "lead-owner");
         var clientAppUserId = await RegisterIdentityUserAsync(sp, "convert-target");
 
         var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
@@ -94,9 +95,10 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     {
         await using var scope = fixture.CreateScope();
         var sp = scope.ServiceProvider;
+        var ownerId = await SeedEmployeeAsync(sp, "intake-owner");
         var createLead = sp.GetRequiredService<ICommandHandler<CreateCrmLeadCommand, Guid>>();
         var leadId = (await createLead.HandleAsync(
-            new CreateCrmLeadCommand("Sam", "Intake", LeadSource.Referral, Guid.NewGuid()))).Value;
+            new CreateCrmLeadCommand("Sam", "Intake", LeadSource.Referral, ownerId))).Value;
 
         var saveIntake = sp.GetRequiredService<ICommandHandler<SaveCrmLeadIntakeCommand>>();
         var intakeData = new CrmLeadIntakeData(JobTitle: "Manager", Sector: ProjectSector.Residential);
@@ -146,10 +148,11 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
         var appUserId = await RegisterIdentityUserAsync(sp, "note-owner");
         var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
         var clientId = (await createClient.HandleAsync(new CreateClientCommand(appUserId, "2 Elm St"))).Value;
+        var writtenById = await SeedEmployeeAsync(sp, "note-writer");
 
         var createNote = sp.GetRequiredService<ICommandHandler<CreateCrmClientNoteCommand, Guid>>();
         var noteResult = await createNote.HandleAsync(
-            new CreateCrmClientNoteCommand(clientId, null, "first note", Guid.NewGuid()));
+            new CreateCrmClientNoteCommand(clientId, null, "first note", writtenById));
         Assert.True(noteResult.IsSuccess);
 
         var updateNote = sp.GetRequiredService<ICommandHandler<UpdateCrmClientNoteCommand>>();
@@ -165,6 +168,20 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
 
         notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
         Assert.Empty(notes);
+    }
+
+    /// <summary>E2-02: seeds a real <c>hr.employees</c> row via the real HR command handler, for the
+    /// cross-schema FKs G9-08 added (<c>fk_crm_leads_owner</c>, <c>fk_crm_client_notes_written_by</c>) —
+    /// a fabricated Guid no longer survives the insert, same fix shape as <c>Projects.Application.Tests</c>'
+    /// own <c>CrmTestSeeding</c> for the <c>ClientId</c> FK ripple.</summary>
+    private static async Task<Guid> SeedEmployeeAsync(IServiceProvider sp, string label)
+    {
+        var appUserId = await RegisterIdentityUserAsync(sp, label);
+        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
+        var result = await createEmployee.HandleAsync(
+            new CreateEmployeeCommand(appUserId, "Staff", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
+        Assert.True(result.IsSuccess);
+        return result.Value;
     }
 
     /// <summary>
