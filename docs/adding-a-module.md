@@ -425,6 +425,121 @@ implementation:
    unit test resolving handlers directly (bypassing HTTP entirely) never does. A genuine end-to-end HTTP
    test (`WebApplicationFactory`, real multipart body) is the only thing that catches this.
 
+## Five more patterns (from Phase 4 — CRM)
+
+CRM is the first module whose own schema had to be INSERTED into `SchemaOrder`, not appended, the
+first to add a third contributor to an existing pluggable-handler registry, the first to introduce a
+client-facing (not just employee-facing) actor, and the first anonymous, rate-limited endpoint anywhere
+in the repo. It also produced the phase's clearest process lesson — worth reading even if none of its
+structural patterns apply to the module you're adding.
+
+### Inserting a schema into `SchemaOrder`, not appending
+
+Every module through Phase 3 was appended to the end of `ModuleDependencyOrder.SchemaOrder` — the new
+module only ever depended on modules already there. CRM is the first case where the new module's own
+downstream dependents (`projects → crm`, closing the `Project.ClientId` deferral) already existed. The
+rule that makes an insertion safe is purely about migration order, not about the allow-list:
+
+> **A schema may be inserted anywhere in `SchemaOrder` as long as nothing already migrated points
+> OUTWARD from it.** `crm` sits between `approvals` and `projects` because `projects → crm` needs `crm`'s
+> tables to exist first, and nothing in `identity`/`hr`/`approvals` (everything before it) ever needed to
+> reference `crm`. Rule 9's `AllowedPairs` allow-list is a SEPARATE, already-satisfied concern here — both
+> `crm → identity`/`crm → hr` and `projects → crm` were already present in that list before this phase
+> touched it (only a `Modules` dictionary entry for the count-assert test needed adding, at G9-08).
+
+The corollary this phase's own structural item 1 ran into: an insertion can create an UNSATISFIABLE
+three-way cycle if the new module's own outward references would need a schema that comes AFTER it.
+`crm.crm_artifact_documents.DocumentId → documents.project_documents.Id` is exactly this —
+`crm < projects < documents < crm` has no valid order. When this happens, the FK genuinely cannot exist;
+document the absence and the ordering-cycle reason together in `docs/cross-schema-foreign-keys.md`,
+validate the reference in application code instead, and pick which one relationship is core enough to
+keep as a real FK (`crm.artifacts.manage`'s own document link is a join-table detail, not the phase's
+core relationship — `projects → crm` was).
+
+### A third contributor to an existing pluggable-handler registry
+
+Documents (Phase 3) was the second contributor to `IGateConditionTypeHandler`; CRM is the third
+(`CrmBriefApprovedHandler`/`CrmItemsResolvedHandler`/`CrmPeriodClosedHandler`). The pattern from the
+"Four more patterns" section above holds unchanged — Scrutor's scan-by-interface registration, the
+context-extension rule, the FK-or-application-validation choice — but the THIRD contributor is where you
+actually confirm the pattern generalizes rather than accidentally being sized for exactly two. It did:
+no `GateConditionContext` change was needed at all here (Lesson 1 below), which is itself informative —
+not every new contributor needs a context extension, and assuming one always will is the wrong default
+to carry forward.
+
+**Lesson 1, restated precisely because it was worth checking, not assuming:** before writing any CRM
+gate handler, the plan verified against the actual backend source that all three CRM condition types'
+`ValidateAsync` implementations read only `input.OwnerKind` — no CRM-specific field. This CORRECTED an
+earlier standing expectation in this repo's own history (`PROGRESS.md`'s G7 entries expected "one more
+such extension" for the next contributor). It turned out not to be needed. The lesson generalizes past
+CRM: **check what the new contributor's validation logic actually needs before assuming a context
+extension is required** — the check is cheap (read the source), the alternative (extending a shared
+context speculatively) is not.
+
+### Client-facing (not employee-facing) actors: a second row-level access guard shape
+
+Every module through Phase 3 resolved its acting principal as "an employee, or nothing" via
+`Hr.Contracts.IHrDirectory`. CRM is the first with a caller who is legitimately NOT an employee — a
+portal client. The shape that generalizes:
+
+1. **A guard that resolves EITHER kind, not two separate guards.** `ICrmAccessGuard.ResolveActorAsync`
+   returns one `CrmActor` with a `Kind` discriminator (`Employee` | `Client`), trying the employee branch
+   first (via the existing `IHrDirectory`) and falling back to the module's own local table for the
+   client branch. A caller who is neither is a 403 ("no standing"), not a 404 or an authentication
+   failure — they successfully authenticated, they just have no identity in this module's terms.
+2. **A scope-marker interface + decorator for the messages that need it**
+   (`ICrmScoped`/`CrmScopeDecorator`, mirroring `Projects.Contracts.IProjectScoped`/
+   `ProjectScopeDecorator`) — registered once, tolerant of zero consumers existing yet
+   (`AddCrmScopeDecorator` skips any `ICrmScoped` type with no handler registered, rather than failing
+   module startup). This is why it's safe to wire the decorator infrastructure BEFORE the first
+   `ICrmScoped` command exists (CRM did this at G9-09, five tasks before its first real consumer at
+   G9-14) — build the plumbing once, let real consumers arrive incrementally.
+3. **Contracts predating the guard is a real, expected sequencing gap, not a design flaw.** CRM's own
+   `Crm.Contracts` was written at G9-01, before `ICrmAccessGuard` existed (G9-08) — so several commands
+   (`CreateCrmClientNoteCommand.WrittenById`, `CreateCrmDesignBriefCommand.CreatedById`, …) take a
+   pre-resolved actor id rather than an `AppUserId` the handler resolves itself. Retrofitting every
+   already-committed handler once the guard exists is unnecessary churn; resolving the actor at the
+   ENDPOINT layer instead (`CrmEndpointActors.ResolveEmployeeIdAsync`/`ResolveContactIdAsync`, built at
+   G9-14) keeps the fix at the boundary where "who is calling" questions already live, without touching
+   handler code that was already correct for the shape it was given.
+
+### Anonymous, rate-limited endpoints — the first in this repo
+
+No rate limiter existed anywhere before CRM's public lead-intake endpoint needed one. The shape:
+`AddRateLimiter` with a named, IP-keyed fixed-window policy lives in `Api/DI.cs` (a shared-host concern,
+not a module-local one); the POLICY NAME constant lives in `BuildingBlocks.Web` (not `Api`), because the
+module's own `*.Infrastructure` endpoint needs to reference it via `.RequireRateLimiting(name)` and
+cannot reference `Api` (the composition root depends on modules, never the reverse — the same reasoning
+`CorsPolicies` staying `Api`-only doesn't apply here, since CORS is never referenced per-endpoint).
+An anonymous route is simply an `IEndpoint` group that never calls `.RequirePermission(...)`/
+`.RequireAuthorization()` — no special marker needed, ASP.NET Core's own default. **A command whose
+Domain aggregate has no "unassigned" state (CRM's own `OwnerId`-required `CrmLead.Create`) cannot be
+satisfied by an anonymous caller without EITHER widening that Domain invariant OR falling back to
+configuration** (a single configured intake-owner id, failing closed with 503 if unset/unparseable,
+never a fabricated id) — widening the Domain invariant is the wrong default; it exists for the office
+workflow's own reasons and an anonymous edge case is not sufficient reason to loosen it.
+
+### The lesson worth carrying into the Sites plan: Contracts can promise more than Application delivers, silently
+
+CRM's `Crm.Contracts` declared a full Meetings CRUD surface (12 commands/queries) and a 3-operation
+Portal at G9-01 — contracts-first, matching this repo's own convention. **Across the four tasks that
+built `Crm.Application` (G9-09→G9-12), the Meetings half was never implemented, and this was never
+recorded as a deliberate scope cut in any of those four tasks' own `PROGRESS.md` entries.** It surfaced
+only at G9-14, while wiring the Portal's `GetMyPortalMeetingsQuery` and discovering no handler existed
+to call. The Portal half of this same gap WAS caught in time — G9-09's own entry explicitly flagged it
+forward ("the Portal slice at G9-14 is the first") — proving the failure mode is avoidable, just not
+automatic.
+
+**The concrete practice this argues for on the Sites plan:** when a phase writes `*.Contracts` for a
+full feature area up front (this repo's own stated convention, and the right one — see this doc's own
+"fifth thing" reasoning), each SUBSEQUENT task that builds only part of that Contracts surface should
+explicitly name, in its own `PROGRESS.md` entry, every Contracts type it did NOT build a handler for and
+why — not just what it built. A plan sentence like "the complete spine" naming a feature (CRM's plan
+named "meeting" explicitly) is not, on its own, a substitute for that per-task accounting; a sentence
+written once at the start of a phase is easy to satisfy partially and never revisit. The check costs one
+line per deferred type per task. Its absence cost a multi-task investigation at G9-14 to even discover
+what was actually missing.
+
 ## Testing shape (mirror what Identity/HR already have)
 
 - `<Module>.UnitTests` — pure `*.Domain` entity behavior. No database.

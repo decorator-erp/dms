@@ -4059,3 +4059,268 @@ probes above (the one check this phase could actually run against a real EF mode
 — this task's own three new Testcontainers-dependent tests, added to the same standing backlog every
 prior task in this phase has accumulated. The full backlog (G9-01 through G9-15) must run before this
 phase merges — G10-01's own report enumerates it in full as the phase's single largest open item.
+
+## Phase G10 boundary — non-negotiables re-checked, six modules
+
+1. **No repository pattern.** Every CRM handler uses `CrmDbContext` directly — confirmed by grep, no
+   `I*Repository` type anywhere in `src/Modules/Crm/`. ✓
+2. **One DbContext/schema/module, one database.** `CrmDbContext` → schema `crm`, same Postgres instance
+   as `identity`/`hr`/`approvals`/`projects`/`documents`/`shared`. ✓
+3. **Cross-module reads only via `*.Contracts`.** CRM reads HR through `Hr.Contracts.IHrDirectory`
+   exclusively (employee-actor resolution, `CrmAccessGuard`'s employee branch), Identity through
+   `Identity.Contracts.IUserDirectory` (client `AppUserId` validation), Projects through
+   `Projects.Contracts.IProjectDirectory` (Portal's own project-ownership check), and Documents through
+   `Documents.Contracts.IDocumentQueries` (artifact-link validation) — confirmed by arch rule 3, now
+   exercised across six modules. Projects reads CRM through `Crm.Contracts.IClientDirectory`
+   (`CreateProjectCommandHandler`'s `ClientId` validation) — the first time a module OTHER than the one
+   this phase built reads INTO it via a Contracts interface, not just integration events; confirmed the
+   reverse direction (CRM reading Projects) stays outbox/directory-only too, never a raw cross-schema
+   join. ✓
+4. **Cross-module writes only via outbox integration events.** `CrmBriefApprovedIntegrationEvent`/
+   `CrmPeriodClosedIntegrationEvent`/`CrmItemsResolvedIntegrationEvent` (CRM → Projects) and CRM's own
+   subscription to `ApprovalDecidedIntegrationEvent` (the THIRD subscriber to that event type, after
+   Projects and Documents — proving `AddModuleIntegrationEvents`'s G7-07 fix holds at three, not just
+   two) all go through the outbox, never a direct call. ✓
+5. **Only `*.Contracts` types are public.** Arch rule 4 passes with all six modules' full four-layer
+   structure in place. ✓
+6. **SharedKernel frozen ~9 files.** Still untouched — zero edits across all of Phase 4, same as every
+   prior phase. ✓
+7. **Arch tests written before the code they constrain.** Held the same way at G7-01/G9-07: the four
+   `Crm.*` projects were added to `DMS.Modular.slnx` and `Architecture.Tests.csproj` in the SAME task
+   that created them (G9-07), before any Domain/Application/Infrastructure code existed for
+   `MetaSelfEnforcementTests` to fail closed against.
+
+**One real gap found this phase sits underneath non-negotiable #3, invisible until the Portal's own
+handler needed something no earlier module's cross-module read shape required:** `Projects.Contracts.IProjectDirectory`
+has no "list projects by client" lookup — only by-id. `GetMyPortalMeetingsQuery`'s own doc comment
+promises "the calling client's own projects," which this contract genuinely cannot answer today. Not a
+bug (nothing built against this phase's own scope needed it), but a real, disclosed contract gap — see
+the scope-boundaries table below and "what CRM taught" in the final report.
+
+## Scope-boundaries — deferred items, CRM's own seams
+
+Same table shape as every prior phase boundary in this file — everything CRM intentionally left for
+later, and why, so the Sites plan (or a future CRM breadth pass) doesn't have to grep this file to find
+them.
+
+| Item | Deferred at | Owner (future phase) | Why |
+|---|---|---|---|
+| Meetings' full Application layer (12 commands/queries — request/propose/accept/decline/reschedule/cancel/complete/no-show, plus the free-slot scheduler) | Never explicitly deferred in G9-09→G9-12; discovered missing at G9-14 | CRM, next breadth pass | Contracts exist (G9-01); no gate condition type or built test needs it; genuinely unimplemented, not scope-cut on purpose — see the final report's "thinner than intended" section |
+| `GetMyPortalMeetingsQuery` handler | G9-14 | CRM, alongside Meetings' Application layer | Needs either a new `IProjectDirectory` client-scoped project lookup or a CRM-local reinterpretation ("own contacts' meetings" instead of "own projects' meetings") — an architectural call, not an endpoint-wiring one |
+| `DecideMyPortalApprovalCommand` handler | G9-14 | CRM + Approvals, jointly | Routes into `Approvals.Contracts`, whose `approval_approvers` ledger is employee-scoped in this port; giving a client actor a decision path there is a design question spanning two modules' own aggregates |
+| `IProjectDirectory`'s missing client-scoped project lookup | G9-14 (found while wiring `GetMyPortalMeetingsQuery`) | Projects, if/when Meetings' Portal read is built | The concrete blocker for the row above — a new `Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientAsync(Guid clientId, ...)` on `IProjectDirectory` is the natural shape |
+| Catalog breadth: category/item update/delete/reorder/clone/active-toggle, category-space-type unmap | G9-11 (vertical-slice scope), ported as-is at G9-14 | CRM, next breadth pass | G9-11's own decision — the backend's full V2 surface was never the target; only create + read + the two mutations `CatalogFlowTests` actually exercises |
+| CRM catalog v1 (`/nodes`-shaped flattened read) | Never built — only the per-noun v2-style shape (`GetCrmCatalogTreeQuery`) exists | CRM, only if a v1-shaped consumer is ever needed | The backend keeps both surfaces permanently over one table set; this port never had a v1 consumer to satisfy |
+| `crm.crm_artifact_documents.DocumentId` FK | G9-08 (structural item 1, migration-order cycle) | — (structural; will never gain one) | `crm < projects < documents < crm` has no valid `SchemaOrder` position; validated in application code (`LinkCrmArtifactDocumentCommandHandler` against `IDocumentQueries`) instead, permanently |
+| A "client" role's own CRM permission-claim seeding | G9-14 | Ops/Identity admin surface, or a future seeder if this proves too manual | `DefaultRoles.Client` exists; its grants are assigned through the general-purpose role/permission admin endpoints, same as `Employee`'s already are — not code-seeded, by design (Identity cannot reference `Crm.Contracts`) |
+| Full Docker-based verification of everything G9-01→G9-15 built | Every task in this phase, standing note | Whoever merges this phase | This environment has no working Docker daemon for the phase's entire duration — see the final report's own accounting |
+
+## Standing architectural decisions — Phase 4 additions
+
+Continuing the table the Phase 2/3 boundaries started, for decisions with no single owning module.
+
+| Decision | Raised at | Status |
+|---|---|---|
+| Inserting a schema into `SchemaOrder` (not appending) | G9-07 (structural item 1) | **Adopted, proven safe.** `crm` inserted between `approvals` and `projects`; the rule is "nothing already migrated points outward from the inserted schema," a purely order-based check, separate from rule 9's allow-list. See `docs/adding-a-module.md`'s new section for the general rule and its unsatisfiable-cycle corollary (the `DocumentId` FK absence). |
+| A third contributor to `IGateConditionTypeHandler`, and Lesson 1 (no `GateConditionContext` extension needed) | G9-13 | **Adopted, confirmed.** CRM's three gate handlers read only `OwnerKind` — the standing expectation `PROGRESS.md:3139` recorded ("expect CRM to need one more such extension") did NOT hold. Corrects that entry: an extension is a possibility to check for, not a default to assume. |
+| Client-facing (not employee-facing) row-level actor resolution (`ICrmAccessGuard`/`CrmActor`/`ICrmScoped`/`CrmScopeDecorator`) | G9-08/G9-09/G9-14 | **Adopted, first instance.** One guard resolving either actor kind (not two guards); a scope-decorator tolerant of zero consumers at registration time; endpoint-layer actor resolution (`CrmEndpointActors`) for Contracts predating the guard. Expect Sites' own client-facing surfaces (if any) to reuse this shape rather than inventing a parallel one. |
+| The repo's first anonymous, rate-limited endpoint | G9-14 | **Adopted, first instance.** `AddRateLimiter` in `Api/DI.cs` (shared-host), the policy name in `BuildingBlocks.Web` (module-referenceable), fixed-window + IP-keyed. Expect any future anonymous surface (a public contact form, a webhook receiver) to reuse this exact registration shape, not re-derive it. |
+
+## Final report — Phase 4 (G9-01 → G10-01)
+
+### Task table
+
+| Task | Commit |
+|---|---|
+| G9-01 (Crm.Contracts) | `a49508a` |
+| G9-02 (Crm.Domain — Clients & Contacts) | `71a11b1` |
+| G9-03 (Crm.Domain — Leads, Intake, Meetings) | `965cba5` |
+| G9-04 (Crm.Domain — Briefs & Spaces) | `e0c1e51` |
+| G9-05 (Crm.Domain — Catalog) | `10ce3a2` |
+| G9-06 (Crm.Domain — Periods, Items, Notes, Artifacts) | `350b47c` |
+| G9-07 (Crm.Infrastructure persistence) | `d6a3bb3` |
+| G9-08 (Cross-schema FKs + access guard) | `2596849` |
+| G9-09 (Crm.Application — Clients, Contacts, Leads, Notes) | `f8beff1` |
+| G9-10 (Crm.Application — Briefs, Spaces, SpaceTypes) | `2769a10` |
+| G9-11 (Crm.Application — Catalog) | `8c5d96a` |
+| G9-12 (Crm.Application — Periods, Items, Artifacts) | `95799cb` |
+| G9-13 (Gate handlers, `ICrmGateReader`, Approvals subscription, Projects `ClientId` FK) | `53a87e0` |
+| G9-14 (Endpoints, module registration, anonymous surface) | `8eb7e0e` |
+| G9-15 (CRM integration suite + six-module smoke) | `f5b5647` |
+| G10-01 (docs + final report) | *(this commit)* |
+
+16 tasks, one commit per task (this phase's own convention — the work and its `PROGRESS.md` entry
+landed together every time, unlike Phase 3's separate-commit split), all green through the full gate
+(`dotnet build -warnaserror` / `dotnet format --verify-no-changes` / every test runnable without
+Docker) at every commit. No amends, no reverts, no force-pushes.
+
+### Test counts (Phase 4 end state)
+
+**532 tests total** (enumerated via `dotnet test --list-tests`, not run — most of this phase's own new
+tests need Docker), across 21 test projects (up from 262 tests / 18 projects at the Phase 3 boundary):
+
+| Suite | Count | Suite | Count |
+|---|---|---|---|
+| `Architecture.Tests` | 14 | `Hr.Infrastructure.Tests` | 5 |
+| `BuildingBlocks.UnitTests` | 3 | `Hr.Application.Tests` | 9 |
+| `BuildingBlocks.IntegrationTests` | 11 | `Approvals.UnitTests` | 8 |
+| `Identity.UnitTests` | 8 | `Approvals.Application.Tests` | 4 |
+| `Identity.Infrastructure.Tests` | 8 | `Projects.UnitTests` | 61 |
+| `Identity.Application.Tests` | 10 | `Projects.Infrastructure.Tests` | 5 |
+| `Documents.UnitTests` | 30 | `Projects.Application.Tests` | 21 |
+| `Documents.Infrastructure.Tests` | 24 | **`Crm.UnitTests`** | **195** |
+| `Documents.Application.Tests` | 18 | **`Crm.Infrastructure.Tests`** | **10** |
+| `Integration.Tests` | 24 | **`Crm.Application.Tests`** | **54** |
+
+Growth from the Phase 3 boundary's 262: three new test projects (`Crm.UnitTests`, `Crm.Infrastructure.Tests`,
+`Crm.Application.Tests` — 259 tests between them, roughly the size of the rest of the repo combined) plus
+7 new `Integration.Tests` cases (G9-15's own six-module flow, three-subscriber assertion, and schema
+isolation) and one `SeedingTests` update (unchanged count, updated assertion) from G9-14's `"client"`
+role.
+
+**Executed in this environment (no Docker, standing note for the whole phase): 363 passed, 1 failed
+(the pre-existing, Docker-only migration-order test in `Architecture.Tests`, not new to this phase), 168
+never run** — every Testcontainers-dependent test across all 21 projects, `Crm.Application.Tests`'
+`EnumMappingParityTests`/`CategoryPathHelperTests` (31 tests) and `Crm.Infrastructure.Tests`'
+`CrmDbContextConfigurationTests` (4 tests) being the two exceptions that DID run inside their otherwise-Docker
+projects, since both are pure reflection/unit tests with no database dependency. **This 168-test backlog,
+accumulated task by task across the entire phase under the standing Docker-unavailable note, is this
+report's single largest open item** — see below.
+
+### Every decision this phase's plan did not fully specify (index — full reasoning in each task's own entry above)
+
+- **G9-01:** the permission count correction (59 → 56, a genuine miscount in the phase brief, not padded
+  to match); the two enum renames (`CrmApprovalState`, `RequirementPriority`) for real cross-module name
+  collisions, values preserved exactly.
+- **G9-02→G9-06:** three domain bugs fixed on port rather than carried forward (`CrmLead.Convert`
+  accepting `Guid.Empty`, `CrmBriefDomainService`'s garbage-project-id-on-missing-parent path, the
+  scheduler's uncaught `TimeZoneInfo` lookup) — none specified by the plan beyond "fix on port."
+- **G9-07:** the configuration/entity count settled at 24 by counting registered `DbSet`s directly
+  (neither the brief's 28 nor an assumed 25 was trusted), per the plan's own explicit instruction to
+  verify rather than assume.
+- **G9-08:** `CrmActorKind.Employee` always resolving `HasReadAll: true` — a permission-check
+  responsibility deliberately left to the caller's own `CrmPermissions.*.Read` claim, not the guard
+  itself, mirroring `IProjectAccessGuard`'s own division of concerns; not specified by the plan, inferred
+  from precedent.
+- **G9-13:** the entire gate-satisfaction wiring shape (three `IGateConditionTypeHandler`
+  implementations, `ICrmGateReader`, the CRM-side `ApprovalDecidedIntegrationEvent` subscriber replacing
+  the backend's `ICrmApprovalCallbacks`), plus a genuine Contracts correction found while wiring the real
+  publisher (`CrmItemsResolvedIntegrationEvent.ProjectStageId` widened from required to nullable — a
+  task-owned resolution had nothing correct to put in a required stage id).
+- **G9-14:** the entire endpoint surface's exact route/permission mapping (the plan named "endpoints,
+  module registration, anonymous surface" as a single line; every route shape, every actor-resolution
+  choice, the public-lead-intake-owner design, and the rate-limiter policy shape were this task's own
+  design work) — the plan specified WHAT, not HOW, for a task an order of magnitude larger in scope than
+  its one-line description suggested.
+- **G9-15:** which two of the three CRM gate types get proven via a real Approvals round-trip in the new
+  six-module flow (`CrmBriefApproved`, `CrmItemsResolved`) versus a direct publish
+  (`CrmPeriodClosed`) — the plan named "characterization suite run twice," not which specific flow to
+  characterize; this session chose to prove all three gate types in one test rather than one, since the
+  marginal cost of the other two was small once the first was wired.
+
+### Anything implemented more thinly than intended
+
+- **Meetings — the whole Application layer, all 12 commands/queries.** Named in the plan's own "complete
+  spine" sentence, `Crm.Contracts` fully declared at G9-01, zero `Crm.Application` handlers ever written.
+  Discovered at G9-14, not earlier — see "what CRM taught," below, for why this matters past this one
+  module.
+- **Portal — two of three declared operations** (`GetMyPortalMeetingsQuery`, `DecideMyPortalApprovalCommand`).
+  Unlike Meetings, this one WAS flagged forward correctly (G9-09's own PROGRESS.md entry: "the Portal
+  slice at G9-14 is the first"), and G9-14 closed exactly one of the three
+  (`GetMyPortalBriefQuery`) — enough to give `ICrmAccessGuard`'s client-actor branch a real caller and a
+  real test, per decision 3's own literal justification, but not the full declared surface.
+- **Catalog — create + read + two mutations only**, no update/delete/reorder/clone/active-toggle for
+  categories or items, no space-type unmap. A deliberate G9-11 vertical-slice choice, ported as-is into
+  G9-14's endpoints without expansion — recorded in the scope-boundaries table above.
+- **The anonymous public-lead endpoint's intake owner is a single configured employee id**, not a
+  round-robin or least-loaded assignment a real sales team would eventually want — `Crm.Domain.CrmLead`
+  has no "unassigned" state to fall back to instead, and building a fair-assignment algorithm was
+  correctly out of scope for an endpoints task.
+
+### Anything in the plan that looks wrong, having built it
+
+- **The phase brief's "complete spine" sentence names Meeting as in-scope; the phase never built it.**
+  Not a wrong PREDICTION the way Phase 3's 413-vs-400 status code was — this is a plan sentence that was
+  simply never checked against what actually got built across four tasks (G9-09→G9-12), each of which
+  had its own narrower, correctly-scoped title ("Clients, Contacts, Leads, Notes"; "Briefs, Spaces,
+  SpaceTypes"; "Catalog"; "Periods, Items, Artifacts") that never mentioned Meetings at all. The plan's
+  summary sentence and its own task breakdown silently diverged, and nothing caught it until G9-14 tried
+  to wire a Portal query against a handler that didn't exist. See `docs/adding-a-module.md`'s new
+  section for the general practice this argues for.
+- **Nothing else in the plan was found to be actively wrong** — the corrections table G9-01 itself
+  applied (permission count, entity count deferred to G9-07's own verify, the Rule 9 allow-list already
+  containing the needed pairs, Lesson 1's `ConditionType` reservation, the rate-limiter brief
+  correction) were all VERIFIED-and-CORRECTED before execution began, not discovered mid-build — that
+  upfront verification pass is exactly why this phase's list here is short relative to Phase 3's.
+
+### What CRM taught that should change the Sites plan
+
+Sites is the next module in the dependency order (`sites → projects, crm`), and it will be the first
+module that depends on TWO already-shipped modules from day one rather than growing into cross-module
+reads incrementally the way every module through CRM did. Four concrete lessons:
+
+1. **A plan's own summary prose can diverge from its own task breakdown — check both, not just one.**
+   This phase's single clearest process finding: `PLAN-PHASE4.md`'s "complete spine" sentence named
+   Meeting; not one of the four Application-layer tasks that followed did. Before Sites' own plan is
+   finalized, cross-check every feature named in its summary/scope prose against the literal task list
+   that follows it — a mismatch is a real, if boring, review step, not a formality. And DURING execution,
+   any task that builds only PART of a `*.Contracts` surface should name every type it did NOT build a
+   handler for, explicitly, in its own `PROGRESS.md` entry — not just what it built. This is the concrete
+   fix, not just the diagnosis.
+2. **A `*.Contracts` shape written before the module's own access-guard/scope-decorator infrastructure
+   exists will need actor-resolution help at the endpoint layer later — budget for it, don't discover
+   it.** CRM's own commands (`WrittenById`/`CreatedById`/`OwnerId`-shaped) were written at G9-01, five
+   tasks before `ICrmAccessGuard` (G9-08) and eight before the endpoints that need to bridge the two
+   (G9-14). If Sites has any comparable pattern (a client-portal-shaped actor, or any principal beyond
+   "the current employee"), decide EARLY whether Contracts commands take a raw actor id (resolved at the
+   endpoint boundary, CRM's shape) or an `AppUserId` the handler resolves itself (Projects' shape) —
+   mixing both within one module, discovered late, is exactly what CRM did and it cost a dedicated
+   endpoint-layer helper class to paper over cleanly.
+3. **A cross-module read contract's shape is set by its FIRST caller's needs, and a second caller with
+   different needs later is a real, disclosed gap, not a bug.** `IProjectDirectory`'s by-id-only shape
+   was completely sufficient for every Phase 2/3 caller; CRM's Portal (`GetMyPortalMeetingsQuery`,
+   wanting "my client's own projects," a set-membership question, not a by-id lookup) is the first
+   caller it can't answer. Sites' own dependency on BOTH Projects and CRM makes this collision more
+   likely, not less — audit what shape of question Sites will actually need to ask each of its two
+   upstream Contracts BEFORE writing Sites' own Contracts, rather than discovering the gap the way this
+   phase did.
+4. **Schema-order insertion is real, tested, and safe — but budget the unsatisfiable-cycle check as its
+   own explicit step, not an afterthought.** CRM inserting into `SchemaOrder` (rather than appending, the
+   pattern every prior module followed) worked cleanly BECAUSE the plan's own structural item 1 already
+   worked out which one relationship to drop (`crm → documents`) before implementation began. Sites
+   depending on two existing modules is exactly the shape where a third such cycle becomes newly
+   possible (`sites < X < Y < sites` for some pair X, Y among `projects`/`crm`/anything Sites itself
+   introduces) — run that check explicitly during Sites' own planning, the same way this phase's
+   structural item 1 did, rather than discovering it mid-migration.
+
+### The standing gap this report exists to name plainly: Docker has been unavailable for this entire phase
+
+Every task from G9-07 onward recorded, individually, what it could not run. This is the single
+consolidated statement: **168 of this repo's 532 tests have never executed, not once, across all sixteen
+tasks of this phase**, because this execution environment's Docker daemon has been unreachable
+(`docker info`/WSL2 backend confirmed Stopped) for the phase's entire duration. This includes, at
+minimum, before this phase can be considered mergeable:
+
+- Every CRM `*.Application.Tests`/`*.Infrastructure.Tests` flow test (`ClientLeadNoteFlowTests`,
+  `BriefSpaceFlowTests`, `CatalogFlowTests`, `PeriodItemArtifactFlowTests`, `CrmAccessGuardTests`) —
+  proof that the CRM vertical slices actually work end-to-end against a real Postgres, not just compile.
+- The `ClientId` FK ripple's own test-fixture changes (`ProjectFlowTests`, `GateFlowTests`,
+  `FolderFlowTests`, `ProjectAccessGuardTests`) — proof the new `crm.clients` seeding actually satisfies
+  the FK and doesn't silently break an existing flow.
+- This phase's own G9-15 additions — the six-module characterization flow, the three-subscriber
+  assertion, and `CrmSchemaIsolationTests` — the ones this report leans on hardest as evidence CRM's gate
+  integration actually works, none of which have run even once.
+- `Rule9CrossSchemaForeignKeyTests`' fault-injection drill (scratch a wrong-direction FK → confirm the
+  check catches it by name → revert → reconfirm green) — `docs/adding-a-module.md` prescribes this for
+  every phase that adds cross-schema FKs; CRM added ten (nine at G9-08, one at G9-13) and none of them
+  has been fault-injection-tested in this environment.
+- The full seven-schema migration order, applied clean from empty, end to end — the migration-order
+  PROBE (G9-15) confirmed the C# MODEL is internally consistent with its own migrations, which is real
+  and valuable, but is not the same claim as "these migrations apply cleanly to a real empty database in
+  the new order," which still requires Docker.
+
+**None of this is new risk specific to G10-01** — every task recorded its own piece of this gap as it
+was created. This section exists so a reader of ONLY the final report, not the full task-by-task history,
+still gets the complete picture: this phase is code-complete and every non-Docker check is green, but it
+has never been run against a real database, and that is the one gate standing between this branch and
+being safely mergeable.
