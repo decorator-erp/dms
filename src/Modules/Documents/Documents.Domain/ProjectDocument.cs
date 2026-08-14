@@ -21,6 +21,22 @@ internal sealed class ProjectDocument : Entity, IAuditable
 {
     public Guid ProjectId { get; private set; }
     public Guid? FolderId { get; private set; }
+    /// <summary>
+    /// The stage this document belongs to, <b>directly or via its task</b> (E1-01). A task-scoped upload
+    /// denormalizes its task's owning stage here, so a stage-scoped read is a single indexed predicate
+    /// rather than a cross-module round trip to resolve the task→stage mapping — G7-02's correction 8,
+    /// whose query half was missed at G7-07 and is closed here.
+    ///
+    /// <para><b>Both this and <see cref="ProjectTaskId"/> being set is normal and deliberate</b>, and is a
+    /// considered divergence from <see cref="DocumentFolder"/>'s at-most-one-of-stage-or-task rule
+    /// (<c>DocumentFolderErrors.InvalidScope</c>). A folder's scope says where it SITS; a document's says
+    /// what it is VISIBLE TO. Do not add a symmetry guard here — it would reject every task upload.</para>
+    ///
+    /// <para>Null for a task with no stage (a <c>WorkflowType.FreeStyle</c> project's tasks carry no
+    /// <c>ProjectStageId</c>), so this is not "always populated for task uploads" — only whenever the
+    /// owning task actually has a stage. A document's folder may also still have a null stage while the
+    /// document does not; nothing validates document-scope against folder-scope, by design.</para>
+    /// </summary>
     public Guid? ProjectStageId { get; private set; }
     public Guid? ProjectTaskId { get; private set; }
     public string FileName { get; private set; } = string.Empty;

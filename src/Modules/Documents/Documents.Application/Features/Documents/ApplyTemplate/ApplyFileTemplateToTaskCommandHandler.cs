@@ -55,7 +55,8 @@ internal sealed class ApplyFileTemplateToTaskCommandHandler(
 
         var documentResult = ProjectDocument.Create(
             task.ProjectId, template.FileName, storagePath, template.ContentType, template.FileSizeBytes,
-            uploadedById.Value, folderId, projectTaskId: command.ProjectTaskId);
+            uploadedById.Value, folderId, projectStageId: task.ProjectStageId,
+            projectTaskId: command.ProjectTaskId);
         if (documentResult.IsFailure)
         {
             await fileStorage.DeleteAsync(storagePath, ct);

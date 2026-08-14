@@ -118,9 +118,10 @@ public sealed record GetProjectDocumentsByProjectQuery(Guid ProjectId)
 public sealed record GetProjectDocumentsByFolderQuery(Guid FolderId)
     : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
 
-/// <summary>Directly stage-scoped documents only — see <c>IDocumentQueries.ForStageAsync</c>'s own
-/// remarks for why the task-under-this-stage reach-through lives on the gate-satisfaction side (G7-07)
-/// instead of here.</summary>
+/// <summary>Every document visible at this stage — directly stage-scoped ones AND those uploaded to a
+/// task under it (G7-02's correction 8, closed at E1-01). See <c>IDocumentQueries.ForStageAsync</c>'s own
+/// remarks: the reach-through is free at read time because a task upload denormalizes its owning stage
+/// onto the row.</summary>
 public sealed record GetProjectDocumentsByStageQuery(Guid ProjectStageId)
     : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
 

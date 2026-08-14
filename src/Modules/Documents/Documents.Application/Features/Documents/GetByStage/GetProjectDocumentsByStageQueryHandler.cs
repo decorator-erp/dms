@@ -7,8 +7,11 @@ using SharedKernel;
 
 namespace Documents.Application.Features.Documents.GetByStage;
 
-/// <summary>Directly stage-scoped only — see <c>GetProjectDocumentsByStageQuery</c>'s own remarks for
-/// why the task-under-this-stage reach-through lives on the gate-satisfaction side (G7-07) instead.</summary>
+/// <summary>Returns documents scoped to the stage directly AND those uploaded to a task under it — the
+/// one predicate covers both because a task upload denormalizes its owning stage onto the row (E1-01,
+/// closing G7-02's correction 8). Must stay in lockstep with <c>DocumentQueries.ForStageAsync</c>: the
+/// two are the same question asked through different surfaces, and they disagreeing about what "stage
+/// documents" means is the bug E1-01 fixed.</summary>
 internal sealed class GetProjectDocumentsByStageQueryHandler(DocumentsDbContext db)
     : IQueryHandler<GetProjectDocumentsByStageQuery, IReadOnlyList<ProjectDocumentResponse>>
 {

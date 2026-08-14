@@ -4,6 +4,7 @@ using Approvals.Contracts.Approvals;
 using BuildingBlocks.Events;
 using BuildingBlocks.Messaging;
 using Documents.Contracts.Documents;
+using Documents.Contracts.FileTemplates;
 using Documents.Infrastructure.Persistence;
 using Hr.Contracts.Employees;
 using Identity.Contracts.Auth;
@@ -57,10 +58,21 @@ public sealed class FileFlowTests(DocumentsApplicationFixture fixture)
         Assert.Equal(GateStatus.Satisfied, gate.Status);
     }
 
-    /// <summary>G7-02's correction 8, verified end-to-end: an <see cref="ConditionType.Attachment"/> gate
-    /// on a STAGE is satisfied by a document uploaded to a TASK under that stage, resolved locally in
-    /// <c>DocumentUploadedIntegrationEventHandler</c> via <c>ProjectTask.ProjectStageId</c> - no direct
-    /// call, no cross-module round trip.</summary>
+    /// <summary>
+    /// G7-02's correction 8, gate half, verified end-to-end: an <see cref="ConditionType.Attachment"/>
+    /// gate on a STAGE is satisfied by a document uploaded to a TASK under that stage.
+    ///
+    /// <para><b>What this proves changed at E1-01, and the comment is corrected rather than left
+    /// stale.</b> Before E1-01 the event carried <c>ProjectStageId = null</c> and
+    /// <c>DocumentUploadedIntegrationEventHandler</c> resolved the owning stage itself via its
+    /// <c>owningStageId ??=</c> lookup — which is what this comment used to claim it proved. E1-01
+    /// denormalizes the stage at upload, so the event now arrives WITH it and that fallback no longer
+    /// fires on this path. This test therefore proves the DENORMALIZED route today; the fallback keeps
+    /// its own coverage in
+    /// <see cref="AttachmentGate_OnTheOwningStage_IsSatisfied_ByAnEventCarryingNoStage"/>.
+    /// Left uncorrected, this test would have stayed green while silently testing something else —
+    /// the same "green test, evaporated coverage" failure mode that let E1 ship.</para>
+    /// </summary>
     [Fact]
     public async Task AttachmentGate_OnTheOwningStage_IsSatisfied_ByADocumentUploadedToATaskUnderIt()
     {
@@ -231,6 +243,130 @@ public sealed class FileFlowTests(DocumentsApplicationFixture fixture)
         var v2 = await db.ProjectDocuments.AsNoTracking().SingleAsync(d => d.Id == revisionResult.Value);
         Assert.Equal(v1RootId, v2.RootDocumentId);
         Assert.Equal(2, v2.Version);
+    }
+
+    /// <summary>
+    /// Keeps <c>DocumentUploadedIntegrationEventHandler</c>'s <c>owningStageId ??=</c> fallback genuinely
+    /// covered after E1-01 made the normal upload path stop exercising it (see the test above). Publishes
+    /// a synthetic event carrying <c>ProjectStageId: null</c> with only a task id — the exact shape every
+    /// pre-E1-01 row produced, and the shape any future producer that forgets to denormalize would
+    /// produce — straight through <see cref="IEventBus"/>, the same synthetic-event technique
+    /// <see cref="ProjectDocumentSubjectDecision_NeverReachesProjectsOwnGateConditionSubscriber"/> uses.
+    /// Without this, the fallback would be untested code that a later reader deletes as dead, silently
+    /// reintroducing E1 for exactly those producers.
+    /// </summary>
+    [Fact]
+    public async Task AttachmentGate_OnTheOwningStage_IsSatisfied_ByAnEventCarryingNoStage()
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var (projectId, ownerUserId, stageId, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+
+        var createGate = sp.GetRequiredService<ICommandHandler<CreateStageGateConditionCommand, Guid>>();
+        var gateResult = await createGate.HandleAsync(new CreateStageGateConditionCommand(
+            projectId, stageId, ownerUserId, ConditionType.Attachment, GateTrigger.Unlock, "Needs a stage doc"));
+        Assert.True(gateResult.IsSuccess);
+
+        // ProjectStageId: null with a real ProjectTaskId - the pre-E1-01 event shape. Only those two
+        // fields matter to the handler; the rest are inert for this path.
+        var eventBus = sp.GetRequiredService<IEventBus>();
+        await eventBus.PublishAsync(
+            new Documents.Contracts.DocumentUploadedIntegrationEvent(
+                Guid.NewGuid(), Guid.NewGuid(), projectId, ProjectStageId: null, ProjectTaskId: taskId,
+                FolderId: null, "legacy.pdf", 1, Guid.NewGuid(), DateTimeOffset.UtcNow),
+            CancellationToken.None);
+
+        var getGates = sp.GetRequiredService<IQueryHandler<GetStageGateConditionsQuery, IReadOnlyList<GateConditionResponse>>>();
+        var gate = Assert.Single((await getGates.HandleAsync(new GetStageGateConditionsQuery(projectId, stageId, ownerUserId))).Value!);
+        Assert.Equal(GateStatus.Satisfied, gate.Status);
+    }
+
+    /// <summary>
+    /// E1-01, the query half of G7-02's correction 8 — the half that never shipped at G7-07. A document
+    /// uploaded to a TASK must be visible to a STAGE-scoped read of the stage that owns that task, or
+    /// (correction 8's own words) "the <c>Attachment</c> gate on a stage will read as unsatisfied when a
+    /// task under it has the file." The GATE half was built on Projects' subscriber side and works; this
+    /// read half was left direct-scope-only, and neither stage-read path had any test at all, which is
+    /// exactly why nothing caught it.
+    ///
+    /// <para>These three tests are the red-first proof: each fails on its own assertion (an empty result
+    /// set) before <c>UploadTaskDocumentCommandHandler</c>/<c>ApplyFileTemplateToTaskCommandHandler</c>
+    /// denormalize <c>ProjectStageId</c>, and passes after. The pre-existing gate test above cannot serve
+    /// that purpose — it passes either way, since Projects resolves the owning stage independently.</para>
+    /// </summary>
+    [Fact]
+    public async Task StageRead_ViaQueryHandler_IncludesADocumentUploadedToATaskUnderThatStage()
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var (_, ownerUserId, stageId, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+
+        var upload = sp.GetRequiredService<ICommandHandler<UploadTaskDocumentCommand, Guid>>();
+        var uploadResult = await upload.HandleAsync(new UploadTaskDocumentCommand(
+            taskId, ContentStream("task doc"), "task-doc.pdf", "application/pdf", 8, ownerUserId));
+        Assert.True(uploadResult.IsSuccess);
+        var documentId = uploadResult.Value;
+
+        var getByStage = sp.GetRequiredService<IQueryHandler<GetProjectDocumentsByStageQuery, IReadOnlyList<ProjectDocumentResponse>>>();
+        var stageDocuments = (await getByStage.HandleAsync(new GetProjectDocumentsByStageQuery(stageId))).Value!;
+
+        var document = Assert.Single(stageDocuments, d => d.Id == documentId);
+        Assert.Equal(stageId, document.ProjectStageId);
+        Assert.Equal(taskId, document.ProjectTaskId);
+    }
+
+    /// <summary>The same reach-through through the CROSS-MODULE contract surface rather than this module's
+    /// own query handler — correction 8 named <c>IDocumentQueries.ForStageAsync</c> by name, so covering
+    /// only the internal query handler would leave the interface the correction actually cited untested.</summary>
+    [Fact]
+    public async Task StageRead_ViaDocumentQueries_IncludesADocumentUploadedToATaskUnderThatStage()
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var (_, ownerUserId, stageId, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+
+        var upload = sp.GetRequiredService<ICommandHandler<UploadTaskDocumentCommand, Guid>>();
+        var uploadResult = await upload.HandleAsync(new UploadTaskDocumentCommand(
+            taskId, ContentStream("contract read"), "contract-read.pdf", "application/pdf", 13, ownerUserId));
+        Assert.True(uploadResult.IsSuccess);
+        var documentId = uploadResult.Value;
+
+        var documentQueries = sp.GetRequiredService<Documents.Contracts.IDocumentQueries>();
+        var stageDocuments = await documentQueries.ForStageAsync(stageId, CancellationToken.None);
+
+        var document = Assert.Single(stageDocuments, d => d.Id == documentId);
+        Assert.Equal(stageId, document.ProjectStageId);
+        Assert.Equal(taskId, document.ProjectTaskId);
+    }
+
+    /// <summary><c>ApplyFileTemplateToTaskCommand</c> is the OTHER task-scoped construction path, and it
+    /// carried the identical omission. It had zero test coverage of any kind before E1-01 — fixing its
+    /// one-liner without covering it would have shipped exactly the sort of unverified change this task
+    /// exists to correct.</summary>
+    [Fact]
+    public async Task StageRead_ViaAppliedTemplate_IncludesTheDocumentTheTemplateCreated()
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var (_, ownerUserId, stageId, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+
+        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateFileTemplateCommand, Guid>>();
+        var templateResult = await createTemplate.HandleAsync(new CreateFileTemplateCommand(
+            $"Cover Sheet {Guid.NewGuid():N}", nameof(Documents.Domain.FileTemplateCategory.Document),
+            ContentStream("template body"), "cover.docx", "application/vnd.openxmlformats", 13));
+        Assert.True(templateResult.IsSuccess);
+
+        var applyTemplate = sp.GetRequiredService<ICommandHandler<ApplyFileTemplateToTaskCommand, Guid>>();
+        var applyResult = await applyTemplate.HandleAsync(
+            new ApplyFileTemplateToTaskCommand(taskId, templateResult.Value, ownerUserId));
+        Assert.True(applyResult.IsSuccess);
+
+        var getByStage = sp.GetRequiredService<IQueryHandler<GetProjectDocumentsByStageQuery, IReadOnlyList<ProjectDocumentResponse>>>();
+        var stageDocuments = (await getByStage.HandleAsync(new GetProjectDocumentsByStageQuery(stageId))).Value!;
+
+        var document = Assert.Single(stageDocuments, d => d.Id == applyResult.Value);
+        Assert.Equal(stageId, document.ProjectStageId);
+        Assert.Equal(taskId, document.ProjectTaskId);
     }
 
     private static async Task<(Guid ProjectId, string OwnerUserId, Guid StageId, Guid TaskId)> CreateProjectWithStageAndTaskAsync(

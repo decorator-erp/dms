@@ -25,14 +25,18 @@ public interface IDocumentQueries
     Task<IReadOnlyList<DocumentSummary>> ForProjectAsync(Guid projectId, CancellationToken ct);
 
     /// <summary>
-    /// Directly stage-scoped documents only — NOT the task-under-this-stage reach-through the backend's
-    /// <c>ProjectDocumentRepository.GetByStageAsync</c> performs. That reach-through still exists (an
-    /// <c>Attachment</c> gate on a stage must be satisfiable by a document uploaded to a task under it),
-    /// but it's implemented on the GATE-SATISFACTION side instead (G7-07:
-    /// <c>Projects.Infrastructure</c>'s <c>DocumentUploadedIntegrationEvent</c> handler already has
-    /// direct access to <c>ProjectTask.ProjectStageId</c> and can resolve it in one step; this method
-    /// would need a batched round-trip through <c>Projects.Contracts.IProjectDirectory</c> to do the
-    /// same reach-through for a listing/UI concern this phase's verify block doesn't require).
+    /// Every document visible at this stage — those scoped to the stage directly AND those uploaded to a
+    /// task under it, matching the backend's own <c>ProjectDocumentRepository.GetByStageAsync</c>
+    /// (G7-02's correction 8).
+    ///
+    /// <para>The reach-through costs nothing at read time: a task-scoped upload denormalizes its owning
+    /// stage onto <c>ProjectDocument.ProjectStageId</c> (E1-01), so this stays a single indexed
+    /// predicate. An earlier revision of this comment argued the reach-through belonged on the
+    /// gate-satisfaction side because doing it here "would need a batched round-trip through
+    /// <c>IProjectDirectory</c>" — true of a query-time reach-through, but the write-time denormalization
+    /// removes that trade-off entirely, and the argument had in any case been used to justify not
+    /// implementing this half at all. Gate satisfaction ALSO resolves the stage itself, independently;
+    /// the two are not alternatives.</para>
     /// </summary>
     Task<IReadOnlyList<DocumentSummary>> ForStageAsync(Guid stageId, CancellationToken ct);
 

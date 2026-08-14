@@ -13,6 +13,11 @@ namespace Documents.Contracts;
 /// the uploaded document's stage/task — Documents publishes with zero knowledge of who reacts, per
 /// <c>docs/adding-a-module.md</c>'s cross-module-write pattern. <c>Version</c> distinguishes an initial
 /// upload (1) from a revision (&gt;1) for a subscriber that only cares about the first.
+///
+/// <para>Since E1-01, <see cref="ProjectStageId"/> carries the stage the document belongs to
+/// <b>directly or via its task</b> — a task-scoped upload denormalizes its owning stage rather than
+/// leaving this null, so both it and <see cref="ProjectTaskId"/> are normally populated together. Null
+/// only when the document has no stage at all (project-wide upload, or a <c>FreeStyle</c> task).</para>
 /// </summary>
 public sealed record DocumentUploadedIntegrationEvent(
     Guid EventId,

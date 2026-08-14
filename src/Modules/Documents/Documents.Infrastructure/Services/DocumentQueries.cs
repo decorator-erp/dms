@@ -7,9 +7,10 @@ namespace Documents.Infrastructure.Services;
 
 /// <summary>Implements <see cref="IDocumentQueries"/> over <see cref="DocumentsDbContext"/> — always via
 /// a <c>Select</c> projection straight to <see cref="DocumentSummary"/>, never load-then-map, same
-/// convention <c>HrDirectory</c>/<c>ProjectDirectory</c> established (G7-08). <c>ForStageAsync</c> is
-/// deliberately direct-scope-only, no task-under-stage reach-through — see <see cref="IDocumentQueries"/>'s
-/// own remarks for why that lives on the gate-satisfaction side instead.</summary>
+/// convention <c>HrDirectory</c>/<c>ProjectDirectory</c> established (G7-08). <c>ForStageAsync</c>'s
+/// single <c>ProjectStageId</c> predicate reaches through to task-scoped documents because the upload
+/// path denormalizes the owning stage onto the row (E1-01) — no join, no cross-module call; see
+/// <see cref="IDocumentQueries"/>'s own remarks.</summary>
 internal sealed class DocumentQueries(DocumentsDbContext db) : IDocumentQueries
 {
     public async Task<DocumentSummary?> GetAsync(Guid documentId, CancellationToken ct) =>

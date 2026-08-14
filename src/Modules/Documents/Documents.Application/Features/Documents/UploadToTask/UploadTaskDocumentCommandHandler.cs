@@ -59,7 +59,8 @@ internal sealed class UploadTaskDocumentCommandHandler(
 
         var documentResult = ProjectDocument.Create(
             task.ProjectId, command.FileName, storagePath, command.ContentType, command.FileSizeBytes,
-            uploadedById.Value, folderId, projectTaskId: command.ProjectTaskId, description: command.Description);
+            uploadedById.Value, folderId, projectStageId: task.ProjectStageId,
+            projectTaskId: command.ProjectTaskId, description: command.Description);
         if (documentResult.IsFailure)
         {
             await fileStorage.DeleteAsync(storagePath, ct);
