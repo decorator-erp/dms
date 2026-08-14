@@ -3753,3 +3753,52 @@ tests — root/child category path shape, the subtree-rewrite move including a g
 shifting without its `ParentId` changing, the cyclic-move rejection, attribute-value replace-not-append,
 an unknown-attribute rejection, and the duplicate-mapping rejection) — Testcontainers-dependent, could
 not be executed per the standing note.
+
+**G9-12** — done — `src/Modules/Crm/Crm.Application/Features/{Periods,Items,Artifacts}/`: 5 Period
+handlers, 7 Item handlers, 5 Artifact handlers — 17 commands/queries. `CloseCrmRequirementPeriodCommandHandler`
+publishes `CrmPeriodClosedIntegrationEvent` when the period is stage-owned, in the same
+`SaveChangesAsync` as the status change — the CRM-side half of one of the three gate-satisfaction
+triggers; the Projects-side subscriber lands at G9-13, but publishing now (with zero subscriber yet)
+matches every other module's own "publish with zero knowledge of who reacts" convention.
+`SendCrmRequirementItemCommandHandler` follows G9-10's brief-send shape exactly (client approver
+resolved via the item's own `ProjectId` → `IProjectDirectory` → same-schema `crm.clients` lookup).
+
+**`LinkCrmArtifactDocumentCommandHandler` validates `DocumentId` against
+`Documents.Contracts.IDocumentQueries.GetAsync` before creating the row — the entire replacement for
+the FK structural item 1 drops, exactly as `PLAN-PHASE4.md` requires, with the plan's own required
+test**: `LinkArtifactDocument_WithUnknownDocumentId_IsRejected`. Added `CrmArtifactErrors.DocumentNotFound`
+— the existing `InvalidSubject`/`InvalidAuthor` errors both mean something more specific and would have
+been the wrong signal for this failure mode.
+
+**`CrmApplicationFixture` grows to all six modules in this task, not gradually** — Documents joins now
+because a fixture with no `IDocumentQueries` registered at all would fail every artifact-link test at
+DI resolution, not just the intentionally-negative one; there was no smaller correct step between
+"five modules" and "the module this task's own handler needs." This completes the module set G9-13's
+gate-integration tests and G9-15's six-module smoke suite were always going to need — brought forward
+rather than re-derived.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `EnumMappingParityTests` still 25/25, `CategoryPathHelperTests` still
+6/6, `Crm.UnitTests` still 195/195. **Not run in this environment**: `PeriodItemArtifactFlowTests` (7
+new tests — period open/extend/close with the stage-owned publish, the at-most-one-open-period
+rejection, the item ledger's send-then-supersede-while-pending rejection, client-authored items
+landing `NotRequired`, the unknown-`DocumentId` rejection the plan specifically requires, and a real
+artifact link round-tripped through a query) — needs the now-six-module Testcontainers fixture; could
+not be executed per the standing Docker-unavailable note.
+
+**A real defect found and fixed in this commit: `.gitignore`'s unanchored `artifacts/` line (`dotnet
+new gitignore`'s own boilerplate, meant only for the .NET SDK's top-level build-artifacts output
+folder) case-insensitively matched every directory literally named `Artifacts` anywhere in the
+tree — including `Crm.Contracts/Artifacts/` and `Crm.Application/Features/Artifacts/`.** `git status`
+never flagged these as untracked in any prior task's `git add`, because an ignored file doesn't appear
+as `??` — it appears as nothing at all unless `--ignored` is passed explicitly. Caught only because
+this task's `git add` left visibly fewer files staged than expected for the Artifacts handlers just
+written, prompting a `git status --ignored` check. **This means `ArtifactContracts.cs` (G9-01) was
+never actually committed until now** — every build since G9-01 succeeded only because the file still
+existed on disk in this session; a fresh clone of any commit between G9-01 and this one would have
+failed to build. Fixed by anchoring the rule to `/artifacts/` (repo-root only, matching what the .NET
+SDK feature actually produces) and force-adding the two previously-invisible directories. No other
+`Artifacts`-named directory exists elsewhere in the tree (checked). Recorded here in full because a
+silently-excluded source file is a correctness defect in the repository itself, not a style nit — a
+future reader diffing this phase's commits against what's actually on disk needs to know G9-01's
+listed file set was incomplete until this task closed the gap.

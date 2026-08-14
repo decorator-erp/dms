@@ -179,6 +179,11 @@ internal static class CrmArtifactErrors
 
     public static readonly Error InvalidAuthor = Error.BadRequest(
         "crm.artifacts.InvalidAuthor", "An artifact must be authored by exactly one of an employee or a contact.");
+
+    /// <summary>The entire replacement for the FK structural item 1 drops on
+    /// <c>CrmArtifactDocument.DocumentId</c> — see G9-12's own remarks.</summary>
+    public static readonly Error DocumentNotFound = Error.NotFound(
+        "crm.artifacts.DocumentNotFound", "The referenced document was not found.");
 }
 
 internal static class CrmClientNoteErrors

@@ -63,7 +63,13 @@ BenchmarkDotNet.Artifacts/
 # .NET
 project.lock.json
 project.fragment.lock.json
-artifacts/
+# Anchored to repo root, not `artifacts/` - the unanchored form (dotnet new gitignore's default)
+# case-insensitively swallowed src/Modules/Crm/Crm.Contracts/Artifacts/ and
+# .../Crm.Application/Features/Artifacts/ (found at G9-12, both silently unstaged since G9-01) since
+# git on Windows matches case-insensitively by default and the .NET SDK's own "artifacts output"
+# feature only ever creates a top-level folder, never a nested one - this is the correct scope for
+# what the rule was meant to ignore.
+/artifacts/
 
 # Tye
 .tye/
