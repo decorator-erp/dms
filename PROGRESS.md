@@ -3685,3 +3685,39 @@ runnable without Docker is green: `EnumMappingParityTests` 25/25 (new), `Crm.Uni
 `ClientLeadNoteFlowTests` (6 new tests, needs the three-module Testcontainers fixture) — could not be
 executed per the standing Docker-unavailable note; must run before merge alongside everything else this
 phase has accumulated under that note.
+
+**G9-10** — done — `src/Modules/Crm/Crm.Application/Features/{Briefs,Spaces,DesignProfile}/`: 9 Brief
+handlers, 7 Space/SpaceType handlers, 1 DesignProfile query — 17 commands/queries. `BriefMapping.cs`
+(the `Crm.Contracts.Briefs.CrmBriefHeadData`↔`Crm.Domain.CrmBriefHeadData` field-by-field converter,
+same name-collision reasoning as G9-09's `CrmLeadIntakeData`, factored out here since three Brief
+handlers touch the head). `CrmApplicationFixture` widened to Identity+HR+Approvals+CRM+Projects
+(Approvals for the real `IApprovalRequester` a brief/brief-space send needs; Projects for
+`IProjectDirectory`, needed to validate `ProjectId` and to resolve a brief's client for the approver
+spec) — migrated in `SchemaOrder` order, the first time this fixture crosses beyond the three modules
+G9-09 needed.
+
+**`SendCrmBriefCommandHandler`/`SendCrmBriefSpaceCommandHandler` resolve the approver from
+`IProjectDirectory.GetProjectAsync(...).ClientId`, then a same-schema `crm.clients` lookup for that
+id's `AppUserId`** — not a second cross-module call, since CRM owns the client row directly once it has
+the id. Requests `ApprovalType.ClientReview` / `ApproverKind.Client`, the first CRM path that resolves
+a client (not employee) approver — `CreateCrmDesignBriefCommandHandler`/`CreateCrmSpaceCommandHandler`
+also validate their `ProjectId` against `IProjectDirectory` before creating, the same
+validate-the-bare-Guid-in-application-code pattern G9-09 established for `AppUserId`.
+
+**Two more Contracts/Domain name collisions surfaced and were resolved the same way as G9-09's**:
+`CrmBriefHeadData` (handled via `BriefMapping` plus explicit `Contracts.Briefs.` qualification in the
+one read-side handler that constructs it directly) and `ApprovalType`
+(`Approvals.Contracts.ApprovalType` vs. `Projects.Contracts.ApprovalType` — both full duplicates of the
+same enum, per each module's own forced-duplication precedent; aliased to the Approvals one in both
+Send handlers, which is the only one either ever means).
+
+**Workspace (`GetMyGatheringWorkQuery`) is explicitly out of scope** — never given a Contracts type at
+G9-01, and not implemented here. Per the phase's vertical-slice decision: it is breadth beyond the
+spine this phase's tests exercise, not a gap discovered late.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `EnumMappingParityTests` still 25/25, `Crm.UnitTests` still 195/195.
+**Not run in this environment**: `BriefSpaceFlowTests` (4 new tests — brief create/update/send with a
+real cross-module approval request, the brief-space ledger's supersede-requires-locked rule, space/
+space-type CRUD, and the unknown-`ProjectId` rejection) — needs the now-five-module Testcontainers
+fixture; could not be executed per the standing Docker-unavailable note.

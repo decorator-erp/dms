@@ -12,11 +12,14 @@ using Xunit;
 namespace Crm.Application.Tests;
 
 /// <summary>
-/// Boots Identity, HR, and CRM's real DI graphs plus <c>SharedDbContext</c>/<c>AddOutbox()</c> against
-/// one Testcontainers Postgres — needed because <c>CrmDbContext</c>'s own migration has raw-SQL FKs to
-/// <c>identity.</c>/<c>hr.</c> (G9-08). Same shape as <c>ProjectsApplicationFixture</c>, scoped to what
-/// this task's vertical slice actually touches; grows to the full six-module set at G9-13 when the gate
-/// seam needs Projects/Documents/Approvals too.
+/// Boots Identity, HR, Approvals, CRM, and Projects' real DI graphs plus
+/// <c>SharedDbContext</c>/<c>AddOutbox()</c> against one Testcontainers Postgres. Approvals is needed
+/// from G9-10 onward (brief/brief-space send requests a real <c>IApprovalRequester</c>); Projects is
+/// needed for <c>IProjectDirectory</c> (brief/space creation validates <c>ProjectId</c>). Migrated in
+/// <c>ModuleDependencyOrder.SchemaOrder</c> order — <c>crm</c>'s own migration has raw-SQL FKs to
+/// <c>identity.</c>/<c>hr.</c> (G9-08), and a future <c>projects.projects.ClientId → crm.clients.Id</c>
+/// FK (G9-13) will need <c>crm</c> migrated first regardless. Documents joins at G9-13/G9-15 when the
+/// artifact-document validation and the six-module smoke suite need it.
 /// </summary>
 public sealed class CrmApplicationFixture : IAsyncLifetime
 {
@@ -58,7 +61,9 @@ public sealed class CrmApplicationFixture : IAsyncLifetime
         var modules = ModuleDiscovery.DiscoverModules(
             Assembly.Load("Identity.Infrastructure"),
             Assembly.Load("Hr.Infrastructure"),
-            Assembly.Load("Crm.Infrastructure"));
+            Assembly.Load("Approvals.Infrastructure"),
+            Assembly.Load("Crm.Infrastructure"),
+            Assembly.Load("Projects.Infrastructure"));
 
         foreach (var module in modules)
             module.Register(services, configuration);
@@ -71,9 +76,12 @@ public sealed class CrmApplicationFixture : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
+        // ModuleDependencyOrder.SchemaOrder order: shared, identity, hr, approvals, crm, projects.
         await MigrateAsync("Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
         await MigrateAsync("Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
+        await MigrateAsync("Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
         await MigrateAsync("Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
+        await MigrateAsync("Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure");
 
         var identityModule = modules.Single(m => m.Name == "Identity");
         await using (var scope = _provider.CreateAsyncScope())
