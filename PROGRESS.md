@@ -3405,3 +3405,29 @@ tests: 13/14 green (rules 1–8, 10 — including rule 5's integration-event-pay
 command/query privacy check, the two this task's contracts are constrained by); rule 9 needs
 Testcontainers/Docker, exercised starting at G9-08 once CRM has a cross-schema FK. No test project
 yet — Contracts adds no tests, same as every module's own first task (G4-01/G5-01/G7-01).
+
+**G9-02** — done — `src/Modules/Crm/Crm.Domain/` (new project): `Enums.cs` (`ContactRole` only —
+enums are added per Domain task as the entities that need them are ported, same incremental pattern
+`Projects.Domain`'s own `Enums.cs` followed), `Errors/Errors.cs` (`ClientErrors`/`ClientChildErrors`/
+`CrmContactErrors`), `Client.cs`, `ClientChild.cs`, `CrmContact.cs`. `tests/Modules/Crm.UnitTests/`
+(new project, 3 files, 36 tests). `DMS.Modular.slnx` and `Architecture.Tests.csproj` gain both new
+projects immediately.
+
+**No `_projects` collection on `Client`** — dropped per the phase's structural item 1, the cycle
+prerequisite that lets CRM own `Client` at all. **`Client.AppUserId` is a bare `string`** (FK added at
+G9-08, no navigation — `AppUser` in the backend is dropped along with it). **`ClientChild` is not an
+`Entity`** — ported as the backend's own doc comment describes it: "not an Entity / not IAuditable —
+has no DB identity of its own," JSON-owned inside the `clients` row (configured at G9-07).
+
+**One departure from a straight port, applied uniformly rather than case-by-case:** the backend's
+`Client.Create` and `CrmContact.Create` are plain factories with no validation and no `Result` return.
+Every other entity in this codebase (including CRM's own `ClientChild`, `CrmSpace`, `CrmMeeting`, …)
+returns `Result<T>` from `Create` per `docs/adding-a-module.md`'s domain convention. Matched the
+codebase's own convention rather than the backend's — `Client.Create` now rejects a blank
+`AppUserId`/`Address`, `CrmContact.Create`/`Update` reject blank names — since porting the backend's
+inconsistency forward would leave two of CRM's ~24 entities as the only ones in the whole codebase
+that construct via a throwing/unchecked path.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, all three
+entities' invariants and primary-contact transitions unit-tested (36/36) with no EF Core reference in
+the project (rule 1). Architecture tests 13/13 green (rule 9 still deferred to Docker/G9-08).
