@@ -3124,7 +3124,7 @@ phase, and why, so Phase 4 (CRM) doesn't have to grep this file to find them.
 | `GateCondition.ClientReviewDueDays` (review-SLA column) | G7-02 (correction 10) | Documents/CRM, if a review-SLA feature is ever built | The backend has no tests for this either — genuinely new work, not a port gap |
 | `ICrmGateReader`-style CRM lookup for `DocumentApprovedHandler`'s "is this the client's own document" check | G7-07 | CRM | This phase validates same-project instead — CRM doesn't exist yet to validate against |
 | `RequestDocumentReviewCommand`'s `ReviewInProgress` duplicate-request guard | G7-07 | Documents, once `IApprovalRequester` gains an "open approval for subject X" query or Documents tracks its own pending-approval id | `IApprovalRequester` has no such query today; closing this needs a Contracts extension this phase's verify list didn't require |
-| `IDocumentQueries.ForStageAsync`'s task-under-stage reach-through (listing/UI concern) | G7-01/G7-07 | Documents, if a UI needs "everything visible at this stage" rather than "everything directly attached to it" | The GATE-satisfaction reach-through (the one thing this phase's verify block needed) lives on Projects' subscriber instead, which can resolve it in one step without a batched cross-module round trip a listing query would need |
+| ~~`IDocumentQueries.ForStageAsync`'s task-under-stage reach-through (listing/UI concern)~~ **— NOT deferrable; closed at E1-01** | G7-01/G7-07 | Documents | **This row was wrong.** Correction 8 stated the reach-through as a requirement, not a listing nicety, and filing it here re-framed an overridden requirement as a scope choice. See the E1-01 entry below. |
 | Orphaned blobs from a soft-deleted `ProjectDocument` whose row is never restored | G7-02 (correction 4) | Documents, if disk usage ever becomes a real operational concern | A cleanup job, not a correctness gap — the bytes are inert until then |
 | `ProjectDocumentRepository`-style dependency-tree/bulk endpoints, search/filter variants | G7 phase scope reduction (mirrors G5's own Projects scope cut) | Documents | This phase built one complete vertical slice (upload → gate → approval), not full CRUD breadth, same trade-off Projects made in Phase 2 |
 | Full zero-copy `MultipartReader`-based upload streaming (bypassing ASP.NET Core's own form-value-provider entirely) | G7-08 | Documents/Api, if the 1 GB hosting target's memory pressure ever proves this insufficient in practice | `IFormFile` binding + `FormOptions.MultipartBodyLengthLimit` + `SaveAsync`'s chunk-by-chunk cap is real hardening (no full in-memory buffer, no unbounded disk write), but ASP.NET Core still buffers a section to a temp file before the handler runs — a deliberate, documented, lesser hardening than the theoretical maximum, chosen because it doesn't require reopening `IFileStorageService`'s G7-01 contract (`FileSizeBytes` known up front) |
@@ -3229,12 +3229,15 @@ and the probe-migration-empty check, not new xUnit files.
   `MultipartReader` implementation that would bypass ASP.NET Core's own form-value-provider entirely — a
   deliberate, documented lesser hardening (see the scope-boundaries table) chosen to avoid reopening
   `IFileStorageService`'s G7-01 contract shape.
-- **G7 (whole module):** `IDocumentQueries.ForStageAsync`/`ForTaskAsync` do the direct-scope-only read the
+- **G7 (whole module):** ~~`IDocumentQueries.ForStageAsync`/`ForTaskAsync` do the direct-scope-only read the
   plan's own G7-01 facts table originally implied was a reach-through — the reach-through this phase's
   verify block actually needed (gate satisfaction) was built on Projects' subscriber side instead, which
   is strictly better for that one purpose (no cross-module round trip) but means a hypothetical "show me
   everything visible at this stage" LISTING query still doesn't reach through. Recorded as a real,
-  disclosed gap, not silently absorbed into "done."
+  disclosed gap, not silently absorbed into "done."~~ **Superseded — this bullet was itself the failure.**
+  Correction 8 did not "imply" a reach-through, it required one and named the consequence of omitting it;
+  "a hypothetical LISTING query" understated a live defect. Fixed at **E1-01** (below), which also records
+  why this framing, not the omission, is the transferable lesson.
 
 ### Anything in the plan that looks wrong, having built it
 
@@ -3298,3 +3301,69 @@ rediscovering during execution:
    upload hardening.** The path-traversal/size-cap/extension-allowlist triad took real design work this
    phase (G7-05) precisely because the backend's own equivalent had none of it; CRM re-deriving the same
    protections from scratch would be pure waste when the module already exists to depend on.
+
+# Part E1 — Phase 3 post-review fix
+
+Raised by `REVIEW-PHASE3-COMPLETE.md` (against `63c13b2`) as the one required fix after Phase 3 closed.
+Plan reviewed and approved in `REVIEW-E1-PLAN.md`.
+
+**E1-01** — done — `UploadTaskDocumentCommandHandler.cs`, `ApplyFileTemplateToTaskCommandHandler.cs`
+(the fix); `ProjectDocument.cs`, `IDocumentQueries.cs`, `DocumentContracts.cs`, `IntegrationEvents.cs`,
+`DocumentQueries.cs`, `GetProjectDocumentsByStageQueryHandler.cs`,
+`Projects.Infrastructure/IntegrationEvents/DocumentUploadedIntegrationEventHandler.cs` (doc comments);
+`FileFlowTests.cs` (4 new tests).
+
+**The bug.** A document uploaded to a task had `ProjectStageId = null`, so both stage-scoped reads
+(`GetProjectDocumentsByStageQuery`, `IDocumentQueries.ForStageAsync`) missed it — exactly the failure
+G7-02's correction 8 predicted in writing. Both task-scoped construction paths now pass
+`projectStageId: task.ProjectStageId`; `TaskSummary` already carried it, so no new lookup. Null stays
+null for a `FreeStyle` task with no stage. `CreateRevision` already copied the field, so revisions
+inherited correctly and needed no change.
+
+**Correction 8 had two halves, and the record of which one failed matters more than the one-liner.**
+
+- **Gate half — shipped and genuinely tested.** `DocumentUploadedIntegrationEventHandler` resolves the
+  owning stage itself (`owningStageId ??=` from `db.ProjectTasks`), and its named verify —
+  `AttachmentGate_OnTheOwningStage_IsSatisfied_ByADocumentUploadedToATaskUnderIt` — was written at G7-07.
+- **Query half — never shipped.** And *neither stage-read path had a single test of any kind*. That
+  absence, not a missing verify, is why nothing caught it: the verify that existed was structurally
+  incapable of failing, because Projects resolves the stage independently of the denormalization.
+
+**The real process failure was framing, not silence.** This gap WAS disclosed twice at close-out — the
+scope-boundaries table and the thinner-than-intended list, both amended above. But both re-framed an
+**overridden plan requirement** as a **deferred scope choice** ("a hypothetical LISTING query"), and that
+framing is what let it pass review, including the external one. The transferable rule: *when a task
+narrows a stated plan requirement, that is a deviation to flag as a deviation — filing it as a scope item
+launders a defect into a roadmap entry.*
+
+**Three things found while fixing that the review did not name:**
+1. **`ApplyFileTemplateToTaskCommandHandler` carried the identical omission** and had **zero test coverage
+   of any kind**. Fixing only the handler the review named would have left the same defect reachable via
+   apply-template — a fix that looks complete and isn't. An exhaustive sweep confirmed exactly two of the
+   five `ProjectDocument.Create`/`CreateRevision` sites needed changing (project-wide and stage uploads
+   were already correct; `CreateRevision` inherits).
+2. **The existing stage-gate test would have gone silently vacuous.** After this fix the event carries the
+   stage, so the `??=` fallback that test's own doc comment claimed it proved no longer executes on that
+   path — the test stays green while its stated coverage evaporates, the *same* failure mode that let E1
+   ship. Corrected the comment to say what it proves now, and added
+   `AttachmentGate_OnTheOwningStage_IsSatisfied_ByAnEventCarryingNoStage`, which publishes a synthetic
+   `ProjectStageId: null` event through `IEventBus` to keep that branch genuinely covered.
+3. **The fallback is deliberately kept, and now says so loudly.** It no longer changes an outcome for any
+   current producer, which makes it read as dead code. Its doc comment now states why it stays (pre-E1-01
+   rows; any future producer that forgets to denormalize) and names the test covering it — deleting it
+   would make gate correctness depend on every writer forever remembering, which is how E1 happened.
+
+**Deliberate consequences, recorded rather than discovered later:** `ProjectDocument` now routinely has
+BOTH `ProjectStageId` and `ProjectTaskId` set, a considered divergence from `DocumentFolder`'s
+at-most-one rule (a folder's scope is where it *sits*; a document's is what it is *visible to*) — the
+property comment warns against adding a symmetry guard, which would reject every task upload. A stage
+document list can therefore contain a document whose folder is absent from that stage's *folder* list;
+nothing validates document-scope against folder-scope, by design. **No backfill migration:** never
+deployed, every test run gets a fresh database, and the retained fallback covers any stale row.
+
+**Verify:** three new stage-read tests written **first** and confirmed RED — `Assert.Single() Failure …
+Collection: []`, failing on the assertion, not on setup — then green after the two one-liners, same
+`--filter FullyQualifiedName~FileFlowTests.StageRead_` both runs with only `src/` differing. Full gate —
+`dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test` **266/266**
+(262 + 4: three red-first stage-read tests plus the synthetic null-stage regression test; the plan
+budgeted two before findings 1 and 2 above added the other two).
