@@ -533,7 +533,12 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         // Reuses the REAL brief's own id as the fake event's SubjectId, under the WRONG SubjectType
         // (GateCondition, not DesignBrief) - if CrmApprovalDecidedIntegrationEventHandler's filter
         // didn't run first, this brief would flip to Approved.
-        var eventBus = fixture.Services.GetRequiredService<IEventBus>();
+        // IEventBus is scoped (it resolves per-scope handlers and their DbContexts), so it CANNOT come
+        // from fixture.Services - that is the root provider, and asking it for a scoped service throws
+        // before this test asserts anything. Same scope-first shape as this file's own
+        // Register_then_create_employee test.
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
         await eventBus.PublishAsync(
             new Approvals.Contracts.ApprovalDecidedIntegrationEvent(
                 Guid.NewGuid(), Guid.NewGuid(), Approvals.Contracts.ApprovalSubjectType.GateCondition, briefId,
