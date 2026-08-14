@@ -125,6 +125,53 @@ at G7-03 — EF emits them normally, they were never part of this task.
 correction rather than a separate task: a real EF-managed FK, `ON DELETE CASCADE`, in its own migration
 (`AddProjectDocumentRootDocumentIdForeignKey`).
 
+`crm → identity` and `crm → hr` (added at G9-08, Phase 4): nine FKs total, all `ON DELETE RESTRICT` — 1
+into `identity.users` (`fk_clients_app_user`, `crm.clients."AppUserId"`) and 8 into `hr.employees`
+(`fk_crm_leads_owner`, `fk_crm_meetings_requested_by_employee`,
+`fk_crm_meeting_slots_proposed_by_employee`, `fk_crm_design_briefs_created_by`,
+`fk_crm_brief_spaces_created_by`, `fk_crm_requirement_periods_opened_by`,
+`fk_crm_requirement_items_created_by_employee`, `fk_crm_client_notes_written_by`,
+`fk_crm_artifact_documents_added_by_employee` — every bare Guid the CRM domain model documents as "→
+hr.employees, never a navigation" gets the real constraint, mirroring `projects → hr`'s own G5-04
+precedent). `crm.crm_contacts`/`crm.crm_meetings`/`crm.crm_meeting_slots`/`crm.crm_requirement_items`
+also carry a same-schema `Guid?` alternate-author column (`AddedByContactId`,
+`RequestedByContactId`/`ProposedByContactId`, `CreatedByContactId`) — real EF-managed FKs to
+`crm.crm_contacts`, configured normally, never part of this cross-schema migration.
+
+**`crm → projects` does not exist, and cannot, for a structural reason distinct from every other
+absent FK recorded in this document.** Every prior deliberate absence (`projects.ClientId` before this
+phase, `GateCondition.ReferencedDocumentId`) was a case where the FK direction would have inverted the
+module dependency graph — the target module depended on the source, not the reverse. CRM's case is the
+opposite: `projects → crm` (the direction `Project.ClientId` finally closes at G9-13) is correct and IS
+in the allow-list below. The absence lives entirely on CRM's own outward-pointing columns instead —
+`crm.crm_meetings.ProjectId`, `crm.crm_design_briefs.ProjectId`, `crm.crm_spaces.ProjectId`,
+`crm.crm_brief_head_snapshots.ProjectId`, `crm.crm_requirement_periods.ProjectId`/`ProjectStageId`,
+`crm.crm_requirement_items.ProjectId`/`ProjectTaskId`, `crm.crm_client_notes.ProjectId`,
+`crm.crm_brief_spaces.ProjectTaskId` — all bare, unvalidated `Guid`/`Guid?` columns, all deliberately
+absent an FK, and none of them will ever gain one through the normal "next migration adds it" path,
+because **`crm` precedes `projects` in `ModuleDependencyOrder.SchemaOrder`** (the phase's structural
+item 1: `projects.ClientId → crm.clients.Id` requires `crm` before `projects`, and
+`documents.project_documents.ProjectId → projects.projects.Id` already requires `projects` before
+`documents`, so `crm` cannot come after `projects` without breaking the other constraint). The
+`projects.*` tables simply do not exist yet when CRM's own migration runs — this is enforced by
+migration order, not merely by rule 9's allow-list (which also never gained a `("crm", "projects")`
+pair, for the same reason). Validated where it matters in application code: CRM's gate handlers and
+`ICrmGateReader` (G9-13) work in `projectStageId`/`projectTaskId` terms exactly as
+`GateCondition.ReferencedDocumentId` does for Documents, trusting the id without a constraint behind
+it.
+
+**`crm.crm_artifact_documents.DocumentId` has no FK either — the migration-order cycle from structural
+item 1, one hop further out.** The three desired FKs (`projects.ClientId → crm.clients.Id`,
+`documents.project_documents.ProjectId → projects.projects.Id`, and
+`crm.crm_artifact_documents.DocumentId → documents.project_documents.Id`) form an unsatisfiable order:
+`crm < projects < documents < crm`. Keeping `projects → crm` (the core business relationship, closing a
+Phase 2 deferral) and dropping `crm → documents` (a metadata link on a join table) was the deliberate
+trade — see `PLAN-PHASE4.md`'s structural item 1 for the full reasoning. Validated in
+`Crm.Application`'s `LinkCrmArtifactDocumentCommandHandler` (G9-12) against
+`Documents.Contracts.IDocumentQueries.GetAsync` before the row is created — the entire replacement for
+the dropped constraint; a test at G9-12 asserts an unknown `DocumentId` is rejected, since that check
+is now the only thing standing where a constraint would have been.
+
 ## The three things that actually need care
 
 ### 1. Delete behaviour — never cascade across a schema boundary

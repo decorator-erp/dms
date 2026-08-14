@@ -38,6 +38,7 @@ internal sealed class CrmBriefHeadSnapshotConfiguration : IEntityTypeConfigurati
         // One row per (BriefId, Round); never updated after creation.
         builder.HasIndex(s => new { s.BriefId, s.Round }).IsUnique();
 
-        // ProjectId: bare Guid FK to projects.projects(Id) - raw-SQL constraint at G9-08.
+        // ProjectId: bare Guid, deliberately NO FK - see CrmMeetingConfiguration's note (crm precedes
+        // projects in SchemaOrder; crm -> projects is not in rule 9's allow-list).
     }
 }

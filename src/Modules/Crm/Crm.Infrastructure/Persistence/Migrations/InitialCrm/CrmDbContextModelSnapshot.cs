@@ -178,6 +178,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("AddedByContactId");
 
+                    b.HasIndex("AddedByEmployeeId")
+                        .HasFilter("\"AddedByEmployeeId\" IS NOT NULL");
+
                     b.HasIndex("BriefId");
 
                     b.HasIndex("DocumentId");
@@ -357,6 +360,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.HasIndex("ApprovalStatus");
 
                     b.HasIndex("BriefId");
+
+                    b.HasIndex("CreatedById");
 
                     b.HasIndex("SpaceId")
                         .HasFilter("\"SpaceId\" IS NOT NULL");
@@ -717,6 +722,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.HasIndex("ProjectId")
                         .HasFilter("\"ProjectId\" IS NOT NULL");
 
+                    b.HasIndex("WrittenById");
+
                     b.ToTable("crm_client_notes", "crm");
                 });
 
@@ -897,6 +904,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
 
                     b.HasIndex("ProjectId");
 
@@ -1131,6 +1140,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("RequestedByContactId");
 
+                    b.HasIndex("RequestedByEmployeeId")
+                        .HasFilter("\"RequestedByEmployeeId\" IS NOT NULL");
+
                     b.HasIndex("Status");
 
                     b.ToTable("crm_meetings", "crm");
@@ -1176,6 +1188,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .HasFilter("\"Status\" = 2");
 
                     b.HasIndex("ProposedByContactId");
+
+                    b.HasIndex("ProposedByEmployeeId")
+                        .HasFilter("\"ProposedByEmployeeId\" IS NOT NULL");
 
                     b.ToTable("crm_meeting_slots", "crm");
                 });
@@ -1255,6 +1270,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("CreatedByContactId");
 
+                    b.HasIndex("CreatedByEmployeeId")
+                        .HasFilter("\"CreatedByEmployeeId\" IS NOT NULL");
+
                     b.HasIndex("PeriodId");
 
                     b.HasIndex("ProjectId");
@@ -1302,6 +1320,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OpenedById");
 
                     b.HasIndex("ProjectId")
                         .IsUnique()

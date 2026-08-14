@@ -14,10 +14,12 @@ internal sealed class CrmRequirementPeriodConfiguration : IEntityTypeConfigurati
 
         builder.Property(p => p.Status).HasConversion<int>();
 
-        // ProjectId/ProjectStageId/OpenedById: bare Guid FKs to projects./hr. - raw-SQL constraints at
-        // G9-08 (ProjectStageId only where set).
+        // ProjectId/ProjectStageId: bare Guids, deliberately NO FK - see CrmMeetingConfiguration's note
+        // (crm precedes projects in SchemaOrder; crm -> projects is not in rule 9's allow-list).
+        // OpenedById: bare Guid FK to hr.employees(Id) - raw-SQL constraint added at G9-08.
         builder.HasIndex(p => p.ProjectId);
         builder.HasIndex(p => p.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
+        builder.HasIndex(p => p.OpenedById);
 
         // At most one Open period per project - partial unique index, mirroring the backend's
         // ux_crm_requirement_periods_open_per_project.

@@ -30,6 +30,14 @@
     <!-- Needed for G9-08's CrmAccessGuard tests (employee branch resolves via Hr.Contracts.IHrDirectory) -
          added now so this csproj doesn't need touching again for that task. -->
     <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <!-- CrmAccessGuardTests migrates identity + hr first (crm.clients.AppUserId -> identity.users,
+         crm's own seeded employee row -> hr.employees), same technique ProjectAccessGuardTests uses -
+         Assembly.Load-based module bootstrapping needs each module's Infrastructure/Application DLL
+         present in this project's own output directory. -->
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Application\Hr.Application.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />

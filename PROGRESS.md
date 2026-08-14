@@ -3596,3 +3596,45 @@ needs Docker, see the standing note above). **Not run in this environment:** mig
 rule 9, and every `*.Application.Tests`/`*.Infrastructure.Tests` (other than this module's own) —
 all Testcontainers-dependent, all pre-existing and unaffected by this task's changes (confirmed: their
 only failure is `DockerUnavailableException` at fixture construction, before any test body runs).
+
+**G9-08** — done — `Persistence/Migrations/InitialCrm/*_CrossSchemaForeignKeys.cs` (nine raw-SQL FKs,
+`ON DELETE RESTRICT`, each with an index — one into `identity.users`, eight into `hr.employees`),
+`Services/CrmAccessGuard.cs` (`ICrmAccessGuard`'s implementation — employee branch via
+`IHrDirectory.ResolveEmployeeIdAsync`, client branch local against `crm.clients`), `Decorators/
+CrmScopeDecorator.cs`/`CrmScopeRegistration.cs` (mirrors `ProjectScopeDecorator` exactly; wiring into
+`CrmModule.Register` waits for G9-09's `AddModuleCqrs`, since Scrutor's `Decorate` needs the inner
+handler registered first). `Rule9CrossSchemaForeignKeyTests` gains the `"crm"` `Modules` entry and ten
+non-vacuity assertions (nine FKs present + `crm → projects`/`crm → documents` genuinely absent).
+`docs/cross-schema-foreign-keys.md` gains the CRM section. `tests/Modules/Crm.Infrastructure.Tests/`
+gains `CrmAccessGuardTests.cs` (7 tests, Testcontainers-based, same shape as `ProjectAccessGuardTests`).
+
+**A real correction found while implementing this task, not merely disclosed after the fact: eight of
+G9-07's own configuration comments were wrong.** They said `ProjectId`/`ProjectStageId`/`ProjectTaskId`
+columns would get a "raw-SQL constraint at G9-08" pointing at `projects.*`. Rule 9's `AllowedPairs` has
+no `("crm", "projects")` entry — only the reverse, `("projects", "crm")`, for the FK this phase closes
+the other direction. Checking why confirmed it is not just a missing allow-list entry but a structural
+impossibility: `crm` precedes `projects` in `SchemaOrder` (structural item 1's own migration-order
+cycle), so `projects.*` tables do not exist yet when CRM's migration runs — there was never a version
+of G9-08 that could have added these FKs. **Every CRM `Project*` column stays a bare, permanently
+unvalidated `Guid`** — not "unvalidated until G9-13" as the wrong comments implied, but unvalidated by
+construction, forever, the same way `GateCondition.ReferencedDocumentId` is for Documents. Fixed all
+eight comments in this same commit rather than letting a future reader trust what turned out to be
+aspirational text; see `docs/cross-schema-foreign-keys.md`'s new CRM section for the durable version of
+this reasoning, distinguished there from every prior "would invert the module graph" absence, since
+this one has a different cause (ordering, not direction) despite the identical bare-Guid treatment.
+
+**`CrmActorKind.Employee` actors always resolve `HasReadAll: true`** — deliberately, not a placeholder.
+The backend's read-all override is a permission check; in this port that check belongs to the caller's
+own `CrmPermissions.*.Read` claim, enforced by the endpoint/handler that calls this guard, not by the
+guard itself. `ICrmAccessGuard` answers "who is this caller," never "what may they do" — mirrors
+`IProjectAccessGuard`'s own division of concerns (route claims → 403, module scope → 404, aggregate
+state → 409, per `CLAUDE.md`'s authorization order) rather than collapsing all three into one check.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `Crm.Infrastructure.Tests`' reflection-only tests still 4/4 (G9-07's
+count-and-assert unaffected by this task's additions), `Crm.UnitTests` still 195/195. **Not run in this
+environment** (standing note applies): `CrmAccessGuardTests` (7 new tests, needs Testcontainers), the
+updated `Rule9CrossSchemaForeignKeyTests`, and the fault-injection `docs/adding-a-module.md` prescribes
+(scratch wrong-direction FK → confirm the check catches it by name → revert → reconfirm green) — this
+last one specifically could not be performed at all in this environment and must be done once Docker is
+available, before merge, alongside the rest of the Docker-gated verification this phase is accumulating.

@@ -44,6 +44,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["identity"] = ("Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure"),
             ["hr"] = ("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure"),
             ["approvals"] = ("Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure"),
+            ["crm"] = ("Crm.Infrastructure", "Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure"),
             ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
             ["documents"] = ("Documents.Infrastructure", "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure"),
         };
@@ -127,6 +128,26 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project"));
         Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project_stage"));
         Assert.Contains(found, fk => fk is ("documents", "projects", "fk_document_folders_project_task"));
+
+        // G9-08: all nine crm -> identity/hr FKs, not just a representative sample - same discipline
+        // as G7-04's Documents assertions above.
+        Assert.Contains(found, fk => fk is ("crm", "identity", "fk_clients_app_user"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_leads_owner"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_meetings_requested_by_employee"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_meeting_slots_proposed_by_employee"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_design_briefs_created_by"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_brief_spaces_created_by"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_requirement_periods_opened_by"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_requirement_items_created_by_employee"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_client_notes_written_by"));
+        Assert.Contains(found, fk => fk is ("crm", "hr", "fk_crm_artifact_documents_added_by_employee"));
+
+        // Confirms crm -> projects and crm -> documents are genuinely ABSENT, not merely un-asserted -
+        // structural item 1's migration-order cycle (crm precedes projects in SchemaOrder) means no
+        // such FK can exist; this fails loudly if a future change ever adds one, since crm -> projects
+        // is not in AllowedPairs above.
+        Assert.DoesNotContain(found, fk => fk.From == "crm" && fk.To == "projects");
+        Assert.DoesNotContain(found, fk => fk.From == "crm" && fk.To == "documents");
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)

@@ -1,0 +1,105 @@
+using Crm.Contracts;
+using Crm.Infrastructure.Persistence;
+using Hr.Contracts;
+using Microsoft.EntityFrameworkCore;
+using SharedKernel;
+
+namespace Crm.Infrastructure.Services;
+
+/// <summary>
+/// <see cref="ICrmAccessGuard"/>'s implementation, ported from the backend's <c>CrmAccessService</c>'s
+/// actor-resolution half. Two actor kinds:
+///
+/// <list type="bullet">
+/// <item><description><b>Employee</b> — resolved via <see cref="IHrDirectory.ResolveEmployeeIdAsync"/>.
+/// Depth-1: CRM asks HR one question, HR asks nobody. <see cref="CrmActor.HasReadAll"/> is set for
+/// every resolved employee actor here; the backend's read-all override is a permission check
+/// (<c>crm.*.read_all</c>-shaped), which in this port is the caller's own
+/// <c>CrmPermissions.*.Read</c> claim, checked by the endpoint/handler, not by this guard — this
+/// guard only resolves WHO the caller is, never what they may do with that identity.</description></item>
+/// <item><description><b>Client</b> — CRM-owned data, resolved locally against
+/// <c>crm.clients.AppUserId</c>. No cross-module call.</description></item>
+/// </list>
+///
+/// A caller who is neither (no employee record, no client record for that app user id) is not an
+/// authentication failure — it is a caller with no standing in CRM, surfaced as a 403-shaped error per
+/// <see cref="ICrmAccessGuard.ResolveActorAsync"/>'s own doc comment.
+/// </summary>
+internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) : ICrmAccessGuard
+{
+    public async Task<Result<CrmActor>> ResolveActorAsync(string appUserId, CancellationToken ct)
+    {
+        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
+        if (employeeId is { } resolvedEmployeeId)
+            return new CrmActor(CrmActorKind.Employee, resolvedEmployeeId, null, null, HasReadAll: true);
+
+        var client = await db.Clients.AsNoTracking()
+            .Where(c => c.AppUserId == appUserId)
+            .Select(c => new { c.Id })
+            .FirstOrDefaultAsync(ct);
+
+        if (client is not null)
+        {
+            var contactId = await db.CrmContacts.AsNoTracking()
+                .Where(c => c.ClientId == client.Id)
+                .Select(c => (Guid?)c.Id)
+                .FirstOrDefaultAsync(ct);
+
+            return new CrmActor(CrmActorKind.Client, null, contactId, client.Id, HasReadAll: false);
+        }
+
+        return CrmAccessErrors.NoStanding;
+    }
+
+    public async Task<IReadOnlyDictionary<string, CrmActor>> ResolveActorsAsync(
+        IReadOnlyCollection<string> appUserIds, CancellationToken ct)
+    {
+        if (appUserIds.Count == 0)
+            return new Dictionary<string, CrmActor>();
+
+        var result = new Dictionary<string, CrmActor>();
+
+        // IHrDirectory has no "resolve many app-user-ids to employee ids" batch surface - only
+        // GetManyAsync(employee ids) and the single-id ResolveEmployeeIdAsync. This falls back to one
+        // ResolveEmployeeIdAsync call per id for the employee branch. Acceptable here: batch
+        // resolution is a display-list convenience (the Portal roster), not the hot per-request
+        // authorization path, which always resolves exactly one actor via ResolveActorAsync.
+        foreach (var appUserId in appUserIds)
+        {
+            var employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
+            if (employeeId is { } resolvedEmployeeId)
+            {
+                result[appUserId] = new CrmActor(CrmActorKind.Employee, resolvedEmployeeId, null, null, HasReadAll: true);
+            }
+        }
+
+        var remaining = appUserIds.Where(id => !result.ContainsKey(id)).ToList();
+        if (remaining.Count > 0)
+        {
+            var clients = await db.Clients.AsNoTracking()
+                .Where(c => remaining.Contains(c.AppUserId))
+                .Select(c => new { c.Id, c.AppUserId })
+                .ToListAsync(ct);
+
+            var clientIds = clients.Select(c => c.Id).ToList();
+            var primaryContactsByClient = await db.CrmContacts.AsNoTracking()
+                .Where(c => clientIds.Contains(c.ClientId))
+                .Select(c => new { c.ClientId, c.Id })
+                .ToListAsync(ct);
+
+            foreach (var client in clients)
+            {
+                var contactId = primaryContactsByClient.FirstOrDefault(c => c.ClientId == client.Id)?.Id;
+                result[client.AppUserId] = new CrmActor(CrmActorKind.Client, null, contactId, client.Id, HasReadAll: false);
+            }
+        }
+
+        return result;
+    }
+}
+
+internal static class CrmAccessErrors
+{
+    public static readonly Error NoStanding = Error.Forbidden(
+        "crm.access.NoStanding", "This user has no CRM identity (neither an employee nor a client record).");
+}

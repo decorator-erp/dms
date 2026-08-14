@@ -15,7 +15,8 @@ internal sealed class CrmSpaceConfiguration : IEntityTypeConfiguration<CrmSpace>
         builder.Property(s => s.Name).HasMaxLength(256).IsRequired();
         builder.Property(s => s.Description).HasMaxLength(1000);
 
-        // ProjectId: bare Guid FK to projects.projects(Id) - raw-SQL constraint at G9-08.
+        // ProjectId: bare Guid, deliberately NO FK - see CrmMeetingConfiguration's note (crm precedes
+        // projects in SchemaOrder; crm -> projects is not in rule 9's allow-list).
         builder.HasIndex(s => s.ProjectId);
 
         builder.HasOne<CrmSpaceType>().WithMany().HasForeignKey(s => s.SpaceTypeId).OnDelete(DeleteBehavior.Restrict);

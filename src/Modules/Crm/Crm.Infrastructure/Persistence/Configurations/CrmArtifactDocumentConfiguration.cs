@@ -28,5 +28,6 @@ internal sealed class CrmArtifactDocumentConfiguration : IEntityTypeConfiguratio
         // AddedByContactId: same-schema, a real EF-managed FK. AddedByEmployeeId: bare Guid FK to
         // hr.employees(Id) - raw-SQL constraint at G9-08.
         builder.HasOne<CrmContact>().WithMany().HasForeignKey(a => a.AddedByContactId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(a => a.AddedByEmployeeId).HasFilter("\"AddedByEmployeeId\" IS NOT NULL");
     }
 }

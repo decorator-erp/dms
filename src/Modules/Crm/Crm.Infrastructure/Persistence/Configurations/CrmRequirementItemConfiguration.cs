@@ -20,8 +20,10 @@ internal sealed class CrmRequirementItemConfiguration : IEntityTypeConfiguration
         builder.Property(i => i.SourceType).HasConversion<int?>();
         builder.Property(i => i.ApprovalStatus).HasConversion<int>();
 
-        // ProjectId/ProjectTaskId: bare Guid FKs to projects. - raw-SQL constraints at G9-08.
-        // EmployeeId (CreatedByEmployeeId): bare Guid FK to hr.employees(Id) - raw-SQL at G9-08.
+        // ProjectId/ProjectTaskId: bare Guids, deliberately NO FK - see CrmMeetingConfiguration's note
+        // (crm precedes projects in SchemaOrder; crm -> projects is not in rule 9's allow-list).
+        // CreatedByEmployeeId (the plan's "EmployeeId"): bare Guid FK to hr.employees(Id) - raw-SQL
+        // constraint added at G9-08.
         builder.HasIndex(i => i.ProjectId);
 
         builder.HasOne<CrmRequirementPeriod>().WithMany().HasForeignKey(i => i.PeriodId).OnDelete(DeleteBehavior.Cascade);
@@ -37,5 +39,6 @@ internal sealed class CrmRequirementItemConfiguration : IEntityTypeConfiguration
         builder.HasOne<CrmContact>().WithMany().HasForeignKey(i => i.CreatedByContactId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(i => i.ApprovalStatus);
+        builder.HasIndex(i => i.CreatedByEmployeeId).HasFilter("\"CreatedByEmployeeId\" IS NOT NULL");
     }
 }

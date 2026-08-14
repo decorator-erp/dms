@@ -18,7 +18,8 @@ internal sealed class CrmMeetingSlotConfiguration : IEntityTypeConfiguration<Crm
         builder.HasIndex(s => s.MeetingId);
 
         // ProposedByContactId: same-schema, a real EF-managed FK. ProposedByEmployeeId: bare Guid FK to
-        // hr.employees(Id) - raw-SQL constraint at G9-08.
+        // hr.employees(Id) - raw-SQL constraint added at G9-08.
+        builder.HasIndex(s => s.ProposedByEmployeeId).HasFilter("\"ProposedByEmployeeId\" IS NOT NULL");
         builder.HasOne<CrmContact>().WithMany().HasForeignKey(s => s.ProposedByContactId).OnDelete(DeleteBehavior.Restrict);
 
         // At most one Accepted slot per meeting - partial unique index, mirroring the backend.

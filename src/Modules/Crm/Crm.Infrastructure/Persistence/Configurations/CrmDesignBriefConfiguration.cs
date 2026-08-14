@@ -32,17 +32,20 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         builder.Property(b => b.FinishingPurpose).HasConversion<int?>();
         builder.Property(b => b.Status).HasConversion<int>();
 
-        // ProjectId: bare Guid FK to projects.projects(Id) - raw-SQL constraint at G9-08. One brief
-        // head per (project, stage) - the Application handler (G9-10) enforces the uniqueness the
-        // backend expressed as a per-project unique index, generalized to per-stage for this port's
-        // stage-scoped head (see the entity's own remarks).
+        // ProjectId: bare Guid, deliberately NO FK - crm precedes projects in SchemaOrder and
+        // crm -> projects is not in rule 9's allow-list (see CrmMeetingConfiguration's identical note,
+        // the canonical explanation for every ProjectId/ProjectStageId/ProjectTaskId column in this
+        // module). One brief head per (project, stage) - the Application handler (G9-10) enforces the
+        // uniqueness the backend expressed as a per-project unique index, generalized to per-stage for
+        // this port's stage-scoped head (see the entity's own remarks).
         builder.HasIndex(b => b.ProjectId);
         builder.HasIndex(b => new { b.ProjectId, b.ProjectStageId }).IsUnique();
 
-        // CreatedById: bare Guid FK to hr.employees(Id) - raw-SQL constraint at G9-08.
+        // CreatedById: bare Guid FK to hr.employees(Id) - raw-SQL constraint added at G9-08.
         // LastMeetingId/SiteId: no FK at all - LastMeetingId is same-schema but deliberately unvalidated
         // (a stale reference is harmless, purely informational); SiteId points at a module that doesn't
         // exist yet (Sites), per the phase's scope table.
         builder.HasIndex(b => b.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
+        builder.HasIndex(b => b.CreatedById);
     }
 }

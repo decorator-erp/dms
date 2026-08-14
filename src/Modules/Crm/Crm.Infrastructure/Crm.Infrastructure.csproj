@@ -28,6 +28,10 @@
          Approvals.Contracts.ApprovalDecidedIntegrationEvent, filtered to DesignBrief/RequirementItem/
          BriefSpace. -->
     <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- Cross-module read: CrmAccessGuard's employee branch resolves via
+         Hr.Contracts.IHrDirectory.ResolveEmployeeIdAsync (G9-08) - the client branch is CRM-owned data
+         and stays local, mirroring ProjectAccessGuard's own employee/client-analog split. -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
