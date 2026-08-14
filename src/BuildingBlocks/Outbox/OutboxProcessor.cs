@@ -40,6 +40,24 @@ public sealed class OutboxProcessor(
     private readonly TimeSpan _fallbackInterval = TimeSpan.FromSeconds(
         int.TryParse(configuration["Outbox:FallbackPollSeconds"], out var seconds) ? seconds : 60);
 
+    // E2-01: this instance's own ExecuteAsync loop and any caller driving ProcessPendingAsync directly
+    // (tests' "flush now" pattern, see that method's own doc comment) are two independent entry points
+    // into the SAME pending-message set, with no coordination between them. Without this gate, both can
+    // fetch and attempt the SAME row concurrently: InboxDedupeDecorator's own transaction correctly stops
+    // the double side-effect (the loser's insert hits PK_inbox_messages and its whole transaction rolls
+    // back), but the loser's ProcessOneAsync swallows that exception and returns normally - so a test
+    // calling ProcessPendingAsync can return having "lost" its own race, with zero guarantee the OTHER,
+    // un-awaited, winning attempt (running on the BackgroundService's own task) has committed yet. A read
+    // immediately after can then observe stale pre-commit state. Confirmed via repeated runs of
+    // CrossModuleSmokeTests.Documents_flow_spans_all_five_modules_end_to_end_and_is_stable_across_two_runs
+    // in true single-process isolation (rules out cross-test database pollution): PK_inbox_messages
+    // violations recorded against DocumentUploadedIntegrationEvent, ApprovalDecidedIntegrationEvent, and
+    // DocumentApprovedIntegrationEvent itself, in both passing and failing runs - the race exists either
+    // way, it just doesn't always resolve before the reader gets there. A single-flight semaphore across
+    // BOTH entry points removes the interleaving entirely: only one full sweep of pending messages runs
+    // at a time, so "pending" is never read while another sweep already claimed the same rows.
+    private readonly SemaphoreSlim _sweepGate = new(1, 1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -67,19 +85,29 @@ public sealed class OutboxProcessor(
     /// (and a manual "flush now" trigger) can drive it directly.</summary>
     public async Task ProcessPendingAsync(CancellationToken ct)
     {
-        List<Guid> pendingIds;
-        await using (var probeScope = scopeFactory.CreateAsyncScope())
+        // Single-flight across this instance - see _sweepGate's own remarks for why: this method and
+        // ExecuteAsync's own loop are two independent callers of the same pending-message set.
+        await _sweepGate.WaitAsync(ct);
+        try
         {
-            var shared = probeScope.ServiceProvider.GetRequiredService<SharedDbContext>();
-            pendingIds = await shared.OutboxMessages
-                .Where(m => m.ProcessedUtc == null)
-                .OrderBy(m => m.OccurredUtc)
-                .Select(m => m.Id)
-                .ToListAsync(ct);
-        }
+            List<Guid> pendingIds;
+            await using (var probeScope = scopeFactory.CreateAsyncScope())
+            {
+                var shared = probeScope.ServiceProvider.GetRequiredService<SharedDbContext>();
+                pendingIds = await shared.OutboxMessages
+                    .Where(m => m.ProcessedUtc == null)
+                    .OrderBy(m => m.OccurredUtc)
+                    .Select(m => m.Id)
+                    .ToListAsync(ct);
+            }
 
-        foreach (var id in pendingIds)
-            await ProcessOneAsync(id, ct);
+            foreach (var id in pendingIds)
+                await ProcessOneAsync(id, ct);
+        }
+        finally
+        {
+            _sweepGate.Release();
+        }
     }
 
     private async Task ProcessOneAsync(Guid messageId, CancellationToken ct)
