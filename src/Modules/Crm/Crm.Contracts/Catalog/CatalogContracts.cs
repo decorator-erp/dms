@@ -27,7 +27,8 @@ public sealed record CatalogAttributeValueData(
 public sealed record CreateCrmCatalogCategoryCommand(
     Guid? ParentId, string Code, string NameEn, string NameAr,
     CatalogSelectionMode SelectionMode = CatalogSelectionMode.None, bool IsRequired = false,
-    int SortOrder = 0) : ICommand<Guid>;
+    int SortOrder = 0, string? DescriptionEn = null, string? DescriptionAr = null, string? ImageUri = null)
+    : ICommand<Guid>;
 
 public sealed record MoveCrmCatalogCategoryCommand(Guid CategoryId, Guid? NewParentId) : ICommand;
 
@@ -40,7 +41,8 @@ public sealed record CreateCrmCatalogAttributeCommand(
     string? Unit = null, bool IsRequired = false, int SortOrder = 0) : ICommand<Guid>;
 
 public sealed record CreateCrmCatalogAttributeOptionCommand(
-    Guid AttributeId, string Code, string NameEn, string NameAr, int SortOrder = 0) : ICommand<Guid>;
+    Guid AttributeId, string Code, string NameEn, string NameAr, int SortOrder = 0, string? ImageUri = null)
+    : ICommand<Guid>;
 
 /// <summary>Replace-all per item — there is no per-value update, matching
 /// <c>CrmCatalogItemAttributeValue</c>'s own "corrections are replace-all" rule.</summary>

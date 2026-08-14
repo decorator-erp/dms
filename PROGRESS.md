@@ -3721,3 +3721,35 @@ runnable without Docker is green: `EnumMappingParityTests` still 25/25, `Crm.Uni
 real cross-module approval request, the brief-space ledger's supersede-requires-locked rule, space/
 space-type CRUD, and the unknown-`ProjectId` rejection) — needs the now-five-module Testcontainers
 fixture; could not be executed per the standing Docker-unavailable note.
+
+**G9-11** — done — `src/Modules/Crm/Crm.Application/Features/Catalog/`: 10 handlers (7 commands, 3
+queries) — the single largest sub-area. `CategoryPathHelper.cs` factors out the materialized-path
+arithmetic (`ChildPath`/`Rebase`) shared by category creation and move, so the "hardest to get right"
+logic in this task exists in exactly one place. `CrmCatalogCategory.SetPath`/`SetParent` (G9-05, kept
+`internal`) are called here — the Application handler the entity's own remarks name as the owner of
+that derived state.
+
+**`MoveCrmCatalogCategoryCommandHandler` is the one genuinely intricate handler in the module** —
+reparents the target and rewrites every descendant's `Path`/`Depth` in one transaction, loaded in
+memory (the catalog is "tens of rows, not thousands" per the entity's own doc comment, so this port
+skips the backend's raw-SQL `ExecuteUpdate` at this scale). Rejects a move under the target's own
+descendant (`Path.StartsWith` check — a materialized path makes cycle detection a string prefix test)
+and a move that would push the subtree's deepest node past `MaxDepth`, checked against the WHOLE
+subtree's max depth, not just the moved node's own new depth — a move that fits the target but
+overflows a great-grandchild is exactly the bug a narrower check would miss.
+
+**Two Contracts records were missing fields their own entity's `Create` factory accepts**, found while
+wiring the handlers, not before: `CreateCrmCatalogCategoryCommand` had no
+`DescriptionEn`/`DescriptionAr`/`ImageUri`, `CreateCrmCatalogAttributeOptionCommand` had no `ImageUri`.
+Both extended in the same commit as the handlers that needed them, all as optional trailing
+parameters — no prior caller exists yet to break.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `EnumMappingParityTests` still 25/25, new
+`CategoryPathHelperTests` 6/6 (pure functions — root-shaped path, child path, prefix rebase including
+the moved-node-itself and rebase-to-root edge cases — no database, so these run regardless of the
+Docker gap), `Crm.UnitTests` still 195/195. **Not run in this environment**: `CatalogFlowTests` (7 new
+tests — root/child category path shape, the subtree-rewrite move including a grandchild's path/depth
+shifting without its `ParentId` changing, the cyclic-move rejection, attribute-value replace-not-append,
+an unknown-attribute rejection, and the duplicate-mapping rejection) — Testcontainers-dependent, could
+not be executed per the standing note.

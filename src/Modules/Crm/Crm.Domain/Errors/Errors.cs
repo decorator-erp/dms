@@ -100,8 +100,8 @@ internal static class CrmSpaceTypeErrors
         "crm.space_types.NameRequired", "English and Arabic names are required.");
 }
 
-/// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05), which owns
-/// most of this error set.</summary>
+/// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05/G9-11), which
+/// owns most of this error set.</summary>
 internal static class CrmCatalogErrors
 {
     public static readonly Error ItemNotFound = Error.NotFound("crm.catalog.ItemNotFound", "Catalog item was not found.");
@@ -127,6 +127,15 @@ internal static class CrmCatalogErrors
 
     public static readonly Error SpaceTypeNotFound = Error.NotFound(
         "crm.catalog.SpaceTypeNotFound", "Space type was not found.");
+
+    public static readonly Error MaxDepthExceeded = Error.BadRequest(
+        "crm.catalog.MaxDepthExceeded", "A category tree may not exceed the maximum nesting depth.");
+
+    public static readonly Error CyclicMove = Error.BadRequest(
+        "crm.catalog.CyclicMove", "A category cannot be moved under itself or one of its own descendants.");
+
+    public static readonly Error DuplicateMapping = Error.Conflict(
+        "crm.catalog.DuplicateMapping", "This category is already mapped to this space type.");
 }
 
 internal static class CrmPeriodErrors
