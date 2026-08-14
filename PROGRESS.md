@@ -4438,3 +4438,55 @@ sequential test: the first of six requests asserts `202` (anonymous reachability
 
 **Only one test remains red across the entire 532-test suite after this task: `SeedingIdempotencyTests`
 (E2-04).**
+
+**E2-04** — done — `SeedingIdempotencyTests.cs`. Hardcoded `Assert.Equal(3, roles1)`, a leftover from
+before G9-14 added a fourth role (`"client"`). Asserted against `DefaultRoles.All.Length` instead of a
+new literal — same fix shape as `CrmSmokeTests`' own `Assert.Equal(CrmPermissions.All.Count, ...)` — so
+the count can never silently drift from the constant again.
+
+**This was the last of Step 1's fifteen failures. The suite is green: 531/531, confirmed on two
+consecutive full runs (the denominator moved from 532 to 531 because E2-03 merged two racing rate-limiter
+tests into one deterministic test, preserving both proofs — not a dropped test).** Every failure Step 1
+measured is now either fixed (E2-00 through E2-04) or was itself the diagnostic instrument for a fix
+(E2-00 unblocking E2-01). Three of the five tasks surfaced a genuine, previously-hidden defect that no
+test had ever been able to reach before Docker arrived: the `OutboxProcessor` concurrency race (E2-01),
+the `.Include` call against an EF-ignored navigation (E2-02), and the `AsNoTracking` stale-read in
+`CrmGateReader`'s unresolved-count query (E2-03). None of these three were suspected going in; each was
+found only because fixing the failure in front of it let execution reach far enough to hit the next one.
+Production code — CRM's ten cross-schema FKs, the gate handlers, the schema-order insertion — was correct
+everywhere Step 1's own report predicted risk. The defects that were real all lived one level deeper, in
+code paths a real database run was the only way to exercise.
+
+**`ApiFixture.ResetAsync` — a named structural risk, disposition recorded, not acted on.** It exists
+(`ApiFixture.cs:93-98`) but is never called anywhere in `Integration.Tests` (its own doc comment says so
+outright, `ApiFixture.cs:37`) — the whole collection shares one accumulating database across every test.
+This surfaced twice this task: it cost a full diagnosis cycle at E2-01 (before true single-process
+isolation ruled out cross-test pollution as the regression's cause) and it directly caused E2-03's bug 3
+(the two rate-limiter tests racing for the same never-reset IP window). **Do not start calling it as a
+drive-by fix** — `Integration.Tests`' tests are order-coupled by construction (later tests lean on rows
+earlier tests seeded), so resetting between tests would break more than it fixes; that fragility is
+exactly why it needs writing down rather than an implicit "someone will notice." Whether to restructure
+this suite toward genuine per-test isolation is a Sites-phase decision, not this step's.
+
+**`EventBus.PublishAsync`'s lack of per-handler isolation — a named risk, evidence-checked, not
+triggered.** Step 1 flagged that a throwing handler aborts the loop and skips every later subscriber for
+that event type, and that CRM becoming a third `ApprovalDecidedIntegrationEvent` subscriber tripled the
+exposure. E2-01's own investigation checked this directly: the regression's root cause was a race
+entirely inside `OutboxProcessor`, one level below `EventBus`, for an event with exactly one handler — no
+"later subscriber" for an abort to skip. The risk itself is still real and unexercised by this phase;
+combined with the no-max-attempts/dead-letter gap flagged at the G0 checkpoint, it stays a named risk for
+whichever future phase first ships an event with a failure-prone THIRD-OR-LATER handler in the same
+`PublishAsync` call — plausibly Sites, given it depends on both Projects and CRM.
+
+**Meetings gap correction, for the record.** The Meetings Application layer's absence is an error in
+`PLAN-PHASE4.md`, not an execution failure. That plan named Meetings in its scope prose (`PLAN-PHASE4.md`
+lines 121, 179, 196-199) and in G9-03's domain entities, but allocated no Application task —
+G9-09 through G9-12 cover Clients/Contacts/Leads/Notes, Briefs/Spaces/SpaceTypes, Catalog, and
+Periods/Items/Artifacts, and nothing owns Meetings. An earlier draft had it in G9-13; retitling that task
+to lead with the gate handlers dropped it while it survived in the scope sentence. Executing the plan
+faithfully found the hole, which is the system working. Meetings remains its own scoped follow-up task
+(12 commands/queries; `MeetingScheduled` already in Contracts; `CrmSchedulerService` already ported) —
+**not** to be folded into the Sites plan, since a deferred sub-area absorbed into the next module's scope
+is how it gets lost twice.
+
+Meetings and Sites planning stay explicitly out of scope for this step, unstarted.
