@@ -3367,3 +3367,41 @@ Collection: []`, failing on the assertion, not on setup — then green after the
 `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test` **266/266**
 (262 + 4: three red-first stage-read tests plus the synthetic null-stage regression test; the plan
 budgeted two before findings 1 and 2 above added the other two).
+
+---
+
+## Phase 4 — CRM module (G9-01 → G10-01)
+
+**G9-01** — done — `src/Modules/Crm/Crm.Contracts/` (new project): `Enums.cs` (22 enums mirroring the
+backend's CRM enum set), `CrmPermissions.cs` (56 strings + an `All` list), `IClientDirectory.cs`,
+`ICrmAccessGuard.cs`, `ICrmGateReader.cs` (four methods, not the backend's document-lineage two),
+`ICrmBriefReader.cs` (the Sites seam), `ICrmScoped.cs`, `IntegrationEvents.cs` (six events), and
+per-noun command/query/DTO files under `Clients/`, `Contacts/`, `Leads/`, `Notes/`, `Meetings/`,
+`Briefs/`, `Spaces/`, `Catalog/`, `Periods/`, `Items/`, `Artifacts/`, `DesignProfile/`, `Portal/`.
+`DMS.Modular.slnx` and `Architecture.Tests.csproj` both gain the new project immediately, matching
+G7-01's precedent.
+
+**Corrected the phase brief's permission count in the same commit**: `PLAN-PHASE4.md` said 59; the
+backend's `DefaultPermissions.cs` has 48 `crm.*` + 6 `clients.*` = 54, plus the 2 `requirements.*`
+strings the in-scope Portal slice needs = **56**. Ported verbatim, non-uniform naming and all — no
+renaming to make the count round.
+
+**Two deliberate enum renames, values preserved.** `ApprovalState` → `CrmApprovalState` and
+`TaskPriority` → `RequirementPriority`: `Approvals.Contracts.ApprovalState` and
+`Projects.Contracts.TaskPriority` are already public and mean something different in their own
+modules, and `Crm.Infrastructure` will reference both assemblies — identical names would force an
+alias in every file touching an approval. Both renames **keep the backend's integer values exactly**
+(`Draft 1/PendingApproval 2/Approved 3/Rejected 4/NotRequired 5`; `Low 1/Medium 2/High 3/Urgent 4`) —
+a rename is cosmetic, a rename that also renumbers would silently change what every stored row means,
+and no test would catch it since tests write and read through the same enum.
+
+`ProjectSector` lands in `Crm.Contracts`, not `Projects.Contracts`, consistent with Phase 2's decision
+#6 (`Project.cs`'s own remarks: excluded there as "a CRM lead-intake concept"). `ICrmGateReader` omits
+the backend's `GetDocumentLineageProjectAsync`/`IsLatestDocumentApprovedAsync` — Documents' data, not
+CRM's, per the phase's structural item 2.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Architecture
+tests: 13/14 green (rules 1–8, 10 — including rule 5's integration-event-payload check and rule 10's
+command/query privacy check, the two this task's contracts are constrained by); rule 9 needs
+Testcontainers/Docker, exercised starting at G9-08 once CRM has a cross-schema FK. No test project
+yet — Contracts adds no tests, same as every module's own first task (G4-01/G5-01/G7-01).

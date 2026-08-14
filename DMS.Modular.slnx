@@ -36,6 +36,9 @@
     <Project Path="src/Modules/Documents/Documents.Infrastructure/Documents.Infrastructure.csproj" />
     <Project Path="src/Modules/Documents/Documents.Application/Documents.Application.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Crm/">
+    <Project Path="src/Modules/Crm/Crm.Contracts/Crm.Contracts.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.IntegrationTests/BuildingBlocks.IntegrationTests.csproj" />
