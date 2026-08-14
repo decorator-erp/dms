@@ -188,3 +188,42 @@ internal enum CatalogSelectionMode
     Single = 2,
     Multi = 3,
 }
+
+internal enum RequirementCategory
+{
+    SpaceLayout = 1,
+    Style = 2,
+    ColorPalette = 3,
+    Materials = 4,
+    Furniture = 5,
+    Lighting = 6,
+    Budget = 7,
+    Timeline = 8,
+    Technical = 9,
+    Other = 10,
+}
+
+internal enum RequirementPeriodStatus
+{
+    Open = 1,
+    Closed = 2,
+}
+
+internal enum RequirementSource
+{
+    Meeting = 1,
+    Brief = 2,
+    Note = 3,
+    ClientDirect = 4,
+}
+
+/// <summary>Named plainly here (matching the backend), unlike its Contracts twin
+/// <c>RequirementPriority</c> — no collision inside this assembly with
+/// <c>Projects.Contracts.TaskPriority</c>, which Domain assemblies can never see anyway.</summary>
+internal enum TaskPriority
+{
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    Urgent = 4,
+}

@@ -129,6 +129,49 @@ internal static class CrmCatalogErrors
         "crm.catalog.SpaceTypeNotFound", "Space type was not found.");
 }
 
+internal static class CrmPeriodErrors
+{
+    public static readonly Error NotFound = Error.NotFound("crm.periods.NotFound", "Requirement period was not found.");
+
+    public static readonly Error NotOpen = Error.Conflict(
+        "crm.periods.NotOpen", "This operation requires the period to be open.");
+
+    public static readonly Error InvalidCloseTime = Error.BadRequest(
+        "crm.periods.InvalidCloseTime", "The close time must be in the future.");
+}
+
+internal static class CrmItemErrors
+{
+    public static readonly Error NotFound = Error.NotFound(
+        "crm.items.NotFound", "Requirement item was not found.");
+
+    public static readonly Error InvalidSource = Error.BadRequest(
+        "crm.items.InvalidSource", "The source type must match exactly the one source id that is set.");
+
+    public static readonly Error ItemLocked = Error.Conflict(
+        "crm.items.ItemLocked", "This item is locked and cannot be edited or resent.");
+
+    public static readonly Error NotPending = Error.Conflict(
+        "crm.items.NotPending", "Only a PendingApproval item can be approved or rejected.");
+
+    public static readonly Error OnlyLockedSuperseded = Error.Conflict(
+        "crm.items.OnlyLockedSuperseded", "Only a locked (Approved/NotRequired) item can be superseded.");
+
+    public static readonly Error SendRequiresEmployeeAuthor = Error.BadRequest(
+        "crm.items.SendRequiresEmployeeAuthor",
+        "Only an employee-authored item can be sent for approval — a client-authored item is already trusted.");
+}
+
+internal static class CrmArtifactErrors
+{
+    public static readonly Error InvalidSubject = Error.BadRequest(
+        "crm.artifacts.InvalidSubject",
+        "Exactly one of brief, space, requirement item, or meeting must be set.");
+
+    public static readonly Error InvalidAuthor = Error.BadRequest(
+        "crm.artifacts.InvalidAuthor", "An artifact must be authored by exactly one of an employee or a contact.");
+}
+
 internal static class CrmMeetingErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.meetings.NotFound", "Meeting was not found.");

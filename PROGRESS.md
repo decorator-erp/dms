@@ -3516,3 +3516,28 @@ authority over path/depth, which are derived state written by whatever orchestra
 
 **Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test`
 166/166 (117 + 49). No EF Core reference (rule 1). Architecture tests 13/13 green.
+
+**G9-06** — done — `src/Modules/Crm/Crm.Domain/{CrmRequirementPeriod,CrmRequirementItem,
+CrmClientNote,CrmArtifactDocument}.cs`. Four more enums (`RequirementCategory`/
+`RequirementPeriodStatus`/`RequirementSource`/`TaskPriority` — the last named plainly, matching the
+backend, since no Domain-assembly collision exists against `Projects.Contracts.TaskPriority`, unlike
+the Contracts-side rename to `RequirementPriority` at G9-01). `CrmPeriodErrors`/`CrmItemErrors`/
+`CrmArtifactErrors` added. `tests/Modules/Crm.UnitTests/` gains 4 files, 29 more tests (195 total).
+
+**This completes `Crm.Domain`: 24 entities (+ `ClientChild`, JSON-owned, and
+`CatalogAttributeValueRules`, a static rule class — neither gets an EF configuration) across G9-02→
+G9-06** — settling the entity count `REVIEW-PHASE4-EXEC.md` verified in advance of this task (23
+backend `Crm*Configuration` files + `ClientConfiguration` = 24). G9-07's own count-and-assert verify
+still runs against the actual registered `DbSet`s, not this tally, per the standing instruction that a
+mismatch there is the bug it exists to catch.
+
+**`CrmArtifactDocument.DocumentId` carries no FK** — structural item 1, the migration-order cycle.
+Its doc comment names the exact replacement (`Documents.Contracts.IDocumentQueries.GetAsync`,
+validated in G9-12's handler) so a reader lands on the reason without cross-referencing
+`PLAN-PHASE4.md`.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test`
+195/195 (166 + 29 — period open/extend/close/notify, the requirement-item ledger including the
+source-matches XOR and the NotRequired-also-counts-as-locked case for superseding a client-authored
+item, client-note CRUD, and the artifact document's two independent XORs: subject and author). No EF
+Core reference (rule 1). Architecture tests 13/13 green.
