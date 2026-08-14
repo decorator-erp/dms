@@ -1,9 +1,12 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using BuildingBlocks;
 using BuildingBlocks.Outbox;
+using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -59,6 +62,27 @@ public static class DI
         });
 
         services.AddHealthChecks();
+
+        // G9-14: the repo's first rate limiter, and (per PLAN-PHASE4.md's own correction to the phase
+        // brief) a shared-host concern, not a module-local one - no rate limiter existed anywhere before
+        // this. Fixed-window, keyed by remote IP (not by user - the whole point of this policy is that
+        // the caller is anonymous), for CRM's public lead-intake endpoint. Five submissions per minute
+        // per IP is deliberately tight: a real prospect submits once, a script hammering the endpoint
+        // does not get a second window before being throttled. QueueLimit 0 - a caller over the limit
+        // is rejected immediately (429), never made to wait.
+        services.AddRateLimiter(options =>
+        {
+            options.AddPolicy(RateLimitPolicies.CrmPublicLeads, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        });
 
         // SharedDbContext + AddOutbox() were never wired into the composition root before this - every
         // module's outbox writes (UserRegisteredIntegrationEvent, EmployeeHiredIntegrationEvent, etc.) landed

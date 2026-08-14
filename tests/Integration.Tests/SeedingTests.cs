@@ -13,7 +13,7 @@ namespace Integration.Tests;
 public sealed class SeedingTests(ApiFixture fixture)
 {
     [Fact]
-    public async Task Startup_SeedsTheThreeDefaultRoles()
+    public async Task Startup_SeedsTheFourDefaultRoles()
     {
         // Force the host (and its startup SeedAsync loop) to have run - ApiFixture.InitializeAsync
         // already builds Services, but issuing a real request is the least assumption-laden way to be
@@ -34,6 +34,9 @@ public sealed class SeedingTests(ApiFixture fixture)
                 seededRoles.Add(reader.GetString(0));
         }
 
-        Assert.Equal(new HashSet<string> { "admin", "manager", "employee" }, seededRoles);
+        // G9-14: "client" joins the other three - DefaultRoles.All's own remarks record why (CRM's
+        // Portal is the first real consumer for the role the backend always carried but this port
+        // dropped at G0-06 for having no module that needed it yet).
+        Assert.Equal(new HashSet<string> { "admin", "manager", "employee", "client" }, seededRoles);
     }
 }

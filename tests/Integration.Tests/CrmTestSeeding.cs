@@ -7,14 +7,15 @@ namespace Integration.Tests;
 /// (<c>AddClientForeignKey</c>), so every Integration.Tests flow that creates a project through the real
 /// HTTP host needs a real client row first — <c>Guid.NewGuid()</c> no longer survives the insert.
 ///
-/// <para>Raw SQL via <see cref="NpgsqlConnection"/>, not a CRM command handler through DI — CRM's own
-/// module is migrated into every <see cref="ApiFixture"/> database (<c>ApiFixture.MigrateSchemaAsync</c>'s
-/// <c>"crm"</c> case, since G9-07) but <b>not yet registered into the API host's own
-/// <c>moduleAssemblies</c></b> (that's G9-14's job, alongside CRM's endpoints) — so no
-/// <c>Crm.Application</c> handler is resolvable from <see cref="ApiFixture.Services"/> at this point in
-/// the phase. Same raw-SQL-seeding precedent <c>ProjectAccessGuardTests.SeedEmployeeAsync</c>
-/// (Projects.Infrastructure.Tests) already established for a cross-schema dependency whose owning
-/// module's command surface isn't reachable from the caller's fixture.</para>
+/// <para>Raw SQL via <see cref="NpgsqlConnection"/>, not a CRM command handler through DI or HTTP.
+/// Written at G9-13, when CRM's own module was migrated into every <see cref="ApiFixture"/> database
+/// (<c>ApiFixture.MigrateSchemaAsync</c>'s <c>"crm"</c> case, since G9-07) but not yet registered into
+/// the API host's own <c>moduleAssemblies</c> — G9-14 closed that gap (<c>POST /api/clients</c> now
+/// exists), but this helper is left as-is rather than switched to an HTTP round-trip: it is correct,
+/// every call site already has this fixture's raw connection string in hand, and rewriting working
+/// seeding code for style alone risks these tests for no behavioral gain. Same raw-SQL-seeding
+/// precedent <c>ProjectAccessGuardTests.SeedEmployeeAsync</c> (Projects.Infrastructure.Tests) already
+/// established for a cross-schema dependency.</para>
 ///
 /// <para>Reuses the caller's own <paramref name="appUserId"/> as the client's <c>AppUserId</c> (the FK
 /// <c>clients.AppUserId → identity.users.Id</c> from G9-08) rather than registering a second user — the

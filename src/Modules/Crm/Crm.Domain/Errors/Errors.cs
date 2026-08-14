@@ -226,3 +226,16 @@ internal static class CrmMeetingErrors
     public static readonly Error SlotNotProposed = Error.Conflict(
         "crm.meetings.SlotNotProposed", "Only a proposed slot can be accepted or declined.");
 }
+
+/// <summary>G9-14: the Portal's own read/write surface. <see cref="NotFound"/> covers both "no such
+/// project" and "a real project that isn't this client's own" — 404-over-403, per <c>CLAUDE.md</c>'s
+/// authorization order (a caller who can't see a resource shouldn't learn it exists), matching
+/// <c>ProjectScopeDecorator</c>'s own precedent for the identical trade.</summary>
+internal static class CrmPortalErrors
+{
+    public static readonly Error NotFound = Error.NotFound(
+        "crm.portal.NotFound", "No design brief was found for that project.");
+
+    public static readonly Error NotAClient = Error.Forbidden(
+        "crm.portal.NotAClient", "This action requires a client actor.");
+}

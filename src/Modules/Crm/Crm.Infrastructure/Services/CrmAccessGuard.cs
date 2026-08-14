@@ -102,4 +102,20 @@ internal static class CrmAccessErrors
 {
     public static readonly Error NoStanding = Error.Forbidden(
         "crm.access.NoStanding", "This user has no CRM identity (neither an employee nor a client record).");
+
+    /// <summary>G9-14: surfaced by the endpoint layer (<c>CrmEndpointActors</c>), not this guard itself —
+    /// several CRM commands (<c>CreatedById</c>/<c>WrittenById</c>/<c>OwnerId</c>-shaped) take a
+    /// pre-resolved employee <c>Guid</c> rather than an <c>AppUserId</c> + internal resolution (unlike
+    /// Projects' own handlers), so the endpoint resolves the acting employee via
+    /// <see cref="ICrmAccessGuard"/> before constructing the command. A caller who resolves to a client
+    /// actor on an employee-only write is unreachable in practice (permission claims differ per role),
+    /// but this error exists so that path fails closed rather than passing <c>Guid.Empty</c> through.</summary>
+    public static readonly Error NotAnEmployee = Error.Forbidden(
+        "crm.access.NotAnEmployee", "This action requires an employee actor.");
+
+    /// <summary>The Portal-side mirror of <see cref="NotAnEmployee"/> — a caller who resolves to an
+    /// employee actor reaching a client-only write (e.g. the Portal's own requirement-item submission,
+    /// which resolves <c>ContactId</c> the same pre-resolved way).</summary>
+    public static readonly Error NotAClient = Error.Forbidden(
+        "crm.access.NotAClient", "This action requires a client actor.");
 }

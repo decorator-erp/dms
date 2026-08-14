@@ -21,6 +21,7 @@ var moduleAssemblies = new[]
     Assembly.Load("Identity.Infrastructure"),
     Assembly.Load("Hr.Infrastructure"),
     Assembly.Load("Approvals.Infrastructure"),
+    Assembly.Load("Crm.Infrastructure"),
     Assembly.Load("Projects.Infrastructure"),
     Assembly.Load("Documents.Infrastructure"),
 };
@@ -42,6 +43,7 @@ app.UseCors(CorsPolicies.Default);
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.UseSerilogRequestLogging();
 
 app.MapHealthChecks("/health");

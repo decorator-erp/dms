@@ -3899,3 +3899,111 @@ Testcontainers test — Docker-dependent, not new to this task). **Not run in th
 `SeedingTests`, `DocumentsSmokeTests` — every Testcontainers-dependent suite in the repo, standing
 Docker-unavailable note; all of it must run before this phase merges, including the gate-satisfaction-
 through-the-outbox and `ClientId`-validation checks the plan's own verification section requires.
+
+**G9-14** — done — endpoints, module registration, the anonymous surface, and one real scope
+correction found while wiring the first of them.
+
+**Two real gaps found before any endpoint could be written, neither anticipated by the plan.**
+`Crm.Contracts` declares full CRUD surfaces for Meetings (12 commands/queries:
+`RequestCrmMeetingCommand` through `GetFreeMeetingSlotsQuery`) and a 3-operation Portal
+(`GetMyPortalMeetingsQuery`, `GetMyPortalBriefQuery`, `DecideMyPortalApprovalCommand`) — but **no
+`Crm.Application` handler was ever written for any of the twelve Meeting operations, or for two of the
+three Portal ones**, across G9-09→G9-12. This directly contradicts the plan's own "complete spine"
+sentence ("lead → convert to client → meeting → design brief → …"), which explicitly names Meeting as
+in-scope, and decision 3 ("Client Portal is in"). Confirmed by absence, not assumption: no
+`Features/Meetings/` folder exists at all, and `Features/Portal/` didn't exist before this task.
+G9-09's own PROGRESS.md entry (line 3649) already flagged the Portal half forward — "the Portal slice at
+G9-14 is the first" — so that gap was deliberate and expected here. **The Meetings gap was not
+flagged anywhere and is a genuine miss from those four tasks**, discovered only because writing
+`CrmPortalEndpoints` required checking whether `GetMyPortalMeetingsQuery` had a handler to call.
+
+Closed the Portal half, per its own explicit deferral: `Crm.Application/Features/Portal/GetMyPortalBriefQueryHandler.cs`
+(new) resolves the caller via `ICrmAccessGuard`, cross-checks project ownership via
+`Projects.Contracts.IProjectDirectory.GetProjectAsync` (404-over-403 on a real-but-not-theirs project,
+matching `ProjectScopeDecorator`'s own precedent), and returns the brief's status. **Left
+`GetMyPortalMeetingsQuery` and `DecideMyPortalApprovalCommand` deliberately unimplemented, alongside all
+twelve Meeting operations** — not silently, the handler's own doc comment records why each is deferred
+rather than improvised: `GetMyPortalMeetingsQuery`'s own doc comment says it resolves "the calling
+client's own projects," but `IProjectDirectory` has no client-scoped project lookup (only by-id), so
+answering it correctly needs either a new cross-module contract method or a CRM-local
+reinterpretation — an architectural call this endpoints task shouldn't make unilaterally.
+`DecideMyPortalApprovalCommand` would route into `Approvals.Contracts`, whose `approval_approvers`
+ledger is employee-scoped in this port — giving a client actor a decision path there is the same kind
+of design question. The full Meeting CRUD surface has no gate dependency and touches nothing any
+already-built test exercises, so per decision 1 (breadth deferred per sub-area) it stays deferred too,
+now explicitly rather than silently. **All three are named again in the "what's thinner than intended"
+section of G10-01's own report, not just here.**
+
+**Endpoints — 14 files in `Crm.Infrastructure/Endpoints/`, one per `Crm.Contracts` sub-area with a real
+handler**: `ClientEndpoints` (`/api/clients`, its own top-level prefix per `CrmPermissions.Clients`'
+own non-`crm.`-prefixed naming), `CrmContactEndpoints`, `CrmClientNoteEndpoints`, `CrmLeadEndpoints`,
+`CrmSpaceTypeEndpoints`, `CrmSpaceEndpoints`, `CrmBriefEndpoints` (design-brief + brief-space CRUD/send/
+supersede), `CrmCatalogEndpoints` (narrower than the backend's own V2 surface — no
+update/delete/reorder/clone/active-toggle for categories or items, matching G9-11's own vertical-slice
+scope, ported as-is rather than widened here), `CrmPeriodEndpoints`, `CrmRequirementItemEndpoints`
+(office-side; the client-authored creation path lives on the Portal, not here),
+`CrmArtifactEndpoints` (link + four by-subject reads; no unlink route exists in `Crm.Contracts`),
+`CrmDesignProfileEndpoints`, `CrmPortalEndpoints`, `CrmPublicEndpoints`. Every route follows this
+repo's own dominant style (inline lambda handlers via `IEndpoint`/`MapModuleEndpoints`, matching
+`DocumentFolderEndpoints`/`FileTemplateEndpoints`), not the backend's named-static-method style.
+
+**A wiring gap in `Crm.Contracts` itself, closed at the endpoint layer rather than by re-touching
+already-committed G9-09→G9-12 handlers.** Several commands (`CreateCrmClientNoteCommand.WrittenById`,
+`CreateCrmDesignBriefCommand.CreatedById`, `OpenCrmRequirementPeriodCommand.OpenedById`,
+`CreateCrmRequirementItemCommand.EmployeeId`, …) take a pre-resolved employee `Guid` rather than an
+`AppUserId` the handler resolves itself — that shape was set at G9-01, before `ICrmAccessGuard` existed
+(G9-08). Rather than re-touch every already-committed handler, added
+`Crm.Infrastructure/Endpoints/CrmEndpointActors.cs`: `ResolveEmployeeIdAsync`/`ResolveContactIdAsync`,
+both built on `ICrmAccessGuard.ResolveActorAsync` exactly as that guard's own doc comment anticipated
+("What other modules and the Portal endpoints genuinely need is 'who is this caller'"). Two new
+`Crm.Domain` errors back the failure path (`CrmAccessErrors.NotAnEmployee`/`NotAClient`, alongside the
+existing `NoStanding`) — a caller who resolves to the wrong actor kind fails closed with a 403, never
+passes `Guid.Empty` through. `CreateCrmLeadCommand.OwnerId` is the one exception, deliberately NOT
+auto-resolved: assigning a lead to a specific salesperson is a genuine business choice an office manager
+makes, not "the current caller."
+
+**The anonymous surface — `POST /api/crm/public/leads` — needed a real design decision the plan's own
+one-line description didn't anticipate.** No dedicated "public lead" command exists in `Crm.Contracts`
+(unlike the backend's own `SubmitPublicLeadCommand`); this reuses `CreateCrmLeadCommand` directly. That
+command's `OwnerId` is a required real employee `Guid` — `Crm.Domain.CrmLead` has no "unassigned" state
+— which an anonymous caller has no way to supply. Rather than widen that Domain invariant or invent a
+new "any active employee" cross-module lookup under this task's own scope, the intake owner is a single
+configured employee id (`Crm:PublicLeadIntakeOwnerId`) — an operational deployment requirement, same
+shape as `JwtSettings:Key` already being mandatory-or-fail. Unconfigured/unparseable fails closed with
+503, never a fabricated owner id. `ApiFixture` now seeds a real `hr.employees` row for a fixed intake-
+owner id and configures the setting in `ConfigureWebHost`, so the Integration.Tests host's own anonymous
+endpoint actually succeeds end-to-end, not just reaches a stub.
+
+**Shared-host changes, per the plan's own correction to the phase brief (no rate limiter existed
+anywhere in the repo before this task):** `Api/DI.cs` gains `AddRateLimiter` — one fixed-window policy
+(`RateLimitPolicies.CrmPublicLeads`, in `BuildingBlocks.Web` since a module's own `*.Infrastructure`
+project needs to reference the policy name and cannot reference `Api`), keyed by remote IP (not by
+user — the caller is anonymous by definition), 5 requests/minute, `QueueLimit: 0` (reject immediately,
+never queue). `Program.cs` gains `app.UseRateLimiter()` (after `UseAuthorization`, before endpoint
+mapping) and `Assembly.Load("Crm.Infrastructure")` in `moduleAssemblies` — CRM is finally live in the
+real API host, not just migrated into its database. The public endpoint also carries a
+`RequestSizeLimitAttribute(4096)` (Kestrel-level) **and** an explicit `ContentLength` check inside the
+handler itself — belt-and-suspenders, since minimal-API metadata enforcement is a newer, less-traveled
+path in this codebase than anywhere else a size cap was needed so far.
+
+**Identity's `DefaultRoles` gains a fourth role, `"client"`** — closing the question G9-09's own
+PROGRESS.md entry flagged explicitly for this task ("whether Identity needs an actual client role added
+for Portal permission-claim issuance to work end-to-end"). Answer: yes, and it now exists. Deliberately
+**not** in `FullAccessRoles` and gets **no automatic claim seeding** — `RoleClaimSeeder` only ever
+widens `Admin`/`Manager` to every known permission; `Client`'s own CRM-specific grants
+(`crm.portal`, `crm.briefs.view_own`, `requirements.submit_own`, …) are assigned the same way
+`Employee`'s permissions already are in this repo, through the general-purpose role/permission admin
+endpoints — Identity cannot reference `Crm.Contracts.CrmPermissions` to hard-code them (module graph has
+no `identity → crm` edge), and CRM cannot write `identity.role_claims` directly (cross-module writes are
+outbox-only). `SeedingTests.Startup_SeedsTheThreeDefaultRoles` renamed and updated to expect four roles
+— a real, if Docker-gated, consequence of this change caught and fixed in the same commit rather than
+left for G9-15 to trip over.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green: `Crm.UnitTests` 195/195, `EnumMappingParityTests` 25/25,
+`CategoryPathHelperTests` 6/6, `CrmDbContextConfigurationTests` 4/4, every other module's own
+`*.UnitTests` project, and `Architecture.Tests` 13/14 (same pre-existing Docker-only failure, not new).
+**Not run in this environment**: every Testcontainers-dependent suite, now including this task's own
+new `CrmSmokeTests` (permission-count assertion, the 401 gate, the anonymous-reachability 202, and the
+rate-limiter 429 burst test) — standing Docker-unavailable note; all of it, plus the whole accumulated
+backlog from G9-01 onward, must run before this phase merges.

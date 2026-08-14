@@ -29,6 +29,16 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public const string JwtIssuer = "DMS.Modular.Api.Tests";
     public const string JwtAudience = "DMS.Modular.Client.Tests";
 
+    /// <summary>G9-14: <c>Crm:PublicLeadIntakeOwnerId</c> — the anonymous public lead endpoint's
+    /// configured intake owner (see <c>CrmPublicEndpoints</c>'s own remarks for why this is
+    /// configuration rather than a resolved actor). Fixed and seeded once in <see cref="InitializeAsync"/>
+    /// rather than created per-test through the normal register+employee HTTP flow, because
+    /// <see cref="ConfigureWebHost"/>'s <c>UseSetting</c> calls run once at host build time — no test can
+    /// change it afterward. <see cref="ResetAsync"/> is never actually called anywhere in this test
+    /// collection today, so this row persists for the fixture's whole lifetime; if that ever changes,
+    /// re-seed it there too.</summary>
+    public static readonly Guid PublicLeadIntakeOwnerId = Guid.Parse("00000000-0000-0000-0000-00000000c12e");
+
     private Testcontainers.PostgreSql.PostgreSqlContainer _container = null!;
     private Respawner _respawner = null!;
 
@@ -57,6 +67,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
         foreach (var schema in ModuleDependencyOrder.SchemaOrder)
             await MigrateSchemaAsync(schema);
+
+        await SeedPublicLeadIntakeOwnerAsync();
 
         // The string-connection overload of CreateAsync only supports SQL Server (it constructs a
         // SqlConnection internally) - Postgres needs the DbConnection overload with an explicit
@@ -102,6 +114,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Issuer", JwtIssuer);
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
+        builder.UseSetting("Crm:PublicLeadIntakeOwnerId", PublicLeadIntakeOwnerId.ToString());
         // Small on purpose (default is 50 MB) - keeps DocumentsSmokeTests' oversized-upload test's payload
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
@@ -133,6 +146,42 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 if (IsEnabled(logLevel) && eventId.Id == Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.CommandExecuted.Id)
                     sink.Enqueue(formatter(state, exception));
             }
+        }
+    }
+
+    /// <summary>Raw SQL, before the host (and its <c>hr</c>/<c>identity</c> FKs) is even built — a real
+    /// row for <see cref="PublicLeadIntakeOwnerId"/> to satisfy, matching
+    /// <c>ProjectAccessGuardTests.SeedEmployeeAsync</c>'s own precedent for seeding a cross-module
+    /// dependency outside any module's own command surface.</summary>
+    private async Task SeedPublicLeadIntakeOwnerAsync()
+    {
+        const string appUserId = "public-lead-intake-owner";
+
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var userCommand = connection.CreateCommand())
+        {
+            userCommand.CommandText = """
+                INSERT INTO identity.users
+                    ("Id", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",
+                     "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount")
+                VALUES (@appUserId, 'Intake', 'Owner', true, 0, now(), true, false, false, false, 0);
+                """;
+            userCommand.Parameters.AddWithValue("appUserId", appUserId);
+            await userCommand.ExecuteNonQueryAsync();
+        }
+
+        await using (var employeeCommand = connection.CreateCommand())
+        {
+            employeeCommand.CommandText = """
+                INSERT INTO hr.employees
+                    ("Id", "JobTitle", "HireDate", "ContractType", "AppUserId", "IsActive", "CreatedAtUtc")
+                VALUES (@id, 'Sales', CURRENT_DATE, 1, @appUserId, true, now());
+                """;
+            employeeCommand.Parameters.AddWithValue("id", PublicLeadIntakeOwnerId);
+            employeeCommand.Parameters.AddWithValue("appUserId", appUserId);
+            await employeeCommand.ExecuteNonQueryAsync();
         }
     }
 

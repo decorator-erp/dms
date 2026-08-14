@@ -1,0 +1,107 @@
+using BuildingBlocks;
+using BuildingBlocks.Messaging;
+using BuildingBlocks.Web;
+using BuildingBlocks.Web.Authorization;
+using BuildingBlocks.Web.Results;
+using Crm.Contracts;
+using Crm.Contracts.Items;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace Crm.Infrastructure.Endpoints;
+
+/// <summary>Office-side requirement item CRUD + send + supersede, governed by
+/// <see cref="CrmPermissions.Items"/>. <c>EmployeeId</c> fields are resolved from the caller via
+/// <see cref="CrmEndpointActors.ResolveEmployeeIdAsync"/>. The client-authored creation path
+/// (<c>CreateCrmRequirementItemByClientCommand</c>) lives on <see cref="CrmPortalEndpoints"/>, not
+/// here — it resolves a contact actor, not an employee.</summary>
+internal sealed class CrmRequirementItemEndpoints : IEndpoint
+{
+    public void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        var byPeriod = app.MapGroup("/api/crm/periods/{periodId:guid}/items").WithTags("Crm Requirement Items");
+
+        byPeriod.MapPost("/", async (
+            Guid periodId, CreateItemRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
+            ICommandHandler<CreateCrmRequirementItemCommand, Guid> handler, CancellationToken ct) =>
+        {
+            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            if (employeeId.IsFailure)
+                return employeeId.ToProblem();
+
+            var result = await handler.HandleAsync(new CreateCrmRequirementItemCommand(
+                request.ProjectId, periodId, employeeId.Value, request.Category, request.Title, request.Priority,
+                request.SpaceTypeId, request.Room, request.Description, request.SourceType, request.MeetingId,
+                request.BriefId, request.NoteId, request.ProjectTaskId), ct);
+            return result.Match(id => Results.Created($"/api/crm/requirement-items/{id}", new { ItemId = id }), r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Items.Create);
+
+        byPeriod.MapGet("/", async (
+            Guid periodId, IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> handler,
+            CancellationToken ct) =>
+        {
+            var result = await handler.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Items.Read);
+
+        app.MapGet("/api/crm/project-tasks/{taskId:guid}/requirement-items", async (
+            Guid taskId, IQueryHandler<GetCrmRequirementItemsByTaskQuery, IReadOnlyList<CrmRequirementItemResponse>> handler,
+            CancellationToken ct) =>
+        {
+            var result = await handler.HandleAsync(new GetCrmRequirementItemsByTaskQuery(taskId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).WithTags("Crm Requirement Items").RequirePermission(CrmPermissions.Items.Read);
+
+        var byId = app.MapGroup("/api/crm/requirement-items/{itemId:guid}").WithTags("Crm Requirement Items");
+
+        byId.MapPut("/", async (
+            Guid itemId, UpdateItemRequest request, ICommandHandler<UpdateCrmRequirementItemCommand> handler, CancellationToken ct) =>
+        {
+            var result = await handler.HandleAsync(new UpdateCrmRequirementItemCommand(
+                itemId, request.Category, request.Title, request.Priority, request.SpaceTypeId, request.Room,
+                request.Description, request.SourceType, request.MeetingId, request.BriefId, request.NoteId,
+                request.ProjectTaskId), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Items.Update);
+
+        byId.MapPut("/send", async (
+            Guid itemId, ICommandHandler<SendCrmRequirementItemCommand> handler, CancellationToken ct) =>
+        {
+            var result = await handler.HandleAsync(new SendCrmRequirementItemCommand(itemId), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Items.Send);
+
+        byId.MapPost("/supersede", async (
+            Guid itemId, SupersedeItemRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
+            ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> handler, CancellationToken ct) =>
+        {
+            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            if (employeeId.IsFailure)
+                return employeeId.ToProblem();
+
+            var result = await handler.HandleAsync(new SupersedeCrmRequirementItemCommand(
+                itemId, employeeId.Value, request.Category, request.Title, request.Priority, request.SpaceTypeId,
+                request.Room, request.Description, request.SourceType, request.MeetingId, request.BriefId,
+                request.NoteId, request.ProjectTaskId), ct);
+            return result.Match(id => Results.Created($"/api/crm/requirement-items/{id}", new { ItemId = id }), r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Items.Supersede);
+    }
+
+    private sealed record CreateItemRequest(
+        Guid ProjectId, RequirementCategory Category, string Title, RequirementPriority Priority,
+        Guid? SpaceTypeId = null, string? Room = null, string? Description = null,
+        RequirementSource? SourceType = null, Guid? MeetingId = null, Guid? BriefId = null,
+        Guid? NoteId = null, Guid? ProjectTaskId = null);
+
+    private sealed record SupersedeItemRequest(
+        RequirementCategory Category, string Title, RequirementPriority Priority,
+        Guid? SpaceTypeId = null, string? Room = null, string? Description = null,
+        RequirementSource? SourceType = null, Guid? MeetingId = null, Guid? BriefId = null,
+        Guid? NoteId = null, Guid? ProjectTaskId = null);
+
+    private sealed record UpdateItemRequest(
+        RequirementCategory Category, string Title, RequirementPriority Priority, Guid? SpaceTypeId,
+        string? Room, string? Description, RequirementSource? SourceType, Guid? MeetingId, Guid? BriefId,
+        Guid? NoteId, Guid? ProjectTaskId);
+}
