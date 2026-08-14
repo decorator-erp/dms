@@ -3494,3 +3494,25 @@ cross-aggregate one.
 send/approve/reject/supersede chain, the head-snapshot diff in three shapes, space/space-type CRUD,
 and the space-item catalog-vs-custom XOR including promote/rename/remove). No EF Core reference
 (rule 1). Architecture tests 13/13 green.
+
+**G9-05** — done — `src/Modules/Crm/Crm.Domain/{CrmCatalogCategory,CrmCatalogItem,CrmCatalogAttribute,
+CrmCatalogAttributeOption,CrmCatalogItemAttributeValue,CrmCatalogCategorySpaceType}.cs` — the largest
+sub-area, 6 entities. One more enum (`CatalogSelectionMode`); `CrmCatalogErrors` extended with the
+members this task's entities need (`InvalidData`, `SpaceTypeNotFound`) alongside the ones G9-04 seeded
+for `CrmSpaceItem`. `tests/Modules/Crm.UnitTests/` gains 4 files, 49 more tests (166 total).
+
+**The attribute-value rule engine got the deepest coverage in the module, per the plan's own
+instruction** — `CatalogAttributeValueRulesTests.cs` exercises every (declared type × populated
+column) combination: all five types with nothing populated, each non-Select type against an option id
+specifically (not just "some wrong column"), two-populated and all-five-populated, and the
+whitespace-only-text-counts-as-absent edge that a naive `!= null` check would miss. `CrmCatalogItem`/
+`CrmCatalogAttribute`/`CrmCatalogAttributeOption` reuse this codebase's now-familiar
+Theory-with-int-then-cast pattern (`ProjectTests.cs`'s own precedent) since xUnit test methods must be
+public but the enum they parameterize over is `internal`.
+
+**`CrmCatalogCategory.SetPath`/`SetParent` stay `internal`** — only the Application handler that owns
+the subtree rewrite (G9-11) may call them; Domain enforces the shape (code/name required) but has no
+authority over path/depth, which are derived state written by whatever orchestrates a category move.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test`
+166/166 (117 + 49). No EF Core reference (rule 1). Architecture tests 13/13 green.

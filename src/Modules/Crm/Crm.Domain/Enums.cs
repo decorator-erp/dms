@@ -180,3 +180,11 @@ internal enum CrmProvisionStatus
     Reuse = 3,
     NotApplicable = 4,
 }
+
+/// <summary>How many items may be recorded from a catalog category's subtree in one space.</summary>
+internal enum CatalogSelectionMode
+{
+    None = 1,
+    Single = 2,
+    Multi = 3,
+}

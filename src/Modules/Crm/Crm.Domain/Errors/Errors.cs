@@ -101,8 +101,7 @@ internal static class CrmSpaceTypeErrors
 }
 
 /// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05), which owns
-/// the rest of this error set — only the members G9-04's entities need are declared here; G9-05 adds
-/// the remainder to this same class rather than starting a second one.</summary>
+/// most of this error set.</summary>
 internal static class CrmCatalogErrors
 {
     public static readonly Error ItemNotFound = Error.NotFound("crm.catalog.ItemNotFound", "Catalog item was not found.");
@@ -122,6 +121,12 @@ internal static class CrmCatalogErrors
     public static readonly Error AttributeTypeMismatch = Error.BadRequest(
         "crm.catalog.AttributeTypeMismatch",
         "Exactly one value must be set, matching the attribute's declared data type.");
+
+    public static readonly Error InvalidData = Error.BadRequest(
+        "crm.catalog.InvalidData", "A code and both English and Arabic names are required.");
+
+    public static readonly Error SpaceTypeNotFound = Error.NotFound(
+        "crm.catalog.SpaceTypeNotFound", "Space type was not found.");
 }
 
 internal static class CrmMeetingErrors
