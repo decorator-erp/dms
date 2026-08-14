@@ -3431,3 +3431,34 @@ that construct via a throwing/unchecked path.
 **Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, all three
 entities' invariants and primary-contact transitions unit-tested (36/36) with no EF Core reference in
 the project (rule 1). Architecture tests 13/13 green (rule 9 still deferred to Docker/G9-08).
+
+**G9-03** — done — `src/Modules/Crm/Crm.Domain/{CrmLead,CrmLeadIntake,CrmLeadIntakeResidential,
+CrmMeeting,CrmMeetingSlot}.cs`, 15 more enums added to `Enums.cs` (`LeadSource`/`LeadStatus`/
+`MeetingStatus`/`MeetingSlotStatus`/`MeetingType`/`HiringReason`/`PastExperience`/`TimelinePressure`/
+`UnitType`/`UnitCondition`/`UnitPosition`/`BuildingKind`/`ElevatorStatus`/`FurnitureStatus`/
+`FinishingPurpose`/`ProjectSector`), matching error classes added to `Errors/Errors.cs`
+(`CrmLeadErrors`/`CrmMeetingErrors`). `tests/Modules/Crm.UnitTests/` gains 4 files, 39 more tests
+(75 total).
+
+**The backend bug flagged in the plan, fixed and recorded (not silently ported):**
+`CrmLead.Convert(Guid clientId)` accepted any Guid, including `Guid.Empty`, with no domain-level
+guard — safe in the backend only because its one caller happened to check the client existed first.
+This port's `Convert` now rejects `Guid.Empty` itself (`CrmLeadErrors.InvalidClientId`); the more
+expensive check — does this id name a **real** client row — is left to `Crm.Application`'s
+`ConvertCrmLeadCommandHandler` (G9-09), since `Crm.Domain` has no database access by construction
+(rule 1). This mirrors how `Project.ClientId` is already handled in this codebase: Domain validates
+its own invariants, Application validates references against data. `CrmLead.Update`/`ChangeStatus`
+also gained the same `NameRequired`/`AlreadyConverted` guards `Create` already had, for the same
+reason G9-02 applied `Result<T>` uniformly rather than case-by-case.
+
+**`CrmLeadIntake.Update` does not itself detach a stale `Residential` child on a sector switch** —
+the backend's own domain service owned that orchestration (delete the stale child row, then apply);
+this port's `Application` handler (G9-09) does the same, since `Crm.Domain` has no persistence
+authority to delete a row it doesn't directly own the collection of. `AttachResidential`/
+`DetachResidential` stay `internal`, callable only from within the module.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test`
+75/75 (36 from G9-02 + 39 new — lead status machine, conversion including the fixed empty-guid guard,
+intake validation, and the full meeting/slot lifecycle: request → propose → accept/decline →
+schedule/reschedule → cancel/complete/no-show, plus the idempotent reminder stamp). No EF Core
+reference (rule 1). Architecture tests 13/13 green.
