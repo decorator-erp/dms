@@ -4340,3 +4340,35 @@ immediately even once Docker arrived. Fixed with the same `CreateAsyncScope` pat
 tests already use. Now genuinely executes and passes: a fake `ApprovalDecidedIntegrationEvent` reusing a
 real brief's own id, but tagged `GateCondition` instead of `DesignBrief`, leaves that brief untouched —
 proving CRM's subject-type filter runs before any query, not after.
+
+**E2-01** — done — `OutboxProcessor.cs` (fix). `Documents_flow_spans_all_five_modules_end_to_end_and_is_stable_across_two_runs`
+— a Phase 3 (G7-08) test — was one of Step 1's fifteen failures: `Expected: 2, Actual: 1` on the
+`DocumentApproved` gate's status. It looked like a production regression in the gate cascade, and CRM
+becoming the third `ApprovalDecidedIntegrationEvent` subscriber was the obvious first suspect. It wasn't.
+
+**The mechanism, named per `REVIEW-E2-PLAN.md`'s A1** (a green re-measure alone does not close this
+task): the test reproduced red in true single-process isolation (fresh Testcontainers Postgres, the only
+test in the run), which rules out cross-test database pollution. Verbose logging then caught it directly:
+`OutboxProcessor` is a hosted `BackgroundService` that `ApiFixture` never disables, so its own
+`ExecuteAsync` poll loop and the test's own explicit `ProcessPendingAsync()` "flush now" calls are two
+independent, uncoordinated entry points into the same pending-message set. Both can fetch and attempt the
+SAME outbox row concurrently. `InboxDedupeDecorator`'s transaction correctly stops the double side-effect
+(the loser's insert hits `PK_inbox_messages`, its whole transaction rolls back) — but the loser's
+`ProcessOneAsync` swallows that exception and returns normally, with no guarantee the OTHER, un-awaited,
+winning attempt has committed yet. The test's read can race ahead of that commit and observe stale
+Pending state. This is why the test was **flaky, not deterministically red** — `DocumentApprovedIntegrationEvent`
+itself raced and lost in both a failing and a passing isolated run (confirmed: 83 `PK_inbox_messages`
+violations across a captured run that still ended up green); it just didn't always resolve before the
+assertion.
+
+**The fix** is a `SemaphoreSlim` single-flighting `ProcessPendingAsync`'s body, shared by both entry
+points, so only one full sweep of pending messages runs at a time. Verified across 4 repeated isolated
+runs (one with full verbose logging) that this eliminates the race — 0 violations, not just better odds.
+
+**Does not touch `EventBus.PublishAsync`.** Step 1's own report flagged that method's lack of
+per-handler isolation (one throwing handler aborts the loop, skipping every later subscriber) as a risk
+CRM's arrival as a third subscriber had tripled the exposure of. That risk is real but was not what this
+regression needed: `DocumentApprovedIntegrationEvent` has exactly one handler, so there was no "later
+subscriber" for an abort to skip — the race was entirely inside `OutboxProcessor`, one level below
+`EventBus`. Per the settled decision, `EventBus` stays as-is; the ordering-coupling and no-max-attempts/
+dead-letter gaps it still carries are recorded as a named risk for the Sites phase below (E2-05).
