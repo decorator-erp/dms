@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using BuildingBlocks.Events;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Hr.Contracts;
@@ -314,6 +315,274 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         }
     }
 
+    /// <summary>
+    /// G9-15's own characterization suite: project → CRM client → design brief → send → approve
+    /// (Approvals) → <c>CrmBriefApproved</c> gate satisfied → office-authored requirement item → send →
+    /// approve (Approvals) → <c>CrmItemsResolved</c> gate satisfied → period close →
+    /// <c>CrmPeriodClosed</c> gate satisfied, extending <see cref="CrossModuleSmokeTests"/> to all SIX
+    /// modules (Identity, HR, Approvals, CRM, Projects, Documents — Documents joins only via the module
+    /// list this host now boots; nothing here uploads a document) through the real host and real HTTP
+    /// routes, run TWICE inside one test for a basic flake check — same shape as this file's own
+    /// Documents flow (G7-08), each pass uses its own fresh actor/project/client so the two runs cannot
+    /// interfere with each other.
+    ///
+    /// <para>All three CRM gate types are proven here, not just one — <c>CrmBriefApproved</c> and
+    /// <c>CrmItemsResolved</c> both route through a real Approvals decision (two real outbox hops each:
+    /// <c>ApprovalDecidedIntegrationEvent</c> reaches CRM first, which enqueues its own CRM-specific
+    /// event, which Projects consumes second); <c>CrmPeriodClosed</c> needs only one hop, since closing
+    /// a period publishes directly, with no Approvals round trip in between.</para>
+    /// </summary>
+    [Fact]
+    public async Task Crm_flow_spans_all_six_modules_end_to_end_and_is_stable_across_two_runs()
+    {
+        await RunFlowAsync();
+        await RunFlowAsync();
+
+        async Task RunFlowAsync()
+        {
+            var client = fixture.CreateClient();
+            var suffix = Guid.NewGuid().ToString("N");
+
+            var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
+                $"g9-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
+            Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
+            var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+
+            var token = fixture.IssueTestToken(
+                appUserId, "employees.create", "stages.manage", "stages.manage_gates", "project.create",
+                "project.read_all", "stage_tasks.read", "clients.create", "crm.briefs.manage", "crm.briefs.send",
+                "crm.items.create", "crm.items.send", "crm.periods.open", "crm.periods.close",
+                "approvals.decide", "approvals.read");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
+            {
+                AppUserId = appUserId,
+                JobTitle = "Engineer",
+                HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                ContractType = "FullTime",
+            });
+            Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
+
+            var clientResponse = await client.PostAsJsonAsync("/api/clients", new
+            {
+                AppUserId = appUserId,
+                Address = "1 Client Rd",
+            });
+            Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
+            var clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
+
+            var templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
+            var templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
+
+            var stageResponse = await client.PostAsJsonAsync(
+                $"/api/stage-templates/{templateId}/stages",
+                new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
+            var templateStageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
+
+            var taskResponse = await client.PostAsJsonAsync(
+                $"/api/stages/{templateStageId}/tasks",
+                new { Name = "Needs Gathering", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
+            Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
+
+            var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+            {
+                Code = $"P-{suffix}",
+                Name = "G9 Smoke",
+                Address = "1 Test Rd",
+                WorkflowType = 1,
+                ClientId = clientId,
+                StageTemplateId = templateId,
+            });
+            Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+            var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+
+            var stages = await (await client.GetAsync($"/api/projects/{projectId}/stages")).Content.ReadFromJsonAsync<List<ProjectStageBody>>();
+            var stageId = Assert.Single(stages!).Id;
+
+            var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+
+            // --- CrmBriefApproved: create the stage gate BEFORE the brief it must be satisfied by. ---
+            var briefGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 8, label: "Needs brief approval");
+
+            var briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
+            {
+                ProjectStageId = stageId,
+                Data = new { UnitType = 1, UnitCondition = 1 },
+            });
+            Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);
+            var briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
+
+            var sendBriefResponse = await client.PutAsync($"/api/crm/briefs/{briefId}/send", content: null);
+            Assert.Equal(HttpStatusCode.NoContent, sendBriefResponse.StatusCode);
+
+            var briefApprovalId = await FindApprovalIdAsync(client, subjectType: "DesignBrief", subjectId: briefId);
+            await DecideApprovalAsync(client, briefApprovalId);
+
+            // ApprovalDecidedIntegrationEvent -> CRM marks the brief Approved and enqueues
+            // CrmBriefApprovedIntegrationEvent -> Projects satisfies the gate: two real hops.
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+            Assert.Equal(2, await GetGateStatusAsync(client, projectId, stageId, briefGateId)); // Satisfied
+
+            // --- CrmItemsResolved: same two-hop shape, off a requirement item instead of a brief. ---
+            var itemsGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 9, label: "Needs items resolved");
+
+            var periodResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/periods", new
+            {
+                ProjectStageId = stageId,
+                ClosesAtUtc = DateTime.UtcNow.AddDays(7),
+            });
+            Assert.Equal(HttpStatusCode.Created, periodResponse.StatusCode);
+            var periodId = (await periodResponse.Content.ReadFromJsonAsync<PeriodIdBody>())!.PeriodId;
+
+            var itemResponse = await client.PostAsJsonAsync($"/api/crm/periods/{periodId}/items", new
+            {
+                ProjectId = projectId,
+                Category = 1, // SpaceLayout
+                Title = "Kitchen layout",
+                Priority = 2, // Medium
+            });
+            Assert.Equal(HttpStatusCode.Created, itemResponse.StatusCode);
+            var itemId = (await itemResponse.Content.ReadFromJsonAsync<ItemIdBody>())!.ItemId;
+
+            var sendItemResponse = await client.PutAsync($"/api/crm/requirement-items/{itemId}/send", content: null);
+            Assert.Equal(HttpStatusCode.NoContent, sendItemResponse.StatusCode);
+
+            var itemApprovalId = await FindApprovalIdAsync(client, subjectType: "RequirementItem", subjectId: itemId);
+            await DecideApprovalAsync(client, itemApprovalId);
+
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+            Assert.Equal(2, await GetGateStatusAsync(client, projectId, stageId, itemsGateId)); // Satisfied
+
+            // --- CrmPeriodClosed: one hop - closing the period publishes directly, no Approvals round trip. ---
+            var periodGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 7, label: "Needs period closed");
+
+            var closePeriodResponse = await client.PutAsync($"/api/crm/periods/{periodId}/close", content: null);
+            Assert.Equal(HttpStatusCode.NoContent, closePeriodResponse.StatusCode);
+
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+            Assert.Equal(2, await GetGateStatusAsync(client, projectId, stageId, periodGateId)); // Satisfied
+        }
+    }
+
+    /// <summary>
+    /// G9-15's own phase-level "three-subscriber assertion" (lesson 2, explicit — deferred here from
+    /// G9-13's own PROGRESS.md entry): <c>ApprovalDecidedIntegrationEventHandler</c>'s filter runs
+    /// BEFORE any query, per <c>docs/adding-a-module.md</c>'s subject-type-filtered subscription
+    /// pattern. Proven the way that doc prescribes and <c>GateFlowTests.ApprovalDecidedEvent_ForADesignBriefSubject_DoesNotTouchAnyGate</c>
+    /// already proved for Projects' own subscriber (G5-08): reuse a REAL row's id under the WRONG
+    /// subject type and assert that row is untouched. Here it is CRM's own subscriber's turn — a real
+    /// <c>CrmDesignBrief</c>, reused as the fake event's <c>SubjectId</c> under <c>GateCondition</c>
+    /// (not <c>DesignBrief</c>). A random-guid test would pass even with the filter deleted, since
+    /// there'd be no real row to accidentally match; reusing the real id is what makes this test
+    /// meaningful.
+    /// </summary>
+    [Fact]
+    public async Task ApprovalDecidedEvent_ForAGateConditionSubject_DoesNotTouchAnyCrmDesignBrief()
+    {
+        var client = fixture.CreateClient();
+        var suffix = Guid.NewGuid().ToString("N");
+
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
+            $"g9-filter-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
+        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
+        var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+
+        var token = fixture.IssueTestToken(
+            appUserId, "employees.create", "project.create", "clients.create", "crm.briefs.manage", "crm.briefs.read");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
+        {
+            AppUserId = appUserId,
+            JobTitle = "Engineer",
+            HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ContractType = "FullTime",
+        });
+        Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
+
+        var clientResponse = await client.PostAsJsonAsync("/api/clients", new { AppUserId = appUserId, Address = "1 Client Rd" });
+        Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
+        var clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
+
+        // No stage template at all - CreateCrmDesignBriefCommand's ProjectStageId is nullable, and this
+        // test only needs a real project + a real brief, not a stage-owned one.
+        var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            Code = $"P-{suffix}",
+            Name = "Filter Test",
+            Address = "1 Test Rd",
+            WorkflowType = 1,
+            ClientId = clientId,
+        });
+        Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+        var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+
+        var briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
+        {
+            Data = new { UnitType = 1, UnitCondition = 1 },
+        });
+        Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);
+        var briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
+
+        // Reuses the REAL brief's own id as the fake event's SubjectId, under the WRONG SubjectType
+        // (GateCondition, not DesignBrief) - if CrmApprovalDecidedIntegrationEventHandler's filter
+        // didn't run first, this brief would flip to Approved.
+        var eventBus = fixture.Services.GetRequiredService<IEventBus>();
+        await eventBus.PublishAsync(
+            new Approvals.Contracts.ApprovalDecidedIntegrationEvent(
+                Guid.NewGuid(), Guid.NewGuid(), Approvals.Contracts.ApprovalSubjectType.GateCondition, briefId,
+                Approvals.Contracts.ApprovalDecision.Approved, appUserId, DateTimeOffset.UtcNow),
+            CancellationToken.None);
+
+        var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        var briefAfter = await (await client.GetAsync($"/api/crm/projects/{projectId}/brief"))
+            .Content.ReadFromJsonAsync<CrmBriefStatusBody>();
+        Assert.Equal(1, briefAfter!.Status); // still Draft
+    }
+
+    private static async Task<Guid> CreateStageGateAsync(HttpClient client, Guid projectId, Guid stageId, int conditionType, string label)
+    {
+        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/stages/{stageId}/gates", new
+        {
+            ConditionType = conditionType,
+            Trigger = 1, // Unlock
+            Label = label,
+            ReferencedTaskId = (Guid?)null,
+            ReferencedStageId = (Guid?)null,
+            ApprovalType = (int?)null,
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<GateIdBody>())!.GateConditionId;
+    }
+
+    private static async Task<int> GetGateStatusAsync(HttpClient client, Guid projectId, Guid stageId, Guid gateId)
+    {
+        var gates = await (await client.GetAsync($"/api/projects/{projectId}/stages/{stageId}/gates"))
+            .Content.ReadFromJsonAsync<List<GateBody>>();
+        return gates!.Single(g => g.Id == gateId).Status;
+    }
+
+    private static async Task<Guid> FindApprovalIdAsync(HttpClient client, string subjectType, Guid subjectId)
+    {
+        var trail = await (await client.GetAsync($"/api/approvals/by-subject/{subjectType}/{subjectId}"))
+            .Content.ReadFromJsonAsync<List<ApprovalTrailItemBody>>();
+        return Assert.Single(trail!).Id;
+    }
+
+    private static async Task DecideApprovalAsync(HttpClient client, Guid approvalId)
+    {
+        var response = await client.PutAsJsonAsync($"/api/approvals/{approvalId}/decide", new { Decision = 1, Comment = (string?)null }); // Approved
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     private static async Task<Guid> UploadAsync(HttpClient client, string url, string fileContents, Guid? folderId)
     {
         using var content = new MultipartFormDataContent();
@@ -352,4 +621,11 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
     private sealed record DocumentIdBody(Guid DocumentId);
     private sealed record ApprovalIdBody(Guid ApprovalId);
     private sealed record DocumentDetailBody(Guid Id, Guid RootDocumentId, bool IsLocked);
+    private sealed record ClientIdBody(Guid ClientId);
+    private sealed record ProjectStageBody(Guid Id);
+    private sealed record BriefIdBody(Guid BriefId);
+    private sealed record PeriodIdBody(Guid PeriodId);
+    private sealed record ItemIdBody(Guid ItemId);
+    private sealed record ApprovalTrailItemBody(Guid Id);
+    private sealed record CrmBriefStatusBody(int Status);
 }

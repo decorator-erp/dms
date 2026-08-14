@@ -4007,3 +4007,55 @@ runnable without Docker is green: `Crm.UnitTests` 195/195, `EnumMappingParityTes
 new `CrmSmokeTests` (permission-count assertion, the 401 gate, the anonymous-reachability 202, and the
 rate-limiter 429 burst test) — standing Docker-unavailable note; all of it, plus the whole accumulated
 backlog from G9-01 onward, must run before this phase merges.
+
+**G9-15** — done — the characterization suite, the six-module extension to `CrossModuleSmokeTests`, the
+schema-isolation assertion, and the three-subscriber assertion G9-13's own PROGRESS.md entry deferred
+here explicitly.
+
+**`Crm_flow_spans_all_six_modules_end_to_end_and_is_stable_across_two_runs`** (`CrossModuleSmokeTests.cs`) —
+same shape as this file's own Documents flow (G7-08): run TWICE inside one test for a flake check, each
+pass its own fresh actor/project/client. Unlike G6/G7's single-gate proofs, this one drives **all three**
+CRM gate types through the real host, real HTTP routes, and the real outbox — not just one, because the
+plan names all three as this task's own scope: `CrmBriefApproved` (design brief → send → Approvals
+decide → two outbox hops: `ApprovalDecidedIntegrationEvent` reaches CRM, which enqueues
+`CrmBriefApprovedIntegrationEvent`, which Projects consumes), `CrmItemsResolved` (office-authored
+requirement item → send → Approvals decide → the identical two-hop shape), and `CrmPeriodClosed` (open →
+close, one hop — no Approvals round trip, since closing a period publishes directly in the same
+`SaveChangesAsync`). All three gates are created on the SAME project stage, proving they don't interfere
+with each other's satisfaction.
+
+**`ApprovalDecidedEvent_ForAGateConditionSubject_DoesNotTouchAnyCrmDesignBrief`** — the phase-level
+"three-subscriber assertion" (lesson 2, explicit), CRM's own leg of it. `GateFlowTests` already proved
+(at G5-08) that a `DesignBrief`-subject decision doesn't touch Projects' own gate table; this is CRM's
+own subscriber's turn: reuses a REAL `CrmDesignBrief`'s id as a fake `ApprovalDecidedIntegrationEvent`'s
+`SubjectId`, published under the WRONG `SubjectType` (`GateCondition`, not `DesignBrief`), and asserts
+the brief stays `Draft` — proving `ApprovalDecidedIntegrationEventHandler`'s filter runs before any
+query, per `docs/adding-a-module.md`'s subject-type-filtered subscription pattern. A random-guid test
+would pass even with the filter deleted; reusing the real id is what makes it meaningful.
+
+**`CrmSchemaIsolationTests.cs`** — same shape as `ProjectsSchemaIsolationTests`/`DocumentsSchemaIsolationTests`:
+`GetClientByIdQueryHandler` (a single `CrmDbContext` projection, no cross-module lookup at all) issues no
+SQL touching `identity.`/`hr.`/`approvals.`/`projects.` — the stronger claim Documents' own version
+established, no permission-bypass path to reason about.
+
+**A genuinely new phase-level check, not just a repeat of an earlier task's own verify: the migration-order
+probe `PLAN-PHASE4.md`'s own verification section requires** (`dotnet ef migrations add Probe --context
+CrmDbContext` produces an empty migration, then revert it) **actually ran in this environment**, unlike
+almost everything else this phase has accumulated under the Docker-unavailable note — `migrations add`
+only diffs the current C# model against the last migration snapshot; it needs no live database
+connection, only `migrations remove`/`database update` do. Ran it against both `CrmDbContext` and
+`ProjectsDbContext` (the second because G9-13 hand-wrote `AddClientForeignKey` without ever running the
+tool against it) — **both produced a genuinely empty `Up`/`Down`**, confirming the hand-maintained
+migrations and their `*ModelSnapshot.cs` files are consistent with the current C# model. Reverted by
+deleting the generated files directly (`migrations remove` itself needs a live connection to read
+`__EFMigrationsHistory`, which this environment doesn't have) — confirmed clean via `git status`
+afterward, no snapshot drift left behind either probe.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean. Everything
+runnable without Docker is green, unchanged from G9-14's own list, **plus** the two migration-order
+probes above (the one check this phase could actually run against a real EF model, Docker or not).
+**Not run in this environment**: `Crm_flow_spans_all_six_modules_end_to_end_and_is_stable_across_two_runs`,
+`ApprovalDecidedEvent_ForAGateConditionSubject_DoesNotTouchAnyCrmDesignBrief`, `CrmSchemaIsolationTests`
+— this task's own three new Testcontainers-dependent tests, added to the same standing backlog every
+prior task in this phase has accumulated. The full backlog (G9-01 through G9-15) must run before this
+phase merges — G10-01's own report enumerates it in full as the phase's single largest open item.
