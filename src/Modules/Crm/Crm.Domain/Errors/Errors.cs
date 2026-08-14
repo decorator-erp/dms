@@ -62,6 +62,68 @@ internal static class CrmLeadErrors
         "An experience reason requires designer experience to be set.");
 }
 
+internal static class CrmBriefErrors
+{
+    public static readonly Error NotFound = Error.NotFound("crm.briefs.NotFound", "Design brief was not found.");
+
+    public static readonly Error NotDraft = Error.Conflict(
+        "crm.briefs.NotDraft", "Intake can only be seeded onto a Draft head.");
+
+    public static readonly Error NotPending = Error.Conflict(
+        "crm.briefs.NotPending", "Only a PendingApproval entry can be approved or rejected.");
+
+    public static readonly Error OnlyLockedSuperseded = Error.Conflict(
+        "crm.briefs.OnlyLockedSuperseded", "Only a locked (Approved) entry can be superseded.");
+
+    public static readonly Error EntryLocked = Error.Conflict(
+        "crm.briefs.EntryLocked", "This entry is locked and cannot be edited or resent.");
+
+    public static readonly Error EntryPending = Error.Conflict(
+        "crm.briefs.EntryPending", "This entry already has a pending approval.");
+}
+
+internal static class CrmSpaceErrors
+{
+    public static readonly Error SpaceNotFound = Error.NotFound("crm.spaces.SpaceNotFound", "Space was not found.");
+
+    public static readonly Error ItemNotFound = Error.NotFound(
+        "crm.spaces.ItemNotFound", "Space item was not found.");
+
+    public static readonly Error InvalidData = Error.BadRequest("crm.spaces.InvalidData", "A space name is required.");
+}
+
+internal static class CrmSpaceTypeErrors
+{
+    public static readonly Error CodeRequired = Error.BadRequest("crm.space_types.CodeRequired", "A code is required.");
+
+    public static readonly Error NameRequired = Error.BadRequest(
+        "crm.space_types.NameRequired", "English and Arabic names are required.");
+}
+
+/// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05), which owns
+/// the rest of this error set — only the members G9-04's entities need are declared here; G9-05 adds
+/// the remainder to this same class rather than starting a second one.</summary>
+internal static class CrmCatalogErrors
+{
+    public static readonly Error ItemNotFound = Error.NotFound("crm.catalog.ItemNotFound", "Catalog item was not found.");
+
+    public static readonly Error CategoryNotFound = Error.NotFound(
+        "crm.catalog.CategoryNotFound", "Catalog category was not found.");
+
+    public static readonly Error AttributeNotFound = Error.NotFound(
+        "crm.catalog.AttributeNotFound", "Catalog attribute was not found.");
+
+    public static readonly Error CustomNameRequired = Error.BadRequest(
+        "crm.catalog.CustomNameRequired", "A name is required for a custom entry.");
+
+    public static readonly Error NotACustomEntry = Error.BadRequest(
+        "crm.catalog.NotACustomEntry", "This operation only applies to a custom (non-catalog) entry.");
+
+    public static readonly Error AttributeTypeMismatch = Error.BadRequest(
+        "crm.catalog.AttributeTypeMismatch",
+        "Exactly one value must be set, matching the attribute's declared data type.");
+}
+
 internal static class CrmMeetingErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.meetings.NotFound", "Meeting was not found.");

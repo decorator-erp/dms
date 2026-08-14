@@ -144,3 +144,39 @@ internal enum ProjectSector
     Retail = 5,
     MegaProject = 6,
 }
+
+/// <summary>Confirmation state of a CRM artifact. Named plainly here (unlike its Contracts twin
+/// <c>CrmApprovalState</c>) because Domain assemblies are mutually invisible — the collision that
+/// forced the Contracts rename (against <c>Approvals.Contracts.ApprovalState</c>) doesn't exist
+/// between two <c>internal</c> Domain enums in different assemblies.</summary>
+internal enum ApprovalState
+{
+    Draft = 1,
+    PendingApproval = 2,
+    Approved = 3,
+    Rejected = 4,
+    NotRequired = 5,
+}
+
+/// <summary>The value column a catalog attribute writes into. Needed already at G9-04 because
+/// <see cref="CrmSpaceItemAttributeValue"/> is scoped to the Briefs &amp; Spaces task, ahead of the
+/// Catalog task (G9-05) that otherwise owns this enum's home sub-area.</summary>
+internal enum CatalogAttributeType
+{
+    Text = 1,
+    Number = 2,
+    Boolean = 3,
+    Date = 4,
+    Select = 5,
+}
+
+/// <summary>What happens to an item recorded in a space. Same cross-task-boundary note as
+/// <see cref="CatalogAttributeType"/> — <see cref="CrmSpaceItem"/> needs it at G9-04, ahead of
+/// G9-06's Periods/Items/Notes/Artifacts task that otherwise owns this sub-area.</summary>
+internal enum CrmProvisionStatus
+{
+    ToBuy = 1,
+    ClientHas = 2,
+    Reuse = 3,
+    NotApplicable = 4,
+}

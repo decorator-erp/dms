@@ -3462,3 +3462,35 @@ authority to delete a row it doesn't directly own the collection of. `AttachResi
 intake validation, and the full meeting/slot lifecycle: request → propose → accept/decline →
 schedule/reschedule → cancel/complete/no-show, plus the idempotent reminder stamp). No EF Core
 reference (rule 1). Architecture tests 13/13 green.
+
+**G9-04** — done — `src/Modules/Crm/Crm.Domain/{CrmDesignBrief,CrmBriefSpace,CrmBriefHeadSnapshot,
+CrmSpaceType,CrmSpace,CrmSpaceItem,CrmSpaceItemAttributeValue,CatalogAttributeValueRules}.cs`. Four
+more enums (`ApprovalState`, `CatalogAttributeType`, `CrmProvisionStatus` — the latter two pulled
+forward from G9-05/G9-06's nominal sub-areas because `CrmSpaceItem`/`CrmSpaceItemAttributeValue` need
+them here; harmless, enums have no task-ordering dependency of their own). Matching error classes
+(`CrmBriefErrors`, `CrmSpaceErrors`, `CrmSpaceTypeErrors`, and a `CrmCatalogErrors` seeded with only
+the members this task's entities need — G9-05 extends the same class rather than starting a second
+one). `tests/Modules/Crm.UnitTests/` gains 5 files, 42 more tests (117 total).
+
+**`CrmDesignBrief.SiteId` is new in this port, not present in the backend entity** — a bare nullable
+Guid per the phase's scope table, the Sites seam `ICrmBriefReader.CrmDesignBriefSummary` (G9-01)
+already declares. No FK; Sites doesn't exist yet; nothing in this phase populates it.
+
+**`CrmBriefHeadSnapshot.DiffFrom` is genuinely new work, not a port.** The backend's own
+`CrmBriefDomainService` comments the snapshot as "FR-029 per-round diff source" but never implements
+the diff — confirmed by grep against the backend, nothing to port. Implemented as a pure
+field-by-field comparison returning the changed property names, unit-tested for zero-changes,
+one-field-changed, and multi-field-changed cases specifically, per `PLAN-PHASE4.md`'s instruction to
+test the diff logic hardest.
+
+**`CrmSpaceItem.PromoteToItem` and `CrmLeadIntake`'s sector-switch (G9-03) share a pattern**: the
+category-tree/child-row validation the backend's domain service used to do inline now belongs to the
+Application handler (G9-11/G9-09 respectively), because Domain has no query access to validate
+against. Domain enforces only the shape invariant (XOR, non-empty ids); Application enforces the
+cross-aggregate one.
+
+**Verify:** `dotnet build -warnaserror` 0/0, `dotnet format --verify-no-changes` clean, `dotnet test`
+117/117 (75 + 42 — brief head create/update/approve/reject/seed-from-intake, the brief-space ledger's
+send/approve/reject/supersede chain, the head-snapshot diff in three shapes, space/space-type CRUD,
+and the space-item catalog-vs-custom XOR including promote/rename/remove). No EF Core reference
+(rule 1). Architecture tests 13/13 green.
