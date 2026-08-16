@@ -33,6 +33,10 @@ internal sealed class CrmModule : IModule
         services.AddScoped<IClientDirectory, ClientDirectory>();
         services.AddScoped<ICrmSchedulerService, CrmSchedulerService>();
 
+        // Added at S1-01 for Sites: SiteRecord.SpaceId's "same project as the site" invariant cannot
+        // be expressed without a CRM read, and reading crm.crm_spaces directly is forbidden.
+        services.AddScoped<ICrmSpaceReader, CrmSpaceReader>();
+
         // M1-01: this module's first bound options. TimezoneId cannot be checked by a data annotation -
         // a malformed IANA/Windows id only fails when FindSystemTimeZoneById is actually called - so
         // .Validate(...) exercises it at startup, turning a per-request TimeZoneNotFoundException into

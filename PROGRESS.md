@@ -4801,3 +4801,95 @@ unchanged); `dotnet format --verify-no-changes` clean. Probe: the scaffolded mig
 exactly the column drop. No `SiteId` reference remains in live code — the only surviving hits are three
 doc comments explaining the removal, the frozen `20260814103117_InitialCrm` migration that created it
 (historical, correctly untouched), and the drop migration itself.
+
+**S1-01** — done — `src/Modules/Sites/Sites.Contracts/` (12 files: `Sites.Contracts.csproj`, `Enums.cs`,
+`SitesPermissions.cs`, `ISiteScoped.cs`, `ISiteReadQueries.cs`, `ISiteSchemaCache.cs`,
+`ISiteModuleValidator.cs`, `IntegrationEvents.cs`, `Definition/DefinitionContracts.cs`,
+`Surveys/SiteContracts.cs`, `Records/RecordContracts.cs`, `Documents/DocumentContracts.cs`),
+`src/Modules/Crm/Crm.Contracts/ICrmSpaceReader.cs`,
+`src/Modules/Crm/Crm.Infrastructure/Services/CrmSpaceReader.cs`, `CrmModule.cs`, `DMS.Modular.slnx`,
+`tests/Architecture.Tests/Architecture.Tests.csproj`.
+
+**The five backend feature files were read before a single record was written**, per the plan's
+standing requirement — it exists because G9-01 wrote twelve contract records with no handler to check
+them and three could not express what the logic needed. That read changed three shapes:
+
+1. **`CreateSiteCommand`, `DecideSiteCommand` and `LinkSiteDocumentCommand` now carry a pre-resolved
+   HR employee id** (`CreatedById`/`DecidedById`/`AddedById`). The backend passes only the identity id
+   and resolves the employee inside each handler; three handlers repeating one lookup is the shape CRM
+   already corrected at G9-14 by resolving the actor at the ENDPOINT. Adopted from the start here
+   rather than retrofitted.
+2. **`UpdateSiteRecordRequest` drops `ModuleId`.** A record's module is fixed at creation — the entity
+   has no setter, because changing it orphans every captured value. Carrying an ignored-but-validated
+   `ModuleId` on the update path is the root of backend defects B2/B3 (S1-07 fixes them); this contract
+   simply does not offer the field.
+3. **`SiteDetailResponse` drops `SourceBriefId`.** Nothing writes that column in this system, so the
+   field would be structurally always-null on every detail read.
+
+**Corrected: 7 permission strings, not 6 [D1].** `PLAN-PHASE5.md:115` claimed six, "verified by grep…
+No `sites.manage`". There is no `sites.manage` — but the pattern used excluded the dot and so could not
+match `sites.definitions.manage`, which the backend keeps in a separate `SiteDefinitions` group and
+which gates **18 of the 20 definition routes**. Shipping six would have left those routes with no
+correct permission to gate on. Definition *reads* are gated on `sites.read`, which is why the whole
+group looked absent.
+
+> **Standing rule, recorded alongside lesson 2: a grep returning a clean, plausible result is not
+> evidence until the pattern itself has been checked against a known-positive case.** This is the
+> **third** false negative in this project from a too-narrow pattern, each reported as verified fact:
+> Phase 4's permission survey could not structurally see `requirements.*`; E1's test search for "task
+> under" with a space could not match `ATaskUnderIt`; and now D1. Three is a pattern, not bad luck.
+> Every one would have been caught by asking "what would this pattern miss?" before trusting the
+> output.
+
+**Corrected: the message count.** `PLAN-PHASE5.md` and the Phase 5 plan both said "29
+commands/queries". Counted from source: **29 commands + 12 queries = 41 messages**, matching the 41
+endpoints. The commands number was right; the queries were never added in.
+
+**`ICrmSpaceReader` added to CRM — the one sanctioned change outside Sites, user-confirmed [D4][D5].**
+`SiteRecord.SpaceId` carries the `SpaceNotInProject` rule ("that space belongs to a different
+project"), which the backend enforces by reaching into the spaces table from a site repository
+(`SiteRepositories.cs:202-207`). A module may not read another module's tables, and CRM's existing
+`GetCrmSpacesByProjectQuery` is an `IQuery<T>` that **rule 10 forbids** Sites from depending on — so no
+contract existed that could carry the rule. Alternatives rejected: dropping the invariant (ships a
+known-missing rule the backend's own unit tests assert), or leaning on the FK (an FK proves the space
+exists, never that it belongs to the right project). `CrmSpaceSummary` carries `IsActive` because the
+backend's check requires it, and the reader deliberately does not filter on it so the caller can tell
+"no such space" from "retired space". **This also corrects S1-01's own verify clause in
+`PLAN-PHASE5.md`**, which permitted only `Documents.Contracts` + `Projects.Contracts`; `sites → crm`
+was already in rule 9's allow-list, so only the clause was incomplete.
+
+**Contracts shipped WITHOUT a handler, and which task builds each** — the G9-14 accounting, whose
+absence cost a multi-task investigation last phase:
+
+| Contracts types | Handler task |
+|---|---|
+| 16 definition commands + 4 definition queries (`Definition/`) | S1-06 |
+| `ISiteSchemaCache`, `ISiteModuleValidator`, `ISiteReadQueries` implementations | S1-06 |
+| 6 survey commands + 2 survey queries (`Surveys/`) | S1-07 |
+| 5 record commands + 4 record queries (`Records/`) | S1-07 |
+| 2 document commands + 1 document query (`Documents/`) | S1-07 |
+| `SiteSubmittedIntegrationEvent`, `SiteApprovedIntegrationEvent` | S1-07 publishes; **no consumer this phase, by design** — stated on the types themselves |
+| `ISiteScoped` (marker) | `SiteScopeDecorator` enforces it at S1-05 |
+| `ICrmSpaceReader` | implemented **now**; consumed at S1-07 |
+
+**No variance contract exists [D8].** `GetSiteVarianceQuery`/`SiteVarianceResponse`/
+`SiteVarianceRowResponse` are deliberately absent — the route can only ever return
+`BriefProvenanceLost`, because nothing writes `Site.SourceBriefId`. Deferred as a scope boundary rather
+than shipped as an unreachable surface. Recorded on `Crm.Contracts.ICrmBriefReader` as well, since that
+seam's only plausible consumer was this route: it remains implementation-free and is now documented as
+such rather than waiting for a third discovery.
+
+**Five unit enums deliberately duplicated.** `UnitType`/`UnitCondition`/`BuildingKind`/`UnitPosition`/
+`ElevatorStatus` already exist twice (`Crm.Contracts.Enums` public, `Crm.Domain.Enums` internal); Sites
+adds a third public copy, and a fourth internal one lands at S1-02. Referencing CRM's would make its
+public surface part of Sites' own domain vocabulary, so a CRM renumbering would silently change what a
+stored `sites` column means. Both modules persist these as ints; the values must stay identical.
+
+**Verify:** `Sites.Contracts` references only `SharedKernel` + `BuildingBlocks` — no module reference in
+either direction. `dotnet build -warnaserror` 0/0; `dotnet test` **552/552** (unchanged — this task adds
+contracts, not behavior); **Architecture.Tests 14/14 with rules 5 and 10 green** (integration event
+payloads are `Guid`/`bool`/`DateTimeOffset` only; no other module depends on a Sites command or query
+type). `dotnet format --verify-no-changes` clean. `Sites.Contracts` went into `DMS.Modular.slnx` **and**
+`Architecture.Tests.csproj` before any of its code was written, so no rule was ever vacuous over it —
+`ModuleAssemblies` discovers by suffix from the test project's output directory, so the ProjectReference
+is precisely what makes it visible.
