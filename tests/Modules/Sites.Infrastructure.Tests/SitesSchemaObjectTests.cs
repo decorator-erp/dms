@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Sites.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
@@ -80,7 +83,13 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
 
         await using (var context = new SitesDbContext(options))
         {
-            await context.Database.MigrateAsync();
+            // Deliberately migrated to InitialSites ONLY, not to latest. The next migration adds seven
+            // cross-schema foreign keys pointing at projects/hr/crm/documents, none of which exist in
+            // this isolated container -- and standing up six other modules here would make a
+            // schema-object test into a composition test. Those constraints have their own coverage:
+            // Rule9CrossSchemaForeignKeyTests migrates every module in SchemaOrder and asserts each FK
+            // points in an allowed direction. This file owns exactly what InitialSites creates.
+            await context.Database.GetService<IMigrator>().MigrateAsync("InitialSites");
         }
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());

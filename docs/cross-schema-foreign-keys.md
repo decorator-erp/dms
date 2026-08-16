@@ -70,7 +70,7 @@ Allowed pairs for the current design:
 hr        → identity
 approvals → identity
 crm       → identity, hr
-sites     → projects, crm
+sites     → projects, crm, documents, hr
 projects  → identity, hr, crm, approvals
 finance   → projects, crm
 documents → projects, hr, approvals
@@ -171,6 +171,53 @@ pair, for the same reason). Validated where it matters in application code: CRM'
 `GateCondition.ReferencedDocumentId` does for Documents, trusting the id without a constraint behind
 it.
 
+**`sites → projects`, `sites → hr`, `sites → crm`, `sites → documents` (added at S1-05, Phase 5).**
+Seven constraints, all raw SQL in `20260816164226_SitesCrossSchemaForeignKeys`, all `ON DELETE
+RESTRICT`, all with quoted PascalCase columns:
+
+- `fk_sites_project` — `sites.sites."ProjectId" → projects.projects("Id")`
+- `fk_sites_created_by` — `sites.sites."CreatedById" → hr.employees("Id")`
+- `fk_sites_decided_by` — `sites.sites."DecidedById" → hr.employees("Id")` (nullable)
+- `fk_site_documents_added_by` — `sites.site_documents."AddedById" → hr.employees("Id")`
+- `fk_site_documents_document` — `sites.site_documents."DocumentId" → documents.project_documents("Id")`
+- `fk_site_records_space` — `sites.site_records."SpaceId" → crm.crm_spaces("Id")` (nullable)
+- `fk_site_records_catalog_item` — `sites.site_records."CatalogItemId" → crm.crm_catalog_items("Id")` (nullable)
+
+`("sites","documents")` and `("sites","hr")` are the two new pairs in rule 9's allow-list;
+`("sites","projects")` and `("sites","crm")` were already there, declared before the module existed.
+
+**Read `fk_site_documents_document` against `crm.crm_artifact_documents.DocumentId` directly above, or
+the pair will read as an inconsistency.** They are the same link — a module-owned row pointing at a
+`documents.project_documents` id, storing no file, mirroring the other's shape deliberately. One has a
+real foreign key and the other can never have one, and the entire difference is migration order:
+`crm` precedes `documents`, so CRM's own migration runs before the table it would reference exists;
+`sites` is last in `SchemaOrder`, so every schema it points at is already there. Nothing about the two
+relationships differs in importance, ownership, or risk. If a future refactor moves `sites` earlier,
+`fk_site_documents_document` has to go the same way CRM's did.
+
+**Two of these diverge from the backend, which uses `CASCADE`.** `sites.sites."ProjectId"` and
+`sites.site_documents."DocumentId"` are `ON DELETE CASCADE` in the source system. Rule 9 permits only
+`RESTRICT` across a schema boundary — a delete in one module silently destroying another module's rows
+is exactly what the rule exists to prevent — so both were changed. The practical consequence is
+visible: deleting a project that has surveys is now refused rather than taking the surveys with it, and
+the caller has to remove them deliberately.
+
+**`sites.sites."SourceBriefId"` deliberately has no FK, and this absence is different from the two
+above.** It is provenance rather than a dependency, nothing in this system writes it
+(`BackfillSitesFromBriefs` is a backend data-migration utility that was not ported), and the backend
+makes it `ON DELETE SET NULL` precisely so that deleting a brief leaves the survey intact. Rule 9
+permits only `RESTRICT`, and `RESTRICT` here would be actively wrong: a project whose design brief was
+ever deleted would become permanently undeletable, and the error would surface inside the projects
+module against a `sites` table its owner has never heard of. Absent is the correct answer, not a gap to
+close. The partial unique index `ux_sites_source_brief` still stands, so if a backfill ever does
+populate the column, one brief cannot seed two surveys.
+
+**The `SpaceId` FK does not make `ICrmSpaceReader` redundant.** `fk_site_records_space` proves the
+space row exists; it cannot prove the space belongs to the same project as the site, which is the rule
+`SiteErrors.SpaceNotInProject` states and the one the backend enforces with an application query. No
+constraint Postgres offers can express it without a trigger, and this repo has none — so the FK and the
+`Crm.Contracts.ICrmSpaceReader` check at S1-07 are belt and braces on two different failure modes.
+
 **`crm.crm_artifact_documents.DocumentId` has no FK either — the migration-order cycle from structural
 item 1, one hop further out.** The three desired FKs (`projects.ClientId → crm.clients.Id`,
 `documents.project_documents.ProjectId → projects.projects.Id`, and
@@ -217,8 +264,11 @@ The `IModule` contract already gives you the hook:
 
 ```csharp
 // Api/Program.cs — topological order, not registration order
-string[] order = ["shared", "identity", "hr", "approvals", "crm", "sites",
-                  "projects", "documents", "finance", "notify"];
+// Corrected at S1-05: this list previously placed "sites" before "projects", which contradicts
+// the allow-list above -- sites -> projects means projects must migrate FIRST. The shipped order in
+// ModuleDependencyOrder.SchemaOrder is authoritative; sites is last.
+string[] order = ["shared", "identity", "hr", "approvals", "crm", "projects",
+                  "documents", "sites", "finance", "notify"];
 foreach (var name in order)
     await app.Services.MigrateModuleAsync(name);
 ```

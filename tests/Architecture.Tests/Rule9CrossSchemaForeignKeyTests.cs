@@ -31,7 +31,12 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         ("hr", "identity"),
         ("approvals", "identity"),
         ("crm", "identity"), ("crm", "hr"),
-        ("sites", "projects"), ("sites", "crm"),
+        // S1-05: sites -> documents and sites -> hr are new. Both are legal because sites is the
+        // LAST schema in SchemaOrder, so every schema it references already exists when it
+        // migrates -- contrast crm.crm_artifact_documents.DocumentId, which can never carry an FK
+        // at all because crm migrates before documents. Same link shape, opposite outcome, and the
+        // reason is entirely migration order. See docs/cross-schema-foreign-keys.md.
+        ("sites", "projects"), ("sites", "crm"), ("sites", "documents"), ("sites", "hr"),
         ("projects", "identity"), ("projects", "hr"), ("projects", "crm"), ("projects", "approvals"),
         ("finance", "projects"), ("finance", "crm"),
         ("documents", "projects"), ("documents", "hr"), ("documents", "approvals"),
@@ -47,6 +52,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["crm"] = ("Crm.Infrastructure", "Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure"),
             ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
             ["documents"] = ("Documents.Infrastructure", "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure"),
+            ["sites"] = ("Sites.Infrastructure", "Sites.Infrastructure.Persistence.SitesDbContext, Sites.Infrastructure"),
         };
 
     private PostgreSqlContainer _container = null!;

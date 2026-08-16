@@ -5122,3 +5122,92 @@ migrates a fresh Testcontainers Postgres per run and every one of its 14 asserti
 migrated database. **Probe migration empty**, generated and removed after confirming. Rules 1/4/6/8a
 green via Architecture.Tests 14/14, with all four Sites projects referenced in
 `Architecture.Tests.csproj` before their code was written.
+
+**S1-05** — done — `src/Modules/Sites/Sites.Infrastructure/Persistence/Migrations/InitialSites/20260816164226_SitesCrossSchemaForeignKeys.cs`,
+`src/Modules/Sites/Sites.Infrastructure/Decorators/{SiteScopeDecorator,SiteScopeRegistration}.cs`,
+`tests/Architecture.Tests/Rule9CrossSchemaForeignKeyTests.cs`,
+`tests/Modules/Sites.Infrastructure.Tests/SiteScopeCoverageTests.cs`,
+`docs/cross-schema-foreign-keys.md`. **3 new tests.**
+
+**Seven cross-schema FKs, not the plan's four [D3].** Structural item 2 of `PLAN-PHASE5.md` inventoried
+four outbound references; the entities carry eight. The four it missed — `Site.CreatedById`,
+`Site.DecidedById` (→ hr), `SiteRecord.SpaceId`, `SiteRecord.CatalogItemId` (→ crm) — are all real
+columns with real targets. The conclusions survived: `sites` still appends cleanly and the two new
+allow-list pairs are still `sites → documents` and `sites → hr`. Only the FK list doubled.
+
+**Two diverge from the backend, deliberately [D7].** `sites."ProjectId"` and
+`site_documents."DocumentId"` are `ON DELETE CASCADE` in the source; rule 9 permits only `RESTRICT`
+across a schema boundary. The behavioural consequence is real and is recorded in the docs: deleting a
+project with surveys is now refused rather than silently taking them along.
+
+**`SourceBriefId` gets no FK, and the reasoning is not the same as the other absences.** The backend
+makes it `SET NULL` *specifically* so a surveyed project stays deletable. `RESTRICT` — the only
+behaviour rule 9 allows — would be actively wrong here: a project whose brief was ever deleted would
+become permanently undeletable, with the error surfacing in the projects module against a `sites` table
+its owner has never heard of. Absent is correct, not a gap. `ux_sites_source_brief` still stands.
+
+**The CRM-artifact asymmetry is written down where it will be read.** `fk_site_documents_document` and
+`crm.crm_artifact_documents.DocumentId` are the same link — a module-owned row pointing at a
+`project_documents` id, storing no file — and one has a real FK while the other can never have one.
+Nothing about the relationships differs; the entire difference is that `crm` precedes `documents` in
+`SchemaOrder` while `sites` is last. Recorded as a paragraph adjacent to CRM's own, because read apart
+they look like an inconsistency, and a future reader moving `sites` earlier needs to know this FK goes
+the same way CRM's did.
+
+**Rule 9 fault-injected once, and it caught the injection by name.** A scratch wrong-direction
+constraint (`documents.project_documents."ScratchSiteId" → sites.sites`, inverting the graph — Sites
+depends on Documents, never the reverse) made
+`EveryCrossSchemaForeignKey_PointsInAnAllowedDirection` fail with *"Cross-schema foreign keys pointing
+the wrong way: fk_scratch_documents_site: documents -> sites"*. Reverted and reconfirmed green. The
+allow-list is now proven rather than trusted for this module.
+
+**`SiteScopeDecorator` takes the Projects shape, not the CRM one.** It resolves the site to its project
+and defers to `IProjectAccessGuard`, collapsing **every** failure to 404 — id is nonsense, site was
+soft-deleted, or it belongs to a project the caller cannot see. CRM propagates its guard's 403 instead,
+and the divergence is deliberate on both sides: "you have no CRM identity" is a fact about the caller,
+while "that site" must not become an existence oracle for someone who cannot see the project. The
+`IsActive` query filter means a soft-deleted survey takes the 404 branch with no special case.
+
+**The backend's `GuardSiteScopeCoverage` is ported — the plan did not mention it, and it is the reason
+the 404 guarantee holds by construction.** Opting a message into scoping is one interface on a record
+declaration; forgetting it is invisible, because the handler still works and the route simply serves
+any site to any caller. The backend's own comment records that the per-handler version of this check
+had been written **once out of twenty-one** times, and that the guard immediately caught a real miss.
+Ported as a **test** rather than a startup throw, matching this repo (rule 9 and the boot assertions are
+all tests; a startup exception fails at run time rather than at check-in). Three tests: every message
+with a `Guid SiteId` implements `ISiteScoped`; every `ISiteScoped` message actually has one (so the
+check cannot be satisfied by marking everything scoped, which would resolve `Guid.Empty` and 404 on
+every call); and a vacuity check pinning the counts.
+
+> **Corrected while writing it: 18 scoped messages, not 20.** The first draft asserted 20 by conflating
+> the scoped set with the 20 *definition* messages. The real split is 40 messages = 18 scoped (5 survey
+> commands + 1 survey query, 5 record commands + 4 record queries, 2 document commands + 1 document
+> query) + 22 unscoped (the 20 definition messages, plus `CreateSiteCommand` — no site exists yet — and
+> `GetSitesQuery`, which lists rather than reads and authorizes against the project directly). The
+> definition layer's exemption is expressed as "has no `SiteId`" rather than an allow-list, so no
+> maintainer can add a site-carrying message to that folder and quietly inherit it.
+
+**`SitesSchemaObjectTests` now migrates to `InitialSites` only, not to latest.** Adding the FK
+migration broke all 14 of its tests at once: the new constraints reference projects/hr/crm/documents,
+none of which exist in its isolated container. Standing up six other modules there would turn a
+schema-object test into a composition test — and those constraints already have coverage, since
+`Rule9CrossSchemaForeignKeyTests` migrates every module in `SchemaOrder` and now includes `sites` in its
+`Modules` dictionary. The test is pinned with `IMigrator.MigrateAsync("InitialSites")` and says why.
+
+**Docs:** `docs/cross-schema-foreign-keys.md` gains the `sites →` paragraph (all seven constraints by
+name), the CASCADE→RESTRICT divergences, the `SourceBriefId` absence, the CRM-artifact asymmetry, and a
+note that the `SpaceId` FK does **not** make `ICrmSpaceReader` redundant — an FK proves the space
+exists, never that it belongs to this site's project. The allow-list row is now
+`sites → projects, crm, documents, hr`. **Also corrected: the illustrative migration order in that file
+placed `sites` before `projects`**, contradicting its own allow-list one screen above (`sites → projects`
+requires projects first). It has been wrong since before Sites existed.
+
+**Deferred to S1-06:** `AddSiteScopeDecorator` is written and registered as an extension but not yet
+called from `SitesModule.Register` — `AddModuleCqrs` must run first (Scrutor wraps in call order, so
+the scope check has to be added last to end up outermost), and there are no handlers to scan until
+S1-06. `DecorateIfRegistered` already tolerates zero consumers, which is what makes wiring it ahead of
+its first real consumer safe.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **676/676** across 23 suites
+(Sites.Infrastructure.Tests 17/17); `dotnet format --verify-no-changes` clean. Rule 9 green **and
+fault-injected once** with the scratch constraint named in the failure, then reverted.
