@@ -5545,7 +5545,7 @@ for a phase.
 | :171 | rules 5 and 10 green | `Architecture.Tests` (14/14) | ✅ |
 | :207 | eight schemas apply clean from empty | `SitesSchemaObjectTests` (fresh container per run), `SitesApplicationFixture` (all seven modules) | ✅ |
 | :207 | probe migration empty | generated and removed at S1-04 | ✅ |
-| :207 | rules 1/4/6/8a fault-injected | `Architecture.Tests`; **rule 9 fault-injected for real at S1-05** | ⚠️ partial — see below |
+| :207 | rules 1/4/6/8a fault-injected | `Architecture.Tests`; rule 9 at S1-05, **rules 1/4/6/8a at P5F-01** | ✅ — was ⚠️ partial; closed by P5F-01 |
 | :245 | app boots with seven modules, asserted by name | `CrmSmokeTests.Boot_RegistersExactlySevenModules` | ✅ — moved to S1-04, where the module starts registering |
 | :245 | `GET /api/permissions` returns 62 | `SitesSmokeTests.GetPermissions_TotalsOneHundredAndFourteenAcrossSevenModules` | ✅ as **114** [D2] |
 | :245 | `/scalar` lists site routes | `SitesSmokeTests.OpenApiDocument_ListsTheSiteRoutes` | ✅ |
@@ -5554,14 +5554,9 @@ for a phase.
 | R3 | raw-SQL objects asserted | `SitesSchemaObjectTests` (9 tests) | ✅ |
 | S1-06 | decorator proven applied | `SiteScopeDecoratorTests` (3 tests), confirmed failing with registration removed | ✅ |
 
-> **⚠️ The one clause not fully met: "rules 1/4/6/8a fault-injected" (:207).** Rule 9 was
-> fault-injected for real at S1-05 — a scratch `documents → sites` constraint made
-> `EveryCrossSchemaForeignKey_PointsInAnAllowedDirection` fail naming it, then reverted. Rules 1, 4, 6
-> and 8a were **not** individually fault-injected; they were verified only by running green. They are
-> not vacuous — all four Sites projects are referenced in `Architecture.Tests.csproj`, and rule 4 in
-> particular is exercised constantly because every Sites Domain/Application/Infrastructure type is
-> `internal` — but "fault-injected" is a stronger claim than "green", and this entry records the
-> difference rather than letting the clause read as satisfied. **Follow-up task**, cheap to do.
+> **✅ Closed by P5F-01.** This clause shipped as ⚠️ partial at S2-01: rule 9 had been fault-injected
+> for real at S1-05, but rules 1, 4, 6 and 8a were verified only by running green. All four have now
+> been injected against Sites and confirmed failing **by name**, then reverted. See the P5F-01 entry.
 
 ## Every decision the plan did not specify
 
@@ -5595,7 +5590,8 @@ check the source never had is not a port), B17 (item usage counts values on soft
 
 ## Anything thinner than intended
 
-- **Rules 1/4/6/8a were not fault-injected** — see the ⚠️ above. The only verify clause not fully met.
+- ~~**Rules 1/4/6/8a were not fault-injected**~~ — the only verify clause not fully met at S2-01.
+  **Closed by P5F-01**, which injected all four and confirmed each fails by name.
 - **`SiteHarness`'s predicate-compiling substitute did not survive.** Its value was mock fidelity; against
   a real database the guarantee moves into the architecture. Nothing was lost, but the plan expected it
   to port.
@@ -5672,3 +5668,55 @@ audit trail instead, which belongs with Notifications & Audit.
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **750/750** across 24 suites on two
 consecutive runs; `dotnet format --verify-no-changes` clean; tree clean; seven modules booting;
 `GET /api/permissions` returning **114**.
+
+---
+
+# P5F — Phase 5 follow-ups
+
+**P5F-01** — done — no source change; `PROGRESS.md` only. **The verify clause `PLAN-PHASE5.md:207`
+opened at S2-01 as ⚠️ partial is now closed.** Rules 1, 4, 6 and 8a were each given a real violation in
+a Sites project, run against `Architecture.Tests`, confirmed **failing by name with a message naming
+the offender**, then reverted and reconfirmed green.
+
+| Rule | Injection | Red — the failing test and its message | Green after revert |
+|---|---|---|---|
+| **1** — `*.Domain` may not reference EF Core | `Microsoft.EntityFrameworkCore` package ref on `Sites.Domain.csproj` + `TempRule1Violation` holding a `DbContext?` property | `Rule1_DomainAssemblies_MustNotReferenceEfCore` — *"Sites.Domain: Sites.Domain.TempRule1Violation"* | ✅ |
+| **4** — only `*.Contracts` may hold public types | `public sealed class TempRule4Violation` in `Sites.Application` | `OnlyMigrationTypesMayBePublicOutsideContracts` — *"Sites.Application exposes public types outside Contracts: Sites.Application.TempRule4Violation"* | ✅ |
+| **6** — no type references a `DbContext` outside its own module | project ref `Sites.Infrastructure → Crm.Infrastructure`, a matching `InternalsVisibleTo` grant on `Crm.Infrastructure.csproj`, and `TempRule6Violation` taking a `CrmDbContext` by ctor/field/property | `NoTypeReferencesADbContextOutsideItsOwnModule` — *"Sites.Infrastructure.TempRule6Violation in Sites.Infrastructure references a DbContext outside its own module"* | ✅ |
+| **8a** — no `*.Application`/`*.Domain` references `BuildingBlocks.Web` | project ref on `Sites.Application.csproj` + `TempRule8Violation` reading `ModuleDependencyOrder.SchemaOrder.Count` | `ApplicationAndDomainAssemblies_MustNotReferenceBuildingBlocksWeb` — *"Sites.Application references BuildingBlocks.Web"* | ✅ |
+
+Four things the drill established that "green" could not:
+
+**Every rule failed, and only the intended one did.** Rules 1, 4 and 8a each produced **exactly one**
+failing test out of 13 — no collateral, so each rule is aimed at what its name claims and nothing else
+is silently covering for it.
+
+**Rule 6's injection was caught three times over.** Besides rule 6 itself, `Rule3ModuleIsolationTests`
+failed **both** halves independently: `Modules_MustNotReferenceEachOthersDomainApplicationOrInfrastructure`
+named the type, and `Modules_MustNotGrantInternalsVisibleToAcrossAModuleBoundary` named the grant —
+*"Crm.Infrastructure grants InternalsVisibleTo across a module boundary: Sites.Infrastructure"*. That is
+real defence in depth: the cross-module DbContext reference cannot be reached without first crossing two
+other tripwires, and the `InternalsVisibleTo` check catches the *enabling step* rather than the use.
+
+**A rule-8a violation cannot be committed by accident.** `GetReferencedAssemblies()` reflects what the
+compiler actually **emitted**, so an unused `<ProjectReference>` to `BuildingBlocks.Web` would leave the
+rule green — the injection needed a real member access (`ModuleDependencyOrder.SchemaOrder.Count`) to go
+red. That is the correct behaviour, not a hole: a reference nobody uses is not the architectural
+coupling rule 8 exists to prevent. Worth stating, because the obvious injection (add the reference, run
+the test) would have produced a **false negative and a wrong conclusion** — the same shape as D1.
+
+**Rule 8a's message names an assembly, the other three name a type.** That is the granularity of the
+violation itself: rules 1/4/6 are per-type, rule 8a is per-assembly-reference. Nothing to fix; recorded
+so nobody later "improves" it into something it cannot know.
+
+One incidental: MSBuild rejects `--` inside an XML comment, so the injection comments in the two
+`.csproj` files had to be reworded. Cost one build; noted only because it will recur in any future
+csproj-level injection.
+
+**What this does NOT prove.** Only that each rule detects the *specific* violation shape injected. Rule
+6, for example, deliberately does not look inside method bodies (its own doc comment says so), and this
+drill did not test that. Fault injection raises a rule from "passes" to "detects at least one real
+violation"; it does not make it exhaustive.
+
+**Verify:** `Architecture.Tests` 14/14 green after every revert; tree clean between injections
+(`git status --short` empty); full gate below.
