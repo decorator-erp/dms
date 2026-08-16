@@ -4981,3 +4981,65 @@ Sites.UnitTests 64/64); `dotnet format --verify-no-changes` clean. No EF Core re
 > passed, and neither `tcp://127.0.0.1:2375` nor the named pipe answered. Execution stopped there rather
 > than working around it, per the phase precondition. The gate above is the same tree re-verified after
 > the daemon came back, with no code change between the two runs.
+
+**S1-03** — done — `src/Modules/Sites/Sites.Domain/Definition/` (`SiteModule.cs`, `SiteItem.cs`,
+`SiteModuleItem.cs`, `SiteItemOption.cs`, `SiteModuleForm.cs`),
+`tests/Modules/Sites.UnitTests/SiteDefinitionGovernanceTests.cs`. **43 new tests (107 in the module).**
+
+The four definition entities sit in a `Definition/` folder and are **deliberately not `ISiteScoped`** —
+global master data with no project and no site, per the backend's own `SiteEndpoints` doc comment.
+Recorded on `ISiteScoped` itself rather than only here, because that exemption is the thing S1-05's
+coverage guard has to be able to distinguish from an oversight.
+
+**Scope correction: `SiteModuleValidator` is not in this task.** Both `PLAN-PHASE5.md`'s reconciliation
+table and this phase's plan assign it to S1-03, but it is not domain code — it queries the definition
+tables on every call (`Infrastructure/Services/Sites/SiteModuleValidator.cs` in the backend) and
+`Sites.Domain` has no DbContext and may never have one. It lands at **S1-06** with the rest of the
+definition features, implementing `Sites.Contracts.ISiteModuleValidator`, and that is also where defect
+B7 (its per-value `AnyAsync` N+1) gets fixed. What *did* belong in the domain moved here — see the next
+paragraph.
+
+**`ValidateAgainstItem` moved onto `SiteItem` as `ValidateValue`.** It was already `private static` in
+the backend's domain service and documented there as "synchronous: the options arrive preloaded, so
+nothing here touches the database" — a pure rule about one item, parked in an orchestration class
+because that is where its caller lived. It is the only part of that 485-line service that is genuinely
+domain logic. Options are passed in as a set rather than navigated to, because the caller batches option
+loading across a whole grid save; null means "this item has no options", which for a Select item makes
+any option id invalid rather than valid.
+
+**Backend defects fixed here, not ported:**
+
+1. **`SiteModule.ChangeCode` answered a RENAME with `SystemModuleNotDeletable`** — "System modules
+   cannot be deleted." The refusal is right; the words describe an operation the caller did not attempt.
+   Now `SystemDefinitionNotRenameable` (new at S1-02).
+2. **`ReorderLinks` mutated as it iterated (B19).** The backend calls `SetSortOrder` inside the loop and
+   can still fail on a later entry, leaving a partial reorder on the change tracker. Nothing persists
+   *today* only because the handler returns before saving and the scoped DbContext dies with the request
+   — the correctness rests on an accident of lifetime, and any future decorator, retry or second save in
+   the same request would flush the half-applied order. `SiteModuleForm.Reorder` validates the entire
+   request before touching anything. Two tests assert the earlier link is untouched when a *later* entry
+   fails, which is the shape that would catch a regression.
+3. **The `SortOrder >= 0` asymmetry.** The backend range-checks it on `SiteRecord` and `SiteModuleItem`
+   but not on `SiteModule` or `SiteItemOption`, and nothing in the design distinguishes them. Made
+   uniform, with a test asserting all four agree.
+
+**`EnsureDeletable()` on `SiteModule`/`SiteItem` splits a rule the backend kept whole.** The system-flag
+half is pure and is now on the entity; the in-use half (captured values, module records, existing links)
+needs a query and stays in the handler at S1-06. That split is what let the backend's seven governance
+tests — every one of which drives the domain service through repository mocks — become entity tests
+here without losing what they proved.
+
+**Coverage extended past the backend's seven tests.** The backend pairs every locked case with an
+unlocked one so an unconditionally-refusing service cannot pass; that bar is kept. Added: both
+directions of `LimitNotLegalForType` (numeric limits on non-Number, text limits on non-Text — untested
+there despite the rule's own comment warning that a bound on a Select would be silently ignored, leaving
+its author believing a rule was in force); the `MaxLength` 1/1024 boundaries; zero-tolerance staying
+legal on every type (without which no non-Number item could be created at all);
+`ChangeCapturedShape` re-validating against the NEW type, which is *why* the backend's fixture needed an
+`UnconstrainedItem` and which it then never tested; and `ValidateValue`'s bounds, trimmed-length, regex,
+and option-membership branches — including that a **malformed admin pattern passes rather than blocks
+capture**, asserted so it reads as a decision rather than a swallowed exception.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **659/659** across 22 suites (Sites.UnitTests
+107/107 — 64 from S1-02 plus 43 here); `dotnet format --verify-no-changes` clean. No EF Core reference
+in `Sites.Domain` (rule 1); Architecture.Tests 14/14.
