@@ -43,6 +43,25 @@ public sealed class OutboxSignal
 
 Cost at idle: one trivial query per minute. Effectively zero.
 
+### Scale-time note — the single-flight semaphore is per-process (not work to do now)
+
+E2-01 fixed a real race by single-flighting `OutboxProcessor.ProcessPendingAsync` behind a
+`SemaphoreSlim`. Two entry points were competing for the same pending rows — the hosted
+`BackgroundService` poll loop and an explicit `ProcessPendingAsync()` call — with the loser swallowing
+its `PK_inbox_messages` rollback and returning before the winner had committed.
+
+That semaphore is **per-process**, which is exactly right for the single-instance target above. On a
+second instance each process gets its own semaphore and the stale-read timing window returns.
+Correctness still holds — the inbox dedupe plus the `PK_inbox_messages` constraint prevent double
+side-effects — but the window is back.
+
+The fix at that point is `SELECT … FOR UPDATE SKIP LOCKED` on the outbox fetch, which moves the
+mutual exclusion into Postgres where every instance shares it, and removes the need for the semaphore
+entirely.
+
+Nothing to do until someone adds a second instance. Recorded here so that day does not begin with
+rediscovering it.
+
 ## 3. The 9 notification jobs — do NOT port them as 9 background loops
 
 The old backend runs `NotificationJobsWorker` + 9 `IPeriodicJob`s (`InvoiceDue`, `TaskDeadline`,

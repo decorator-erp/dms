@@ -4490,3 +4490,36 @@ faithfully found the hole, which is the system working. Meetings remains its own
 is how it gets lost twice.
 
 Meetings and Sites planning stay explicitly out of scope for this step, unstarted.
+
+---
+
+# Step H2 — housekeeping, the branch is merge-ready
+
+**H2-01** — done — `.gitignore` (`.claude/`), `docs/low-resource-hosting.md` (§2 scale-time note), and
+the eight untracked planning/review documents now tracked: `PLAN-PHASE4.md`, `REVIEW-E1-COMPLETE.md`,
+`REVIEW-E2-PLAN.md`, `REVIEW-E2-COMPLETE.md`, `REVIEW-PHASE4-{PLAN,EXEC,COMPLETE,FINAL}.md`. Committed
+per the H1-04 precedent — review documents are tracked alongside the record they drive, so a later
+reader finds the reasoning next to the outcome rather than only the outcome.
+
+**`.claude/` is ignored, not committed — a decision, not a default.** It holds exactly two things:
+`scheduled_tasks.lock` (a session lock carrying a live pid and an acquisition timestamp) and
+`settings.local.json` (two Bash permission allowances whose values embed the machine-absolute path
+`D:/Elzanfaly/Repositories/dms-modular`). Neither is shared project configuration; both are per-machine
+tooling state, and the `.local.json` suffix is itself the convention for "not shared." Committing them
+would put one developer's session lock and one developer's absolute paths into everyone else's tree. The
+`.gitignore` entry carries that reasoning inline so the next person doesn't re-litigate it.
+
+**The multi-instance outbox note is recorded as a scale-time note, not as work.** E2-01's `SemaphoreSlim`
+single-flights `OutboxProcessor.ProcessPendingAsync` **within one process**, which is correct and
+sufficient for the single-instance target `docs/low-resource-hosting.md` already commits to. On a second
+instance each process gets its own semaphore and the stale-read timing window returns — correctness still
+holds (the inbox dedupe plus `PK_inbox_messages` prevent double side-effects), but the window is back.
+The fix at that point is `SELECT … FOR UPDATE SKIP LOCKED` on the outbox fetch, which moves the mutual
+exclusion into Postgres where every instance shares it and removes the need for the semaphore entirely.
+It sits in §2 beside the wake-on-write decision because that is the section someone reads the day they
+add a second instance — which is the only day it matters.
+
+**Verify:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet format --verify-no-changes` clean;
+`dotnet test` **531/531 across all 21 test projects, 0 failed, on two consecutive full runs** — the same
+number E2-04 closed Step 2 on, unchanged by a docs-and-gitignore commit, which is the point of running
+the full gate on one. `git status` clean.

@@ -486,3 +486,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Claude Code machine-local tooling state: a session lock holding a live pid, and
+# settings.local.json (the .local.json suffix is itself the "not shared" convention -
+# its permission entries carry machine-absolute paths). Plan and review documents are
+# tracked at the repo root instead, per the H1-04 precedent.
+.claude/
