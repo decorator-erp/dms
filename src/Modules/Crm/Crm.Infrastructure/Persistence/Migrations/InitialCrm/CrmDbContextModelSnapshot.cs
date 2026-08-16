@@ -875,9 +875,6 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<int?>("Sector")
                         .HasColumnType("integer");
 
-                    b.Property<Guid?>("SiteId")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 

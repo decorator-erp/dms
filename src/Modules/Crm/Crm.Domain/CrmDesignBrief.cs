@@ -38,17 +38,19 @@ internal sealed record CrmBriefHeadData(
 /// ledger lives one level down in <see cref="CrmBriefSpace"/> — the head is exempt from the ledger
 /// rule.
 ///
-/// <para><b><see cref="SiteId"/> is new in this port, not present in the backend entity.</b> A bare
-/// nullable Guid per this phase's scope table and <c>PLAN-PHASE4.md</c>'s G9-04 task text — the Sites
-/// seam declared at G9-01 (<c>ICrmBriefReader.CrmDesignBriefSummary.SiteId</c>). No FK; Sites doesn't
-/// exist yet. Populated by nothing in this phase — the column exists so a future Sites module has
-/// somewhere to write without a CRM migration.</para>
+/// <para><b>There is deliberately no <c>SiteId</c> here.</b> G9-04 added one on the instruction of
+/// <c>PLAN-PHASE4.md</c>, which was an error in that plan rather than a design choice: the backend
+/// entity has no such field, and the real brief↔site link runs the OTHER way, as
+/// <c>Site.SourceBriefId</c> (<c>../backend/Domain/Entities/Site.cs:57-66</c>, documented there as
+/// "provenance, not a dependency… written only by <c>BackfillSitesFromBriefs</c>; there is
+/// deliberately no domain setter"). Nothing ever wrote the column. It was dropped at S1-00, before
+/// Sites introduced the real link, so the model never carries two fields for one relationship
+/// pointing in opposite directions.</para>
 /// </summary>
 internal sealed class CrmDesignBrief : Entity, IAuditable
 {
     public Guid ProjectId { get; private set; }
     public Guid? ProjectStageId { get; private set; }
-    public Guid? SiteId { get; private set; }
     public Guid CreatedById { get; private set; }
     public Guid? LastMeetingId { get; private set; }
     public ApprovalState Status { get; private set; }

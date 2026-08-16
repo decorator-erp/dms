@@ -3476,6 +3476,23 @@ one). `tests/Modules/Crm.UnitTests/` gains 5 files, 42 more tests (117 total).
 Guid per the phase's scope table, the Sites seam `ICrmBriefReader.CrmDesignBriefSummary` (G9-01)
 already declares. No FK; Sites doesn't exist yet; nothing in this phase populates it.
 
+> **Corrected at S1-00 — this was a plan error, not a design choice.** The divergence was recorded
+> honestly above, but the conclusion drawn from it was wrong. `PLAN-PHASE4.md` instructed G9-04 to add
+> `SiteId` and deferred it as a "Sites seam"; the backend has no such field, and the real brief↔site
+> link runs the OTHER way, as `Site.SourceBriefId` (`../backend/Domain/Entities/Site.cs:57-66`,
+> documented there as "provenance, not a dependency… written only by `BackfillSitesFromBriefs`; there
+> is deliberately no domain setter"). Nothing ever wrote the column — a search of `Crm.Domain` returned
+> only the property declaration and two doc-comment lines, and `ICrmBriefReader` has no implementation
+> at all. Left in place, Sites' real `SourceBriefId` would have made the model carry two fields for one
+> relationship pointing in opposite directions, with the fabricated one unwritten and the real one
+> authoritative. Dropped at S1-00 (property, `CrmDesignBriefSummary.SiteId`, the config comment, one
+> test assertion, migration `20260816121110_DropCrmDesignBriefSiteId`) — **before** Sites landed, so
+> both never coexist in a shipped migration.
+>
+> Found by applying lesson 2 ("already exists" claims verified against the repo when relied on) during
+> Phase 5 planning, to a claim in Phase 5's own plan document. The lesson caught a defect in the plan
+> that wrote it.
+
 **`CrmBriefHeadSnapshot.DiffFrom` is genuinely new work, not a port.** The backend's own
 `CrmBriefDomainService` comments the snapshot as "FR-029 per-round diff source" but never implements
 the diff — confirmed by grep against the backend, nothing to port. Implemented as a pure
@@ -4737,3 +4754,50 @@ Meetings and Sites planning stay explicitly out of scope beyond the above — Si
 
 **Verify:** the full gate — `dotnet build -warnaserror`, `dotnet test`, `dotnet format --verify-no-changes`
 — run clean on two consecutive passes after this entry; see the exit report.
+
+---
+
+# Phase 5 — Sites (S1-00 → S2-01)
+
+Plan: `PLAN-PHASE5.md`, revised by `REVIEW-PHASE5-PLAN.md` (R1) and two follow-up revisions (R3, and
+the R2/R3 numbering fix). Planning applied lesson 2 to the plan document itself and found **eight
+defects (D1–D8) before any code**; they are recorded in the task entries that carry them.
+
+**S1-00** — done — `src/Modules/Crm/Crm.Domain/CrmDesignBrief.cs`,
+`src/Modules/Crm/Crm.Contracts/ICrmBriefReader.cs`,
+`src/Modules/Crm/Crm.Infrastructure/Persistence/Configurations/CrmDesignBriefConfiguration.cs`,
+`tests/Modules/Crm.UnitTests/CrmDesignBriefTests.cs`, migration
+`20260816121110_DropCrmDesignBriefSiteId` (+ regenerated `CrmDbContextModelSnapshot.cs`),
+`PLAN-PHASE4.md`, `PROGRESS.md`. Removed the fabricated `CrmDesignBrief.SiteId` — the full reasoning
+and its correction are recorded inline at the G9-04 entry above, which is where a reader looking for
+the original divergence will land.
+
+**The generated migration is exactly the column drop** — `DropColumn("SiteId", schema: "crm", table:
+"crm_design_briefs")` in `Up`, the matching `AddColumn` in `Down`, nothing else. Not hand-written:
+scaffolded from the real EF model, so the drop is proof the model no longer carries the property
+rather than an assertion that it doesn't.
+
+**No EF configuration line had to be removed** — the column was never configured, only
+convention-mapped, which is itself part of the evidence it was never designed. Only a comment
+describing it needed rewriting.
+
+**One test assertion removed** (`CrmDesignBriefTests.Create_StartsInDraft`'s `Assert.Null(brief.SiteId)`).
+The test still proves what its name claims via `Assert.Equal(ApprovalState.Draft, brief.Status)`; the
+removed line asserted a property that no longer exists, not a behavior that stopped being checked.
+
+**Two `PLAN-PHASE4.md` corrections beyond the deferred row**, both stale numbers rather than design
+errors: `:177` and `:310` said `CrmPermissions` has "59" strings. The shipped count is **56**
+(`CrmPermissions.All`, asserted by `CrmSmokeTests`). Corrected in place with the discrepancy named, so
+the next reader does not re-derive it.
+
+**`ICrmBriefReader` remains a dangling seam and is now documented as one.** Grepped: nothing constructs
+a `CrmDesignBriefSummary`, nothing registers an implementation, and `CrmModule.Register` wires only
+`ICrmAccessGuard`/`ICrmGateReader`/`IClientDirectory`/`ICrmSchedulerService`. Sites does not become its
+consumer — see D8 at S1-01. Recorded on the interface itself rather than left for a third discovery.
+
+**Verify:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet test` **552/552** across 21
+suites (Crm.UnitTests 201, Crm.Application.Tests 62, Integration.Tests 25, Architecture.Tests 14, rest
+unchanged); `dotnet format --verify-no-changes` clean. Probe: the scaffolded migration contains
+exactly the column drop. No `SiteId` reference remains in live code — the only surviving hits are three
+doc comments explaining the removal, the frozen `20260814103117_InitialCrm` migration that created it
+(historical, correctly untouched), and the drop migration itself.

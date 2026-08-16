@@ -160,7 +160,7 @@ The backend has no tests for CRM — every test here is new work with nothing to
 
 | Deferred | Owner |
 |---|---|
-| `CrmDesignBrief.SiteId` — bare nullable Guid, no FK | Sites |
+| ~~`CrmDesignBrief.SiteId` — bare nullable Guid, no FK~~ — **this row was a plan error, not a design choice; removed at S1-00.** The backend's `CrmDesignBrief` has no `SiteId`. The real brief↔site link runs the other way, as `Site.SourceBriefId` (`../backend/Domain/Entities/Site.cs:57-66`, "provenance, not a dependency"). Nothing ever wrote the column. Dropped before Sites introduced the real link, so the model never carried two fields for one relationship pointing in opposite directions. | — (closed at S1-00) |
 | Finance-facing client billing views | Finance |
 | Notification side effects (meeting reminders, period-close warnings) — events publish, zero handlers | Notifications |
 | `DocumentApprovedHandler`'s client-ownership check (stays same-project) | revisit only on a real requirement |
@@ -174,7 +174,8 @@ The backend has no tests for CRM — every test here is new work with nothing to
 
 `IClientDirectory` (`GetAsync`/`GetManyAsync` → `ClientSummary`, batch mandatory), `ICrmAccessGuard`
 (`ResolveActorAsync` → `CrmActor`), `ICrmGateReader` (the four methods above, **not** the two document
-ones), `ICrmBriefReader` (brief status — the Sites seam, declare now), `CrmPermissions` (all 59),
+ones), `ICrmBriefReader` (brief status — the Sites seam, declare now), `CrmPermissions` (all 56 — this
+document said "59" in two places; the shipped count is 56, corrected at S1-00),
 integration events (`ClientCreated`, `LeadConverted`, `CrmBriefApproved`, `CrmPeriodClosed`,
 `CrmItemsResolved`, `MeetingScheduled` — IDs and primitives only), commands/queries/DTOs for every
 in-scope feature, grouped per-noun like `Hr.Contracts`.
@@ -208,8 +209,10 @@ Lead → Client conversion is the key transition; port its rules faithfully.
 ### G9-04 — `Crm.Domain` — Briefs & Spaces
 
 `CrmDesignBrief`, `CrmBriefSpace`, `CrmBriefHeadSnapshot`, `CrmSpace`, `CrmSpaceType`, `CrmSpaceItem`,
-`CrmSpaceItemAttributeValue`. `SiteId` bare nullable Guid. The head-snapshot/diff logic is intricate —
-port faithfully and unit-test the diff specifically.
+`CrmSpaceItemAttributeValue`. ~~`SiteId` bare nullable Guid.~~ — **this instruction was an error in
+this plan**; the backend entity has no such field and the real link is `Site.SourceBriefId`, pointing
+the other way. The column was added at G9-04 on this instruction and dropped at S1-00. The
+head-snapshot/diff logic is intricate — port faithfully and unit-test the diff specifically.
 
 ### G9-05 — `Crm.Domain` — Catalog
 
@@ -309,8 +312,9 @@ unauthenticated write in the system:
 - A test asserting it is reachable anonymously **and** that no other CRM route is.
 
 **Verify:** app boots with six modules; `/scalar` lists CRM routes; `GET /api/permissions` contains all
-59 strings; anonymous `POST /leads` succeeds while anonymous GET on any other CRM route → 401; the rate
-limiter rejects a burst.
+56 strings (this document said "59"; the shipped count is 56 — corrected at S1-00); anonymous
+`POST /leads` succeeds while anonymous GET on any other CRM route → 401; the rate limiter rejects a
+burst.
 
 ### G9-15 — CRM integration suite + six-module smoke
 

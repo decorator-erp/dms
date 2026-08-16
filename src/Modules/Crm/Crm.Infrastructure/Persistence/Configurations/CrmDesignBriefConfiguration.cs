@@ -42,9 +42,10 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         builder.HasIndex(b => new { b.ProjectId, b.ProjectStageId }).IsUnique();
 
         // CreatedById: bare Guid FK to hr.employees(Id) - raw-SQL constraint added at G9-08.
-        // LastMeetingId/SiteId: no FK at all - LastMeetingId is same-schema but deliberately unvalidated
-        // (a stale reference is harmless, purely informational); SiteId points at a module that doesn't
-        // exist yet (Sites), per the phase's scope table.
+        // LastMeetingId: no FK at all - same-schema but deliberately unvalidated (a stale reference is
+        // harmless, purely informational).
+        // A SiteId column was dropped at S1-00; the brief never pointed at a site. The real link is
+        // Site.SourceBriefId, in the sites schema, pointing the other way - see the entity's remarks.
         builder.HasIndex(b => b.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
         builder.HasIndex(b => b.CreatedById);
     }

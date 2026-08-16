@@ -14,7 +14,6 @@ public class CrmDesignBriefTests
         var brief = CrmDesignBrief.Create(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), MinimalHead());
 
         Assert.Equal(ApprovalState.Draft, brief.Status);
-        Assert.Null(brief.SiteId);
     }
 
     [Fact]
