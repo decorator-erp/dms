@@ -5397,3 +5397,51 @@ status change, asserted by reading the outbox table. Zero registered handlers is
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **742/742** across 24 suites
 (Sites.Application.Tests 66/66, Sites.UnitTests 107, Sites.Infrastructure.Tests 17);
 `dotnet format --verify-no-changes` clean.
+
+**S1-08** — done — `src/Modules/Sites/Sites.Infrastructure/Endpoints/{SiteEndpointActors,SiteEndpoints,SiteDefinitionEndpoints}.cs`,
+`Sites.Infrastructure.csproj`, `tests/Integration.Tests/SitesSmokeTests.cs`. **6 new tests.**
+
+**40 routes: 20 survey, 20 definition.** `MapModuleEndpoints` discovers both classes by assembly scan, so
+`SitesModule` needed no edit. The seven-module boot assertion is not here — it moved to S1-04, where the
+module actually starts registering.
+
+**The permission split is the whole reason D1 mattered.** Definition **writes** take
+`sites.definitions.manage` (18 of the 20 definition routes); definition **reads** take `sites.read`,
+because a surveyor cannot render the capture form without the schema that shapes it, and gating the
+reads on the write permission would lock them out of their own form. `SitesSmokeTests` asserts both
+halves against the running app: `sites.read` alone lists modules (200) but cannot create one (403).
+
+**The exit number is 114, and it is now asserted as a literal.** `PLAN-PHASE5.md` predicted 62, reached
+by adding Sites' permissions to **CRM's own 56** — the number visible in `CrmSmokeTests` — rather than to
+the system total. Measured against the live `/api/permissions`: Approvals 3 + Crm 56 + Documents 6 + Hr
+17 + Identity 4 + Projects 21 = 107, plus Sites' 7 = **114**. Written as a named constant with the
+arithmetic in its doc comment so the next module has to look at it rather than inherit it.
+
+**The `/scalar` requirement is satisfied in its real form.** Scalar renders HTML with no route list to
+grep; the document it reads is the OpenAPI one at `/openapi/v1.json`, which is what the test asserts —
+twelve site route templates present, and the deferred variance route asserted **absent**. Same technique
+M1-02 introduced after `PLAN-PHASE4.md:311`'s equivalent went unwritten for a whole phase.
+
+**Actor resolution sits at the endpoint layer.** The three commands that stamp a person on a row take a
+pre-resolved employee id, resolved once in `SiteEndpointActors` from `ICurrentUser` via `IHrDirectory`.
+The backend resolves it inside each of the three handlers instead. A caller who authenticated but has no
+employee row gets `InvalidData` (400) — not a 403, because it is not an authorization failure: they are
+a permitted user who simply is not an employee, so the command cannot name a person for the row.
+
+**Two binding corrections the backend does not need and this port did.** Minimal APIs treat a
+non-nullable query parameter as **required**, so `bool includeInactive` made `GET /api/site-modules`
+answer 400 with no query string — caught by the read half of the permission-split test, which is exactly
+the kind of thing a 403-only test would have missed. `includeInactive` and the paging pair are now
+nullable with defaults. `projectId` on `GET /api/sites` stays a bare required `Guid`, deliberately: a
+`Guid` cannot carry a metadata default, and making it optional throws at route enumeration — at startup,
+not on first request. The backend's own comment warns about this; the comment is carried over.
+
+**Not ported: `GET /{siteId}/variance` [D8]**, and the OpenAPI test asserts its absence rather than
+leaving it unstated. It is also the only route that would have stacked a second module's permission
+(`crm.briefs.read`) on its own.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **748/748** across 24 suites (Integration.Tests
+31/31); `dotnet format --verify-no-changes` clean. `GET /api/permissions` returns **114** across seven
+modules with all 7 Sites strings present; `/openapi/v1.json` lists the site routes; an unauthenticated
+site route is 401 and an authenticated one without `sites.read` is 403 — the route-claim layer of
+`CLAUDE.md`'s authorization order, ahead of the decorator's 404.

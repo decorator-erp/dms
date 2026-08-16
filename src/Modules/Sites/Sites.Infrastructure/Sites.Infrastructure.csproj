@@ -18,6 +18,9 @@
          Projects.Contracts.IProjectAccessGuard; site creation validates ProjectId through
          IProjectDirectory (defect B1's fix). -->
     <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- Endpoint-layer actor resolution (S1-08): the three commands that stamp a person on the row take
+         a pre-resolved HR employee id, resolved here from ICurrentUser rather than in each handler. -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
