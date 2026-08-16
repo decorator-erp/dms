@@ -5211,3 +5211,98 @@ its first real consumer safe.
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **676/676** across 23 suites
 (Sites.Infrastructure.Tests 17/17); `dotnet format --verify-no-changes` clean. Rule 9 green **and
 fault-injected once** with the scratch constraint named in the failure, then reverted.
+
+**S1-06** — done — `src/Modules/Sites/Sites.Application/` (`SiteEnumMapping.cs`,
+`Features/Definition/{SiteDefinitionWrites,SiteModuleCommandHandlers,SiteItemCommandHandlers,SiteItemOptionCommandHandlers,SiteLinkCommandHandlers,SiteDefinitionQueryHandlers}.cs`,
+`Features/Surveys/GetSiteByIdQueryHandler.cs`),
+`src/Modules/Sites/Sites.Infrastructure/Services/{SiteSchemaCache,SiteModuleValidator,SiteReadQueries}.cs`,
+`SitesModule.cs`, `src/Modules/Sites/Sites.Domain/Definition/SiteItem.cs`,
+`tests/Modules/Sites.Application.Tests/` (4 files), `DMS.Modular.slnx`. **31 new tests.**
+
+The 16 definition commands, the 4 definition queries, and the three module-internal services. Handlers
+are resolved from DI against a real Postgres in the tests, so what is proven is the `AddModuleCqrs`
+registration and the decorator chain, not just the handler bodies.
+
+**The scope decorator is proven APPLIED, not merely registered — and the negative run was done.**
+`SiteScopeRegistration.DecorateIfRegistered` skips any `ISiteScoped` type with no handler, which is
+correct tolerance and also means registering the decorator with zero scoped handlers **decorates
+nothing, succeeds silently, and is indistinguishable from a working installation**. That is exactly how
+G5-07 shipped `ProjectScopeRegistration` scanning the wrong assembly: zero types found, nothing wired,
+every project-scoped command running with no access control.
+
+> With `services.AddSiteScopeDecorator(...)` commented out,
+> `AQueryForAProjectTheCallerCannotSee_IsNotFound` **fails by returning the site** — the handler runs
+> unguarded and answers, and `AQueryForASiteThatDoesNotExist_IsTheSameNotFoundAsAnUnauthorizedOne`
+> fails with an empty error. Restored, both pass. That failing run is what makes the test meaningful,
+> and it cannot be committed, so it is recorded here and on the test class.
+
+**One handler was pulled forward from S1-07 to make that possible.** `GetSiteByIdQueryHandler` is the
+only instance-layer handler in this task. Without at least one real `ISiteScoped` consumer there is
+nothing for the decorator to decorate and therefore nothing to assert — the verify would have been a
+registration check, which is precisely the check that cannot tell the two states apart. Disclosed as a
+deliberate scope adjustment rather than left implicit.
+
+**Backend defects fixed here:**
+
+- **B6 — concurrency conflicts became 409s.** All 16 of the backend's definition handlers catch only
+  `Exception` and return 500, despite all four definition tables carrying `xmin` tokens added
+  specifically because "two admins reordering one module's fields in the form builder is exactly the
+  collision this exists for". `SiteErrors.ConcurrencyConflict` already existed and is used consistently
+  by the eleven instance handlers; the definition layer simply never translated it. Fixed once, in
+  `SiteDefinitionWrites.SaveAsync`, for all sixteen.
+- **B7 — the validator's N+1.** The backend issues one `AnyAsync` per Select value inside the loop, and
+  bulk save calls the validator once per row — reintroducing, one layer up, the exact N+1 its own domain
+  service carries a comment about having removed. Now one batched option load, only for items a Select
+  value was actually supplied for.
+- **B16 — attaching a deactivated item.** The backend checks only that the item EXISTS; `site_items` has
+  no query filter, so a retired item attached happily, returned 201, and then never rendered (both the
+  schema and the pivot require `item.IsActive`). The admin saw success and an empty form field. Now
+  `ItemNotFound`, with a test.
+- **B8 (definition half) — five missing validators.** `UpdateSiteModule`, `UpdateSiteItem`,
+  `ChangeSiteItemShape`, `UpdateSiteItemOption`, `UpdateSiteLink` and `ReorderSiteLinks` had none, so a
+  129-character name was a 400 on create and a 500 from the column on update.
+- A smaller one, unnumbered: `DeleteSiteItem` materialized every link for an item just to test
+  `.Any()`. Now an existence query.
+
+**B18 is not applicable and is closed, not deferred.** It concerns audit rows written under the wrong
+entity name with inconsistent id semantics. `dms-modular` has **no `AuditAction` enum and no audit
+interceptor at all** (verified at S1-02: zero hits across `src/` and `tests/`), so there is no audit
+trail to get wrong. Auditing arrives with the Notifications & Audit module; whatever it does will not
+inherit this defect, because there is nothing to inherit.
+
+**Cache invalidation is tested per mutation path, not by sampling.** Nine tests drive a real definition
+write and re-read the schema — attach, detach, link update, reorder, item rename, item deactivate,
+module update — each warming the cache first, so a test would still fail if invalidation did nothing.
+One asserts the **global** behaviour directly: editing an item shared by two modules invalidates both,
+which is why the counter is global rather than per-module (items are shared, so a link change alters how
+a *different* module renders). One asserts a missing module is never cached, so creating a mistyped
+module is visible immediately rather than 404-ing for the TTL.
+
+**Two hand-written SQL reports ported with every identifier requoted.** `SiteReadQueries`' families and
+BOQ statements are the one thing here that cannot be expressed in the ORM. The backend writes them in
+snake_case because it maps every column explicitly; this port keeps EF's PascalCase, so **every column
+reference in both statements had to be rewritten and quoted** — an unquoted `label` would fold to a
+lowercase identifier that does not exist, and would fail at runtime on these reports only, long after a
+green build. Both guards their comments call out are preserved: the explicit
+`JOIN sites.sites s ON ... AND s."IsActive"` (raw SQL inherits no query filter, so a deleted site would
+otherwise still answer here while every other read 404s) and the `tolerance > 0` divide guard.
+
+**A cost of the deliberate enum duplication, now measured.** Every file that touches both
+`Sites.Contracts` and `Sites.Domain` hits `CS0104` on the eight duplicated enum names and must qualify
+or alias them — six files here. The duplication is still right (S1-01's reasoning stands: coupling
+Sites' domain vocabulary to CRM's public surface would let a CRM renumbering silently change what a
+stored column means), but the friction is real and worth naming rather than rediscovering per file.
+
+**Also fixed:** `SiteItem` was missing `Deactivate`/`Activate`, dropped when the entity was ported at
+S1-03. Nothing referenced them until `SetSiteItemActiveCommandHandler` did, which is the shape of gap a
+handler-free task cannot surface.
+
+**Deferred to S1-07, stated per the G9-14 accounting:** the 6 remaining survey commands, 1 survey query
+(`GetSitesQuery`), 5 record commands, 4 record queries, and 2 document commands + 1 document query. No
+integration event is published yet — `SiteSubmitted`/`SiteApproved` are S1-07's submit/approve path.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **707/707** across 24 suites
+(Sites.Application.Tests 31/31, Sites.UnitTests 107, Sites.Infrastructure.Tests 17);
+`dotnet format --verify-no-changes` clean. **The decorator's behavioural assertion was confirmed to fail
+with the registration removed and to pass with it restored** — the only check that distinguishes "wired"
+from "wired and applied".

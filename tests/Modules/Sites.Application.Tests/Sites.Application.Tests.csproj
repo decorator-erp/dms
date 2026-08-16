@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- Pins Testcontainers' transitive SSH.NET past a known vulnerability - see the comment in
+         Directory.Packages.props. -->
+    <PackageReference Include="SSH.NET" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Modules\Sites\Sites.Application\Sites.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Sites\Sites.Infrastructure\Sites.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Sites\Sites.Domain\Sites.Domain.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Sites\Sites.Contracts\Sites.Contracts.csproj" />
+    <!-- The fixture boots all SEVEN modules in SchemaOrder: Sites' cross-schema FKs point at
+         projects/hr/crm/documents, so every one of those schemas must exist before sites migrates.
+         Assembly.Load-based module bootstrapping needs each module's Infrastructure AND Application DLL
+         present in this project's own output directory. -->
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Contracts\Crm.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Infrastructure\Crm.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Crm\Crm.Application\Crm.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Application\Hr.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Contracts\Identity.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Application\Approvals.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Projects\Projects.Infrastructure\Projects.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Projects\Projects.Application\Projects.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Documents\Documents.Infrastructure\Documents.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Documents\Documents.Application\Documents.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+  </ItemGroup>
+
+</Project>

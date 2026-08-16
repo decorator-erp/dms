@@ -1,3 +1,4 @@
+using System.Reflection;
 using BuildingBlocks;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
@@ -5,17 +6,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Sites.Contracts;
+using Sites.Infrastructure.Decorators;
 using Sites.Infrastructure.Persistence;
+using Sites.Infrastructure.Services;
 
 namespace Sites.Infrastructure;
 
 /// <summary>
 /// The seventh module. Registration order mirrors <c>CrmModule</c>/<c>DocumentsModule</c> exactly.
 ///
-/// <para><c>AddModuleCqrs</c> and the scope decorator are deliberately absent until
-/// <c>Sites.Application</c> has handlers to scan (S1-06) and <c>SiteScopeDecorator</c> exists (S1-05) —
-/// the wiring checklist's step 4/7 split. Adding them now would register a decorator over an empty
-/// handler set.</para>
+/// <para><b>Decorator registration order is load-bearing.</b> <c>AddSiteScopeDecorator</c> must run
+/// AFTER <c>AddModuleCqrs</c> — Scrutor's <c>Decorate</c> wraps in call order, so the scope check has to
+/// be added last to end up outermost. A scope check inside the validation decorator would report on a
+/// payload the caller was never entitled to have validated, and would log the request as handled.</para>
 /// </summary>
 internal sealed class SitesModule : IModule
 {
@@ -26,7 +29,24 @@ internal sealed class SitesModule : IModule
         services.AddDbContext<SitesDbContext>(options =>
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
 
+        // Backs SiteSchemaCache. TryAdd-based, so calling it here is safe whether or not the host or
+        // another module has already registered it.
+        services.AddMemoryCache();
+
+        services.AddScoped<ISiteSchemaCache, SiteSchemaCache>();
+        services.AddScoped<ISiteModuleValidator, SiteModuleValidator>();
+        services.AddScoped<ISiteReadQueries, SiteReadQueries>();
+
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(Name, SitesPermissions.All));
+
+        var applicationAssembly = Assembly.Load("Sites.Application");
+        services.AddModuleCqrs<SitesDbContext>(applicationAssembly);
+
+        // Must run AFTER AddModuleCqrs -- see the type-level note. Scanned against the CONTRACTS
+        // assembly, where ISiteScoped messages actually live: scanning the Application assembly would
+        // find zero types, decorate nothing, and succeed silently -- which is exactly how G5-07 shipped
+        // Projects with no row-level access control at all.
+        services.AddSiteScopeDecorator(typeof(ISiteScoped).Assembly);
 
         return services;
     }

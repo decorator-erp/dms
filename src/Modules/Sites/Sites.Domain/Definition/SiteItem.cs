@@ -131,6 +131,15 @@ internal sealed class SiteItem : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>
+    /// Retiring an item hides it from every form without touching the values already captured against
+    /// it — which is why deactivation is the answer <see cref="SiteErrors.ItemInUse"/> points callers
+    /// at when deletion is refused.
+    /// </summary>
+    public void Deactivate() => SetActive(false);
+
+    public void Activate() => SetActive(true);
+
     /// <summary>True when <paramref name="code"/> is this item's code, ignoring case and surrounding
     /// space — lets a handler skip the uniqueness probe when a "rename" changes nothing.</summary>
     public bool CodeEquals(string? code) =>
