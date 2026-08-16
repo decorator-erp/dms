@@ -4893,3 +4893,91 @@ type). `dotnet format --verify-no-changes` clean. `Sites.Contracts` went into `D
 `Architecture.Tests.csproj` before any of its code was written, so no rule was ever vacuous over it —
 `ModuleAssemblies` discovers by suffix from the test project's output directory, so the ProjectReference
 is precisely what makes it visible.
+
+**S1-02** — done — `src/Modules/Sites/Sites.Domain/` (`Sites.Domain.csproj`, `Enums.cs`, `Site.cs`,
+`SiteRecord.cs`, `SiteRecordValue.cs`, `SiteDocument.cs`, `Errors/SiteErrors.cs`),
+`tests/Modules/Sites.UnitTests/` (`Sites.UnitTests.csproj`, `SiteLifecycleTests.cs`,
+`SiteRecordTests.cs`, `SiteDocumentTests.cs`), `DMS.Modular.slnx`,
+`tests/Architecture.Tests/Architecture.Tests.csproj`. **64 new tests.**
+
+Every cross-module id is a bare Guid with no navigation property (`ProjectId` → projects,
+`CreatedById`/`DecidedById` → hr, `SourceBriefId` → crm). The backend entities were already fully
+de-navigated, so this was a clean lift rather than a rewrite.
+
+**`SiteDomainService` is not ported, and nothing replaced it.** All 26 of its methods are orchestrating
+— it never calls `SaveChangesAsync`, it loads through seven repositories and mutates tracked entities
+for a caller to commit. Exactly one piece of it was pure enough to belong on an entity, and it moved
+there: the `Status == Approved` predicate the service repeated in `EnsureSiteEditableAsync` and inline
+in `AddRecordAsync` is now `Site.IsEditable`. The rest becomes handler code at S1-07. No
+`*DomainService` class taking a DbContext — the G5-02 naming trap, now a standing rule.
+
+**Corrected in flight: `SiteHarness` cannot be ported, and the plan's instruction to port it was wrong.**
+`PLAN-PHASE5.md` and this phase's plan both said to port `SiteLifecycleTests` **and** `SiteHarness`, and
+to keep the harness's `Selects<T>` predicate-compiling substitute. The harness exists to stand up seven
+NSubstitute **repository** mocks; this architecture has no repository layer to mock and no domain
+service to drive. Three of the backend's four lifecycle tests are orchestration proofs written against
+those mocks — approved-site record refusal, the space-belongs-to-this-project rule, and code allocation
+from the sequence — and they move to `Sites.Application.Tests` at S1-07, where a real Postgres answers
+the same questions. Only one test was entity behavior.
+
+> Worth stating because the harness's cleverness was real and is now unnecessary: `Selects<T>` compiled
+> the caller's own predicate and ran it against the fixture, so a stub matched only when the service
+> asked for that exact entity. It was written to fix a live bug — an earlier `Arg.Any` version returned
+> the same row for any id, so "an approved site refuses record writes" passed even when the service had
+> loaded a different site. That is a mock-fidelity problem. Against a real database, loading the wrong
+> row returns the wrong row; the guarantee moves from the test double into the architecture.
+
+**Test coverage went from 4 backend tests to 64**, all asserting specific errors (never bare
+`IsFailure`) and, on every refusal, that the entity was left unmutated. The gaps closed are the ones the
+backend never covered at all:
+
+- **The entire Rejected path.** The backend's four tests only ever approve, so nothing asserted that
+  `Decide(approved: false)` reaches `Rejected`, stamps the decider, or normalizes the note.
+- **`ReopenForRework`'s success path** — the backend tests only that reopening an *approved* site is
+  refused. The method's actual job, clearing all four stamps so the row satisfies its status/stamp check
+  constraint again, had zero coverage. It is now asserted stamp by stamp.
+- **`AddressRequiredToSubmit`** — the backend harness's `DraftSite()` always had an address, so the
+  guard that exists specifically to return a 400 naming the field instead of a 500 from the constraint
+  was never exercised.
+- **`Site.Update` on an approved site** — only record writes were covered; the header lock was not.
+- **`SiteRecordValue` entirely** — both of its invariants (exactly one value column populated, and the
+  populated one matching the item's declared type) had no unit test. Includes the two cases most likely
+  to be broken by a plausible refactor: `false` and `0` are values, not absences, and whitespace-only
+  text normalizes to null *before* the populated count, so a blank string cannot satisfy a required Text
+  field.
+- **`SiteDocument` entirely**, including the exactly-one-subject XOR asserted in **both** directions —
+  the implementation is a single `siteId.HasValue == recordId.HasValue` test, which a one-sided test
+  would not distinguish from a correct one.
+- Illegal transitions are now exhaustive per verb (3 refused statuses each for submit/decide/reopen)
+  rather than the backend's 3 of 12 edges.
+
+**`BriefProvenanceLost` is not ported — 30 of the backend's 31 error constants are.** Its only caller was
+`GET /api/sites/{siteId}/variance`, deferred at S1-01 [D8]. Porting the error alone would leave a member
+no code path can produce. Whichever phase makes provenance real adds it back with its route.
+
+**One error is new: `SystemDefinitionNotRenameable`.** The backend's `SiteModule.ChangeCode` returns
+`SystemModuleNotDeletable` — an error whose message says "cannot be deleted" — in response to a
+**rename**. Fixed rather than ported; S1-03 uses it.
+
+**`SiteRecordValue` takes the join-row exemption**, not `SharedKernel.Entity`: composite key
+`(RecordId, ItemId)`, no `Id`, no `IsActive`, no audit columns — the same carve-out
+`Hr.Domain.EmployeeDepartment` already takes under `docs/adding-a-module.md`'s "pure join/association
+row" rule.
+
+**A C# constraint worth recording before S1-03 writes more theories.** xUnit requires public test
+methods, and `Sites.Domain`'s enums are `internal` (visible to the test project only through
+`InternalsVisibleTo`), so naming one in a public signature is CS0051. Theories therefore take the enum's
+underlying `int` while the `InlineData` arguments still read as the enum (`[InlineData((int)SiteStatus.Draft)]`)
+— the cast is compile-time, in a context that does have access. `Crm.UnitTests` never hit this because
+it has no enum-parameterized theories.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **616/616** across 22 suites (552 + 64 new —
+Sites.UnitTests 64/64); `dotnet format --verify-no-changes` clean. No EF Core reference in
+`Sites.Domain` (rule 1); Architecture.Tests 14/14 with `Sites.Domain` referenced in
+`Architecture.Tests.csproj` before its code was written, so no rule was vacuous over it.
+
+> **Environment note, not a code event.** This task's gate was first attempted while Docker Desktop
+> stopped mid-run: every database-backed suite failed on connection at once while every pure-unit suite
+> passed, and neither `tcp://127.0.0.1:2375` nor the named pipe answered. Execution stopped there rather
+> than working around it, per the phase precondition. The gate above is the same tree re-verified after
+> the daemon came back, with no code change between the two runs.
