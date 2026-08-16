@@ -177,6 +177,14 @@ public sealed class SitesSpineTests(ApiFixture fixture)
 
             Assert.Equal(2, (await client.GetFromJsonAsync<SiteDetailBody>($"/api/sites/{siteId}"))!.Status);
 
+            // B12's fix through real HTTP (P5F-02): the freeze starts HERE, at Submitted, not at
+            // Approved. Before this change the same call returned 204 and the approval below would have
+            // attested to a measurement the approver never saw.
+            var editWhileAwaitingDecision = await client.PutAsJsonAsync(
+                $"/api/sites/{siteId}/records/{recordId}/values",
+                new { Values = new[] { new { ItemId = itemId, ValueNumber = 111m } } });
+            Assert.Equal(HttpStatusCode.Conflict, editWhileAwaitingDecision.StatusCode);
+
             var approveResponse = await client.PostAsJsonAsync(
                 $"/api/sites/{siteId}/approve", new { Approved = true, Note = "Measured and checked." });
             Assert.Equal(HttpStatusCode.NoContent, approveResponse.StatusCode);

@@ -5359,10 +5359,13 @@ and the lifecycle tests assert the persisted `Status`, `Address`, `SubmittedAtUt
   backend has. Bulk save also gains a 500-row cap: the backend accepts an unbounded list.
 
 **Ported as-is, recorded rather than fixed:** **B4** (`CatalogItemId` is not validated — asymmetric with
-`SpaceId`, and inventing a check the source never had is not a port), **B17** (item usage counts values
-on soft-deleted records), and **B12**, the integrity gap — a `Submitted` survey's records stay editable,
-so an approval can attest to content that changed after review with no audit trail. B12 is in the
-scope-boundary table as a **product decision**, not a defect.
+`SpaceId`, and inventing a check the source never had is not a port) and **B17** (item usage counts
+values on soft-deleted records).
+
+**B12 was also ported as-is here, and that was correct at the time** — a `Submitted` survey's records
+stayed editable, so an approval could attest to content that changed after review with no audit trail.
+It went into the scope-boundary table as an integrity gap owned by a **product decision**, and was put
+to the user as a direct question at S2-01. **The decision came back "freeze": fixed at P5F-02.**
 
 **The grid save needs no explicit transaction, and that is a real simplification.** The backend opens
 one, writes records, **flushes mid-transaction**, then writes values — because its value pass *queries*
@@ -5577,16 +5580,19 @@ for a phase.
 
 ## Backend defects — fixed, closed, or deferred
 
-**Fixed (16):** B1, B2, B3, B5, B6, B7, B8 (both halves), B9, B10, B11, B13, B14, B15, B16, B19, plus
-two unnumbered — `SiteModule.ChangeCode` answering a rename with "cannot be deleted", and the
-`SortOrder >= 0` asymmetry across the four ordered definitions.
+**Fixed (17, was 16):** B1, B2, B3, B5, B6, B7, B8 (both halves), B9, B10, B11, B13, B14, B15, B16,
+B19, plus two unnumbered — `SiteModule.ChangeCode` answering a rename with "cannot be deleted", and the
+`SortOrder >= 0` asymmetry across the four ordered definitions. **B12 joined this list at P5F-02**,
+after the product decision it was waiting on came back; it is the only fix in Sites that is a
+deliberate behavioural divergence from the backend rather than a repair of one.
 
 **Closed as not applicable (1):** B18 — audit rows under the wrong entity name. `dms-modular` has no
 `AuditAction` enum and no audit interceptor, so there is no trail to corrupt.
 
-**Deferred, recorded (3):** B4 (`CatalogItemId` unvalidated — asymmetric with `SpaceId`; inventing a
-check the source never had is not a port), B17 (item usage counts values on soft-deleted records), and
-**B12**, the integrity gap — below.
+**Deferred, recorded (2, was 3):** B4 (`CatalogItemId` unvalidated — asymmetric with `SpaceId`;
+inventing a check the source never had is not a port) and B17 (item usage counts values on soft-deleted
+records). **B12 left this list at P5F-02** — the question below was answered "freeze", so it moved to
+the fixed list.
 
 ## Anything thinner than intended
 
@@ -5632,7 +5638,12 @@ check the source never had is not a port), B17 (item usage counts values on soft
    registration.
 7. **Write the "what this does not prove" sentence before the characterization test**, not after.
 
-## B12 — a question for the user, not a defect
+## B12 — a question for the user, not a defect — **ANSWERED: freeze. Fixed at P5F-02.**
+
+> The section below is the question as it was put at S2-01, kept verbatim because the reasoning it
+> records is why the answer went the way it did. **The answer was "submission freezes."** See the
+> P5F-02 entry for what shipped.
+
 
 `Site.cs:102` blocks edits on **Approved** only. A **Submitted** survey's records stay editable while it
 awaits a decision, so **an approver's decision can be about content that changed after they reviewed
@@ -5720,3 +5731,77 @@ violation"; it does not make it exhaustive.
 
 **Verify:** `Architecture.Tests` 14/14 green after every revert; tree clean between injections
 (`git status --short` empty); full gate below.
+
+**P5F-02** — done — `Sites.Domain/Site.cs`, `Sites.Domain/Errors/SiteErrors.cs`,
+`Sites.UnitTests/SiteLifecycleTests.cs`, `Sites.Application.Tests/{SiteRecordFlowTests,SiteLifecycleFlowTests}.cs`,
+`Integration.Tests/SitesSpineTests.cs`. **+6 tests (750 → 756).**
+
+**B12 is fixed, and it moves out of the deferred table into the fixed list.** The product decision came
+back: **submission freezes a survey's records.** `Site.IsEditable` is now
+`Status is Draft or Rejected`, not `Status != Approved`.
+
+**The reasoning, recorded because it is the part that generalizes.** This is not a workflow preference,
+it is a correctness defect: the approval IS the engineering record, `ck_sites_status_stamps` stamps who
+approved and when, and nothing records *what they saw*. An approval attesting to content that changed
+after review is therefore a **recorded** false statement, not merely an awkward one. `ReopenForRework`
+already provides the correction path, so the fix trades an **invisible, unrecoverable** divergence for a
+**visible, recoverable** reject-reopen cycle. That asymmetry is the whole argument, and it is why this
+is the one Sites fix that is a deliberate divergence from the backend rather than a repair of one.
+
+**Six new tests, and each was confirmed to fail with the one-line change reverted** — the P5F-01
+discipline applied to a behaviour change rather than to an arch rule, because a test written after the
+fix proves nothing until it has been shown to depend on it:
+
+| Test | Suite |
+|---|---|
+| `Update_OnASubmittedSite_IsRefusedAndChangesNothing` | `Sites.UnitTests` |
+| `Update_IsAllowedInDraftAndRejectedOnly` (4 cases, the whole matrix) | `Sites.UnitTests` |
+| `ReopenForRework_RestoresEditabilityAfterASubmittedSiteWasFrozen` | `Sites.UnitTests` |
+| `SetValues_OnASubmittedSurvey_IsRefusedAndTheStoredValueIsUnchanged` | `Sites.Application.Tests` |
+| `AddRecord_OnASubmittedSurvey_IsRefused` | `Sites.Application.Tests` |
+| `Submit_LocksTheSurvey_AndReopeningAfterARejectionUnlocksIt` | `Sites.Application.Tests` |
+
+Plus one assertion inside the S1-09 spine, between submit and approve, so the freeze is proven through
+real HTTP as a 409 and not only through the handler.
+
+**Two things done deliberately, not incidentally.**
+
+**The old theory was renamed, not edited.** `Update_IsAllowedAtEveryStatusButApproved` would have
+survived this change by simply dropping its `Submitted` row — still green, still passing, and its
+*name* now a false statement about the rule. It is `Update_IsAllowedInDraftAndRejectedOnly` and asserts
+all four statuses with the expected editability in the data, so no future change can alter one status
+without failing. **A passing test whose name no longer describes what it proves is worse than a missing
+one**, because it answers the question nobody re-asks.
+
+**`SiteErrors.SiteLocked`'s message was wrong the moment the rule changed.** It read *"This site has
+been approved; its records can no longer be changed"* — which a surveyor would now see on a **submitted**
+site, and would reasonably read as "someone approved this behind my back." It names submission and
+points at the reopen path. The error *constant* is deliberately unchanged: it is the same rule at a
+different threshold, and splitting it would make every call site choose between two errors that mean the
+same thing to a caller.
+
+**One thing this change made weaker, recorded rather than left to be discovered.**
+`SetValues_OnAnApprovedSurvey_IsRefused` (S1-07) drives the site through `Submitted` on its way to
+`Approved`, so it now passes under *either* rule and no longer distinguishes approved-locking from
+submitted-locking. It is not dead — it still proves the approved survey refuses writes end to end — but
+the discriminating assertion is `Update_IsAllowedInDraftAndRejectedOnly`'s matrix, and that is where a
+future regression would be caught.
+
+**What this does NOT do.** It does not create an audit trail. Freezing removes the *need* for one to
+detect this particular divergence, but nothing in Sites still records what an approver was shown, so any
+future path that mutates a submitted survey — a data fix, a migration, a direct SQL touch — remains
+undetectable. That belongs with Notifications & Audit, unchanged.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **756/756** across 24 suites;
+`dotnet format --verify-no-changes` clean (exit 0, no output); tree clean; each new test confirmed red
+with `IsEditable` reverted and green with it restored.
+
+> **One observation about the format gate, recorded because it affects how much a "clean" run is worth.**
+> A `--verify-no-changes` run reported two `WHITESPACE` errors in `SitesSpineTests.cs` at lines this task
+> never touched. Stashing the change reproduced them at HEAD, so they were not caused by it. Running
+> `dotnet format` in apply mode then changed **nothing** (`git diff` unchanged, byte for byte), and every
+> subsequent verify run — project-level and solution-level — has been clean with exit 0. The tool
+> reported a violation it would not itself fix, against a file it then agreed was already correct.
+> **`dotnet format --verify-no-changes` is therefore not reliably deterministic in this repo**, which
+> means a single clean run is weaker evidence than it looks. Not chased further — no source change is
+> implicated — but if it recurs, the fix is to run apply mode and diff, not to trust either verdict alone.

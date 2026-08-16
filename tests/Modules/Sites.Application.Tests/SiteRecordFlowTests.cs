@@ -82,6 +82,20 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
+    private async Task<decimal?> ReadNumberAsync(Guid recordId, Guid itemId)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(
+            $"""
+             SELECT "ValueNumber" FROM sites.site_record_values
+             WHERE "RecordId"='{recordId}' AND "ItemId"='{itemId}';
+             """, connection);
+
+        return await command.ExecuteScalarAsync() as decimal?;
+    }
+
     private async Task<string?> ReadLabelAsync(Guid recordId)
     {
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
@@ -261,6 +275,60 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
         Assert.Equal(SiteErrors.SiteLocked, result.Error);
         Assert.Equal(1, await CountValuesAsync(record.Value));
+    }
+
+    /// <summary>
+    /// <b>B12's fix, decided at P5F-02 — the divergence from the backend.</b> The backend freezes
+    /// <c>Approved</c> only, so this exact sequence succeeded there: submit for approval, then change the
+    /// measurement while the approver is looking at it. The approval would then attest to 120, having
+    /// been asked about 90, and <c>ck_sites_status_stamps</c> would record who approved and when with
+    /// nothing recording what they saw.
+    ///
+    /// <para>Asserts the PERSISTED value, not just the returned <c>Result</c> — a handler that returns
+    /// the right error after writing the row is still broken, and that is precisely the failure this test
+    /// exists to catch.</para>
+    /// </summary>
+    [Fact]
+    public async Task SetValues_OnASubmittedSurvey_IsRefusedAndTheStoredValueIsUnchanged()
+    {
+        var siteId = await CreateSiteAsync();
+        var (moduleId, itemId) = await CreateFormAsync();
+
+        var record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            SiteTestData.OwnerUserId));
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        var result = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 120m)]),
+            SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.SiteLocked, result.Error);
+        Assert.Equal(409, result.Error.Status);
+        Assert.Equal(90m, await ReadNumberAsync(record.Value, itemId));
+    }
+
+    /// <summary>Adding a whole record to a submitted survey is refused by the same guard — the freeze is
+    /// on the survey, not on one write path.</summary>
+    [Fact]
+    public async Task AddRecord_OnASubmittedSurvey_IsRefused()
+    {
+        var siteId = await CreateSiteAsync();
+        var (moduleId, _) = await CreateFormAsync();
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        var result = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Added after review"),
+            SiteTestData.OwnerUserId), true);
+
+        Assert.Equal(SiteErrors.SiteLocked, result.Error);
     }
 
     // ── The grid save ──────────────────────────────────────────────────────────

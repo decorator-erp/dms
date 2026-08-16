@@ -174,6 +174,44 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Assert.Equal("12 Nasr Road", (await ReadRowAsync(siteId)).Address);
     }
 
+    /// <summary>
+    /// <b>B12's fix, decided at P5F-02.</b> The lock now starts at <c>Submitted</c>, not at
+    /// <c>Approved</c> — so the content an approver is shown is the content they decide about. The
+    /// backend allowed this edit, invisibly.
+    ///
+    /// <para>The second half is the half that makes the freeze affordable rather than a dead end: reject
+    /// → reopen → the same edit succeeds. A freeze with no correction path would just be a different
+    /// defect.</para>
+    /// </summary>
+    [Fact]
+    public async Task Submit_LocksTheSurvey_AndReopeningAfterARejectionUnlocksIt()
+    {
+        var siteId = await CreateSiteAsync();
+        var owners = await SiteTestData.OwnersAsync(fixture);
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        var blocked = await SendAsync(new UpdateSiteCommand(
+            siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Changed after review")),
+            SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.SiteLocked, blocked.Error);
+        Assert.Equal(409, blocked.Error.Status);
+        Assert.Equal("12 Nasr Road", (await ReadRowAsync(siteId)).Address);
+
+        // The correction path, end to end: reject, reopen, and the same edit now lands.
+        Assert.True((await SendAsync(new DecideSiteCommand(
+            siteId, new DecideSiteRequest(Approved: false, "Remeasure the shaft."),
+            owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new ReopenSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.True((await SendAsync(new UpdateSiteCommand(
+            siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Changed after review")),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.Equal("Changed after review", (await ReadRowAsync(siteId)).Address);
+    }
+
     [Fact]
     public async Task RejectThenReopen_ReturnsToDraftAndClearsTheStampsInTheDatabase()
     {

@@ -129,10 +129,15 @@ internal static class SiteErrors
         $"{Prefix}.{nameof(InvalidTransition)}",
         "That status change is not allowed from the site's current status.");
 
-    /// <summary>An approved survey is the engineering record; measurements stop moving under it.</summary>
+    /// <summary>
+    /// An approved survey is the engineering record; measurements stop moving under it. A
+    /// <b>submitted</b> one is frozen for the same reason a step earlier (B12, P5F-02): whoever decides
+    /// it must be deciding about the content they were shown. Rejected reopens for rework.
+    /// </summary>
     public static readonly Error SiteLocked = Error.Conflict(
         $"{Prefix}.{nameof(SiteLocked)}",
-        "This site has been approved; its records can no longer be changed.");
+        "This site has been submitted for approval; its records can no longer be changed. "
+        + "A rejected site must be reopened for rework before it can be edited.");
 
     public static readonly Error AddressRequiredToSubmit = Error.BadRequest(
         $"{Prefix}.{nameof(AddressRequiredToSubmit)}",

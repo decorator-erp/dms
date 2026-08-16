@@ -116,12 +116,21 @@ internal sealed class Site : Entity, IAuditable
     /// entity. The domain service is not ported — its orchestration lives in handlers, its pure parts
     /// here.
     ///
-    /// <para><b>Note what this deliberately does NOT block: <c>Submitted</c>.</b> A survey awaiting a
-    /// decision stays writable, so an approval can attest to content that has since changed. That is the
-    /// backend's behavior and it is ported unchanged, but it is recorded as an integrity gap owned by a
-    /// product decision — not as an accident. See the scope-boundary table.</para>
+    /// <para><b>Submitted is frozen too, and that is a deliberate divergence from the backend
+    /// (defect B12, decided at P5F-02).</b> The backend blocks <c>Approved</c> only, so a survey
+    /// awaiting a decision stayed writable and an approval could attest to content that had since
+    /// changed. That is a correctness defect rather than a workflow preference: the approval IS the
+    /// engineering record, <c>ck_sites_status_stamps</c> stamps who approved and when, and no audit
+    /// trail exists to detect the divergence — so the row would assert an approval of content that no
+    /// longer exists, invisibly and unrecoverably.</para>
+    ///
+    /// <para>The correction path is <see cref="ReopenForRework"/>, which already exists: reject, reopen
+    /// to <c>Draft</c>, edit, resubmit. Freezing costs a visible, recoverable reject-reopen cycle. Not
+    /// freezing cost an invisible, unrecoverable one.</para>
+    ///
+    /// <para><c>Rejected</c> stays editable — rework is the whole point of the state.</para>
     /// </summary>
-    public bool IsEditable => Status != SiteStatus.Approved;
+    public bool IsEditable => Status is SiteStatus.Draft or SiteStatus.Rejected;
 
     public static Result<Site> Create(Guid projectId, string code, Guid createdById, SiteData data)
     {
@@ -143,8 +152,9 @@ internal sealed class Site : Entity, IAuditable
     }
 
     /// <summary>
-    /// Edit in place. Refused once Approved — an approved survey is the engineering record, and the way
-    /// to change it is a new survey, not a quiet edit under the drawings already derived from it.
+    /// Edit in place. Refused once Submitted — an approved survey is the engineering record, and the way
+    /// to change it is a new survey, not a quiet edit under the drawings already derived from it; a
+    /// submitted one is frozen a step earlier so the decision and the content cannot diverge (B12).
     /// </summary>
     public Result Update(SiteData data)
     {

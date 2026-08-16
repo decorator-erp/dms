@@ -104,7 +104,8 @@ public class SiteLifecycleTests
         Assert.Equal(DecidedAt, site.DecidedAtUtc);
         Assert.Equal("Missing the riser shaft.", site.DecisionNote);
 
-        // Only Approved locks a survey. A rejected one is meant to be reworked.
+        // Rejection is the one decision that UNLOCKS a survey -- rework is the whole point of the state,
+        // and it is the correction path that makes freezing Submitted affordable (B12, P5F-02).
         Assert.True(site.IsEditable);
     }
 
@@ -252,17 +253,79 @@ public class SiteLifecycleTests
         Assert.Null(site.Notes);
     }
 
+    /// <summary>
+    /// <b>B12, decided at P5F-02.</b> The backend blocks <c>Approved</c> only, so a survey awaiting a
+    /// decision stayed writable and an approval could attest to content that had since changed —
+    /// invisibly, because <c>ck_sites_status_stamps</c> records who approved and when but nothing
+    /// records what they saw. This asserts the divergence: <c>Submitted</c> is frozen, with the same
+    /// specific error and the same unmutated-entity check as the approved case.
+    /// </summary>
+    [Fact]
+    public void Update_OnASubmittedSite_IsRefusedAndChangesNothing()
+    {
+        var site = SubmittedSite();
+
+        var result = site.Update(new SiteData(Address: "Somewhere else", Notes: "changed after review"));
+
+        Assert.Equal(SiteErrors.SiteLocked, result.Error);
+        Assert.Equal(409, result.Error.Status);
+        Assert.Equal("12 Nasr Road", site.Address);
+        Assert.Null(site.Notes);
+        Assert.False(site.IsEditable);
+    }
+
+    /// <summary>
+    /// The whole editability rule as one statement, so a future change to <see cref="Site.IsEditable"/>
+    /// cannot alter one status without this failing. Named for what it asserts rather than for what it
+    /// excludes: the earlier name (<c>…AtEveryStatusButApproved</c>) was true of the backend's rule and
+    /// would have become a lie the moment the rule changed.
+    /// </summary>
     [Theory]
-    [InlineData((int)SiteStatus.Draft)]
-    [InlineData((int)SiteStatus.Submitted)]
-    [InlineData((int)SiteStatus.Rejected)]
-    public void Update_IsAllowedAtEveryStatusButApproved(int status)
+    [InlineData((int)SiteStatus.Draft, true)]
+    [InlineData((int)SiteStatus.Rejected, true)]
+    [InlineData((int)SiteStatus.Submitted, false)]
+    [InlineData((int)SiteStatus.Approved, false)]
+    public void Update_IsAllowedInDraftAndRejectedOnly(int status, bool editable)
     {
         var site = SiteAt((SiteStatus)status);
 
-        Assert.True(site.Update(new SiteData(Address: "9 Tahrir St", Notes: "second visit")).IsSuccess);
+        Assert.Equal(editable, site.IsEditable);
+
+        var result = site.Update(new SiteData(Address: "9 Tahrir St", Notes: "second visit"));
+
+        if (editable)
+        {
+            Assert.True(result.IsSuccess);
+            Assert.Equal("9 Tahrir St", site.Address);
+            Assert.Equal("second visit", site.Notes);
+        }
+        else
+        {
+            Assert.Equal(SiteErrors.SiteLocked, result.Error);
+            Assert.Equal("12 Nasr Road", site.Address);
+        }
+    }
+
+    /// <summary>
+    /// The correction path that makes freezing <c>Submitted</c> affordable rather than a dead end:
+    /// reject → reopen → editable again. Without this, B12's fix would trade an invisible divergence for
+    /// a survey nobody can fix.
+    /// </summary>
+    [Fact]
+    public void ReopenForRework_RestoresEditabilityAfterASubmittedSiteWasFrozen()
+    {
+        var site = SubmittedSite();
+        Assert.False(site.IsEditable);
+
+        // Rejected is already editable -- the reject itself is the unlock.
+        site.Decide(approved: false, Guid.NewGuid(), DecidedAt, "Remeasure the shaft.");
+        Assert.True(site.IsEditable);
+
+        Assert.True(site.ReopenForRework().IsSuccess);
+        Assert.Equal(SiteStatus.Draft, site.Status);
+        Assert.True(site.IsEditable);
+        Assert.True(site.Update(new SiteData(Address: "9 Tahrir St")).IsSuccess);
         Assert.Equal("9 Tahrir St", site.Address);
-        Assert.Equal("second visit", site.Notes);
     }
 
     // ── Create and Apply guards ────────────────────────────────────────────────
