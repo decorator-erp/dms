@@ -5043,3 +5043,82 @@ capture**, asserted so it reads as a decision rather than a swallowed exception.
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **659/659** across 22 suites (Sites.UnitTests
 107/107 — 64 from S1-02 plus 43 here); `dotnet format --verify-no-changes` clean. No EF Core reference
 in `Sites.Domain` (rule 1); Architecture.Tests 14/14.
+
+**S1-04** — done — `src/Modules/Sites/Sites.Infrastructure/` (`Sites.Infrastructure.csproj`,
+`SitesModule.cs`, `Persistence/SitesDbContext.cs`, `Persistence/SitesDbContextFactory.cs`,
+`Persistence/Configurations/` ×8, `Persistence/Migrations/InitialSites/`),
+`src/Modules/Sites/Sites.Application/Sites.Application.csproj` (skeleton),
+`tests/Modules/Sites.Infrastructure.Tests/` (`SitesDbContextConfigurationTests.cs`,
+`SitesSchemaObjectTests.cs`), `src/BuildingBlocks.Web/ModuleDependencyOrder.cs`, `src/Api/Program.cs`,
+`src/Api/Api.csproj`, `tests/Integration.Tests/ApiFixture.cs`,
+`tests/Integration.Tests/CrmSmokeTests.cs`, `DMS.Modular.slnx`,
+`tests/Architecture.Tests/Architecture.Tests.csproj`. **14 new tests.**
+
+**`"sites"` is an append, and the append-vs-insert rule is what proved it rather than assumed it.**
+Sites points outward at four schemas — `projects`, `hr`, `crm`, `documents` — and **nothing points into
+it**. The one thing that appeared to, `CrmDesignBrief.SiteId`, was the fabricated column removed at
+S1-00. Both cases of that rule now exist in this repo (CRM's insertion, Sites' append), which is what
+lets S2-01 state the general rule in `docs/adding-a-module.md` rather than one worked example.
+
+**Columns stay PascalCase, and every hand-written statement had to be rewritten because of it.** The
+backend maps every column explicitly to snake_case; this solution configures no such convention, so the
+port keeps EF's default. That makes all fourteen of the backend's check-constraint bodies wrong as
+written — `status BETWEEN 1 AND 4` would fold to a lowercase identifier Postgres cannot resolve, and it
+would fail at migration time rather than at compile time. Every constraint, functional index and
+foreign key in this module now quotes PascalCase. This is the trap `docs/adding-a-module.md` already
+warns about; it is the first module to hit it at this scale.
+
+**R3 — the raw-SQL objects now have a guard, and they had none.** The initial migration creates 13
+objects that exist only as `migrationBuilder.Sql(...)`: the `site_code_seq` sequence, 5
+functional/partial unique indexes, 5 blank-string check constraints, the five-clause
+`ck_site_items_range`, the `uq_site_item_options_item_id` composite unique key, and the composite
+`fk_site_record_values_option_of_item` that targets it.
+
+> **The empty-probe verify cannot detect drift in any of them, by construction.** `dotnet ef migrations
+> add Probe` diffs the EF *model* against the snapshot; a raw `Sql(...)` statement is not in the model,
+> so deleting one still yields an empty probe and a green build. Rule 9 covers cross-schema foreign keys
+> via `pg_constraint`; nothing covered the sequence, the check constraints or the functional indexes —
+> the exact class of object whose absence surfaces in production rather than in a test. The backend
+> solved this with a startup `SchemaGuard`; this repo migrates on boot rather than validating on boot
+> and already queries `pg_constraint` from a test, so `SitesSchemaObjectTests` is the shape that fits.
+
+It is **fail-closed**: `NoUnexpectedSitesConstraints` compares the database's actual constraint list
+against a named set, so adding a constraint without listing it fails — the `MetaSelfEnforcementTests`
+shape. Two tests go past existence to behavior, because a constraint that exists but does not bite reads
+as covered while protecting nothing: one asserts `ck_site_items_range` actually rejects a numeric bound
+on a Text item, another that `ck_site_modules_code_blank` actually rejects whitespace. Two more assert
+the functional indexes really lowercase and that the label index really is partial — a plain
+`("Code")` index would carry the same name and pass a bare existence check while letting `SITE-1` and
+`site-1` coexist.
+
+**The site-code sequence is real infrastructure the plan did not mention.** `SITE-{n:D5}` is allocated
+from `sites.site_code_seq`, and `CodeAllocationFailed` is an asserted error, so the sequence is a
+migration object with no EF representation at all — the single most load-bearing raw-SQL object here,
+and the one with the least redundancy: nothing else in the system would notice its absence until a site
+creation failed.
+
+**Corrected in flight: the seven-module assertion belongs to this task, not S1-08.** The plan assigns
+`Boot_RegistersExactlySixModules` to S1-08 with the endpoints. It fails *here* — a module registers the
+moment `Program.cs` loads its assembly, three tasks before Sites has a route to serve. Renamed to
+`Boot_RegistersExactlySevenModules`, array and class doc updated, with the reason recorded on the test.
+
+**Deferred deliberately from this task:** `AddModuleCqrs` and the scope decorator are absent from
+`SitesModule.Register` — there are no handlers to scan until S1-06 and no `SiteScopeDecorator` until
+S1-05, and registering a decorator over an empty handler set is exactly the wiring-checklist step 4/7
+split. `Sites.Application` ships as an empty project so `Api.csproj` can carry the reference its own
+`Assembly.Load` will need. `Sites.Application.Tests` is **not** created here — it lands at S1-06 with
+the first handler, rather than shipping an empty test project.
+
+**`SiteRecordValue`'s composite key is asserted, not assumed.** Beyond the DbSet/configuration counts
+(8 = 8, the G9-07 precedent), a third test pins the model's actual entity list — two counts can agree
+while describing different sets — and a fourth pins `pk_site_record_values` to `(RecordId, ItemId)`,
+because a well-meaning "add an Id like everything else" refactor would compile, migrate, and silently
+permit two values for one pair.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **673/673** across 23 suites
+(Sites.Infrastructure.Tests 14/14; Integration.Tests 25/25 with the seven-module assertion);
+`dotnet format --verify-no-changes` clean. **Eight schemas apply clean from empty** — `SitesSchemaObjectTests`
+migrates a fresh Testcontainers Postgres per run and every one of its 14 assertions runs against that
+migrated database. **Probe migration empty**, generated and removed after confirming. Rules 1/4/6/8a
+green via Architecture.Tests 14/14, with all four Sites projects referenced in
+`Architecture.Tests.csproj` before their code was written.

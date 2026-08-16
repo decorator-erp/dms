@@ -8,7 +8,8 @@ using Xunit;
 namespace Integration.Tests;
 
 /// <summary>
-/// G9-14's own verify block: the app boots with all SIX modules; <c>GET /api/permissions</c> contains
+/// G9-14's own verify block: the app boots with all SEVEN modules (six at G9-14; Sites joined at
+/// S1-04); <c>GET /api/permissions</c> contains
 /// all 56 <c>CrmPermissions.All</c> strings; unauthenticated → 401 on a protected CRM route; and the
 /// phase's first anonymous surface — <c>POST /api/crm/public/leads</c> — is reachable with no bearer
 /// token at all (never a 401/403), while every other CRM route still gates normally. Same shape
@@ -49,14 +50,19 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     }
 
     /// <summary>
-    /// M1-02: closes the gap this class's own doc comment names — "the app boots with all SIX modules"
+    /// M1-02: closes the gap this class's own doc comment names — "the app boots with all N modules"
     /// was previously only implied by <see cref="GetPermissions_ContainsAllCrmModulePermissionStrings"/>
     /// succeeding, never asserted directly. <c>GET /api/permissions</c> returns one
     /// <c>ModulePermissionSet</c> per registered module — the same list <c>Program.cs</c>'s own
     /// composition root loads by assembly name — so its module count and names ARE the boot proof.
+    ///
+    /// <para>Updated at S1-04, not S1-08 as the Sites plan expected: this asserts REGISTRATION, and a
+    /// module registers the moment <c>Program.cs</c> loads its assembly — which is this task, three
+    /// tasks before Sites has an endpoint to serve. The plan put it with the endpoints because that is
+    /// where the "seven modules" verify was written; the test itself does not wait that long.</para>
     /// </summary>
     [Fact]
-    public async Task Boot_RegistersExactlySixModules()
+    public async Task Boot_RegistersExactlySevenModules()
     {
         var client = fixture.CreateClient();
         var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
@@ -69,7 +75,7 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
         Assert.NotNull(modules);
 
         Assert.Equal(
-            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Projects"],
+            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Projects", "Sites"],
             modules!.Select(m => m.Module).OrderBy(m => m, StringComparer.Ordinal));
     }
 

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Sites.Contracts\Sites.Contracts.csproj" />
+    <ProjectReference Include="..\Sites.Domain\Sites.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as every other module: handlers use SitesDbContext directly -
+         "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Sites.Infrastructure\Sites.Infrastructure.csproj" />
+    <!-- Cross-module read: site creation validates ProjectId via Projects.Contracts.IProjectDirectory
+         (defect B1's fix, S1-07) and the list query checks access via IProjectAccessGuard. -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- Cross-module read: SiteRecord.SpaceId's "belongs to this site's project" invariant, through
+         Crm.Contracts.ICrmSpaceReader - the contract added at S1-01 for this rule alone. -->
+    <ProjectReference Include="..\..\Crm\Crm.Contracts\Crm.Contracts.csproj" />
+    <!-- Cross-module read: site-document creation validates DocumentId via
+         Documents.Contracts.IDocumentQueries (defect B5's fix, S1-07) - belt and braces alongside the
+         real FK, which sites CAN carry because it migrates after documents. -->
+    <ProjectReference Include="..\..\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sites.Application.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -25,6 +25,16 @@ namespace BuildingBlocks.Web;
 /// <c>PLAN-PHASE4.md</c>'s structural item 1 and this insertion's own <c>PROGRESS.md</c> entry (G9-07)
 /// for the full reasoning, and <c>docs/adding-a-module.md</c> (G10-01) for the generalized rule a
 /// future module should apply before assuming append is always safe.</para>
+///
+/// <para><b>"sites" is an append, and applying that same rule is what proved it.</b> Sites points
+/// OUTWARD at four schemas — <c>projects</c> (ProjectId), <c>hr</c> (CreatedById, DecidedById,
+/// AddedById), <c>crm</c> (SpaceId, CatalogItemId) and <c>documents</c> (DocumentId) — and <b>nothing
+/// points into it</b>. The one thing that appeared to, <c>CrmDesignBrief.SiteId</c>, was a fabricated
+/// column removed at S1-00; the real brief↔site link is <c>Site.SourceBriefId</c>, pointing outward like
+/// the rest. Every schema Sites references therefore already exists by the time it migrates, so the end
+/// of the list is the only position it needs — the append-vs-insert distinction now has both cases
+/// worked, which is why <c>docs/adding-a-module.md</c> can state the general rule rather than one
+/// example.</para>
 /// </summary>
 public static class ModuleDependencyOrder
 {
@@ -37,5 +47,6 @@ public static class ModuleDependencyOrder
         "crm",
         "projects",
         "documents",
+        "sites",
     ];
 }

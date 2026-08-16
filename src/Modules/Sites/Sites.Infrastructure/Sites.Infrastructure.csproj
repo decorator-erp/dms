@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\Sites.Contracts\Sites.Contracts.csproj" />
+    <ProjectReference Include="..\Sites.Domain\Sites.Domain.csproj" />
+    <!-- Cross-module read: SiteScopeDecorator (S1-05) resolves a site to its project and defers to
+         Projects.Contracts.IProjectAccessGuard; site creation validates ProjectId through
+         IProjectDirectory (defect B1's fix). -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Sites.Application needs this despite never being referenced BY Sites.Infrastructure - same
+         reasoning as Crm.Infrastructure.csproj's identical grant: it uses SitesDbContext directly. -->
+    <InternalsVisibleTo Include="Sites.Application" />
+    <InternalsVisibleTo Include="Sites.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Sites.Application.Tests" />
+  </ItemGroup>
+
+</Project>

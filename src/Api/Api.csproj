@@ -68,6 +68,12 @@
          above: CrmModule.Register's Assembly.Load("Crm.Application") needs this DLL present in Api's
          output directory. -->
     <ProjectReference Include="..\Modules\Crm\Crm.Application\Crm.Application.csproj" />
+    <!-- Sites (S1-04). Both references for the established reasons: Infrastructure so the EF CLI can
+         find SitesDbContext and so Program.cs's Assembly.Load resolves, Application so
+         SitesModule.Register's own Assembly.Load("Sites.Application") finds the DLL in Api's output.
+         Neither is ever used to NAME a type from those assemblies. -->
+    <ProjectReference Include="..\Modules\Sites\Sites.Infrastructure\Sites.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Sites\Sites.Application\Sites.Application.csproj" />
   </ItemGroup>
 
 </Project>
