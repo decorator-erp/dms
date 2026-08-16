@@ -31,6 +31,33 @@ internal sealed class CrmModule : IModule
         services.AddScoped<ICrmAccessGuard, CrmAccessGuard>();
         services.AddScoped<ICrmGateReader, CrmGateReader>();
         services.AddScoped<IClientDirectory, ClientDirectory>();
+        services.AddScoped<ICrmSchedulerService, CrmSchedulerService>();
+
+        // M1-01: this module's first bound options. TimezoneId cannot be checked by a data annotation -
+        // a malformed IANA/Windows id only fails when FindSystemTimeZoneById is actually called - so
+        // .Validate(...) exercises it at startup, turning a per-request TimeZoneNotFoundException into
+        // a boot failure. Same shape as IdentityModule's JwtOptions registration.
+        services
+            .AddOptions<OfficeHoursOptions>()
+            .Bind(cfg.GetSection(OfficeHoursOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(o =>
+            {
+                try
+                {
+                    TimeZoneInfo.FindSystemTimeZoneById(o.TimezoneId);
+                    return true;
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                    return false;
+                }
+                catch (InvalidTimeZoneException)
+                {
+                    return false;
+                }
+            }, "OfficeHours:TimezoneId is not a recognized time zone id.")
+            .ValidateOnStart();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(Name, CrmPermissions.All));
 

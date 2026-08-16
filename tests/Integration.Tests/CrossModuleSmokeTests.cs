@@ -352,7 +352,8 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 appUserId, "employees.create", "stages.read", "stages.manage", "stages.manage_gates", "project.create",
                 "project.read_all", "stage_tasks.read", "clients.create", "crm.briefs.manage", "crm.briefs.send",
                 "crm.items.create", "crm.items.send", "crm.periods.open", "crm.periods.close",
-                "approvals.decide", "approvals.read");
+                "approvals.decide", "approvals.read",
+                "crm.meetings.schedule", "crm.meetings.reschedule", "crm.meetings.cancel", "crm.meetings.read");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
@@ -401,6 +402,50 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             Assert.Equal(HttpStatusCode.OK, stagesResponse.StatusCode);
             var stages = await stagesResponse.Content.ReadFromJsonAsync<List<ProjectStageBody>>();
             var stageId = Assert.Single(stages!).Id;
+
+            // --- M1-02: the Meetings spine step ("lead -> convert to client -> meeting scheduled ->
+            // design brief -> ...") - propose/reschedule/cancel through the real HTTP surface, proving
+            // routing, permission gates, and the real command handlers. Office-only (Propose/Reschedule/
+            // Cancel all resolve an EMPLOYEE actor): accepting a slot needs a CONTACT counterparty, which
+            // this flow's single reused identity structurally can't provide (the same AppUserId is
+            // registered as both the employee and the client above, and CrmAccessGuard always resolves
+            // the employee branch first) - that accept/schedule/outbox path is covered end-to-end by
+            // Crm.Application.Tests.MeetingFlowTests instead, with a second, separate identity.
+            var proposeMeetingResponse = await client.PostAsJsonAsync("/api/crm/meetings/propose", new
+            {
+                ProjectId = projectId,
+                Title = "Kickoff",
+                Type = 1, // InOffice
+                Slots = new[] { new { StartsAtUtc = DateTime.UtcNow.AddDays(1), EndsAtUtc = DateTime.UtcNow.AddDays(1).AddHours(1) } },
+            });
+            Assert.Equal(HttpStatusCode.Created, proposeMeetingResponse.StatusCode);
+            var meetingId = (await proposeMeetingResponse.Content.ReadFromJsonAsync<MeetingIdBody>())!.MeetingId;
+
+            var getMeetingResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            Assert.Equal(HttpStatusCode.OK, getMeetingResponse.StatusCode);
+            var meeting = await getMeetingResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            Assert.Equal("Kickoff", meeting!.Title);
+            Assert.Equal(1, meeting.Status); // Requested
+
+            var newStart = DateTime.UtcNow.AddDays(3);
+            var rescheduleResponse = await client.PutAsJsonAsync($"/api/crm/meetings/{meetingId}/reschedule", new
+            {
+                StartsAtUtc = newStart,
+                EndsAtUtc = newStart.AddHours(1),
+            });
+            Assert.Equal(HttpStatusCode.NoContent, rescheduleResponse.StatusCode);
+
+            var afterRescheduleResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            var rescheduled = await afterRescheduleResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            Assert.Equal(3, rescheduled!.Status); // Rescheduled
+
+            var cancelResponse = await client.PutAsJsonAsync(
+                $"/api/crm/meetings/{meetingId}/cancel", new { Reason = "smoke test done" });
+            Assert.Equal(HttpStatusCode.NoContent, cancelResponse.StatusCode);
+
+            var afterCancelResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            var canceled = await afterCancelResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            Assert.Equal(5, canceled!.Status); // Canceled
 
             var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
 
@@ -633,6 +678,8 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
     private sealed record BriefIdBody(Guid BriefId);
     private sealed record PeriodIdBody(Guid PeriodId);
     private sealed record ItemIdBody(Guid ItemId);
+    private sealed record MeetingIdBody(Guid MeetingId);
+    private sealed record CrmMeetingStatusBody(string Title, int Status);
     private sealed record ApprovalTrailItemBody(Guid Id);
     private sealed record CrmBriefStatusBody(int Status);
 }

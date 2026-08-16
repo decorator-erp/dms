@@ -4105,10 +4105,11 @@ them.
 
 | Item | Deferred at | Owner (future phase) | Why |
 |---|---|---|---|
-| Meetings' full Application layer (12 commands/queries — request/propose/accept/decline/reschedule/cancel/complete/no-show, plus the free-slot scheduler) | Never explicitly deferred in G9-09→G9-12; discovered missing at G9-14 | CRM, next breadth pass | Contracts exist (G9-01); no gate condition type or built test needs it; genuinely unimplemented, not scope-cut on purpose — see the final report's "thinner than intended" section |
-| `GetMyPortalMeetingsQuery` handler | G9-14 | CRM, alongside Meetings' Application layer | Needs either a new `IProjectDirectory` client-scoped project lookup or a CRM-local reinterpretation ("own contacts' meetings" instead of "own projects' meetings") — an architectural call, not an endpoint-wiring one |
-| `DecideMyPortalApprovalCommand` handler | G9-14 | CRM + Approvals, jointly | Routes into `Approvals.Contracts`, whose `approval_approvers` ledger is employee-scoped in this port; giving a client actor a decision path there is a design question spanning two modules' own aggregates |
-| `IProjectDirectory`'s missing client-scoped project lookup | G9-14 (found while wiring `GetMyPortalMeetingsQuery`) | Projects, if/when Meetings' Portal read is built | The concrete blocker for the row above — a new `Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientAsync(Guid clientId, ...)` on `IProjectDirectory` is the natural shape |
+| ~~Meetings' full Application layer~~ — **closed at M1-01/M1-02.** | Never explicitly deferred in G9-09→G9-12; discovered missing at G9-14 | CRM | All 12 commands/queries have handlers; `CrmMeetingEndpoints`/`CrmPortalEndpoints` map every route; `CrmSchedulerService` (itself never ported, a second gap this same row's "already ported" claim had obscured) is built and startup-validated. See the M1-01/M1-02 entries below. |
+| ~~`GetMyPortalMeetingsQuery` handler~~ — **closed at M1-02.** | G9-14 | CRM | Resolved via the client-scoped lookup below — `GetMyPortalMeetingsQueryHandler` calls `IProjectDirectory.GetProjectsByClientAsync`, no CRM-local reinterpretation needed. |
+| `DecideMyPortalApprovalCommand` handler — still deferred, framing sharpened at M1-02 | G9-14 | **Approvals** (not "CRM + Approvals jointly" — see reasoning) | Still routes into `Approvals.Contracts`, whose `approval_approvers` ledger is employee-scoped, and `IApprovalRequester` still has no decide method to call (`RequestAsync`/`GetAsync`/`GetManyAsync` only) — adding one would be a synchronous cross-module write, which `CLAUDE.md` forbids. But `Approvals.Contracts.ApproverKind.Client` and `ApprovalsPermissions.Decide` both already exist, so Approvals already models a client decider — the open question is squarely "should the client-portal decision be an Approvals-owned portal route instead of a Crm command," which only Approvals can answer. |
+| ~~`IProjectDirectory`'s missing client-scoped project lookup~~ — **closed at M1-02.** | G9-14 (found while wiring `GetMyPortalMeetingsQuery`) | Projects | `GetProjectsByClientAsync`/`GetProjectsByClientsAsync` added to `IProjectDirectory`, implemented in `ProjectDirectory`, depth-1 sync read. |
+| `GetCrmMeetingsByProjectQuery` has no cross-project search — `ProjectId` stays required | M1-01 | CRM, if a real cross-project meeting search is ever needed | The backend's `SearchMeetingsQuery` makes `ProjectId` nullable (null = every project the caller is scoped to), resolved via `ICrmAccessService.GetScopedProjectIdsAsync`. This port's `ICrmAccessGuard` has no equivalent — it resolves who a caller is (`HasReadAll` flag only), never a set of scoped project ids — so the cross-project search is a capability this port cannot currently answer, not a shape this task chose to drop. |
 | Catalog breadth: category/item update/delete/reorder/clone/active-toggle, category-space-type unmap | G9-11 (vertical-slice scope), ported as-is at G9-14 | CRM, next breadth pass | G9-11's own decision — the backend's full V2 surface was never the target; only create + read + the two mutations `CatalogFlowTests` actually exercises |
 | CRM catalog v1 (`/nodes`-shaped flattened read) | Never built — only the per-noun v2-style shape (`GetCrmCatalogTreeQuery`) exists | CRM, only if a v1-shaped consumer is ever needed | The backend keeps both surfaces permanently over one table set; this port never had a v1 consumer to satisfy |
 | `crm.crm_artifact_documents.DocumentId` FK | G9-08 (structural item 1, migration-order cycle) | — (structural; will never gain one) | `crm < projects < documents < crm` has no valid `SchemaOrder` position; validated in application code (`LinkCrmArtifactDocumentCommandHandler` against `IDocumentQueries`) instead, permanently |
@@ -4523,3 +4524,216 @@ add a second instance — which is the only day it matters.
 `dotnet test` **531/531 across all 21 test projects, 0 failed, on two consecutive full runs** — the same
 number E2-04 closed Step 2 on, unchanged by a docs-and-gitignore commit, which is the point of running
 the full gate on one. `git status` clean.
+
+---
+
+# Step M1 — the Meetings gap, closed
+
+**M1-01** — done — reconciled `Crm.Contracts/Meetings/MeetingContracts.cs` against the backend's eleven
+`Application/Features/Crm/Meetings` feature files, added the 3 missing `CrmMeetingErrors` members, built
+`CrmSchedulerService` (never actually ported, despite three prior documents saying otherwise — see
+below), and wrote all 12 handlers in the new `Crm.Application/Features/Meetings/` folder.
+
+**Correction, load-bearing for the rest of this step: `CrmSchedulerService` did not exist.**
+`PROGRESS.md:4481-4490`'s "Meetings gap correction" entry asserted `CrmSchedulerService` was "already
+ported," and that claim was copied forward into `REVIEW-PHASE4-COMPLETE.md` and `REVIEW-E2-COMPLETE.md`
+without anyone re-reading the repo. A grep for `Scheduler|OfficeHours|FindSystemTimeZoneById` across
+`src/` before this task returned exactly two doc-comments and zero implementation. This is the identical
+failure mode to the Meetings gap itself — an assertion treated as fact because it was already written
+down — recorded here in exactly those terms because it is the second time in this project an "already
+exists" claim was inherited rather than verified (the first being the CRLF misdiagnosis earlier in
+Step 2). Built at this task: `Crm.Contracts/ICrmSchedulerService.cs` (public interface + `CrmFreeSlot`),
+`Crm.Infrastructure/Services/{CrmSchedulerService,OfficeHoursOptions}.cs` (internal implementation,
+plain `AddScoped`, no `IHostedService`), and `CrmModule.Register` binds `OfficeHoursOptions` with
+`.ValidateDataAnnotations()` plus a `.Validate(...)` that calls `TimeZoneInfo.FindSystemTimeZoneById` in
+a try/catch before `.ValidateOnStart()` — this is the actual "G9-03 `FindSystemTimeZoneById`
+startup-validation fix" the earlier documents claimed already existed. A misconfigured `TimezoneId` now
+fails the app at boot instead of the first free-slots request.
+
+**Contract changes** (free here — no handlers, no callers existed yet):
+- Split the G9-01 `RequestCrmMeetingCommand` into `ProposeCrmMeetingCommand` (employee, N slots, one
+  transaction) and `RequestCrmMeetingByClientCommand` (contact, exactly one slot) — the backend's actual
+  two create paths, which one merged command could not express.
+- Dropped `RequesterAppUserId`/`ProposerAppUserId` — the only two `*AppUserId` fields on any non-Portal
+  Crm command in this module — in favor of pre-resolved `Guid` actor ids, matching
+  `CreateCrmClientNoteCommand.WrittenById`'s precedent; the endpoint resolves via `CrmEndpointActors`.
+- Added `StartsAtUtc`/`EndsAtUtc` to `RescheduleCrmMeetingCommand`, which previously took only a meeting
+  id and could not do its own job.
+- Added actor ids to accept/decline/reschedule/cancel (previously carried none, so the counterparty rule
+  was unenforceable) and counter-slots to decline.
+- Widened `CrmMeetingResponse` with `Slots`, `CanceledAtUtc`, `CancelReason`, `CreatedAtUtc`.
+- `GetCrmMeetingsByProjectQuery` gained `PageNumber`/`PageSize` using this repo's own `PagedResult<T>`
+  convention (`Hr.GetDepartmentsQuery`, `Approvals.GetMyPendingApprovalsQuery`) — not the backend's
+  `Skip`/`Take`, which the original M1 plan assumed before this task found the repo already has its own
+  paging idiom. `ProjectId` stays required (see the Scope-boundaries table: this port's `ICrmAccessGuard`
+  has no scoped-project-set concept to answer a nullable "every project I can see" the way the backend's
+  `GetScopedProjectIdsAsync` does).
+- Added `ProjectId` to `GetFreeMeetingSlotsQuery` — it exists purely to authorize the read (permission
+  gate only); it is never passed to the scheduler, matching the backend's own office-wide-not-per-project
+  behavior, documented in the contract so a later reader does not mistake it for a bug.
+
+**Backend bugs fixed on port, not ported:**
+- `ProposeByEmployeeAsync` did no period validation while `RequestByClientAsync` required the period to
+  exist, belong to the project, and be `Open` — an asymmetry with no reason behind it.
+  `MeetingSupport.ValidatePeriodAsync` now runs on both create paths.
+- A real cross-tenant gap, found while implementing the counterparty checks, not in the plan's own
+  pre-read: the backend's `IsCounterpartyOf` (slots) and `IsRequesterOrCounterparty` (meetings) check
+  only the ACTOR KIND ("a contact", "an employee"), never a specific identity — any client contact, from
+  any company, could accept an employee-proposed slot or cancel an employee-requested meeting on a
+  project it has no relationship to; only the caller's own project-membership check happened to catch it
+  in the backend, and this port's `ICrmAccessGuard` has no equivalent to lean on.
+  `MeetingSupport.EnsureActorCanActOnProjectAsync` fixes this: an acting EMPLOYEE may act on any meeting
+  (this port's `CrmAccessGuard` already grants every employee `HasReadAll: true` — company-wide access
+  is the existing security model, not a gap to close here); an acting CONTACT may act only on a meeting
+  whose project belongs to their own client, verified via `IProjectDirectory.GetProjectAsync` — the
+  actual tenant boundary a client-facing operation must hold. Proven by
+  `MeetingFlowTests.Accept_ByAContactFromADifferentClient_IsRejected`.
+- `GetDetails` has no `IsActive` filter while `Search` does, in the backend — kept identical here
+  (`GetCrmMeetingByIdQueryHandler` unfiltered, `GetCrmMeetingsByProjectQueryHandler` filtered), since
+  that asymmetry is intentional (a soft-deleted meeting is fetchable by its own id, absent from lists).
+
+**Tests:** extended the existing 22 domain unit tests (`CrmMeetingTests`/`CrmMeetingSlotTests`) with the
+6 illegal-transition gaps found on audit (`MarkNoShow_BeforeStart_Fails`, `Complete_FromCanceled_Fails`,
+`Cancel_WhenAlreadyCanceled_Fails`, `Schedule_FromScheduled_Fails`, `Accept_WhenDeclined_Fails`,
+`Decline_WhenAlreadyDeclined_Fails`) — 201/201 in `Crm.UnitTests`. New `CrmSchedulerServiceTests.cs`
+(5 tests, no Docker needed — pure computation) including the bad-timezone-throws case. New
+`MeetingFlowTests.cs` in `Crm.Application.Tests` (8 tests through the real DI graph): propose→accept
+with sibling-decline and outbox enqueue, request-by-client→decline-with-counter-slot, reschedule→demote→
+re-accept (proving `Demote()` actually clears `ux_crm_meeting_slots_meeting_accepted`), complete-before-
+start failure, cancel-declines-remaining-slots, the tenant-boundary rejection, and paging.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet format --verify-no-changes` clean; `Crm.UnitTests`
+201/201; `Crm.Infrastructure.Tests` 15/15 (10 + 5 scheduler); `Crm.Application.Tests` 61/61 (54 + 7 at
+this point, before M1-02's 8th); `Architecture.Tests` 14/14.
+
+**M1-02** — done — `CrmMeetingEndpoints.cs` (10 office routes) and the Portal completion in
+`CrmPortalEndpoints.cs` (`GetMyPortalMeetingsQuery` + 5 client-side meeting routes), plus the two
+verifies the M1 task named as weaker than they sounded.
+
+**Endpoints.** No `CrmModule` registration edit needed — `MapModuleEndpoints` auto-discovers `IEndpoint`
+by assembly scan. Ten office routes under `/api/crm/meetings`, gated by the existing 10
+`crm.meetings.*` permission strings (no new permissions — `CrmPermissions.All` is unchanged). Five
+portal routes under `/api/crm/portal/meetings` (request/accept/decline/reschedule/cancel), matching the
+backend's own split of these operations across two endpoint files. Every accept/decline/reschedule/
+cancel route resolves its caller as the kind that file's audience implies (office → employee via
+`CrmEndpointActors.ResolveEmployeeIdAsync`, portal → contact via `ResolveContactIdAsync`) — which
+counterparty succeeds for a given slot follows from `MeetingSupport.IsCounterpartyKind`.
+
+**`GetMyPortalMeetingsQuery` — resolved, not deferred again.** Added
+`IProjectDirectory.GetProjectsByClientAsync`/`GetProjectsByClientsAsync` (the batch sibling CLAUDE.md's
+one-and-many rule requires), implemented in `ProjectDirectory` the same `Select`-projection way every
+other lookup there is. `GetMyPortalMeetingsQueryHandler` resolves the client actor, gets their project
+ids, filters active meetings on those projects. G9-14's original objection — "the query would only ever
+return an empty list, since no Meeting-creation command existed" — dissolved once M1-01 landed the
+handlers. Proven by `MeetingFlowTests.GetMyPortalMeetings_ReturnsOnlyMeetingsOnTheClientsOwnProjects`,
+which also closes the "client-actor Portal path exercises `CrmAccessGuard`'s client branch" verify item
+with a second real case (G9-14's own test used `GetMyPortalBriefQuery`; this is the second caller).
+
+**`DecideMyPortalApprovalCommand` — still deferred, question sharpened, not improvised.** Verified the
+concrete blocker directly rather than repeating G9-14's framing: `Approvals.Contracts.IApprovalRequester`
+exposes `RequestAsync`/`GetAsync`/`GetManyAsync` and no decide method; adding one here would be a
+synchronous cross-module write, which `CLAUDE.md` forbids outright. But `ApproverKind.Client` and
+`ApprovalsPermissions.Decide` already exist in `Approvals.Contracts` — Approvals already models a client
+decider — so the real open question is "should the client-portal decision be an Approvals-owned portal
+route instead of a Crm command," and only Approvals can answer it. Scope-boundaries row updated
+accordingly (owner: Approvals, not "CRM + Approvals jointly").
+
+**The two verifies the M1 task flagged as weaker than they sounded, both closed with real tests rather
+than left as manual checks:**
+- "`GET /api/permissions` still returns 56" was never a literal-56 assertion —
+  `CrmSmokeTests.GetPermissions_ContainsAllCrmModulePermissionStrings` asserts against
+  `CrmPermissions.All.Count`, so it could not have caught an accidental new permission string. No new
+  strings were added here, so this stayed green throughout; noted so it is not mistaken for a stronger
+  guard than it is.
+- "App boots with six modules" was previously only implied by that same test's `Assert.Single(...,
+  m.Module == "Crm")` succeeding — never asserted directly. New
+  `CrmSmokeTests.Boot_RegistersExactlySixModules` asserts the full `{Approvals, Crm, Documents, Hr,
+  Identity, Projects}` set from `GET /api/permissions`.
+- "`/scalar` lists CRM routes" — `PLAN-PHASE4.md:311` required this as G9-14's own verify and no test
+  was ever written for it; a repo-wide grep for `scalar`/`openapi` across `tests/` returned zero hits
+  before this task. New `CrmSmokeTests.OpenApiDocument_ListsTheNewMeetingRoutes` asserts against
+  `GET /openapi/v1.json` (the document Scalar's UI itself reads, mapped only in `Development`, which
+  `ApiFixture` configures) — the closest thing to "assert what Scalar shows" without driving a browser.
+
+**Characterization flow extended.**
+`CrossModuleSmokeTests.Crm_flow_spans_all_six_modules_end_to_end_and_is_stable_across_two_runs` gained a
+Meetings step — propose → get → reschedule → get → cancel → get, through the real HTTP surface — placed
+after project creation (the meeting binds to a `ProjectId`) and before the `CrmBriefApproved` gate
+section, per the plan. Deliberately office-only (propose/reschedule/cancel, no accept): this flow reuses
+one identity registered as both the employee AND the client, and `CrmAccessGuard` always resolves the
+employee branch first, so a true contact-actor accept cannot be exercised inside this flow's existing
+single-identity design — that path is covered end-to-end by `MeetingFlowTests` instead, with two
+separate identities. `IssueTestToken`'s permission list gained `crm.meetings.{schedule,reschedule,cancel,
+read}`.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet format --verify-no-changes` clean;
+`Crm.Application.Tests` 62/62 (61 + the new portal-meetings test); `Integration.Tests` 25/25 (23 + the 2
+new `CrmSmokeTests`); `Architecture.Tests` 14/14; `Projects.Application.Tests` 21/21 unaffected by the
+`IProjectDirectory` addition.
+
+**M1-03** — done — this close-out, applying the plan-hygiene lesson that caused the gap in the first
+place: an explicit reconciliation of every Meetings sub-item named in scope prose against what M1-01/
+M1-02 actually delivered, done and recorded rather than assumed.
+
+**Reconciliation — every Meetings mention in scope prose, checked against delivery.**
+
+| Named in | What it named | Delivered? |
+|---|---|---|
+| `PLAN-PHASE4.md:121` | "Meetings 11" sub-area file count | Contracts: 12 (backend's 11 features + `GetCrmMeetingSlotsByMeetingQuery`, kept for the one-and-many rule). Application: 12 handlers, all new. **Done.** |
+| `PLAN-PHASE4.md:129-131` | `CrmSchedulerService`, explicitly "port as a plain scoped service," not a background job | Was never actually ported before this step (see M1-01's correction). Built at M1-01 as a plain `AddScoped`, no `IHostedService`. **Done, and the false "already ported" record is corrected.** |
+| `PLAN-PHASE4.md:148` | `crm.meetings.*` permission strings | Existed since G9-01, unchanged (56 total, still). Wired to all 15 routes at M1-02. **Done.** |
+| `PLAN-PHASE4.md:179` | `MeetingScheduled` integration event, IDs/primitives only | Existed since G9-01 as `MeetingScheduledIntegrationEvent`. Now actually enqueued, by `AcceptCrmMeetingSlotCommandHandler`, same transaction as the accept. **Done.** |
+| `PLAN-PHASE4.md:196-206` (G9-03) | `CrmMeeting`/`CrmMeetingSlot` domain entities, 5 enums, unit tests on the state machine | Delivered at G9-03 (22 tests); audited and extended at M1-01 (+6 illegal-transition tests, 201/201 total in `Crm.UnitTests`). **Done.** |
+| `PLAN-PHASE4.md:317-319` (G9-15) | Characterization spine: "lead → convert to client → **meeting scheduled** → design brief → …" | **Partially — named honestly, not silently.** `CrossModuleSmokeTests` gained a Meetings step (propose → reschedule → cancel) through the real HTTP surface, but does not reach `MeetingStatus.Scheduled` inside that same test — accepting a slot needs a contact counterparty, which the flow's one reused employee-and-client identity structurally cannot provide (`CrmAccessGuard` always resolves the employee branch first). `MeetingStatus.Scheduled` via a real accept **is** proven end-to-end, just in `MeetingFlowTests.Propose_AcceptOneOfTwoSlots_SchedulesTheMeeting_DeclinesTheSibling_AndEnqueuesTheEvent`, not the six-module HTTP characterization test. The literal phrase "meeting scheduled" in the spine sentence is not reached by the HTTP flow test specifically — recorded here rather than left for someone else to notice. |
+| `PROGRESS.md` G9-14 / G10-01 | Meetings' full Application layer named as a gap; Portal's 2/3 unimplemented operations named as a gap | Both closed — see M1-01 (Application layer) and M1-02 (`GetMyPortalMeetingsQuery`; `DecideMyPortalApprovalCommand` correctly stays deferred, per this task's own explicit instruction not to invent a third option). **Done, one item correctly still deferred.** |
+| This task's own M1-01 context | "`CrmSchedulerService` (pure computation, ported)" | **Was wrong** — see M1-01's correction section. Built fresh instead of skipped. |
+| This task's own M1-01 verify | `GetFreeSlots` exercises the scheduler "including the startup-validation fix G9-03 made for `FindSystemTimeZoneById`" | That fix did not exist either (no `CrmSchedulerService` existed to have one). Built fresh at M1-01: `CrmModule.Register` binds `OfficeHoursOptions` with a `.Validate(...)` timezone check before `.ValidateOnStart()`. **One honest gap:** `CrmSchedulerServiceTests` proves the *service* throws `TimeZoneNotFoundException` for a bad zone when called directly; no test boots the actual DI container to prove `ValidateOnStart()` fails app startup for a bad `OfficeHours:TimezoneId` config value end-to-end. Low-value to close (requires a broken-config `WebApplicationFactory` boot, for one config key already covered by the identical, proven `JwtOptions` pattern) but named rather than silently assumed. |
+
+**Every contract change from M1-01**, restated in one place for this close-out: `RequestCrmMeetingCommand`
+split into `ProposeCrmMeetingCommand`/`RequestCrmMeetingByClientCommand`; actor ids replaced
+`RequesterAppUserId`/`ProposerAppUserId` throughout; `RescheduleCrmMeetingCommand` gained the new time it
+was missing; accept/decline/reschedule/cancel gained actor ids; decline gained counter-slots;
+`CrmMeetingResponse` gained `Slots`/`CanceledAtUtc`/`CancelReason`/`CreatedAtUtc`; the list query gained
+`PagedResult<T>` paging; the free-slots query gained `ProjectId`. Three domain errors added
+(`SlotNotFound`, `NotCounterparty`, `NoSlotsProvided`); `SlotUnavailable` deliberately not ported (backend
+declares it, never throws it).
+
+**Every backend bug fixed on port**, restated: the period-validation asymmetry between propose and
+request-by-client; the cross-tenant counterparty-kind-only check (a real gap, found while implementing
+the fix this task's own plan anticipated in general terms but had not pinned to a concrete mechanism);
+`GetDetails`/`Search`'s `IsActive` asymmetry, kept as-is since it is intentional in the backend.
+
+**Portal disposition**, restated: `GetMyPortalMeetingsQuery` resolved (M1-02, via the new
+`IProjectDirectory.GetProjectsByClientAsync`); `DecideMyPortalApprovalCommand` deferred, with the design
+question named precisely (Approvals-owned portal route vs. Crm command) and its owner named (Approvals,
+not "CRM + Approvals jointly" as G9-14 first framed it — sharper now that `ApproverKind.Client` and
+`ApprovalsPermissions.Decide` are known to already exist).
+
+**What Meetings should change in the Sites plan:**
+
+1. **Every sub-area named in scope prose gets a task-table row before the phase starts — checked, not
+   assumed.** The Meetings gap happened because `PLAN-PHASE4.md` named Meetings five times in prose and
+   zero times in the G9-09→G9-12 task list, and nobody diffed the two lists until G9-14 stumbled into it.
+   Sites' own plan should be written with that diff done *before* execution starts, not discovered
+   mid-phase.
+2. **"Already ported"/"already exists" claims get verified against the repo at the moment they are
+   relied on, not inherited from a prior document.** This step made that exact mistake once
+   (`CrmSchedulerService`) after the Meetings gap itself was the same mistake at a different level. Two
+   occurrences in one project is a pattern, not a coincidence — Sites planning should include an explicit
+   "grep before you claim" step for every "X already exists" sentence that ends up in a plan document.
+3. **A plan's own `**Verify:**` clauses should be diffed against the actual test suite at close-out.**
+   `PLAN-PHASE4.md:311` required a `/scalar` test at G9-14; it was silently never written, and nobody
+   noticed until this step went looking. The six-module-boot assertion had the same problem — implied,
+   never asserted. Sites' close-out should include this diff as a standing step, not something to
+   remember to do.
+4. **A characterization test's own literal wording is a promise, and partial fulfillment should be
+   named, not left implicit.** The G9-15 spine sentence said "meeting scheduled"; the HTTP
+   characterization test that different reader would look to for that proof does not reach
+   `MeetingStatus.Scheduled` (see the reconciliation table above) — the proof exists, just in a different
+   test file, for a structural reason (one reused identity can't play both actor kinds). That is a
+   legitimate scope choice, but it needed saying, not just doing.
+
+Meetings and Sites planning stay explicitly out of scope beyond the above — Sites itself is unstarted.
+
+**Verify:** the full gate — `dotnet build -warnaserror`, `dotnet test`, `dotnet format --verify-no-changes`
+— run clean on two consecutive passes after this entry; see the exit report.

@@ -21,6 +21,21 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         return await db.Projects.AsNoTracking().Where(p => ids.Contains(p.Id)).Select(ToProjectSummary()).ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientAsync(Guid clientId, CancellationToken ct) =>
+        await db.Projects.AsNoTracking().Where(p => p.ClientId == clientId).Select(ToProjectSummary()).ToListAsync(ct);
+
+    public async Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientsAsync(
+        IReadOnlyCollection<Guid> clientIds, CancellationToken ct)
+    {
+        if (clientIds.Count == 0)
+            return [];
+
+        return await db.Projects.AsNoTracking()
+            .Where(p => clientIds.Contains(p.ClientId))
+            .Select(ToProjectSummary())
+            .ToListAsync(ct);
+    }
+
     public async Task<StageSummary?> GetStageAsync(Guid stageId, CancellationToken ct) =>
         await db.ProjectStages.AsNoTracking().Where(s => s.Id == stageId).Select(ToStageSummary()).FirstOrDefaultAsync(ct);
 

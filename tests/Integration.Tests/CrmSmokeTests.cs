@@ -49,6 +49,55 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     }
 
     /// <summary>
+    /// M1-02: closes the gap this class's own doc comment names — "the app boots with all SIX modules"
+    /// was previously only implied by <see cref="GetPermissions_ContainsAllCrmModulePermissionStrings"/>
+    /// succeeding, never asserted directly. <c>GET /api/permissions</c> returns one
+    /// <c>ModulePermissionSet</c> per registered module — the same list <c>Program.cs</c>'s own
+    /// composition root loads by assembly name — so its module count and names ARE the boot proof.
+    /// </summary>
+    [Fact]
+    public async Task Boot_RegistersExactlySixModules()
+    {
+        var client = fixture.CreateClient();
+        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.GetAsync("/api/permissions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        Assert.NotNull(modules);
+
+        Assert.Equal(
+            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Projects"],
+            modules!.Select(m => m.Module).OrderBy(m => m, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// M1-02: the other gap this class's own doc comment named — <c>PLAN-PHASE4.md:311</c> required
+    /// "<c>/scalar</c> lists CRM routes" as G9-14's own verify, and no test ever asserted it. Scalar
+    /// itself renders an HTML page (no route list to grep); the actual route source it reads from is the
+    /// OpenAPI document <c>MapOpenApi()</c> serves at <c>/openapi/v1.json</c> (mapped only in
+    /// Development, which <see cref="ApiFixture"/> configures), so that document is what this asserts
+    /// against — same content Scalar's UI would present, once for the Meetings endpoints file M1-02 adds.
+    /// </summary>
+    [Fact]
+    public async Task OpenApiDocument_ListsTheNewMeetingRoutes()
+    {
+        var client = fixture.CreateClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var document = await response.Content.ReadAsStringAsync();
+        Assert.Contains("/api/crm/meetings/propose", document);
+        Assert.Contains("/api/crm/meetings/{meetingId}/reschedule", document);
+        Assert.Contains("/api/crm/meetings/free-slots", document);
+        Assert.Contains("/api/crm/portal/meetings", document);
+        Assert.Contains("/api/crm/portal/meetings/{meetingId}/cancel", document);
+    }
+
+    /// <summary>
     /// E2-03: merges what were two separate tests (reachability, burst) into one sequential six-request
     /// drive against the SAME fixed-window limit (5/minute/IP, per <c>Api.DI.AddApi</c>) - split across
     /// two tests, both shared that one server-side IP partition with no <c>ApiFixture.ResetAsync</c>

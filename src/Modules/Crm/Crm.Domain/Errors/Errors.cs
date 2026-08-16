@@ -225,6 +225,23 @@ internal static class CrmMeetingErrors
 
     public static readonly Error SlotNotProposed = Error.Conflict(
         "crm.meetings.SlotNotProposed", "Only a proposed slot can be accepted or declined.");
+
+    /// <summary>M1-01: the backend has this as `SlotNotFound` (404) on the accept/decline path — this
+    /// port had only the meeting-level `NotFound`, which read wrong on a slot id.</summary>
+    public static readonly Error SlotNotFound = Error.NotFound(
+        "crm.meetings.SlotNotFound", "Meeting slot was not found.");
+
+    /// <summary>M1-01: the backend's `NotCounterparty` (403) — the actor accepting/declining a slot, or
+    /// rescheduling/canceling a meeting, must be the other side of it (see
+    /// `CrmMeetingOrchestration.IsCounterpartyOf`/`IsRequesterOrCounterparty`).</summary>
+    public static readonly Error NotCounterparty = Error.Forbidden(
+        "crm.meetings.NotCounterparty", "You are not a party to this meeting.");
+
+    /// <summary>M1-01: the backend's `NoSlotsProvided` (400) — `ProposeCrmMeetingCommand` must offer at
+    /// least one candidate slot; the entity constructor has nothing to reject an empty list with, since
+    /// slots are added by the caller after `CrmMeeting.Create` succeeds.</summary>
+    public static readonly Error NoSlotsProvided = Error.BadRequest(
+        "crm.meetings.NoSlotsProvided", "At least one slot must be proposed.");
 }
 
 /// <summary>G9-14: the Portal's own read/write surface. <see cref="NotFound"/> covers both "no such

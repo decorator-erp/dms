@@ -17,19 +17,16 @@ namespace Crm.Application.Features.Portal;
 /// redundancy) because it needs the resolved <c>ClientId</c> itself, which the decorator does not pass
 /// through — the decorator only gates, it never hands its result to the inner handler.
 ///
-/// <para><c>GetMyPortalMeetingsQuery</c> and <c>DecideMyPortalApprovalCommand</c> — the other two
-/// Portal operations <c>Crm.Contracts</c> declares — are deliberately NOT implemented at this task.
-/// <c>GetMyPortalMeetingsQuery</c>'s own doc comment says it resolves "the calling client's own
-/// projects," but <c>Projects.Contracts.IProjectDirectory</c> has no client-scoped project lookup (only
-/// by-id), and no Meeting-creation command was ever built in this phase (Meetings' Application layer
-/// was named in the plan's "complete spine" but never actually implemented in G9-09→G9-12, a real gap
-/// recorded in this task's PROGRESS.md entry) — so the query would only ever return an empty list, and
-/// closing the underlying gap means either a new cross-module contract method or a CRM-local
-/// reinterpretation, either of which is an architectural decision this endpoints task shouldn't make
-/// unilaterally. <c>DecideMyPortalApprovalCommand</c> would route through <c>Approvals.Contracts</c>,
-/// whose <c>approval_approvers</c> ledger is employee-scoped in this port — giving a client actor a
-/// decision path there is the same kind of design question, not an endpoint-wiring one. Both are
-/// deferred explicitly, not silently.</para>
+/// <para><c>GetMyPortalMeetingsQuery</c> was the other Portal operation left unimplemented at G9-14,
+/// for the reason this comment used to record: <c>IProjectDirectory</c> had no client-scoped project
+/// lookup, and Meetings had no Application layer at all (a real gap, recorded in G9-14's own
+/// PROGRESS.md entry and closed at M1-01/M1-02). Both blockers are gone — see
+/// <c>GetMyPortalMeetingsQueryHandler</c>.
+///
+/// <c>DecideMyPortalApprovalCommand</c> remains deferred: it would route through
+/// <c>Approvals.Contracts</c>, whose <c>approval_approvers</c> ledger is employee-scoped in this port —
+/// giving a client actor a decision path there is an Approvals-owned design question, not an
+/// endpoint-wiring one. See M1-02's Scope-boundaries row.</para>
 /// </summary>
 internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGuard guard, IProjectDirectory projectDirectory)
     : IQueryHandler<GetMyPortalBriefQuery, PortalBriefResponse>

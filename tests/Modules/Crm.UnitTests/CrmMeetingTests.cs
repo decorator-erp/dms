@@ -163,6 +163,56 @@ public class CrmMeetingTests
     }
 
     [Fact]
+    public void MarkNoShow_BeforeStart_Fails()
+    {
+        var meeting = CreateMeeting();
+        Assert.True(meeting.Schedule(Now.AddDays(1), 60).IsSuccess);
+
+        var result = meeting.MarkNoShow(Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.InvalidStateTransition, result.Error);
+    }
+
+    [Fact]
+    public void Complete_FromCanceled_Fails()
+    {
+        var meeting = CreateMeeting();
+        Assert.True(meeting.Schedule(Now.AddDays(1), 60).IsSuccess);
+        Assert.True(meeting.Cancel("client asked", Now).IsSuccess);
+
+        var result = meeting.Complete(Now.AddDays(1));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.InvalidStateTransition, result.Error);
+    }
+
+    [Fact]
+    public void Cancel_WhenAlreadyCanceled_Fails()
+    {
+        var meeting = CreateMeeting();
+        Assert.True(meeting.Schedule(Now.AddDays(1), 60).IsSuccess);
+        Assert.True(meeting.Cancel("client asked", Now).IsSuccess);
+
+        var result = meeting.Cancel("client asked again", Now);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.InvalidStateTransition, result.Error);
+    }
+
+    [Fact]
+    public void Schedule_FromScheduled_Fails()
+    {
+        var meeting = CreateMeeting();
+        Assert.True(meeting.Schedule(Now.AddDays(1), 60).IsSuccess);
+
+        var result = meeting.Schedule(Now.AddDays(2), 60);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.InvalidStateTransition, result.Error);
+    }
+
+    [Fact]
     public void MarkReminderSent_IsIdempotent()
     {
         var meeting = CreateMeeting();

@@ -14,6 +14,14 @@ public interface IProjectDirectory
     Task<ProjectSummary?> GetProjectAsync(Guid projectId, CancellationToken ct);
     Task<IReadOnlyList<ProjectSummary>> GetProjectsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 
+    /// <summary>M1-02: added to close the gap G9-14 recorded — <c>GetMyPortalMeetingsQuery</c>'s own
+    /// doc comment says it resolves "the calling client's own projects," but until now
+    /// <see cref="IProjectDirectory"/> had no client-scoped lookup, only by-id. This is the shape the
+    /// Scope-boundaries table already named as natural.</summary>
+    Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientAsync(Guid clientId, CancellationToken ct);
+
+    Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientsAsync(IReadOnlyCollection<Guid> clientIds, CancellationToken ct);
+
     Task<StageSummary?> GetStageAsync(Guid stageId, CancellationToken ct);
     Task<IReadOnlyList<StageSummary>> GetStagesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 

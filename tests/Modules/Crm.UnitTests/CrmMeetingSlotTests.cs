@@ -85,6 +85,32 @@ public class CrmMeetingSlotTests
     }
 
     [Fact]
+    public void Accept_WhenDeclined_Fails()
+    {
+        var slot = CrmMeetingSlot.Create(
+            Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
+        Assert.True(slot.Decline().IsSuccess);
+
+        var result = slot.Accept();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
+    }
+
+    [Fact]
+    public void Decline_WhenAlreadyDeclined_Fails()
+    {
+        var slot = CrmMeetingSlot.Create(
+            Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
+        Assert.True(slot.Decline().IsSuccess);
+
+        var result = slot.Decline();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
+    }
+
+    [Fact]
     public void Demote_FromAccepted_SetsDeclined()
     {
         var slot = CrmMeetingSlot.Create(
