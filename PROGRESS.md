@@ -5306,3 +5306,94 @@ integration event is published yet — `SiteSubmitted`/`SiteApproved` are S1-07'
 `dotnet format --verify-no-changes` clean. **The decorator's behavioural assertion was confirmed to fail
 with the registration removed and to pass with it restored** — the only check that distinguishes "wired"
 from "wired and applied".
+
+**S1-07** — done — `src/Modules/Sites/Sites.Application/Features/Surveys/{SiteWrites,SiteCommandHandlers,GetSitesQueryHandler}.cs`,
+`Features/Records/{SiteRecordWrites,SiteRecordCommandHandlers,SiteRecordQueryHandlers}.cs`,
+`Features/Documents/SiteDocumentHandlers.cs`, `SitesModule.cs`,
+`tests/Modules/Sites.Application.Tests/{SiteLifecycleFlowTests,SiteRecordFlowTests,SiteTestData}.cs`.
+**35 new tests (66 in the project).** The Contracts surface declared at S1-01 now has a handler for
+every message except the deferred variance query.
+
+**Every write assertion reads the row back.** The plan names the hazard: the backend's
+`GenericRepository.GetByIdAsync` defaults to `asNoTracking: true` with all sixteen mutating call sites
+overriding it. EF here tracks by default, so the danger inverts — an `AsNoTracking()` added to a write
+path makes the write vanish with no error, and a test inspecting only the returned `Result` still
+passes. Mutating loads go through `SiteWrites.LoadForWriteAsync`/`SiteRecordWrites.LoadEditableAsync`,
+and the lifecycle tests assert the persisted `Status`, `Address`, `SubmittedAtUtc` and `IsActive`.
+
+**Backend defects fixed here:**
+
+- **B1 — create-site on a nonexistent project.** The only guard was an access check that a caller
+  holding `Projects.ReadAll` short-circuits *without touching the projects table*, so a garbage id
+  reached the foreign key as an unexplained 500. `SiteErrors.ProjectNotFound` existed and was referenced
+  nowhere. Now validated through `IProjectDirectory`; the test grants `ReadAll` precisely so it takes the
+  short-circuit path.
+- **B2 — bulk save validated against the client's `ModuleId` and wrote against the record's.** Because
+  `SiteRecord.Update` cannot change module, an update row could name *any* module: values were judged by
+  a schema unrelated to the record, and naming a module with no required fields skipped required-field
+  validation entirely. Every row's module is now resolved from the stored record for updates, from the
+  request only for inserts, and everything downstream uses the resolved value.
+- **B3 — the in-batch label dedupe keyed on that same untrusted value**, so two rows in one grid could
+  carry different `ModuleId`s, land in different groups, pass the dedupe, and collide on the unique index
+  as an unhandled write failure. Keyed on the resolved module.
+- **B5 — linking a document checked nothing.** A caller with `sites.update` on project A could link
+  project B's document and read the id back through `GET /documents` — a cross-project reference leak
+  through this module. It also skipped the editable guard every record write has, so attachments could be
+  added to an approved survey. Both fixed.
+- **B9 — the pivot, twice.** Columns were built with an empty option list, so a client rendering a Select
+  column from the pivot alone had no choices; and cells were assigned through a `Dictionary` indexer,
+  which *adds* missing keys — a value captured against a since-detached item became an extra cell with no
+  column, the ragged row the code one line above promises never to produce.
+- **B10 — the pivot accepted a deactivated module** the schema route 404s for.
+- **B11 — three correlated subqueries per cell** to resolve one option's code and two names: 3,750
+  scalar subqueries for a 50×25 grid. One left join.
+- **B13 — delete had no status guard** while `Update` refuses on Approved, and the query filter then
+  hides the row from every read *and* from the scope decorator's own resolution — so an approved
+  engineering record could be made to vanish with no lifecycle check.
+- **B14 — repeated `groupBy` tokens were not deduplicated**, so `?groupBy=width,width` minted a doubled
+  family key; `FamilyKey` is documented as the exporter's join token, so a caller could produce keys
+  matching nothing. (Not in the plan's fix list — found while porting.)
+- **B15 — link-document distinguished "another site's record" (400) from "no such record" (404)**, the
+  exact oracle its own unlink handler's comment says it avoids. Both are `RecordNotFound`.
+- **B8's record half** — validators for update-record, set-values and bulk-save, none of which the
+  backend has. Bulk save also gains a 500-row cap: the backend accepts an unbounded list.
+
+**Ported as-is, recorded rather than fixed:** **B4** (`CatalogItemId` is not validated — asymmetric with
+`SpaceId`, and inventing a check the source never had is not a port), **B17** (item usage counts values
+on soft-deleted records), and **B12**, the integrity gap — a `Submitted` survey's records stay editable,
+so an approval can attest to content that changed after review with no audit trail. B12 is in the
+scope-boundary table as a **product decision**, not a defect.
+
+**The grid save needs no explicit transaction, and that is a real simplification.** The backend opens
+one, writes records, **flushes mid-transaction**, then writes values — because its value pass *queries*
+for each record and cannot see an unsaved insert. Its own comment records the bug that forced the flush:
+without it every create answered `RecordNotFound` and rolled the whole grid back, so bulk save could
+update records but never create one. Working from tracked entities (ids are client-generated UUIDv7, so
+a value can reference a record before it is written) removes the flush, the second pass and the
+transaction together: everything is staged on the change tracker and written by one `SaveChangesAsync`,
+which EF already wraps atomically. An early return leaves the database untouched.
+
+> This was not a free choice. The first implementation kept the explicit transaction and failed with
+> *"The connection is already in a transaction and cannot participate in another"* — the outbox's own
+> `SaveChanges` participation clashes with a hand-opened transaction. Removing it was both the fix and
+> the better design.
+
+**`ICrmSpaceReader` earns its keep, and distinguishes a case the backend cannot.** The backend's single
+existence-and-project query collapses "no such space", "retired space" and "wrong project" into
+`SpaceNotInProject`. Reading the row through the contract lets `SpaceNotFound` and `SpaceNotInProject`
+be told apart. Both are tested against a **real CRM space on a different project** — the case a foreign
+key structurally cannot catch, which is the whole argument for the contract.
+
+**`TimeProvider` is now registered by `SitesModule`.** Nothing else in the repo injects one; submit and
+decide stamp the row and the integration event from a single clock, and injecting it rather than calling
+`DateTime.UtcNow` is what keeps those handlers testable against a fixed time. `TryAddSingleton`, since
+it is a host-level concern another module may register first.
+
+**Both integration events publish and nothing consumes them** — stated here as well as on the types, per
+the G9-14 lesson. `SiteSubmitted` and `SiteApproved` are enqueued in the same `SaveChangesAsync` as the
+status change, asserted by reading the outbox table. Zero registered handlers is a supported no-op; an
+*unstated* zero is how `ICrmBriefReader` became a dangling seam.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **742/742** across 24 suites
+(Sites.Application.Tests 66/66, Sites.UnitTests 107, Sites.Infrastructure.Tests 17);
+`dotnet format --verify-no-changes` clean.

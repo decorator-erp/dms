@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Clients;
+using Crm.Contracts.Spaces;
 using Hr.Contracts.Employees;
 using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,16 @@ internal static class SiteTestData
 {
     internal sealed record CapturedValue(Guid ModuleId, Guid RecordId, Guid SiteId);
 
+    internal sealed record Owners(Guid ProjectId, Guid EmployeeId, string AppUserId);
+
+    /// <summary>The app user id the shared project's owning employee is linked to — the identity S1-07's
+    /// instance commands act as.</summary>
+    public static string OwnerUserId => _owners?.AppUserId
+        ?? throw new InvalidOperationException("Call OwnersAsync first.");
+
+    /// <summary>The shared project and employee, created on first use.</summary>
+    public static Task<Owners> OwnersAsync(SitesApplicationFixture fixture) => SharedOwnersAsync(fixture);
+
     /// <summary>
     /// Creates a project, an employee, a site, a record and one captured value against
     /// <paramref name="itemId"/> — the smallest graph that makes an item "in use".
@@ -29,7 +40,8 @@ internal static class SiteTestData
         var moduleId = Guid.CreateVersion7();
         var siteId = Guid.CreateVersion7();
         var recordId = Guid.CreateVersion7();
-        var (projectId, employeeId) = await SharedOwnersAsync(fixture);
+        var owners = await SharedOwnersAsync(fixture);
+        var (projectId, employeeId) = (owners.ProjectId, owners.EmployeeId);
         var suffix = Guid.NewGuid().ToString("N")[..8];
 
         await ExecuteAsync(fixture, $"""
@@ -83,10 +95,9 @@ internal static class SiteTestData
     // about site/record/module identity, and none asserts project membership -- which is what the scope
     // decorator's outsider case relies on.
     private static readonly SemaphoreSlim Gate = new(1, 1);
-    private static (Guid ProjectId, Guid EmployeeId)? _owners;
+    private static Owners? _owners;
 
-    private static async Task<(Guid ProjectId, Guid EmployeeId)> SharedOwnersAsync(
-        SitesApplicationFixture fixture)
+    private static async Task<Owners> SharedOwnersAsync(SitesApplicationFixture fixture)
     {
         await Gate.WaitAsync();
         try
@@ -118,13 +129,108 @@ internal static class SiteTestData
                 .HandleAsync(new CreateProjectCommand(
                     $"P-{suffix}"[..12], "Test Project", "12 Nasr Road", WorkflowType.Stage, clientId))).Value;
 
-            _owners = (projectId, employeeId);
-            return _owners.Value;
+            _owners = new Owners(projectId, employeeId, ownerUserId);
+            return _owners;
         }
         finally
         {
             Gate.Release();
         }
+    }
+
+    public static async Task<string> ItemCodeAsync(SitesApplicationFixture fixture, Guid itemId)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new NpgsqlCommand(
+            $"""SELECT "Code" FROM sites.site_items WHERE "Id" = '{itemId}';""", connection);
+
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
+    /// A CRM space on a DIFFERENT project — the case a foreign key cannot catch, and the whole reason
+    /// <c>ICrmSpaceReader</c> exists. Written through CRM's own commands so the row is real.
+    /// </summary>
+    public static async Task<Guid> CreateSpaceInAnotherProjectAsync(SitesApplicationFixture fixture)
+    {
+        await using var scope = fixture.CreateScope();
+        var sp = scope.ServiceProvider;
+        var suffix = Guid.NewGuid().ToString("N");
+
+        var otherProjectId = await CreateAnotherProjectAsync(sp, suffix);
+
+        var spaceTypeId = (await sp
+            .GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
+            .HandleAsync(new CreateCrmSpaceTypeCommand($"st{suffix[..6]}", "Bedroom", "غرفة"))).Value;
+
+        var spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
+            .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom"))).Value;
+
+        return spaceId;
+    }
+
+    /// <summary>A document on the shared project — a legitimate link target.</summary>
+    public static Task<Guid> CreateDocumentAsync(SitesApplicationFixture fixture) =>
+        CreateDocumentAsync(fixture, sameProject: true);
+
+    /// <summary>A document on a DIFFERENT project — defect B5's case.</summary>
+    public static Task<Guid> CreateDocumentInAnotherProjectAsync(SitesApplicationFixture fixture) =>
+        CreateDocumentAsync(fixture, sameProject: false);
+
+    private static async Task<Guid> CreateDocumentAsync(
+        SitesApplicationFixture fixture, bool sameProject)
+    {
+        var owners = await SharedOwnersAsync(fixture);
+        var suffix = Guid.NewGuid().ToString("N");
+
+        Guid projectId;
+        if (sameProject)
+        {
+            projectId = owners.ProjectId;
+        }
+        else
+        {
+            await using var scope = fixture.CreateScope();
+            projectId = await CreateAnotherProjectAsync(scope.ServiceProvider, suffix);
+        }
+
+        // Raw SQL here, unlike the other seeds: uploading a document goes through IFormFile and real file
+        // storage, which this module never touches -- SiteDocument links a row by id and stores no file.
+        // The row is all that is needed, and standing up multipart upload to obtain one would test
+        // Documents rather than Sites.
+        var documentId = Guid.CreateVersion7();
+
+        await ExecuteAsync(fixture, $"""
+            INSERT INTO documents.project_documents
+                ("Id","ProjectId","FileName","StoragePath","ContentType","FileSizeBytes","FileExtension",
+                 "Version","RootDocumentId","UploadedById","UploadedOnUtc","IsLocked","IsActive","CreatedAtUtc")
+            VALUES ('{documentId}','{projectId}','plan-{suffix[..6]}.pdf','/tmp/plan.pdf','application/pdf',
+                    1024,'.pdf',1,'{documentId}','{owners.EmployeeId}', now() AT TIME ZONE 'utc',
+                    false,true, now() AT TIME ZONE 'utc');
+            """);
+
+        return documentId;
+    }
+
+    private static async Task<Guid> CreateAnotherProjectAsync(IServiceProvider sp, string suffix)
+    {
+        // CreateProjectCommand resolves its owner from the acting user, so the caller must be a real
+        // employee -- the shared owner is the one this fixture has.
+        sp.GetRequiredService<TestCurrentUser>().UserId = OwnerUserId;
+
+        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
+
+        var clientUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
+            $"other-client-{suffix}@example.com", "P@ssw0rd123!", "Other", "Client", null, "employee")))).Value!;
+
+        var clientId = (await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
+            .HandleAsync(new CreateClientCommand(clientUserId, "2 Other Way"))).Value;
+
+        return (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
+            .HandleAsync(new CreateProjectCommand(
+                $"O-{suffix}"[..12], "Other Project", "9 Other St", WorkflowType.Stage, clientId))).Value;
     }
 
     private static async Task ExecuteAsync(SitesApplicationFixture fixture, string sql)

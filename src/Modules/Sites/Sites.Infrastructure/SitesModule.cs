@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Sites.Contracts;
 using Sites.Infrastructure.Decorators;
 using Sites.Infrastructure.Persistence;
@@ -32,6 +33,12 @@ internal sealed class SitesModule : IModule
         // Backs SiteSchemaCache. TryAdd-based, so calling it here is safe whether or not the host or
         // another module has already registered it.
         services.AddMemoryCache();
+
+        // Submit and decide stamp the row and the integration event from one clock. TryAdd because this
+        // is a host-level concern that another module may register first; TimeProvider.System is the
+        // framework default, and injecting it rather than calling DateTime.UtcNow is what lets the
+        // lifecycle handlers be tested against a fixed time.
+        services.TryAddSingleton(TimeProvider.System);
 
         services.AddScoped<ISiteSchemaCache, SiteSchemaCache>();
         services.AddScoped<ISiteModuleValidator, SiteModuleValidator>();
