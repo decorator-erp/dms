@@ -5445,3 +5445,35 @@ leaving it unstated. It is also the only route that would have stacked a second 
 modules with all 7 Sites strings present; `/openapi/v1.json` lists the site routes; an unauthenticated
 site route is 401 and an authenticated one without `sites.read` is 403 — the route-claim layer of
 `CLAUDE.md`'s authorization order, ahead of the decorator's 404.
+
+**S1-09** — done — `tests/Integration.Tests/SitesSpineTests.cs`. **2 new tests.**
+
+The characterization spine, run twice: register → employee → client → project → site module → site item →
+attach → read the schema → create the survey → capture a record and its value → read the pivot →
+families → BOQ → upload a real document → link it → submit → approve → confirm the approved survey
+refuses further record writes. All seven modules in one HTTP flow.
+
+**What it proves.** The survey lifecycle end to end through real HTTP, and that `SiteDocument` links a
+genuine `documents.project_documents` row rather than a fabricated id — the document is uploaded through
+the Documents module's own route first, so `fk_site_documents_document` is exercised rather than dodged.
+Every cross-schema foreign key S1-05 added is exercised by these writes simply by their succeeding, and
+the approved-survey lock is confirmed at the HTTP boundary (409), not just at the handler.
+
+**What it does NOT prove — stated in the test's own doc comment before it was written (lesson 4).** It
+does not prove `SourceBriefId` provenance. Nothing in this system writes that column, so the brief→site
+link is untested here and the variance route that would read it is not ported [D8]. A later reader
+expecting this spine to cover brief→site provenance is told, in the file, that it does not and why.
+
+**Schema isolation** is asserted by walking `SitesDbContext`'s model: every entity it names lives in
+`sites`, with `shared` allowed for the outbox (`ConfigureOutbox(ownsMigration: false)`). Sites reads CRM
+spaces and Documents rows through their `*.Contracts` interfaces, never by joining across schemas, so a
+stray table in another schema would mean that boundary had been crossed.
+
+**Two response-shape corrections, both pre-existing inconsistencies rather than Sites bugs:**
+`POST /api/projects` answers **200** while `POST /api/clients` answers **201**, and the Documents upload
+route answers **200**. The spine matches what the routes actually do and says so inline; making them
+consistent is not this phase's change to make.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **750/750** across 24 suites (Integration.Tests
+33/33); `dotnet format --verify-no-changes` clean. The spine is stable across two consecutive runs
+within the test, and the suite was green on two consecutive full runs.
