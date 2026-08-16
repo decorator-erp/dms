@@ -5477,3 +5477,198 @@ consistent is not this phase's change to make.
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **750/750** across 24 suites (Integration.Tests
 33/33); `dotnet format --verify-no-changes` clean. The spine is stable across two consecutive runs
 within the test, and the suite was green on two consecutive full runs.
+
+---
+
+# S2-01 — Phase 5 close-out
+
+**S2-01** — done — `docs/adding-a-module.md` (five new patterns), `docs/cross-schema-foreign-keys.md`
+(updated at S1-05), `PROGRESS.md`.
+
+## Task table
+
+| Task | Commit | Suite after |
+|---|---|---|
+| S1-00 — remove the fabricated `CrmDesignBrief.SiteId` | `8cb6138` | 552 |
+| S1-01 — `Sites.Contracts` + `ICrmSpaceReader` | `81c8573` | 552 |
+| S1-02 — `Sites.Domain` instances | `baedfb2` | 616 |
+| S1-03 — `Sites.Domain` definition layer | `e43e229` | 659 |
+| S1-04 — persistence, migration, R3 schema-object guard | `2d06b92` | 673 |
+| S1-05 — cross-schema FKs, allow-list, scope decorator | `231f4c6` | 676 |
+| S1-06 — definition features, decorator proven applied | `f5c21db` | 707 |
+| S1-07 — instances, records, documents | `379ea60` | 742 |
+| S1-08 — endpoints | `d38a3f5` | 748 |
+| S1-09 — the seven-module spine | `5ed08ca` | 750 |
+
+**Test counts by suite (24 suites, 750 tests).** Sites contributes **192**: Sites.UnitTests 107,
+Sites.Application.Tests 66, Sites.Infrastructure.Tests 17, plus 2 in Integration.Tests (spine + schema
+isolation) and 6 in SitesSmokeTests. Others unchanged: Crm.UnitTests 201, Crm.Application.Tests 62,
+Projects.UnitTests 61, Integration.Tests 33 total, Documents.UnitTests 30, Documents.Infrastructure.Tests
+24, Projects.Application.Tests 21, Documents.Application.Tests 18, Crm.Infrastructure.Tests 15,
+Architecture.Tests 14, BuildingBlocks.IntegrationTests 11, Hr.UnitTests 10, Identity.Application.Tests
+10, Hr.Application.Tests 9, Identity.UnitTests 8, Approvals.UnitTests 8, Identity.Infrastructure.Tests 8,
+Hr.Infrastructure.Tests 5, Projects.Infrastructure.Tests 5, Approvals.Application.Tests 4,
+BuildingBlocks.UnitTests 3.
+
+## Reconciliation 1 — sub-area → task, re-run against what shipped
+
+| Backend sub-area | Owning task (planned) | Shipped | Note |
+|---|---|---|---|
+| `Site`, `SiteRecord`, `SiteRecordValue` | S1-02 | S1-02 ✓ | |
+| `SiteDocument` | S1-02 | S1-02 ✓ | |
+| `SiteModule`, `SiteModuleItem`, `SiteItem`, `SiteItemOption` | S1-03 | S1-03 ✓ | |
+| `SiteDomainService` | S1-02/S1-03 | S1-02/S1-03/S1-06/S1-07 | Its 26 methods are all orchestrating; only `ValidateAgainstItem` and the `IsEditable` predicate were pure. The rest became handler code, so the sub-area genuinely spans four tasks, not two. |
+| `ISiteScoped` + `SiteScopeDecorator` | S1-05 | S1-05 ✓, **proven at S1-06** | Wiring landed at S1-05; the behavioural proof needed a scoped consumer, which is why one handler moved forward. |
+| `SiteModuleValidator` | S1-03 | **S1-06** | Corrected in flight: it queries the definition tables, so it cannot live in Domain. |
+| `SiteReadQueries`, `SiteSchemaCache` | S1-06 | S1-06 ✓ | |
+| `SiteCommands.cs`, `SiteQueries.cs` | S1-07 | S1-07 ✓, minus variance [D8] | |
+| `SiteDefinitionCommands.cs`, `SiteDefinitionQueries.cs` | S1-06 | S1-06 ✓ | |
+| `SiteDocumentCommands.cs` | S1-07 | S1-07 ✓ | |
+| `SiteEndpoints`, `SiteDefinitionEndpoints` | S1-08 | S1-08 ✓ | 40 of 41 routes; variance deferred. |
+| `tests/Site.UnitTests` (4 files) | S1-02/S1-03 | **3 of 4 ported** | `AuditActionTests.cs` is not a Sites test [D6] — a whole-enum guard living there because it was the backend's only test project. `dms-modular` has no `AuditAction`. `SiteHarness.cs` could not port at all: it mocks seven repositories this architecture does not have. |
+| 6 `sites.*` permission strings | S1-01 | **7 shipped** [D1] | |
+
+**Nothing is unowned.** Two rows shipped somewhere other than planned (`SiteModuleValidator`, the
+`SiteDomainService` spread) and both are recorded above with their reasons.
+
+## Reconciliation 2 — verify-clause diff
+
+Every `**Verify:**` clause in `PLAN-PHASE5.md`, matched to a named test. This is the step that catches the
+`PLAN-PHASE4.md:311` class of miss, where a required `/scalar` check was never written and went unnoticed
+for a phase.
+
+| Plan line | Clause | Backing test | Status |
+|---|---|---|---|
+| :157 | probe migration contains exactly the column drop | `20260816121110_DropCrmDesignBriefSiteId` inspected; no `SiteId` outside frozen history | ✅ verified at S1-00, by inspection of the generated migration |
+| :157 | no `CrmDesignBriefSummary.SiteId` remains | compile-time — the member is gone | ✅ |
+| :171 | Contracts references only SharedKernel + BuildingBlocks | `Sites.Contracts.csproj` | ✅ — **clause itself was wrong** [D4]: it named `Documents.Contracts`/`Projects.Contracts`, which `Sites.Contracts` must NOT reference. Consumers do, from Application/Infrastructure. |
+| :171 | rules 5 and 10 green | `Architecture.Tests` (14/14) | ✅ |
+| :207 | eight schemas apply clean from empty | `SitesSchemaObjectTests` (fresh container per run), `SitesApplicationFixture` (all seven modules) | ✅ |
+| :207 | probe migration empty | generated and removed at S1-04 | ✅ |
+| :207 | rules 1/4/6/8a fault-injected | `Architecture.Tests`; **rule 9 fault-injected for real at S1-05** | ⚠️ partial — see below |
+| :245 | app boots with seven modules, asserted by name | `CrmSmokeTests.Boot_RegistersExactlySevenModules` | ✅ — moved to S1-04, where the module starts registering |
+| :245 | `GET /api/permissions` returns 62 | `SitesSmokeTests.GetPermissions_TotalsOneHundredAndFourteenAcrossSevenModules` | ✅ as **114** [D2] |
+| :245 | `/scalar` lists site routes | `SitesSmokeTests.OpenApiDocument_ListsTheSiteRoutes` | ✅ |
+| S1-09 | spine + two runs | `SitesSpineTests.Sites_flow_spans_all_seven_modules_end_to_end_and_is_stable_across_two_runs` | ✅ |
+| S1-09 | schema isolation | `SitesSpineTests.SitesDbContext_NamesNoTableOutsideTheSitesSchema` | ✅ |
+| R3 | raw-SQL objects asserted | `SitesSchemaObjectTests` (9 tests) | ✅ |
+| S1-06 | decorator proven applied | `SiteScopeDecoratorTests` (3 tests), confirmed failing with registration removed | ✅ |
+
+> **⚠️ The one clause not fully met: "rules 1/4/6/8a fault-injected" (:207).** Rule 9 was
+> fault-injected for real at S1-05 — a scratch `documents → sites` constraint made
+> `EveryCrossSchemaForeignKey_PointsInAnAllowedDirection` fail naming it, then reverted. Rules 1, 4, 6
+> and 8a were **not** individually fault-injected; they were verified only by running green. They are
+> not vacuous — all four Sites projects are referenced in `Architecture.Tests.csproj`, and rule 4 in
+> particular is exercised constantly because every Sites Domain/Application/Infrastructure type is
+> `internal` — but "fault-injected" is a stronger claim than "green", and this entry records the
+> difference rather than letting the clause read as satisfied. **Follow-up task**, cheap to do.
+
+## Every decision the plan did not specify
+
+1. **`TimeProvider` registered by `SitesModule`** (`TryAddSingleton`). Nothing else in the repo injects
+   one; submit and decide stamp the row and the event from one clock, and injecting it keeps them
+   testable against a fixed time.
+2. **The grid save uses no explicit transaction.** Staging on the change tracker and saving once is
+   already atomic; an explicit one also clashed with the outbox's `SaveChanges` participation.
+3. **Enum duplication qualified per file.** Six files needed `using X = Sites.Contracts.X;` aliases
+   because the eight Contracts/Domain enum pairs collide. Real friction, worth knowing before Finance.
+4. **`Sites.Application.Tests` created at S1-06**, not S1-04 — an empty test project is worse than a late
+   one.
+5. **`BulkSaveSiteRecordsCommand` capped at 500 rows.** The backend accepts an unbounded list.
+6. **`SiteEndpointActors` resolves the employee once at the endpoint** rather than in three handlers.
+7. **Optional query parameters are nullable.** Minimal APIs treat non-nullable ones as required, which
+   made two list routes answer 400 with no query string.
+8. **`projectId` on `GET /api/sites` stays required** — a `Guid` cannot carry a metadata default.
+
+## Backend defects — fixed, closed, or deferred
+
+**Fixed (16):** B1, B2, B3, B5, B6, B7, B8 (both halves), B9, B10, B11, B13, B14, B15, B16, B19, plus
+two unnumbered — `SiteModule.ChangeCode` answering a rename with "cannot be deleted", and the
+`SortOrder >= 0` asymmetry across the four ordered definitions.
+
+**Closed as not applicable (1):** B18 — audit rows under the wrong entity name. `dms-modular` has no
+`AuditAction` enum and no audit interceptor, so there is no trail to corrupt.
+
+**Deferred, recorded (3):** B4 (`CatalogItemId` unvalidated — asymmetric with `SpaceId`; inventing a
+check the source never had is not a port), B17 (item usage counts values on soft-deleted records), and
+**B12**, the integrity gap — below.
+
+## Anything thinner than intended
+
+- **Rules 1/4/6/8a were not fault-injected** — see the ⚠️ above. The only verify clause not fully met.
+- **`SiteHarness`'s predicate-compiling substitute did not survive.** Its value was mock fidelity; against
+  a real database the guarantee moves into the architecture. Nothing was lost, but the plan expected it
+  to port.
+- **The families/BOQ SQL is exercised, not characterised.** The spine and one Application test prove both
+  reports answer over real captured data and that families groups correctly, but the tolerance-snapping
+  and the `DISTINCT ON` double-count fix are not tested at the granularity their comments describe.
+  Worth a follow-up if those reports gain consumers.
+
+## Anything in the plan that looks wrong having built it
+
+1. **"Sites is the smallest remaining" (`PLAN-PHASE5.md:9`) is not true.** ~5,300 backend lines, 41
+   messages, 41 routes, a 485-line domain service and two hand-written SQL reports. It shipped ~192 tests
+   and 8 commits. Finance should not be sized against this sentence.
+2. **The S1-01 verify clause was self-contradictory** [D4] — it forbade the CRM reference the module
+   provably needs.
+3. **The plan's "29 commands/queries" undercounted** — 29 commands **plus** 12 queries.
+4. **The sub-area table assigned `SiteModuleValidator` to a Domain task**, which cannot hold it.
+5. **The seven-module assertion was assigned to S1-08** but fails at S1-04.
+6. **Eleven defects in the plan** (D1–D8 plus three found during execution). The two that would have
+   shipped broken code were D1 (18 routes with no correct permission) and D4/D5 (an invariant with no
+   contract to express it).
+
+## What Sites should change in the Finance plan
+
+1. **Budget the defect audit as work, not as a footnote.** Nineteen defects in one area, sixteen fixed.
+   Reading every handler before porting it is what found them; the plan should say so and cost it.
+2. **Count the permission strings with a pattern proven against a known positive.** D1 was the third
+   false negative in this project from a too-narrow grep. Finance's permission survey should name the
+   pattern used and show one string it *does* match.
+3. **Name the cross-module contracts Finance needs in the plan, not at the handler.** `ICrmSpaceReader`
+   was invisible until the invariant was read. Finance's plan says `finance → projects, crm`: enumerate
+   which of those reads already have contracts and which do not, before S-01.
+4. **Expect the enum-duplication tax.** Finance will share vocabulary with Projects and CRM. Decide up
+   front whether each shared enum is duplicated or whether one module's Contracts becomes the source.
+5. **Any raw-SQL schema object needs its own assertion (R3).** Finance will have money-shaped check
+   constraints; the probe cannot see them.
+6. **If Finance has a scope decorator, its verify must be behavioural** and confirmed failing without the
+   registration.
+7. **Write the "what this does not prove" sentence before the characterization test**, not after.
+
+## B12 — a question for the user, not a defect
+
+`Site.cs:102` blocks edits on **Approved** only. A **Submitted** survey's records stay editable while it
+awaits a decision, so **an approver's decision can be about content that changed after they reviewed
+it** — and `ck_sites_status_stamps` records who approved and when, so the row asserts an approval of
+content that no longer exists. Notifications & Audit is not built, so nothing can reconstruct what was
+actually approved.
+
+The behaviour is ported unchanged, deliberately: freezing writes on `Submitted` is a product decision
+about the surveyor's workflow, not a defect fix, and inventing it mid-port would be the improvisation
+this process forbids. Every comment in the source talks only about *approved* being the engineering
+record; nothing states an intent for `Submitted`.
+
+**The question: should submission freeze a survey's records, or must a surveyor be able to correct a
+Submitted survey before approval?** If it should freeze, the change is one line
+(`Site.IsEditable => Status is Draft or Rejected`) plus its tests. If it should not, the gap needs an
+audit trail instead, which belongs with Notifications & Audit.
+
+## Phase boundary — the seven non-negotiables, re-checked against seven modules
+
+1. **No repository pattern** — Sites has none; handlers use `SitesDbContext` directly. The backend's
+   seven repositories became handler queries.
+2. **One DbContext, one schema, one database** — `SitesDbContext`, schema `sites`, appended to
+   `SchemaOrder`.
+3. **Cross-module reads through `*.Contracts`** — `IProjectDirectory`, `IProjectAccessGuard`,
+   `IDocumentQueries`, `ICrmSpaceReader`. No Sites query names another module's table.
+4. **Cross-module writes via the outbox** — `SiteSubmitted`/`SiteApproved`, enqueued in the same
+   `SaveChangesAsync`. No consumer yet, stated.
+5. **Four projects per module** — Contracts, Domain, Application, Infrastructure.
+6. **Only `*.Contracts` types public** — rule 4 green across all four Sites assemblies.
+7. **Authorization order** — route claims (403, `SitesSmokeTests`) → scope decorator (404,
+   `SiteScopeDecoratorTests`) → aggregate state (409, `SiteLocked` in the spine).
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **750/750** across 24 suites on two
+consecutive runs; `dotnet format --verify-no-changes` clean; tree clean; seven modules booting;
+`GET /api/permissions` returning **114**.

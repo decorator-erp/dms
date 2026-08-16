@@ -540,6 +540,95 @@ written once at the start of a phase is easy to satisfy partially and never revi
 line per deferred type per task. Its absence cost a multi-task investigation at G9-14 to even discover
 what was actually missing.
 
+## Five more patterns (from Phase 5 — Sites)
+
+Sites is the seventh module and the first to *complete* a pair the earlier phases only half-showed: CRM
+inserted a schema into `SchemaOrder`, Sites appended to it, so the general rule can finally be stated
+rather than illustrated once. It is also the module that found the largest number of source defects
+(nineteen), which says more about reading every handler before porting it than about the source.
+
+### Append vs insert: the rule, now that both cases exist
+
+> **A schema may be APPENDED whenever nothing already migrated points outward at it, and INSERTED
+> anywhere that no already-migrated schema points outward from it.** Both reduce to one question — at the
+> moment this schema's migration runs, does every table it references already exist? — and the answer is
+> decided by the FK graph, not by the module's importance or its build order.
+
+CRM had to be inserted because `projects → crm` already existed. Sites appends because **nothing points
+into sites**: its eight cross-schema references all point outward (projects, hr, crm, documents), and the
+one thing that appeared to point in — `CrmDesignBrief.SiteId` — turned out to be a fabricated column that
+nothing wrote, removed at S1-00 before the real link landed. Check for inbound references before assuming
+either shape; a grep for your own module's name across other modules' entities is the whole check.
+
+### Raw-SQL migration objects need their own assertion — the probe cannot see them
+
+Every module so far has verified its schema with an **empty probe migration**: `dotnet ef migrations add
+Probe` produces nothing, therefore the model and the database agree. That check is blind, by
+construction, to anything created with `migrationBuilder.Sql(...)`.
+
+> The probe diffs the **EF model** against the snapshot. A raw SQL statement is not in the model, so
+> deleting a sequence, a check constraint, or a functional index still yields an empty probe **and a
+> green build**.
+
+Sites created thirteen such objects (a sequence, five functional/partial unique indexes, six check
+constraints, a composite unique key and the composite FK targeting it), so it added
+`SitesSchemaObjectTests`: migrate a fresh Testcontainers database and assert each object against
+`pg_class`/`pg_constraint`/`pg_indexes`. Three properties make it worth copying rather than approximating:
+
+1. **Fail-closed.** The expected constraint set is a named list, and a second test asserts the database
+   contains *nothing outside it* — so adding a constraint without listing it fails, the same shape as
+   `MetaSelfEnforcementTests`.
+2. **Behaviour, not just existence, for the ones that can be silently wrong.** A plain `("Code")` index
+   and a `lower("Code")` index have the same name and both "exist"; only one prevents `SITE-1` and
+   `site-1` coexisting. Assert the definition contains `lower`, and let one live INSERT prove a check
+   constraint actually rejects.
+3. **Sequences especially.** The application reads `site_code_seq` by name via `nextval`. Nothing else in
+   the system notices its absence until a create fails in production.
+
+Rule 9 already covers cross-schema FKs this way; this is the same technique applied to the rest.
+
+### Two structurally identical links, one constrained and one not — and why that is not an inconsistency
+
+`crm.crm_artifact_documents.DocumentId` and `sites.site_documents.DocumentId` are the same relationship:
+a module-owned row pointing at a `documents.project_documents` id, storing no file. CRM's carries **no
+foreign key** and Sites' carries a real one. The entire difference is migration order — `crm` precedes
+`documents`, so CRM's migration runs before the table it would reference exists, while `sites` is last.
+
+Record this wherever both are visible (`docs/cross-schema-foreign-keys.md` has them as adjacent
+paragraphs). Read apart they look like someone forgot; read together they are a consequence of
+`SchemaOrder`. If a future refactor moves `sites` earlier, that FK has to go the same way CRM's did.
+
+### Wiring a scope decorator proves nothing — scanning zero types succeeds silently
+
+`ProjectScopeRegistration` (G5-07) was once pointed at the wrong assembly. It found zero
+`IProjectScoped` types, decorated nothing, threw nothing, and every project-scoped command ran with **no
+row-level access control at all**. The registration looked correct in review.
+
+> A scope decorator's verify must be **behavioural**: a caller who is not entitled to the parent resource
+> gets the module's not-found error from a query whose handler, called directly, would have returned the
+> row. Confirm it FAILS with the registration removed. Nothing else distinguishes "wired" from "wired and
+> actually applied."
+
+Two corollaries Sites hit directly. The registration helper deliberately **skips types with no handler
+registered** (so the decorator can be wired before its first consumer exists) — which also means
+registering it with zero consumers is indistinguishable from success, so the module needs at least one
+real scoped handler before the assertion means anything. And the scan must target the assembly where the
+marker interface's implementors actually live: for every module so far that is `*.Contracts`, because
+that is where command and query records live, **not** `*.Application`.
+
+### Global master data is a deliberate scope exemption, and the exemption should be machine-checked
+
+Sites' definition layer — modules, items, options, links — has no project and no site, so none of its 20
+messages implements `ISiteScoped` while all 18 instance messages do. That is correct and it is also
+exactly what a forgotten marker looks like.
+
+The backend guards it at startup by reflecting over every command and query and throwing if one carries a
+`Guid SiteId` **without** the marker; its own comment records that the per-handler version of the check
+had been written once out of twenty-one times, and that adding the guard immediately caught a real miss.
+Ported here as a test (`SiteScopeCoverageTests`), with the converse asserted too — every marked message
+really has the id — so the check cannot be satisfied by marking everything. Express the exemption as
+"has no id to scope by", never as an allow-list: an allow-list can be appended to.
+
 ## Testing shape (mirror what Identity/HR already have)
 
 - `<Module>.UnitTests` — pure `*.Domain` entity behavior. No database.
