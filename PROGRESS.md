@@ -6662,3 +6662,156 @@ on the fix.** Every mechanism claim in this phase that could be fault-injected, 
 
 **Final gate:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet test` **846/846** across 26
 suites; `dotnet format` changed nothing; tree clean; on `master`.
+
+---
+
+# Positive-control sweep (PC-01 → PC-04)
+
+Runs before Phase 7 (Finance). Head at start: `3d5dd01` — eight modules, 846 tests across 26 suites,
+19 architecture facts, clean tree.
+
+## PC-01 — Inventory and classify
+
+**The census was wrong before it started, and that is the first finding.**
+
+The plan measured 173 negative assertions across four forms — `Assert.DoesNotContain` (25),
+`Assert.Empty` (29), `Assert.False` (52), `Assert.Null` (67). That count is exact, and it **excludes
+every single `CapturedSql` assertion** — the family the sweep exists for. All eight of them are
+written `Assert.True(touchedOtherSchemas.Count == 0, "<message naming the offenders>")`, because a
+bare `Assert.Empty` cannot carry the offending SQL into the failure text.
+
+A grep that misses the motivating case is the D1 failure mode, one level up: the search for
+unguarded negative assertions was itself too narrow to match the positive case. Widening it to every
+form a negative assertion actually takes in this codebase:
+
+| Form | Count | Note |
+|---|---|---|
+| `Assert.DoesNotContain` / `Assert.Empty` / `Assert.False` / `Assert.Null` | 173 | the plan's census |
+| `Assert.True(<set>.Count == 0, …)` / `Assert.True(!…)` | 16 | **the whole `CapturedSql` family plus 9 of the 19 arch facts** |
+| `Assert.Equal(0, <gathered count>)` | 14 | "nothing was written"; excludes `Depth`/`SortOrder`/`Attempts`, which are scalar values |
+| `ArchAssert.Passes` → `Assert.True(result.IsSuccessful, …)` | 3 | NetArchTest; an empty type set is `IsSuccessful == true` |
+| **Total** | **206** | |
+
+### Classification
+
+Applying the risk criterion literally — *at risk iff the thing asserted about is gathered by
+machinery* — over all 206:
+
+| | Count |
+|---|---|
+| **At-risk** (gathered by a provider, interceptor, reflection scan, catalog query, DB query, or DI resolution) | **92** |
+| — already carrying a liveness or discrimination control | 57 |
+| — **lacking any control** | **32** |
+| — at-risk but uncontrollable by construction (recorded below) | 3 |
+| **Direct** (a return value or property of the call under test) | **114** |
+
+**The 114 direct ones are not enumerated.** They are overwhelmingly domain unit tests —
+`Assert.Null(site.DecidedAtUtc)`, `Assert.False(client.IsActive)`, `Assert.Null(approval.Decision)` —
+where the object under test was constructed a few lines above and the property is read straight off
+it. There is no collector between the call and the assertion, so there is nothing to be dead. The
+largest single blocks: `Sites.UnitTests` (34), `Crm.UnitTests` (26), `Documents.UnitTests` +
+`Hr.UnitTests` (16), `Identity.UnitTests` (7). Also direct: `CrmSchedulerServiceTests`' two
+`Assert.Empty(slots)` — `slots` is the computed return value of `GetFreeSlotsAsync`, not a gathered
+set.
+
+### At-risk sites lacking a control — what PC-02 and PC-03 must fix
+
+| File:line | What is gathered | How | Liveness? | Discrimination? | Action |
+|---|---|---|---|---|---|
+| `Integration.Tests/CrmSchemaIsolationTests.cs:56` | SQL issued by `GET /api/clients/{id}` | `ILoggerProvider` → `CapturedSql` | ❌ | ❌ | PC-02 liveness |
+| `Integration.Tests/CrossModuleSmokeTests.cs:62` | SQL issued by `ResolveEmployeeIdAsync` | `CapturedSql` | ❌ | ❌ | PC-02 liveness |
+| `Integration.Tests/DocumentsSchemaIsolationTests.cs:108` | SQL issued by `GET /api/project-documents/{id}` | `CapturedSql` | ❌ | ❌ | PC-02 liveness |
+| `Integration.Tests/ProjectsSchemaIsolationTests.cs:86` | SQL issued by `GET .../tasks` | `CapturedSql` | ❌ | ❌ | PC-02 liveness |
+| `Integration.Tests/NotificationsSchemaIsolationTests.cs:100` (inbox read) | SQL issued by the inbox read | `CapturedSql` via `AssertNoSqlTouching` | ❌ | ❌ | PC-02 — liveness in the helper |
+| `Integration.Tests/NotificationsSchemaIsolationTests.cs:100` (`NotifyAsync`) | SQL issued by the write path | same helper | ❌ | ❌ | PC-02 — same fix |
+| `Integration.Tests/PeriodicJobTests.cs:183` (Approvals jobs) | SQL issued by two jobs | `CapturedSql` via `AssertNoSqlTouching` | ❌ | ❌ | PC-02 — liveness in the helper |
+| `Integration.Tests/PeriodicJobTests.cs:183` (Projects/CRM jobs) | SQL issued by five jobs | same helper | ❌ | ❌ | PC-02 — same fix |
+| `Architecture.Tests/MetaSelfEnforcementTests.cs:39` | module projects declared in `DMS.Modular.slnx` | `XDocument.Descendants("Project")` | ❌ | ❌ | **PC-03 — see finding 1** |
+| `Architecture.Tests/ModuleContractTests.cs:33` | `IModule` implementations outside `*.Infrastructure` | reflection over `ModuleAssemblies.All` | ❌ | ❌ | PC-03 liveness |
+| `Architecture.Tests/Rule3ModuleIsolationTests.cs:46` | cross-module assembly dependencies | NetArchTest `Types.InAssembly` | ❌ | ❌ | PC-03 liveness |
+| `Architecture.Tests/Rule3ModuleIsolationTests.cs:62` | `InternalsVisibleTo` grants | `GetCustomAttributes` | ❌ | ❌ | PC-03 liveness |
+| `Architecture.Tests/Rule5IntegrationEventPayloadTests.cs:28` | `IIntegrationEvent` implementations | reflection over all module assemblies | ❌ | ❌ | **PC-03 — see finding 2** |
+| `Architecture.Tests/Rule6DbContextIsolationTests.cs:47` | foreign `DbContext` references | reflection; **explicit `if (…Count == 0) return;`** | ❌ | ✅ P5F-01 | PC-03 liveness |
+| `Architecture.Tests/Rule8BuildingBlocksWebTests.cs:21` | referenced assembly names | `GetReferencedAssemblies` | ❌ | ❌ | PC-03 liveness |
+| `Architecture.Tests/Rule10CommandQueryPrivacyTests.cs:56` | cross-module command/query dependencies | NetArchTest; **`if (…Length == 0) continue;`** | ❌ | ❌ | **PC-03 — see finding 3** |
+| `Architecture.Tests/AuditMechanismTests.cs:45` | public constructors of `AuditLog` | `GetConstructors` | ❌ | ❌ | PC-03 liveness |
+| `Architecture.Tests/AuditMechanismTests.cs:53` | public static factories returning `AuditLog` | `GetMethods` | ❌ | ❌ | PC-03 liveness |
+| `Sites.Infrastructure.Tests/SitesSchemaObjectTests.cs:162` | `sites` check constraints | `pg_constraint` | ❌ | ❌ | **PC-03 — `actual.Except(Expected)`; an empty query passes** |
+| `Notifications.Infrastructure.Tests/NotificationsSchemaObjectTests.cs:190` | `notify` tables | `pg_tables` | ❌ | ❌ | PC-03 liveness |
+| `Notifications.Infrastructure.Tests/NotificationsSchemaObjectTests.cs:191` | same | same | ❌ | ❌ | PC-03 liveness |
+| `Notifications.Infrastructure.Tests/NotificationsSchemaObjectTests.cs:192` | same | same | ❌ | ❌ | PC-03 liveness |
+| `Hr.Infrastructure.Tests/HrSchemaTests.cs:83` | `Employee` navigations | EF `IEntityType` metadata | ❌ | ❌ | PC-03 liveness |
+| `Hr.Infrastructure.Tests/HrSchemaTests.cs:84` | `Employee` foreign keys | same | ❌ | ❌ | PC-03 liveness |
+| `Hr.Infrastructure.Tests/HrSchemaTests.cs:85` | `Employee` properties in `Identity.*` | same | ❌ | ❌ | PC-03 liveness |
+| `Sites.Infrastructure.Tests/SitesDbContextConfigurationTests.cs:85` | entity types with a non-`sites` schema | `context.Model.GetEntityTypes()` | ❌ | ❌ | PC-03 liveness |
+| `Integration.Tests/SitesSpineTests.cs:325` | entity types outside `sites`/`shared` | same | ❌ | ❌ | PC-03 liveness |
+| `Integration.Tests/NotificationEventConsumerTests.cs:136` | notification handlers for four silent events | `GetServices(handlerType)` from DI | ❌ | ❌ | **PC-03 — see finding 4** |
+| `Identity.Infrastructure.Tests/EffectivePermissionServiceTests.cs:75` | resolved permission set | `IEffectivePermissionService` + DB | ❌ | ❌ | PC-03 liveness |
+| `Identity.Application.Tests/RolesAndPermissionsTests.cs:191` | all roles after delete | `GetAllRolesQuery` | ❌ | ❌ | PC-03 liveness |
+| `Documents.Application.Tests/FileFlowTests.cs:209` | project documents after delete | `GetProjectDocumentsByProjectQuery` | ❌ | ❌ | PC-03 liveness |
+| `Sites.Application.Tests/SiteRecordFlowTests.cs:671` | pivot row cell keys | `GetSitePivotQuery` | ❌ | ❌ | PC-03 liveness |
+| `Documents.Infrastructure.Tests/LocalFileStorageServiceTests.cs:193` | leftover files under `_root` | `Directory.EnumerateFiles` | ❌ | ❌ | PC-03 liveness |
+
+### At-risk, uncontrollable by construction — recorded, not fixed
+
+Three sites assert that an **empty input** produces an empty output. The gathered set is *correctly*
+empty, so there is no non-empty state available to assert. Their real control is the sibling
+command-count assertion (`Assert.Equal(0, commandCount)`) proving no query was issued at all — which
+is the actual claim being made.
+
+- `Crm.Infrastructure.Tests/CrmAccessGuardTests.cs:137`
+- `Projects.Infrastructure.Tests/ProjectAccessGuardTests.cs:156`
+- `Identity.Infrastructure.Tests/EffectivePermissionServiceTests.cs:86` (unknown user; no rows exist to find)
+
+### At-risk and already controlled — 57, not to be redone
+
+| Family | Sites | Control already present |
+|---|---|---|
+| `AuditInterceptorTests` | 8 | N1-02's own positive halves: *"the same save DID audit the marked entity"*, *"a non-sensitive value IS captured"*, `Assert.Single`-then-read, in-transaction `Count == 1` before rollback |
+| `AuditTrailTests` | 4 | `NormalizedEmail` survived capture; `Module`/`Timestamp` asserted beside the nulls |
+| `Rule9CrossSchemaForeignKeyTests` | 4 | G5-04: **21** `Assert.Contains` naming every real FK — the strongest liveness control in the suite |
+| Arch rules 1, 4, 7, 8b | 5 | P5F-01 and G0-07 fault injection |
+| `AuditMechanismTests:101` | 1 | `Assert.True(contexts.Count >= 7)` — an explicit non-vacuity line |
+| `SiteScopeCoverageTests` | 2 | `TheGuardActuallyScansMessages` pins 40 messages / 18 scoped |
+| `SitesSchemaObjectTests` :146, :174 | 2 | `Expected.Except(actual)` — **this direction fails loudly on a dead query**; only `actual.Except(Expected)` passes vacuously |
+| `NotificationsSchemaObjectTests:174` | 1 | the `tables` equality assertion above it uses the same connection |
+| `NotificationsSchemaIsolationTests` audit read | 1 | `Assert.Contains(CapturedSql, sql => sql.Contains("shared."))` — the one `CapturedSql` site that already had it |
+| `SiteSchemaCacheTests` | 4 | before/after `Empty`→`Single` pairs; the warm-up comment states the reason |
+| Cascade, outbox and tracker tests | 10 | each retries after the failure and asserts the rows appear, or has a success-path sibling asserting the counter increments |
+| Query-result negatives with a paired `Assert.Contains` | 15 | `RolesAndPermissionsTests` ×3, `JwtProviderTests`, `EffectivePermissionServiceTests:58`, `NotificationsEndpointTests` ×2, `SitesSmokeTests:116`, `ClientLeadNoteFlowTests:170`, `CrmBriefHeadSnapshotTests:52`, `ProjectAccessGuardTests:143` and `:157`, `CrmAccessGuardTests:126`, `NotificationEventConsumerTests:46`, `OutboxAndInboxTests:141` |
+
+### Four findings PC-01 produced before a line of code changed
+
+**1. The vacuity guard's own instrument is unguarded.** `MetaSelfEnforcementTests` exists precisely
+because a rule scanning zero assemblies passes forever. It parses `DMS.Modular.slnx` for module
+projects and asserts every one was discovered — but if the XML parse returns **zero** projects
+(element renamed, path convention changed, `slnx` replaced by `sln`), `missing` is empty and the test
+that guards every other test against vacuity goes green while scanning nothing. It is the exact
+failure mode it was written to prevent, one level up.
+
+**2. `Rule5IntegrationEventPayloadTests` asserts nothing if it finds nothing.** The loop over
+`eventTypes` contains the only assertion. Zero integration events discovered → zero assertions
+executed → green. Unlike rules 1/4/6/8a it has never been fault-injected, so nothing has ever shown
+it capable of failing.
+
+**3. `Rule10CommandQueryPrivacyTests` has a documented `continue` on the empty case.** Its own summary
+says *"Expected to pass non-vacuously today with zero findings"* — but nothing in the test checks
+that. `if (commandAndQueryTypeNames.Length == 0) continue;` skips silently, and `Types.InAssembly` on
+an empty type set returns `IsSuccessful == true`. Two independent vacuity paths, neither asserted.
+Rule 6 has the same explicit early return at its line 31.
+
+**4. `NotificationEventConsumerTests:136` never proves the DI query can find a handler.** It resolves
+`IIntegrationEventHandler<T>` for four deliberately-silent events and asserts no `*Notification*`
+handler comes back. If `MakeGenericType` produced an interface nothing is registered against — a
+renamed handler suffix, a changed open-generic registration — every one of the four `[InlineData]`
+cases passes for the wrong reason. The fix here is discrimination, not just liveness: run the same
+resolution against an event that **is** wired and assert a handler *is* found.
+
+### The `ClearCapturedSql()` ordering check
+
+Checked at all eight call sites. **All eight clear before the action, none after** — no instance of
+the N1-05 shape. `DocumentsSchemaIsolationTests` goes further and drains the outbox to quiescence
+before clearing, which is the fix N1-08 landed once capture started working.
+
+**Verify:** all 206 negative assertions are accounted for — enumerated in the at-risk tables above, or
+counted in the 114-strong direct total with its reasoning. No code changed.
