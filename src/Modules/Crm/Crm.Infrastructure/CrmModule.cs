@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Jobs;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Crm.Contracts;
@@ -77,6 +78,14 @@ internal sealed class CrmModule : IModule
         // use for their own gate-handler registrations.
         services.Scan(scan => scan.FromAssemblies(applicationAssembly)
             .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
+
+        // N1-05: the meeting-reminder and period-close jobs, run by BuildingBlocks' single
+        // PeriodicJobWorker. Same Scrutor technique as the gate handlers directly above, for the same
+        // reason - the jobs are `internal` in Crm.Application.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IPeriodicJob>(), publicOnly: false)
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
 

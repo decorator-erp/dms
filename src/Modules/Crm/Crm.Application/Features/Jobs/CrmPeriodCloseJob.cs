@@ -1,0 +1,86 @@
+using BuildingBlocks.Jobs;
+using BuildingBlocks.Outbox;
+using Crm.Contracts;
+using Crm.Domain;
+using Crm.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Notifications.Contracts;
+using Projects.Contracts;
+using RequirementPeriodStatus = Crm.Domain.RequirementPeriodStatus;
+
+namespace Crm.Application.Features.Jobs;
+
+/// <summary>
+/// Closes requirement-gathering windows whose target close time has passed, then tells the client.
+///
+/// <para><b>The only job here that mutates anything.</b> The other six read and notify; this one is the
+/// scheduled half of a real state transition, and closing an overdue window is CRM's own data, so it
+/// belongs to CRM whether or not a notification follows.</para>
+///
+/// <para><b>It publishes the same integration event the manual path does.</b>
+/// <c>CloseCrmRequirementPeriodCommandHandler</c> enqueues <c>CrmPeriodClosedIntegrationEvent</c> when
+/// the period is stage-scoped, because Projects subscribes to satisfy a <c>CrmPeriodClosed</c> gate. A
+/// period that closes on the clock must satisfy that gate exactly as one closed by hand — omitting the
+/// event here would make a gate's behaviour depend on WHO closed the window, which is the kind of
+/// divergence nobody discovers until a project stalls. A project-wide period (no stage) has no gate to
+/// satisfy and publishes nothing, matching the handler.</para>
+///
+/// <para><b>Three guards, and they are not redundant.</b> <c>Close()</c> refuses a period that is not
+/// Open (so a race with the manual command loses harmlessly); the dedupe key makes the notification
+/// idempotent; and <c>MarkCloseNotified</c> records that the client was told. The domain method is
+/// itself idempotent, so a crash anywhere in the sequence resumes safely on the next tick.</para>
+/// </summary>
+internal sealed class CrmPeriodCloseJob(
+    CrmDbContext db,
+    IClientDirectory clientDirectory,
+    IProjectDirectory projectDirectory,
+    INotificationService notifications,
+    TimeProvider timeProvider) : IPeriodicJob
+{
+    public string Name => nameof(CrmPeriodCloseJob);
+
+    public async Task RunAsync(CancellationToken ct)
+    {
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        var due = await db.CrmRequirementPeriods
+            .Where(p => p.IsActive
+                        && p.Status == RequirementPeriodStatus.Open
+                        && p.ClosesAtUtc <= now)
+            .ToListAsync(ct);
+
+        foreach (var period in due)
+        {
+            var closed = period.Close(now);
+            if (closed.IsFailure)
+                continue; // already closed by another actor between the read and here.
+
+            if (period.ProjectStageId is { } stageId)
+            {
+                db.Outbox().Enqueue(new CrmPeriodClosedIntegrationEvent(
+                    Guid.NewGuid(), period.Id, stageId, DateTimeOffset.UtcNow));
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            var project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
+            var client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
+
+            if (!string.IsNullOrEmpty(client?.AppUserId))
+            {
+                await notifications.NotifyAsync(
+                    client.AppUserId,
+                    NotificationType.CrmPeriodClosed,
+                    title: "Requirement gathering is finished",
+                    body: "The gathering window has closed. If you have any final requirement, tell us now.",
+                    entityType: NotificationEntityType.RequirementPeriod,
+                    entityId: period.Id,
+                    dedupeKey: $"crm-period-{period.Id}-closed",
+                    ct: ct);
+
+                period.MarkCloseNotified(now);
+                await db.SaveChangesAsync(ct);
+            }
+        }
+    }
+}

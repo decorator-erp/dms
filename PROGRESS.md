@@ -6174,3 +6174,94 @@ delivery tests); format gate clean. `Microsoft.AspNetCore.SignalR.Client` added 
 `BuildingBlocks.Web` carries `<FrameworkReference Include="Microsoft.AspNetCore.App" />` and the hub is
 in that shared framework — which is also why `NotificationsHub` can stay `internal` (rule 4) with
 `MapHub` called from inside the module.
+
+**N1-05** — done — `Projects.Application/Features/Jobs/` (`ProjectDeadlineJob`, `StageDeadlineJob`,
+`TaskDeadlineJob`), `Crm.Application/Features/Jobs/` (`CrmMeetingReminderJob`, `CrmPeriodCloseJob`),
+`Approvals.Application/Features/Jobs/` (`ApprovalResponseDueJob`, `ApprovalOverdueEscalationJob`),
+the three `.Application.csproj` files, the three `Register` methods,
+`tests/Integration.Tests/PeriodicJobTests.cs`. **Seven jobs, not eight** — `InvoiceDueJob` reads
+`Invoices` and ships with Finance.
+
+**Nine background loops became one, and that is now implemented rather than recommended.**
+`docs/low-resource-hosting.md` §3 called the backend's nine `IPeriodicJob` loops "the single biggest
+avoidable resource pattern in the old design". The jobs moved to the modules that own their data;
+BuildingBlocks' single `PeriodicJobWorker` runs all seven sequentially on one timer.
+
+**No module's Contracts was extended, and none needed a new cross-module reference [N8].** Checked
+before writing rather than after: `Projects.Application` already referenced `Hr.Contracts` and
+`Crm.Contracts`; `Crm.Application` already referenced `Hr.Contracts`, `Projects.Contracts` and its own.
+The only reference added anywhere is `Notifications.Contracts`, the outbound direction the phase
+mandates. The placement rule paid for itself here — a job in Notifications would have needed a
+stage-team read contract, a project-owner read contract, and Notifications depending on four modules.
+
+**`Approvals.Application` gained `Notifications.Contracts` and nothing else — its only cross-module
+reference, still.** Both approval jobs run entirely on Approvals' own data, because G4-01 already
+stores approvers as Identity user ids resolved by the requesting module. Asserted, not assumed:
+`ApprovalsJobs_IssueNoSqlAgainstAnotherModulesSchema` runs both and checks the captured SQL touches
+none of the other six schemas.
+
+**`ApprovalResponseDueJob` is simpler here than in the backend, and correct where that one was not.**
+The backend stores one XOR'd approver as either `AssignedEmployeeId` or `AssignedClientId` and resolves
+per row — and its own source records that an earlier `AssignedEmployeeId != null` filter silently
+excluded every client-assigned approval, so client SLAs never fired at all. Here approvers are a set of
+user ids: no resolution step, no XOR, and no class of approver that can be filtered out by accident.
+The defect is not fixed so much as made unrepresentable.
+
+**Deliberate divergence: `ApprovalOverdueEscalationJob` notifies the requester, not the project owner
+[N7].** The backend escalates via `Approval.ProjectId`. This module's `Approval` has no `ProjectId` and
+cannot have one — G4-01 collapsed the backend's five subject FKs into `SubjectType`/`SubjectId`
+precisely because Approvals never navigates to a subject in another module's schema. The two ways to
+keep the backend's recipient were both barred: read `projects.projects` from Approvals (breaks the
+isolation the module is built on) or add a project-owner lookup to `IProjectDirectory` (extends another
+module's Contracts, a hard stop). The requester is the honest target in this module's own data, and
+arguably the better one — they are who is blocked and who can chase it. **What is genuinely lost:
+escalation ABOVE the approver to someone with authority over them.** Approvals models no such
+hierarchy; inventing one would be a design change, not a port. Recorded rather than quietly narrowed.
+
+**`CrmPeriodCloseJob` publishes the same integration event the manual path does.**
+`CloseCrmRequirementPeriodCommandHandler` enqueues `CrmPeriodClosedIntegrationEvent` for stage-scoped
+periods, because Projects subscribes to satisfy a `CrmPeriodClosed` gate. A period that closes on the
+clock must satisfy that gate exactly as one closed by hand — omitting it would make a gate's behaviour
+depend on *who* closed the window, which nobody discovers until a project stalls. Project-wide periods
+(no stage) publish nothing, matching the handler.
+
+**`CrmMeetingReminderJob` is guarded twice and neither guard is redundant.** `ReminderSentAtUtc` keeps
+the row out of the next scan (cheap — it shrinks the query); the dedupe key makes the send idempotent
+(correct — it survives a crash between notifying and stamping). Without the stamp the query re-reads
+every upcoming meeting every tick; without the key a crash after the push re-notifies. The row is
+stamped even when no recipient resolves, or the job re-scans it every tick until the meeting passes.
+
+**The window and status filters are ported as-is.** `[now-30d, now+3d]` on tasks and the active-status
+lists are load-bearing for cost — the dedupe key already stops repeats, so the window costs nothing in
+correctness and everything in how much of a growing table each tick reads.
+
+**Verify.**
+
+| Clause | Test |
+|---|---|
+| all seven registered | `EverySevenPeriodicJobs_AreRegistered_AcrossTheirOwningModules` — the exact SET by name, not a count: a count stays green if one job is swapped for another, and a Scrutor scan that matches nothing throws nothing (G5-07 was exactly that) |
+| worker executes all seven in one tick | `PeriodicJobWorker_ExecutesEveryJob_InOneTick`, driving the real hosted worker so its resolve-by-name, per-job scope and per-job try/catch are all exercised |
+| run twice → one notification per recipient | `AnOverdueApproval_NotifiesEveryApproverOnce_AndNotAgainOnASecondTick` |
+| schema isolation | `ApprovalsJobs_IssueNoSqlAgainstAnotherModulesSchema`; `ProjectsAndCrmJobs_NeverTouchTheDocumentsOrSitesSchemas` |
+
+The idempotency test asserts the `(dedupe key, recipient)` **pairs**, not a count — a count would also
+pass if the second tick had written a row for a different recipient, which is exactly what a mis-scoped
+key produces. Two approvers on one approval proves fan-out and idempotence together: with per-recipient
+scoping, two rows then none; with an unscoped key, one row and one silently dropped.
+
+**The seeded row exercises both Approvals jobs, which my first expectation missed.** Thirty days
+overdue crosses the SLA deadline *and* the two-day escalation grace, so the first tick produces three
+rows — two `-sla` and one `-escalated` — not two. The test now asserts all three, which is stronger
+than what was planned: it also proves the two jobs' dedupe keys are distinct enough that neither
+suppresses the other.
+
+**The schema-isolation assertion is deliberately asymmetric, and that is honest rather than lazy.**
+Approvals' jobs are checked against all six other schemas. Projects' and CRM's are checked only against
+`documents` and `sites` — they legitimately read `hr` and `crm` through `IHrDirectory`,
+`IClientDirectory` and `IProjectDirectory`, so "touches no other schema" would be false by design.
+`CapturedSql` cannot attribute a statement to the context that issued it, so it cannot distinguish a
+direct table read from a contract call. Writing an assertion that has to be true would be worse than
+writing none.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **815/815** across 26 suites (810 + 5);
+format gate clean.

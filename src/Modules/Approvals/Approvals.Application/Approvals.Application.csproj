@@ -8,6 +8,10 @@
     <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- N1-05: the two approval-SLA jobs call INotificationService. Notably the ONLY cross-module
+         reference this project has - both jobs run entirely on Approvals' own data, because G4-01's
+         redesign already stores approvers as Identity user ids rather than employee/client Guids. -->
+    <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
     <ProjectReference Include="..\Approvals.Domain\Approvals.Domain.csproj" />
     <!-- Own Infrastructure, same reasoning as Hr.Application: handlers use ApprovalsDbContext directly -
          "no repository pattern" - so Application needs the concrete type. -->

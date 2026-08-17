@@ -8,6 +8,10 @@
     <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\Crm.Contracts\Crm.Contracts.csproj" />
+    <!-- N1-05: CrmMeetingReminderJob and CrmPeriodCloseJob call INotificationService. The one allowed
+         outbound direction; Notifications.Contracts depends on no module, which is what keeps this from
+         closing a cycle (asserted by NotificationsContractsIsolationTests). -->
+    <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
     <ProjectReference Include="..\Crm.Domain\Crm.Domain.csproj" />
     <!-- Own Infrastructure, same reasoning as every other module: handlers use CrmDbContext directly -
          "no repository pattern" - so Application needs the concrete type. -->

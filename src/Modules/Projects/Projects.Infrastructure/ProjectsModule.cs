@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Jobs;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
@@ -42,6 +43,15 @@ internal sealed class ProjectsModule : IModule
         // already use for handler discovery.
         services.Scan(scan => scan.FromAssemblies(applicationAssembly)
             .AddClasses(classes => classes.AssignableTo<IGateConditionTypeHandler>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
+
+        // N1-05: the three deadline jobs, run by BuildingBlocks' single PeriodicJobWorker. IPeriodicJob
+        // is the THIRD instance of the define-in-one-place / implement-in-many pattern (after
+        // IGateConditionTypeHandler above and the CQRS/integration-event handler scans), and it uses the
+        // same Scrutor technique for the same reason - the jobs are `internal` in Projects.Application.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IPeriodicJob>(), publicOnly: false)
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
 

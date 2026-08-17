@@ -3,6 +3,7 @@ using Approvals.Contracts;
 using Approvals.Infrastructure.Persistence;
 using Approvals.Infrastructure.Services;
 using BuildingBlocks;
+using BuildingBlocks.Jobs;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -36,7 +37,17 @@ internal sealed class ApprovalsModule : IModule
 
         services.AddScoped<IApprovalRequester, ApprovalRequester>();
 
-        services.AddModuleCqrs<ApprovalsDbContext>(Assembly.Load("Approvals.Application"));
+        var applicationAssembly = Assembly.Load("Approvals.Application");
+        services.AddModuleCqrs<ApprovalsDbContext>(applicationAssembly);
+
+        // N1-05: the two approval-SLA jobs, run by BuildingBlocks' single PeriodicJobWorker. Same
+        // define-in-one-place / implement-in-many shape as IGateConditionTypeHandler, and the same
+        // Scrutor technique for the same reason - the jobs are `internal` in Approvals.Application,
+        // which grants this assembly no InternalsVisibleTo, so only the PUBLIC interface can be named.
+        services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+            .AddClasses(classes => classes.AssignableTo<IPeriodicJob>(), publicOnly: false)
+                .AsImplementedInterfaces()
+                .WithScopedLifetime());
 
         return services;
     }
