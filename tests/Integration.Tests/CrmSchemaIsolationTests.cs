@@ -46,6 +46,12 @@ public sealed class CrmSchemaIsolationTests(ApiFixture fixture)
         var getResponse = await client.GetAsync($"/api/clients/{clientId}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
 
+        // PC-02 liveness. N1-08 found CapturedSql had never captured anything, and this assertion was
+        // green throughout - a dead collector and a clean system are indistinguishable from the
+        // negative half alone. Asserting the CRM read itself was seen proves the instrument is live AND
+        // that the measured window actually covers the operation under test.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("crm.", StringComparison.OrdinalIgnoreCase));
+
         var touchedOtherSchemas = fixture.CapturedSql
             .Where(sql =>
                 sql.Contains("identity.", StringComparison.OrdinalIgnoreCase) ||

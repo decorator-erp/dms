@@ -174,8 +174,15 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
         return jobs;
     }
 
+    /// <summary>
+    /// PC-02: liveness for both callers. A job that issued no SQL at all — because it was never
+    /// resolved, or returned early — satisfies "touched no forbidden schema" without running. This is
+    /// the <c>CapturedSql</c> failure N1-08 found, applied to the job path.
+    /// </summary>
     private void AssertNoSqlTouching(string[] forbiddenSchemas)
     {
+        Assert.NotEmpty(fixture.CapturedSql);
+
         var offending = fixture.CapturedSql
             .Where(sql => forbiddenSchemas.Any(s => sql.Contains(s, StringComparison.OrdinalIgnoreCase)))
             .ToList();

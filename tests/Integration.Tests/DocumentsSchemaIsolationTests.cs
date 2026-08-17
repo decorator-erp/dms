@@ -98,6 +98,10 @@ public sealed class DocumentsSchemaIsolationTests(ApiFixture fixture)
         var getResponse = await client.GetAsync($"/api/project-documents/{documentId}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
 
+        // PC-02 liveness. This file already documents that N1-08 found the collector dead; the comment
+        // above records the failure, this line makes the test itself detect a recurrence.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("documents.", StringComparison.OrdinalIgnoreCase));
+
         var touchedOtherSchemas = fixture.CapturedSql
             .Where(sql =>
                 sql.Contains("identity.", StringComparison.OrdinalIgnoreCase) ||

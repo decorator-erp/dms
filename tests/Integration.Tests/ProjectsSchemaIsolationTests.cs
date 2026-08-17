@@ -77,6 +77,10 @@ public sealed class ProjectsSchemaIsolationTests(ApiFixture fixture)
         var tasksResponse = await client.GetAsync($"/api/projects/{projectId}/tasks");
         Assert.Equal(HttpStatusCode.OK, tasksResponse.StatusCode);
 
+        // PC-02 liveness - see CrmSchemaIsolationTests for why. The tasks read must query projects.;
+        // if it did not, the negative assertion below would be measuring an empty capture.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("projects.", StringComparison.OrdinalIgnoreCase));
+
         var touchedOtherSchemas = fixture.CapturedSql
             .Where(sql =>
                 sql.Contains("identity.", StringComparison.OrdinalIgnoreCase) ||

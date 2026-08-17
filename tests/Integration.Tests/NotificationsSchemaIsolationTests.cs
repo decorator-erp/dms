@@ -42,6 +42,9 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/notifications")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/notifications/unread-count")).StatusCode);
 
+        // Stronger than the helper's own liveness check: the inbox read must have touched notify.,
+        // which proves the measured window covers these two requests rather than merely being non-empty.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("notify.", StringComparison.OrdinalIgnoreCase));
         AssertNoSqlTouching(OtherModuleSchemas);
     }
 
@@ -88,11 +91,21 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
         await notifications.NotifyAsync(
             recipient, NotificationType.TaskAssigned, "Isolation probe", ct: CancellationToken.None);
 
+        // The write must have reached notify.notifications - see the inbox test for why the helper's
+        // NotEmpty alone is not the whole control.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("notify.", StringComparison.OrdinalIgnoreCase));
         AssertNoSqlTouching(OtherModuleSchemas);
     }
 
+    /// <summary>
+    /// PC-02: the liveness half lives here so all three callers inherit it. N1-08 found
+    /// <c>CapturedSql</c> had never captured anything — every assertion below passed against an empty
+    /// list for three phases. An empty capture now fails here rather than reading as a clean result.
+    /// </summary>
     private void AssertNoSqlTouching(string[] forbiddenSchemas)
     {
+        Assert.NotEmpty(fixture.CapturedSql);
+
         var offending = fixture.CapturedSql
             .Where(sql => forbiddenSchemas.Any(s => sql.Contains(s, StringComparison.OrdinalIgnoreCase)))
             .ToList();

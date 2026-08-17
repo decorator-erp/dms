@@ -58,6 +58,11 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
 
         Assert.Equal(employeeId, resolvedId);
 
+        // PC-02 liveness: the resolve must have queried hr.employees. Without this, a dead collector
+        // makes "issued no SQL touching identity" true for the wrong reason - which is exactly the state
+        // this assertion was in for three phases before N1-08.
+        Assert.Contains(fixture.CapturedSql, sql => sql.Contains("hr.", StringComparison.OrdinalIgnoreCase));
+
         var touchedIdentity = fixture.CapturedSql.Where(sql => sql.Contains("identity.", StringComparison.OrdinalIgnoreCase)).ToList();
         Assert.True(touchedIdentity.Count == 0, $"HR's ResolveEmployeeIdAsync issued SQL touching identity: {string.Join(" | ", touchedIdentity)}");
     }

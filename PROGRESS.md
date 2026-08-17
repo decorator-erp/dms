@@ -6815,3 +6815,42 @@ before clearing, which is the fix N1-08 landed once capture started working.
 
 **Verify:** all 206 negative assertions are accounted for — enumerated in the at-risk tables above, or
 counted in the 114-strong direct total with its reasoning. No code changed.
+
+## PC-02 — Liveness for the capture- and interceptor-gathered assertions
+
+Eight `CapturedSql` sites across six files. Where the module's own schema had to appear, the liveness
+assertion names it (`crm.`, `projects.`, `documents.`, `hr.`, `notify.`) rather than merely asserting
+the list is non-empty — same cost, and it additionally proves the measured window covers the
+operation under test rather than some unrelated statement. The two shared `AssertNoSqlTouching`
+helpers carry `Assert.NotEmpty` so every present and future caller inherits the control.
+
+The audit family needed nothing. N1-02 had already written the positive half into every one of its
+twelve assertions — *"the same save DID audit the marked entity"*, *"a non-sensitive value IS
+captured"*, the in-transaction `Count == 1` before the rollback. Twelve sites inspected, zero changed.
+
+**`ClearCapturedSql()` ordering: clean at all eight sites.** Every one clears *before* the action. No
+instance of the N1-05 background-processor shape; `DocumentsSchemaIsolationTests` additionally drains
+the outbox to quiescence first, which is the fix N1-08 landed once capture began working.
+
+### The verify that matters
+
+`writeToProviders: true` reverted to `false` in `src/Api/Program.cs` — the exact N1-08 defect, not a
+proxy for it. Result:
+
+```
+Failed:  9, Passed: 69, Skipped: 0, Total: 78
+```
+
+**All nine tests in the family went red**, every failure reading `Assert.Contains() Failure: Filter
+not matched in collection / Collection: []` or `Assert.NotEmpty() Failure: Collection was empty`.
+
+The number to note is nine, not eight. Before this task exactly **one** of those nine —
+`ReadingTheAuditLog_TouchesSharedAndNoOtherModulesSchema`, which already carried
+`Assert.Contains(CapturedSql, sql => sql.Contains("shared."))` — would have detected the reversion.
+The other eight would have stayed green, which is precisely what they did for three phases. That one
+pre-existing control is also the reason N1-08 was findable at all.
+
+Fault reverted, `src/` confirmed clean by `git diff --stat src/` before the gate ran.
+
+**Gate:** build 0 warnings / 0 errors; `dotnet test` **846/846** across 26 suites; `dotnet format`
+exit 0 with no content change (one line-ending-only touch to `SitesSpineTests.cs`, reverted).
