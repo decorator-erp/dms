@@ -24,8 +24,7 @@ internal sealed class ApprovalsModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<ApprovalsDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<ApprovalsDbContext>(cfg);
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

@@ -25,8 +25,7 @@ internal sealed class CrmModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<CrmDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<CrmDbContext>(cfg);
 
         services.AddScoped<ICrmAccessGuard, CrmAccessGuard>();
         services.AddScoped<ICrmGateReader, CrmGateReader>();

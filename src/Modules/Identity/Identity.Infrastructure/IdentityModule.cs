@@ -23,8 +23,7 @@ internal sealed class IdentityModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<IdentityModuleDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<IdentityModuleDbContext>(cfg);
 
         services.AddIdentityCore<ApplicationUser>()
             .AddRoles<ApplicationRole>()

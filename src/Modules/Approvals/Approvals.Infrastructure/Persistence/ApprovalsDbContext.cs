@@ -1,4 +1,5 @@
 using Approvals.Domain;
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,5 +14,6 @@ internal sealed class ApprovalsDbContext(DbContextOptions<ApprovalsDbContext> op
         modelBuilder.HasDefaultSchema("approvals");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApprovalsDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

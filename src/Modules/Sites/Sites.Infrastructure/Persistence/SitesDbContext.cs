@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Sites.Domain;
@@ -40,5 +41,6 @@ internal sealed class SitesDbContext(DbContextOptions<SitesDbContext> options) :
         modelBuilder.HasDefaultSchema("sites");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SitesDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

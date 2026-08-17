@@ -5896,3 +5896,114 @@ degrading.
 
 **Verify:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet test` **768/768** across 24
 suites (756 + 11 worker + 1 architecture); format gate clean — `dotnet format` changed nothing.
+
+**N1-02** — done — `src/BuildingBlocks/Auditing/` (`AuditLog.cs`, `AuditModelConfiguration.cs`,
+`AuditContext.cs`, `NullAuditContextAccessor.cs`, `AuditRedaction.cs`,
+`AuditSaveChangesInterceptor.cs`; `AuditAction.cs` landed at N1-01),
+`src/BuildingBlocks/ModuleDbContextRegistration.cs`, `src/Api/HttpAuditContextAccessor.cs`,
+`src/BuildingBlocks/Outbox/Migrations/20260817094754_AddAuditLogs.cs`, `SharedDbContext.cs`,
+all 7 module `DbContext`s (+`ConfigureAudit(false)`) and all 7 `Register`s
+(`AddDbContext` → `AddModuleDbContext`), `src/Api/DI.cs`, `src/BuildingBlocks/BuildingBlocks.csproj`,
+`tests/BuildingBlocks.IntegrationTests/{Fixtures.cs,AuditInterceptorTests.cs}` + a fixture migration,
+`tests/Architecture.Tests/AuditMechanismTests.cs`, `tests/Integration.Tests/AuditTrailTests.cs`,
+`tests/Modules/Identity.Infrastructure.Tests/SeedingIdempotencyTests.cs`.
+
+**`audit_logs` is in `shared`, owned by `SharedDbContext`** — the phase plan's §1 decision, and the
+argument that settled it is narrower than the ordering one usually given.
+`tests/BuildingBlocks.IntegrationTests` references only BuildingBlocks and SharedKernel. Under a
+`notify`-owned table the interceptor — a BuildingBlocks type — could not have been integration-tested
+in the project that owns it without that project taking a dependency on a module. `AuditInterceptorTests`
+exists because the table is in `shared`. The ordering argument holds too: `shared` is first in
+`SchemaOrder`, so the table exists before any module migrates or seeds, under every host and fixture,
+rather than depending on the unstated invariant "nobody writes an audited entity between the first
+module migration and the last."
+
+**B18 is closed by mechanism, and the mechanism is three things, each asserted.**
+
+| Mechanism | Assertion | Fault-injected? |
+|---|---|---|
+| Entity name from `entry.Metadata.ClrType.Name` | `AuditRow_TakesEntityNameAndModule_FromEfMetadata_NotFromLiterals` | yes — hard-coded `"AuditedThing"` turned it red |
+| Module from `entry.Metadata.GetSchema()` | same test, second half | yes — `context.Model.GetDefaultSchema()` turned it red: *Expected "test_module_other" / Actual "test_module"* |
+| No second list to fall out of | `EntityWithoutTheAuditableMarker_ProducesNoAuditRow`; `AuditMechanismTests` (3 enum members, no public ctor or factory, exactly one `AuditLog.Record` call site) | n/a — structural |
+
+**Two auditable fixture types in two schemas, not one.** With a single auditable type an interceptor
+that hard-coded *any* entity name and *any* module passes. The second type — identical except for the
+schema it is mapped to — is what makes both halves falsifiable, and it is what caught the
+`GetDefaultSchema()` injection: precisely the mistake the backend's hand-maintained entity-to-module
+dictionary institutionalized.
+
+**No `IsInScope` allow-list, deliberately.** `backend/…/AuditMetadata.cs:69-77` carries a red comment
+recording what one cost: the CRM catalog was in the module dictionary but absent from the scope set, so
+every catalog write logged nothing at all — silently. Implementing `IAuditable` is the opt-in here:
+compiler-checked, in the entity's own file, discovered by `ChangeTracker.Entries<IAuditable>()`, with
+no second list to disagree with. The interceptor **throws** when it finds auditable changes on a
+context that does not map `AuditLog`, and `AuditMechanismTests` turns that into a build-time answer, so
+the eighth module cannot ship un-audited.
+
+**Redaction is mandatory, not defence in depth [N3].** The plan's correction table already said
+`IAuditable` has 56 implementors, not zero. The consequence it did not spell out: `ApplicationUser` is
+one of them, and its `PasswordHash`/`SecurityStamp`/`ConcurrencyStamp` are declared on Microsoft's
+`IdentityUser<string>` — they **cannot** carry `[AuditIgnore]`. Name-based redaction is the only thing
+standing between switching the interceptor on and writing password hashes into a queryable table on the
+first registration. Asserted twice: against a synthetic property in
+`SensitiveValues_AreRedacted_ByNameAndByAttribute`, and against the real type through the real host in
+`RegisteringAUser_IsAudited_AndNeverWritesTheirPasswordHashOrSecurityStamp`.
+
+**The interceptor is a singleton, and that is load-bearing.** With `AddDbContext((sp, options) => …)`
+options are built per resolution; a per-scope interceptor changes the `CoreOptionsExtension`
+service-provider hash and makes EF build and cache a new internal service provider per scope — a real
+leak whose only symptom is a warning nobody reads. `AuditInterceptor_IsTheSameInstanceAcrossScopes`
+asserts it, because there is no observable behaviour to test through otherwise.
+
+**Non-HTTP writes are audited with a null actor, and one test proves the null means what it says.**
+`AWriteThroughTheOutboxBackgroundScope_IsAudited_WithANullActor_UnlikeItsHttpTrigger` drives one
+logical operation that produces two rows: HR's `Employee` update over authenticated HTTP carries the
+caller (a deliberately *different* user id from the subject, so it cannot pass by coincidence), and the
+Identity `ApplicationUser` update its outbox handler performs carries none. Asserting both halves is
+what distinguishes "no caller in this scope" from "the accessor never works" — a test of the background
+path alone cannot tell those apart.
+
+That test also had to be written twice. The first version asserted the Identity-side row did not exist
+before the outbox ran; it does — registration already updates `ApplicationUser` once, when role
+assignment rewrites `ConcurrencyStamp`. Asserting the absence of an unrelated thing is not the same as
+isolating the new one, so it now snapshots the user's existing audit-row ids and asserts on the delta.
+
+**Measured, not estimated: 232 audit rows per cold boot** (roles + role claims from Identity seeding),
+on every fresh container including every CI run.
+`ColdBootSeeding_WritesAuditRows_InTheExpectedOrderOfMagnitude` bounds it loosely on purpose — it exists
+to catch an order-of-magnitude change, not to pin a number that moves whenever a permission is added.
+This is what makes deferred audit retention a sized decision rather than a theoretical one.
+
+**One existing test needed a real fix, not an accommodation [N4].** `SeedingIdempotencyTests` built its
+own database and migrated **only** `identity`. Seeding now stages audit rows into `shared.audit_logs`
+through the same `SaveChanges`, so it failed with `42P01: relation "shared.audit_logs" does not exist`.
+That is `SchemaOrder` working as designed — `shared` is first precisely so the table precedes every
+module write — and every `*.Application.Tests` fixture already migrated `shared` first. This one was
+skipping it and getting away with it. Fixed by migrating `SharedDbContext` first, matching every
+sibling fixture and the real host.
+
+Noted, not changed: `IdentityInfrastructureFixture`, `HrDirectoryTests`, `HrSchemaTests`,
+`CrmAccessGuardTests` and `ProjectAccessGuardTests` build their write-path `DbContext` with a bare
+`AddDbContext` rather than through `IModule.Register`, so those contexts carry no interceptor and their
+writes are unaudited. They stay green for that reason rather than because they are correct — and a
+future change routing them through `Register` will need `shared` migrated first, exactly as above.
+
+**Rules 1/4/6/8a fault-injected, each matching the mechanism the rule uses (P5F's standard).**
+
+| Rule | Injection | Red test + message |
+|---|---|---|
+| 1 | EF Core `PackageReference` on `Notifications.Domain` + a type holding a `DbContext?` property | `Rule1_DomainAssemblies_MustNotReferenceEfCore` |
+| 4 | `public sealed class TempRule4Violation` in `Notifications.Application` | `OnlyMigrationTypesMayBePublicOutsideContracts` — *"Notifications.Application exposes public types outside Contracts"* |
+| 6 | `Notifications.Infrastructure` → `Hr.Infrastructure` + `InternalsVisibleTo` + a type taking `HrDbContext` by ctor, field AND property (rule 6 inspects exactly those three shapes, never method bodies) | `NoTypeReferencesADbContextOutsideItsOwnModule`, naming the type; **both halves of rule 3 fired independently**, as at P5F-01 |
+| 8a | `ProjectReference` **plus a real member access** (`ModuleDependencyOrder.SchemaOrder.Count`) | `ApplicationAndDomainAssemblies_MustNotReferenceBuildingBlocksWeb` — the reference alone leaves it green, per P5F-01's own finding |
+
+All four reverted; `git diff` against the Notifications and Hr csprojs is empty.
+
+**Verify:** seven schemas apply clean from empty (the eighth arrives at N1-03);
+`dotnet ef migrations add Probe` on `SharedDbContext` produced an **empty** `Up()`, then removed —
+`ef migrations remove` could not run (it connects to a database that is not up), so the two files were
+deleted and the snapshot diff confirmed to contain the `audit_logs` additions and nothing else. No raw
+SQL in this task's migration, so R3's named-list requirement does not bite here: every index is
+EF-generated and therefore visible to the probe. `dotnet build -warnaserror` 0 warnings / 0 errors;
+`dotnet test` **784/784** across 24 suites (768 + 8 `AuditInterceptorTests` + 4 `AuditMechanismTests`
++ 4 `AuditTrailTests`); format gate clean — `dotnet format` changed nothing.

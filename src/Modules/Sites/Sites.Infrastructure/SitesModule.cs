@@ -27,8 +27,7 @@ internal sealed class SitesModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<SitesDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<SitesDbContext>(cfg);
 
         // Backs SiteSchemaCache. TryAdd-based, so calling it here is safe whether or not the host or
         // another module has already registered it.

@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Events;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
@@ -27,12 +28,16 @@ public sealed class TestSideEffect
     }
 }
 
-/// <summary>Stands in for a module's own DbContext: maps the shared outbox/inbox tables without
-/// owning their migration (see <see cref="OutboxModelConfiguration"/>), plus one table of its own.</summary>
+/// <summary>Stands in for a module's own DbContext: maps the shared outbox/inbox/audit tables without
+/// owning their migration (see <see cref="OutboxModelConfiguration"/> and
+/// <see cref="AuditModelConfiguration"/>), plus tables of its own.</summary>
 public sealed class TestModuleDbContext(DbContextOptions<TestModuleDbContext> options) : DbContext(options)
 {
     public DbSet<TestSideEffect> SideEffects => Set<TestSideEffect>();
     public DbSet<CascadingEntity> CascadingEntities => Set<CascadingEntity>();
+    public DbSet<AuditedThing> AuditedThings => Set<AuditedThing>();
+    public DbSet<OtherSchemaAuditedThing> OtherSchemaAuditedThings => Set<OtherSchemaAuditedThing>();
+    public DbSet<UnauditedThing> UnauditedThings => Set<UnauditedThing>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,8 +54,90 @@ public sealed class TestModuleDbContext(DbContextOptions<TestModuleDbContext> op
             b.Property(x => x.Id).ValueGeneratedNever();
             b.Ignore(x => x.DomainEvents);
         });
+        modelBuilder.Entity<AuditedThing>(b =>
+        {
+            b.ToTable("audited_things");
+            b.HasKey(x => x.Id);
+            b.ConfigureEntityConventions();
+        });
+        modelBuilder.Entity<OtherSchemaAuditedThing>(b =>
+        {
+            // Deliberately NOT the context's default schema. This is what makes the audit row's
+            // Module field falsifiable: a Module read from the DbContext (or from a hand-maintained
+            // entity-to-module dictionary, as the backend does) would say "test_module" here and be
+            // wrong, while one read from the entity's own EF metadata says "test_module_other".
+            b.ToTable("other_schema_audited_things", "test_module_other");
+            b.HasKey(x => x.Id);
+            b.ConfigureEntityConventions();
+        });
+        modelBuilder.Entity<UnauditedThing>(b =>
+        {
+            b.ToTable("unaudited_things");
+            b.HasKey(x => x.Id);
+            b.ConfigureEntityConventions();
+        });
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
+}
+
+// --- N1-02 audit fixtures. Two auditable types, in two schemas, plus one deliberately unauditable
+// type: with only one auditable type, an interceptor that hard-coded ANY single entity name and
+// module would still pass, and the whole point of these tests is that both values are derived. ---
+
+/// <summary>An auditable aggregate carrying one property redacted by NAME
+/// (<c>PasswordHash</c>, which is how <c>ApplicationUser</c>'s inherited secrets are protected since
+/// they cannot be attributed) and one redacted by <see cref="AuditIgnoreAttribute"/>.</summary>
+public sealed class AuditedThing : Entity, IAuditable
+{
+    public string Label { get; private set; } = null!;
+
+    /// <summary>Matched by <c>AuditRedaction.SensitiveNames</c>, no attribute involved.</summary>
+    public string PasswordHash { get; private set; } = null!;
+
+    [AuditIgnore]
+    public string Confidential { get; private set; } = null!;
+
+    private AuditedThing()
+    {
+        // EF materialization.
+    }
+
+    public AuditedThing(string label, string passwordHash, string confidential)
+    {
+        Label = label;
+        PasswordHash = passwordHash;
+        Confidential = confidential;
+    }
+
+    public void Rename(string label) => Label = label;
+}
+
+/// <summary>Identical in every way that matters except the schema it is mapped to.</summary>
+public sealed class OtherSchemaAuditedThing : Entity, IAuditable
+{
+    public string Label { get; private set; } = null!;
+
+    private OtherSchemaAuditedThing()
+    {
+        // EF materialization.
+    }
+
+    public OtherSchemaAuditedThing(string label) => Label = label;
+}
+
+/// <summary>Does NOT implement <see cref="IAuditable"/>. Proves the opt-in is the marker interface and
+/// nothing else — writing one of these must produce no audit row at all.</summary>
+public sealed class UnauditedThing : Entity
+{
+    public string Label { get; private set; } = null!;
+
+    private UnauditedThing()
+    {
+        // EF materialization.
+    }
+
+    public UnauditedThing(string label) => Label = label;
 }
 
 // --- F1 fixtures: a two-level domain-event cascade triggered by an integration-event handler's write,

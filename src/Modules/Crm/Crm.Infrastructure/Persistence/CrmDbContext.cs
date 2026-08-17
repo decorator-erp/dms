@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Crm.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -45,5 +46,6 @@ internal sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbC
         modelBuilder.HasDefaultSchema("crm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CrmDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

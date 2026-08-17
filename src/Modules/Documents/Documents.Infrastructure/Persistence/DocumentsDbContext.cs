@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Documents.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -15,5 +16,6 @@ internal sealed class DocumentsDbContext(DbContextOptions<DocumentsDbContext> op
         modelBuilder.HasDefaultSchema("documents");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(DocumentsDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

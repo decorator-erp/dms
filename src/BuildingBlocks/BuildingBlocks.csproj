@@ -20,4 +20,14 @@
     <ProjectReference Include="..\SharedKernel\SharedKernel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- N1-02: AuditSaveChangesInterceptor and NullAuditContextAccessor are internal - the interceptor
+         because its only legitimate consumer is AddModuleDbContext, the accessor because it is a
+         fallback nobody should register by hand. AuditInterceptorTests names both: it asserts the
+         interceptor is a singleton across scopes (an EF internal-service-provider concern that has no
+         observable behaviour to test through), and that a background scope resolves the null accessor.
+         Making them public to test them would widen the surface the tests exist to constrain. -->
+    <InternalsVisibleTo Include="BuildingBlocks.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

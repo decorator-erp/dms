@@ -18,8 +18,7 @@ internal sealed class HrModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<HrDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<HrDbContext>(cfg);
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             Name,

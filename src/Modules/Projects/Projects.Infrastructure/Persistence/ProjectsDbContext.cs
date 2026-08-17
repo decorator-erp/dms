@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Projects.Domain;
@@ -25,5 +26,6 @@ internal sealed class ProjectsDbContext(DbContextOptions<ProjectsDbContext> opti
         modelBuilder.HasDefaultSchema("projects");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ProjectsDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

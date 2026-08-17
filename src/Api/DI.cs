@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using BuildingBlocks;
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Jobs;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
@@ -19,6 +20,14 @@ public static class DI
     {
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
+
+        // N1-02. Singleton to match AuditSaveChangesInterceptor, which consumes it - see
+        // ModuleDbContextRegistration.AddModuleDbContext for why that lifetime is load-bearing.
+        // Registration ORDER matters: Program.cs runs AddApi before the module loop, so this wins over
+        // the TryAdd'd NullAuditContextAccessor every module registers. Reverse the two and audit
+        // silently loses every actor, which is why AuditContextAccessorRegistrationTests asserts the
+        // real host resolves this one.
+        services.AddSingleton<IAuditContextAccessor, HttpAuditContextAccessor>();
 
         var jwtKey = cfg["JwtSettings:Key"];
         if (string.IsNullOrWhiteSpace(jwtKey))

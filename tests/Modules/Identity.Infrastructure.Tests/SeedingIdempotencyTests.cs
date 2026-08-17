@@ -1,3 +1,4 @@
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
@@ -51,6 +52,21 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
                 ["DMS_SEED_ADMIN_PASSWORD"] = "SeedTest-P@ssw0rd123!",
             })
             .Build();
+
+        // shared FIRST, then identity - ModuleDependencyOrder.SchemaOrder's own order, which this test
+        // previously got away with skipping.
+        //
+        // N1-02 made it load-bearing: ApplicationRole, ApplicationRoleClaim and ApplicationUser are all
+        // IAuditable, so seeding now stages rows into shared.audit_logs through the same SaveChanges,
+        // and a database with only the identity schema fails with 42P01. That is the audit design
+        // working as intended rather than a test needing an accommodation - shared is first in
+        // SchemaOrder precisely so the table exists before any module writes - but this fixture built
+        // its own database and so had to be told. Every *.Application.Tests fixture already did this.
+        await using (var shared = new SharedDbContext(
+            new DbContextOptionsBuilder<SharedDbContext>().UseNpgsql(_container.GetConnectionString()).Options))
+        {
+            await shared.Database.MigrateAsync();
+        }
 
         await using (var migrateServices = BuildProvider(module, configuration))
         {

@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Hr.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -21,5 +22,6 @@ internal sealed class HrDbContext(DbContextOptions<HrDbContext> options) : DbCon
         modelBuilder.HasDefaultSchema("hr");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(HrDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }

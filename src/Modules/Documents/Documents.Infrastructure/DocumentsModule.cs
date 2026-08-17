@@ -26,8 +26,7 @@ internal sealed class DocumentsModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<DocumentsDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<DocumentsDbContext>(cfg);
 
         // Singleton, matching the backend - stateless beyond the resolved root path, computed once from
         // configuration at construction (G7-05).

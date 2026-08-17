@@ -19,8 +19,7 @@ internal sealed class ProjectsModule : IModule
 
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
-        services.AddDbContext<ProjectsDbContext>(options =>
-            options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
+        services.AddModuleDbContext<ProjectsDbContext>(cfg);
 
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
         services.AddScoped<IProjectDirectory, ProjectDirectory>();

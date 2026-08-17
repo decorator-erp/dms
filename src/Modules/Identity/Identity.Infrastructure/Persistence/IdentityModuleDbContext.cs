@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Outbox;
 using Identity.Domain;
 using Microsoft.AspNetCore.Identity;
@@ -37,5 +38,6 @@ internal sealed class IdentityModuleDbContext(DbContextOptions<IdentityModuleDbC
         modelBuilder.HasDefaultSchema("identity");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(IdentityModuleDbContext).Assembly);
         modelBuilder.ConfigureOutbox(ownsMigration: false);
+        modelBuilder.ConfigureAudit(ownsMigration: false);
     }
 }
