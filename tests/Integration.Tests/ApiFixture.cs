@@ -81,7 +81,10 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             // __EFMigrationsHistory lives in the default "public" schema regardless of a context's
             // HasDefaultSchema (confirmed by inspection), so restricting to these three schemas already
             // leaves it untouched — no explicit TablesToIgnore needed.
-            SchemasToInclude = ["identity", "hr", "approvals", "crm", "projects", "documents", "sites", "shared"],
+            // "notify" added at N1-03. Omitting it would leave notification and activity rows alive
+            // across every reset in this collection - and because the dedupe index is unique per
+            // recipient, a leaked row makes the NEXT test's identical notification silently skip.
+            SchemasToInclude = ["identity", "hr", "approvals", "crm", "projects", "documents", "sites", "notify", "shared"],
             DbAdapter = DbAdapter.Postgres,
         });
 
@@ -237,6 +240,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 await MigrateModuleSchemaAsync(
                     "Sites.Infrastructure",
                     "Sites.Infrastructure.Persistence.SitesDbContext, Sites.Infrastructure");
+                break;
+
+            case "notify":
+                await MigrateModuleSchemaAsync(
+                    "Notifications.Infrastructure",
+                    "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure");
                 break;
         }
     }

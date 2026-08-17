@@ -81,5 +81,7 @@
     <Project Path="tests/Modules/Sites.UnitTests/Sites.UnitTests.csproj" />
     <Project Path="tests/Modules/Sites.Infrastructure.Tests/Sites.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Sites.Application.Tests/Sites.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Notifications.UnitTests/Notifications.UnitTests.csproj" />
+    <Project Path="tests/Modules/Notifications.Infrastructure.Tests/Notifications.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

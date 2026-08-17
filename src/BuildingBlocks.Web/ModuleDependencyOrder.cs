@@ -35,6 +35,18 @@ namespace BuildingBlocks.Web;
 /// of the list is the only position it needs — the append-vs-insert distinction now has both cases
 /// worked, which is why <c>docs/adding-a-module.md</c> can state the general rule rather than one
 /// example.</para>
+///
+/// <para><b>"notify" is an append, verified by the same rule (N1-03).</b> Notifications points OUTWARD
+/// at <c>identity</c> only — <c>notifications.RecipientUserId</c> and <c>activities.ActorUserId</c>,
+/// both to <c>identity.users</c> — and <b>nothing points into it</b>, confirmed by grep before the
+/// append rather than assumed. <c>docs/cross-schema-foreign-keys.md</c> already listed
+/// <c>notify → identity</c> and already placed <c>notify</c> last, two phases before the module
+/// existed; this is that plan being carried out, not a new decision.</para>
+///
+/// <para>Note that <c>audit_logs</c> is <b>not</b> in <c>notify</c> despite Notifications serving the
+/// audit endpoints. It lives in <c>shared</c>, which is FIRST — the audit interceptor fires on every
+/// module's writes, so its table has to exist before any of them migrate. See
+/// <c>BuildingBlocks.Auditing.AuditModelConfiguration</c>.</para>
 /// </summary>
 public static class ModuleDependencyOrder
 {
@@ -48,5 +60,6 @@ public static class ModuleDependencyOrder
         "projects",
         "documents",
         "sites",
+        "notify",
     ];
 }

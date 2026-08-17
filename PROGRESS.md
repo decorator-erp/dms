@@ -6007,3 +6007,92 @@ SQL in this task's migration, so R3's named-list requirement does not bite here:
 EF-generated and therefore visible to the probe. `dotnet build -warnaserror` 0 warnings / 0 errors;
 `dotnet test` **784/784** across 24 suites (768 + 8 `AuditInterceptorTests` + 4 `AuditMechanismTests`
 + 4 `AuditTrailTests`); format gate clean — `dotnet format` changed nothing.
+
+**N1-03** — done — `Notifications.Domain/` (`Notification.cs`, `Activity.cs`, `Enums.cs`,
+`Errors/NotificationErrors.cs`), `Notifications.Infrastructure/` (`NotificationsModule.cs`,
+`Persistence/NotificationsDbContext.cs`, `NotificationsDbContextFactory.cs`, two configurations, two
+migrations), `src/BuildingBlocks.Web/ModuleDependencyOrder.cs`, `tests/Integration.Tests/ApiFixture.cs`,
+`tests/Architecture.Tests/Rule9CrossSchemaForeignKeyTests.cs`, and two new suites —
+`tests/Modules/Notifications.UnitTests` and `tests/Modules/Notifications.Infrastructure.Tests`
+(**26 suites, up from 24**).
+
+**`NotificationsModule` is created here, minimal, and that is load-bearing rather than tidy (R1).**
+The earlier draft plan had `NotificationsModule.Register` *modified* at N1-04 and the type *created* at
+N1-07 — modifying what a later task creates. R1 corrected the ordering, and building it proved the
+correction was not merely cosmetic: `ApiFixture.MigrateModuleSchemaAsync` and
+`Rule9CrossSchemaForeignKeyTests.MigrateModuleSchemaAsync` both migrate a schema by calling
+`ModuleDiscovery.DiscoverModules(...).Single().Register(...)` on a throwaway `ServiceCollection`. Without
+the module the `notify` schema cannot migrate at all, so **this task's own verify could not have
+passed**. `ProjectsModule` set the precedent at `PROGRESS.md:1739`. It gains `AddSignalR` +
+`INotificationService` at N1-04, `AddModuleIntegrationEvents` at N1-06, `AddModuleCqrs` + endpoints at
+N1-07; the assembly does not join `Program.cs`'s module list until N1-07, when there is something to
+serve.
+
+**Domain gets its own copy of the enums [N5].** `Notification` needs `NotificationType`, `Activity`
+needs an action verb — and Domain may reference SharedKernel only, so it can name neither
+`Notifications.Contracts.NotificationType` nor `BuildingBlocks.Auditing.AuditAction`. This is the
+convention `Sites.Domain/Enums.cs` states explicitly and `Crm` established; the duplication is
+structural. `NotificationEnumParityTests` asserts both copies by **name and value, in both
+directions** — every value is persisted as an int, so a member added to one copy or renumbered in one
+copy compiles fine, fails nothing else, and silently re-labels stored rows. `ActivityAction` is checked
+against `AuditAction` rather than a Contracts enum, since that is the enum it must not disagree with:
+an activity row and an audit row describing the same change should not differ on what kind of change it
+was.
+
+**The dedupe rule is in the domain, not in the service that happens to call it first.**
+`Notification.ScopeDedupeKey(logicalKey, recipientUserId)` returns `"{key}:{userId}"`, and
+`Notification.Create` is the only path that stores it — so no future second caller can scope it
+differently. The plan asked for dedupe-key uniqueness to be a domain invariant unit-tested rather than
+just an index, and this is what makes that possible: the index can only enforce whatever key it is
+handed, and the two ways to hand it the wrong one are both invisible in the schema. Storing the key
+unscoped would let the FIRST recipient of a fan-out receive a reminder and silently drop it for
+everyone else; scoping by anything other than the recipient would let a re-run duplicate. Seven tests,
+including that a null logical key stays null — the unique index is filtered on `IS NOT NULL`, so
+scoping null into `":user-alice"` would make a user's second un-keyed notification collide with their
+first and vanish.
+
+**`"notify"` appended to `SchemaOrder`, verified by the rule rather than by assumption.** Grepped
+first: nothing points INTO `notify`. It points outward at `identity` only. `docs/cross-schema-foreign-keys.md`
+already listed `notify → identity` and already placed `notify` last, two phases before the module
+existed — this carries out that plan rather than making a new decision.
+
+**Two raw-SQL cross-schema FKs, both `notify → identity`, both RESTRICT.** The backend cascades
+`notifications.recipient_user_id`; rule 9 forbids CASCADE across a schema boundary, so this diverges
+deliberately. The cost is theoretical — deleting a user is not a path this system models, deactivation
+is. `("notify","identity")` had been in `AllowedPairs` since before the module existed, so rule 9 gained
+two named `Assert.Contains` lines: an allow-listed pair with nothing asserted against it is permissive
+and unexercised, which is the vacuity the non-vacuity block exists to prevent.
+
+**`Assert.DoesNotContain(found, fk => fk.From == "shared")` added at the same time**, making N1-02's
+decision explicit at the point someone would be tempted to "fix" the missing FK on
+`audit_logs.user_id`. Two independent reasons it must stay absent: `shared` migrates FIRST, so the
+constraint is structurally impossible; and an audit row must outlive its subject, whereas RESTRICT
+would make deleting a user fail *because* that user did something auditable.
+
+**R3: `NotificationsSchemaObjectTests`, fail-closed.** Both FKs are raw SQL, so a probe migration is
+blind to them — dropping either leaves the probe empty and the build green. The two filtered indexes
+are a *different* case and are listed anyway: they are declared with `HasFilter` and so ARE in the
+model, but `ux_notifications_dedupe_key` is the database half of the idempotency guarantee the whole
+consolidated-sweep design rests on, and its filter is what stops un-keyed notifications colliding on
+NULL — worth asserting against a real Postgres rather than a snapshot file. `NoUnexpectedNotifyConstraints`
+asserts nothing exists outside the named lists.
+
+**Two of my own tests were wrong first, and both were wrong in the direction of passing too easily.**
+`BothForeignKeys_AreRestrictNotCascade` originally queried `confdeltype <> 'a'` on the assumption that
+`RESTRICT` was the default `NO ACTION`; it is `'r'`, so the test failed against correct schema. Rewritten
+to assert **positively** that both constraints are `'r'` — a negative-only check ("none is CASCADE")
+would also pass if a constraint were dropped altogether. `TheThreeSharedTables_AreExcludedFromThisModulesMigration`
+called `IsTableExcludedFromMigrations()` on `context.Model`, which throws: `ExcludeFromMigrations` is a
+migration-time concern EF strips from the runtime read-optimized model. It reads
+`context.GetService<IDesignTimeModel>().Model`.
+
+**Verify:** eight schemas apply clean from empty (`ApiFixture` and `Rule9CrossSchemaForeignKeyTests`
+both migrate all eight, and rule 9's new assertions prove the `notify` FKs really exist in that
+database); `dotnet ef migrations add Probe` on `NotificationsDbContext` produced an **empty** `Up()`,
+removed. `SchemasToInclude` gained `"notify"` — omitting it would leave notification rows alive across
+every Respawn reset, and because the dedupe index is unique per recipient a leaked row makes the NEXT
+test's identical notification silently skip. DbSet-count / configuration-count asserted at 2, plus the
+model's entity list pinned by name (the two owned entities and the three `shared` tables this context
+maps but does not own) and each one's schema. `dotnet build -warnaserror` 0/0; `dotnet test`
+**805/805** across **26** suites (784 + 10 `Notifications.UnitTests` + 11
+`Notifications.Infrastructure.Tests`); format gate clean.

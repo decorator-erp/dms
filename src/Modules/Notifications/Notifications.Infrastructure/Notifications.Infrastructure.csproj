@@ -20,6 +20,7 @@
     <!-- Notifications.Application uses NotificationsDbContext directly ("no repository pattern"),
          same grant every other module's Infrastructure makes to its own Application. -->
     <InternalsVisibleTo Include="Notifications.Application" />
+    <InternalsVisibleTo Include="Notifications.Infrastructure.Tests" />
   </ItemGroup>
 
 </Project>

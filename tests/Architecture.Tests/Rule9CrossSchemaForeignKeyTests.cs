@@ -53,6 +53,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
             ["documents"] = ("Documents.Infrastructure", "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure"),
             ["sites"] = ("Sites.Infrastructure", "Sites.Infrastructure.Persistence.SitesDbContext, Sites.Infrastructure"),
+            ["notify"] = ("Notifications.Infrastructure", "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure"),
         };
 
     private PostgreSqlContainer _container = null!;
@@ -154,6 +155,21 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         // is not in AllowedPairs above.
         Assert.DoesNotContain(found, fk => fk.From == "crm" && fk.To == "projects");
         Assert.DoesNotContain(found, fk => fk.From == "crm" && fk.To == "documents");
+
+        // N1-03: both notify -> identity FKs, raw SQL in NotificationsCrossSchemaForeignKeys. The
+        // ("notify", "identity") pair has been in AllowedPairs since before the module existed, so
+        // without these two lines it would stay permissive and unexercised - allow-listed but never
+        // proven to allow anything.
+        Assert.Contains(found, fk => fk is ("notify", "identity", "fk_notifications_recipient_user"));
+        Assert.Contains(found, fk => fk is ("notify", "identity", "fk_activities_actor_user"));
+
+        // N1-02: shared.audit_logs.user_id carries NO foreign key, and the absence is asserted rather
+        // than intended. Two independent reasons it cannot and must not: shared migrates FIRST, so a
+        // constraint pointing at identity is structurally impossible; and an audit row must outlive its
+        // subject, whereas RESTRICT would make deleting a user fail BECAUSE that user did something
+        // auditable. "shared" is not in AllowedPairs, so any future FK out of it fails the main
+        // assertion too - this makes the intent explicit at the point someone would be tempted.
+        Assert.DoesNotContain(found, fk => fk.From == "shared");
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)
