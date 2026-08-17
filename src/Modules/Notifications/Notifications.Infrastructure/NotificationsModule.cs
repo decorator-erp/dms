@@ -57,6 +57,25 @@ internal sealed class NotificationsModule : IModule
         // every other module documents on its own call.
         services.AddModuleIntegrationEvents<NotificationsDbContext>(typeof(NotificationsModule).Assembly);
 
+        // N1-07, and the ORDER of the two scans above and below is the thing to read carefully.
+        // This project has lost three separate bugs to registration mistakes:
+        //
+        //   G0-03  Scrutor re-wrapped an open generic, decorating handlers twice.
+        //   G7-07  a shared event type was double-wrapped when two modules both scanned for it.
+        //   G5-07  a scan pointed at the WRONG ASSEMBLY, found zero types, and silently decorated
+        //          nothing -- shipping a module with no row-level access control at all.
+        //
+        // G5-07 is the one that bites here, because the two scans target DIFFERENT assemblies and
+        // neither throws when it matches nothing:
+        //
+        //   AddModuleCqrs               -> Notifications.APPLICATION  (command/query handlers)
+        //   AddModuleIntegrationEvents  -> Notifications.INFRASTRUCTURE (event handlers, which call
+        //                                  other modules' contracts and so live beside them)
+        //
+        // Swap the two assembly arguments and everything still compiles, still boots, and serves
+        // 404s and un-notified events forever.
+        services.AddModuleCqrs<NotificationsDbContext>(Assembly.Load("Notifications.Application"));
+
         return services;
     }
 
@@ -67,6 +86,6 @@ internal sealed class NotificationsModule : IModule
         // OnMessageReceived handler in Api.DI, which cannot live here because the module has no access
         // to the JwtBearer options and should not.
         app.MapHub<NotificationsHub>(NotificationsHub.Route);
-        return app;
+        return app.MapModuleEndpoints(typeof(NotificationsModule).Assembly);
     }
 }

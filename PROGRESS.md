@@ -6366,3 +6366,66 @@ Contracts exactly as every other module's Infrastructure does.
 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **833/833** across 26 suites (815 + 18);
 format gate clean.
+
+**N1-07** — done — `Notifications.Contracts/NotificationContracts.cs`,
+`Notifications.Application/Features/{Notifications,Audit}/`,
+`Notifications.Infrastructure/Endpoints/{NotificationEndpoints,AuditEndpoints}.cs`,
+`NotificationsModule.cs`, five `*.Application.Tests.csproj`,
+`tests/Integration.Tests/NotificationsEndpointTests.cs`.
+
+**The eight-module and permission-total assertions are not here — they moved at N1-04**, when
+`Program.cs` actually loaded the assembly. Registration is what those tests assert, and a module
+registers the moment its assembly is loaded, three tasks before it has an endpoint to serve. Sites made
+exactly this move at S1-04, and its reasoning is recorded in `CrmSmokeTests`' own doc comment.
+
+**The registration order is stated on the module, because this project has paid for it three times.**
+`AddModuleCqrs` scans `Notifications.Application`; `AddModuleIntegrationEvents` scans
+`Notifications.Infrastructure`. Two scans, two different assemblies, and **neither throws when it
+matches nothing** — G5-07 shipped a module with no row-level access control at all for precisely that
+reason. Swapping the two arguments compiles, boots, and serves 404s and un-notified events forever.
+That is written above the calls rather than left to be rediscovered.
+
+**`audit.view_own` is a structural split, not a filtered view of `audit.read`.** Three routes take
+`audit.read` and return anyone's rows; one takes `audit.view_own` and returns exactly the caller's,
+with the user id read from `ICurrentUser` and from nowhere else. A `view_own` holder cannot reach the
+other three **at all**. `/my-activity` also uses its own query type (`GetMyAuditActivityQuery`) rather
+than `GetAuditLogsQuery` with `UserId` pre-filled — the self-scoped path then has no parameter that
+could widen it, so widening it takes a deliberate edit rather than an oversight.
+
+**Notification routes are scoped in the WHERE clause, not after materializing**, with the recipient
+resolved once at the endpoint from `ICurrentUser` — the shape CRM adopted at G9-14 and Sites at S1-08.
+A stranger marking someone else's notification read gets **404, not 403**: distinguishing the two would
+let any authenticated caller enumerate other people's notification ids by probing status codes, the
+same reasoning behind the module-scope decorators' 404 rule.
+
+**Verify.**
+
+| Clause | Test |
+|---|---|
+| `audit.view_own` cannot read another user's rows | `AuditViewOwn_CannotReachAnyRouteThatReturnsAnotherUsersRows` — all three admin routes, one theory case each |
+| …and the split is real, not a broken surface | `AuditRead_ReachesEveryAdminAuditRoute` — the same three, 200 |
+| the scoping is unforgeable | `MyActivity_ReturnsOnlyTheCallersOwnRows_AndIgnoresAUserIdParameter` — two real users with real audited writes; the obvious `?userId=` attack must be ignored rather than honoured |
+| inbox is caller-scoped | `NotificationRoutes_AreScopedToTheCaller_AndRequireTheOwnPermission` |
+| mark-read is owner-scoped, 404 not 403 | `MarkRead_IsScopedToTheOwner_AndAStrangerGetsNotFoundRatherThanForbidden` |
+| `/openapi/v1.json` lists the routes | `OpenApiDocument_ListsEveryNotificationsRoute` — all nine |
+| eight modules by name; permission total 118 | `CrmSmokeTests.Boot_RegistersExactlyEightModules`, `SitesSmokeTests.GetPermissions_TotalsOneHundredAndEighteenAcrossEightModules` (both from N1-04, recounted additively via `NotificationsPermissions.All.Count`) |
+
+Asserting each audit route separately rather than sampling one is deliberate: the risk being guarded is
+a **single** route gated on the wrong constant, which a sample would miss five times out of six.
+
+**A second fixture breakage, same shape as N1-06's [N10].** Adding `AddModuleCqrs` to
+`NotificationsModule.Register` made it call `Assembly.Load("Notifications.Application")`, which the five
+`*.Application.Tests` projects could not resolve — 131 failures across five suites, all
+`FileNotFoundException`. Fixed by referencing `Notifications.Application` from each, the same reason
+those projects already reference `Identity.Application` and `Hr.Application`: the DLL has to be in the
+output directory for a runtime `Assembly.Load` to find it.
+
+**Worth naming as a pattern, since it has now happened twice in two tasks:** every time this module's
+`Register` grows, every host that boots it has to be able to satisfy the new dependency. N1-06 added a
+service dependency (`INotificationService`) and broke four tests; N1-07 added an assembly dependency
+and broke 131. Neither was a design problem — both were fixtures modelling a composition that no longer
+exists — but a module built up across four tasks pays this toll at each one, and that is the real cost
+of the incremental-`Register` shape R1 mandated.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **843/843** across 26 suites (833 + 10);
+format gate clean.

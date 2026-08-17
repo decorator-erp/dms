@@ -40,6 +40,10 @@
          what supply INotificationService to Approvals/Projects/Crm/Sites. Referenced so the
          fixture's Assembly.Load resolves the DLL from this project's output. -->
     <ProjectReference Include="..\..\..\src\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
+    <!-- N1-07: NotificationsModule.Register now does Assembly.Load("Notifications.Application")
+         for its CQRS scan, which only resolves if that DLL is in this project's output. Same
+         reasoning as the Identity.Application / Hr.Application references above. -->
+    <ProjectReference Include="..\..\..\src\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
   </ItemGroup>
 
 </Project>
