@@ -54,6 +54,32 @@ public static class DI
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.Zero,
                 };
+
+                // N1-04: SignalR's browser client cannot set an Authorization header on a WebSocket
+                // handshake, so it appends the token as ?access_token=. Without this, every real client
+                // gets 401 from /hubs/notifications and the hub is decorative.
+                //
+                // SCOPED TO /hubs, deliberately. A blanket query-string token reader would accept
+                // credentials on every route in the app - and query strings land in access logs, proxy
+                // logs, Referer headers and browser history, none of which are places a bearer token
+                // should be. The path check is what keeps this to the one transport that needs it.
+                //
+                // Host-level, not module-level: the module has no access to the JwtBearer options, and
+                // authentication is the composition root's job.
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken)
+                            && context.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            context.Token = accessToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                };
             });
 
         services.AddAuthorization();

@@ -25,6 +25,10 @@ var moduleAssemblies = new[]
     Assembly.Load("Projects.Infrastructure"),
     Assembly.Load("Documents.Infrastructure"),
     Assembly.Load("Sites.Infrastructure"),
+    // N1-04, three tasks before this module has an endpoint to serve. Loaded now because MapEndpoints
+    // is what mounts NotificationsHub, and because N1-05's relocated jobs resolve INotificationService
+    // from this container. CrmSmokeTests.Boot_RegistersExactlyEightModules moves in the same commit.
+    Assembly.Load("Notifications.Infrastructure"),
 };
 var modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
 

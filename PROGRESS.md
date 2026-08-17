@@ -6096,3 +6096,81 @@ model's entity list pinned by name (the two owned entities and the three `shared
 maps but does not own) and each one's schema. `dotnet build -warnaserror` 0/0; `dotnet test`
 **805/805** across **26** suites (784 + 10 `Notifications.UnitTests` + 11
 `Notifications.Infrastructure.Tests`); format gate clean.
+
+**N1-04** — done — `Notifications.Infrastructure/Notifications/` (`NotificationService.cs`,
+`NotificationsHub.cs`), `NotificationsModule.cs`, `src/Api/DI.cs`, `src/Api/Program.cs`,
+`Directory.Packages.props`, `tests/Integration.Tests/` (`NotificationDeliveryTests.cs`,
+`Integration.Tests.csproj`, `CrmSmokeTests.cs`, `SitesSmokeTests.cs`).
+
+**The module joins `Program.cs` here, not at N1-07 [N6].** `PLAN-PHASE6.md` put the eight-module
+registration with the endpoints. Two concrete things made that impossible to defer, and both were
+discovered by building rather than by reading:
+
+1. `MapEndpoints` is what mounts `NotificationsHub`, and `MapEndpoints` only runs for modules
+   `Program.cs` has loaded. **N1-04's own SignalR verify is unreachable** until the assembly is in that
+   list.
+2. N1-05's relocated jobs resolve `INotificationService` from the host container — which does not
+   contain it until this module registers. The job inversion would fail at resolution.
+
+`CrmSmokeTests.Boot_RegistersExactlyEightModules` and `SitesSmokeTests`' permission total move in the
+**same commit**, so the tree is never red in between. This is not a new precedent: that test's own doc
+comment already records Sites doing exactly this at S1-04 rather than S1-08, with the same reasoning —
+*"this asserts REGISTRATION, and a module registers the moment `Program.cs` loads its assembly"*.
+
+**The permission total is recounted, not re-typed (D2).** `114` stays a literal, because it is the
+historical seven-module fact whose arithmetic the existing comment explains; the eighth module's
+contribution is `+ NotificationsPermissions.All.Count`, so the assertion cannot drift from the constant
+`NotificationsModule` actually registers. 118 today, and the next module adds itself the same way
+rather than editing a number.
+
+**The transaction boundary is not the obvious one, and it comes with a rule.** `InboxDedupeDecorator`
+wraps an integration-event handler in an explicit transaction **on that handler's own module's
+`DbContext`**. `NotificationService` writes through `NotificationsDbContext` — a different context, a
+different connection — so its commit is independent: a handler that fails after notifying rolls back
+its own work while the notification row survives.
+
+That is deliberate. Making the notification join the handler's transaction would mean writing it
+through the handler's context, which would put `notify` tables in seven modules' models and undo the
+boundary entirely. The rule that makes the asymmetry safe: **an integration-event handler that notifies
+must pass a dedupe key.** With one, the outbox retry re-runs the handler and the service silently skips
+the delivered row — the reader sees one notification, at most slightly early. Without one, the retry
+duplicates. Recorded on `NotificationService` itself and enforced by review at N1-06.
+
+**`SaveChangesAsync` per recipient, not once per fan-out, and that is load-bearing.** The dedupe check
+is a read, so two processes can both pass it; the unique index is what actually arbitrates, and it can
+only do so one row at a time. A batched save would fail the *whole* fan-out whenever any single
+recipient collided. The `23505` catch detaches the losing entity so the next recipient's save does not
+retry the failed insert.
+
+**`?access_token=`, scoped to `/hubs` only.** SignalR's browser client cannot set an `Authorization`
+header on a WebSocket handshake, so without a `JwtBearerEvents.OnMessageReceived` handler every real
+client gets 401 and the hub is decorative — and nothing else in the suite would have noticed. The
+brief never budgeted for this `Api` change; N1-04's verify cannot pass without it. It is deliberately
+**not** a blanket query-string reader: query strings land in access logs, proxy logs, `Referer` headers
+and browser history, so accepting bearer tokens there on every route would be a real regression. Host
+level, in `Api`, because the module has no access to the JwtBearer options and should not.
+
+**Verify.**
+
+| Clause | Test |
+|---|---|
+| three recipients → three rows; re-run → none | `OneReminderToThreeRecipients_WritesThreeRows_AndReRunningWritesNone` — asserts the second run's **delta**, since a total-only assertion would also pass if the second run wrote three and something deleted three |
+| per-recipient scoping actually fans out | `TheSameLogicalKey_ReachesEveryRecipientSeparately` — the other half: without scoping, the index would let the first recipient through and silently drop the rest, and the test above would still pass on a total of one |
+| un-keyed notifications are never deduplicated | `NotificationsWithoutADedupeKey_AreNeverDeduplicated` — proves the index's `IS NOT NULL` filter |
+| the access-token handler fires | `HubNegotiate_AcceptsTheQueryStringToken_AndRejectsAnUnauthenticatedRequest` — both directions, so it cannot pass because the endpoint is accidentally anonymous |
+| own push received, another's not | `AConnectedClient_ReceivesItsOwnPush_AndNotAnotherUsersReceives` |
+
+The last one uses the **real** SignalR client over long polling against `TestServer.CreateHandler()`,
+not a fake `IHubContext`. A fake would prove `NotificationService` calls the right group *name* and
+nothing about whether a client ever joins that group — which is the entire risk. Long polling sends the
+bearer header normally, so it exercises `[Authorize]`, `Context.UserIdentifier` and
+`Groups.AddToGroupAsync` without WebSocket plumbing; the query-string half is covered by the separate
+negotiate test, which is why these are two tests rather than one. The negative half waits two seconds
+before concluding nothing arrived — proving an absence needs the message to have had time to show up.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **810/810** across 26 suites (805 + 5
+delivery tests); format gate clean. `Microsoft.AspNetCore.SignalR.Client` added to
+`Directory.Packages.props` as a test-only reference; SignalR itself needed no package, since
+`BuildingBlocks.Web` carries `<FrameworkReference Include="Microsoft.AspNetCore.App" />` and the hub is
+in that shared framework — which is also why `NotificationsHub` can stay `internal` (rule 4) with
+`MapHub` called from inside the module.

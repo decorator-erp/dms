@@ -60,9 +60,17 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     /// module registers the moment <c>Program.cs</c> loads its assembly — which is this task, three
     /// tasks before Sites has an endpoint to serve. The plan put it with the endpoints because that is
     /// where the "seven modules" verify was written; the test itself does not wait that long.</para>
+    ///
+    /// <para><b>Eight at N1-04, and the same reasoning applied a second time.</b> PLAN-PHASE6.md put
+    /// the eight-module assertion at N1-07 with the endpoints. Notifications had to be loaded three
+    /// tasks earlier for two concrete reasons: <c>MapEndpoints</c> is what mounts
+    /// <c>NotificationsHub</c>, so N1-04's own SignalR verify is unreachable until the host loads the
+    /// assembly; and N1-05's relocated jobs resolve <c>INotificationService</c> from the host container,
+    /// which does not contain it until this module registers. Registration and this assertion move
+    /// together, in one commit, so the tree is never red in between.</para>
     /// </summary>
     [Fact]
-    public async Task Boot_RegistersExactlySevenModules()
+    public async Task Boot_RegistersExactlyEightModules()
     {
         var client = fixture.CreateClient();
         var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
@@ -75,7 +83,7 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
         Assert.NotNull(modules);
 
         Assert.Equal(
-            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Projects", "Sites"],
+            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Notifications", "Projects", "Sites"],
             modules!.Select(m => m.Module).OrderBy(m => m, StringComparer.Ordinal));
     }
 

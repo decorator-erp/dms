@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Identity.Contracts;
+using Notifications.Contracts;
 using Sites.Contracts;
 using Xunit;
 
@@ -22,12 +23,22 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// <summary>
     /// The system-wide permission count.
     ///
-    /// <para><b>114, not the 62 the plan predicted.</b> <c>PLAN-PHASE5.md</c> arrived at 62 by adding
-    /// Sites' permissions to CRM's own 56 — the number that appears in <c>CrmSmokeTests</c> — rather than
-    /// to the system total. The real arithmetic: Approvals 3 + Crm 56 + Documents 6 + Hr 17 + Identity 4
-    /// + Projects 21 = 107, plus Sites' 7. Asserted as a literal so the next module has to look at it.</para>
+    /// <para><b>114 through Phase 5, not the 62 that plan predicted.</b> <c>PLAN-PHASE5.md</c> arrived
+    /// at 62 by adding Sites' permissions to CRM's own 56 — the number that appears in
+    /// <c>CrmSmokeTests</c> — rather than to the system total. The real arithmetic: Approvals 3 + Crm 56
+    /// + Documents 6 + Hr 17 + Identity 4 + Projects 21 = 107, plus Sites' 7.</para>
+    ///
+    /// <para><b>N1-04 adds Notifications' 4, and the total is now RECOUNTED rather than re-typed</b>
+    /// (D2's rule: recount, don't trust the arithmetic). The seven-module figure stays a literal — it is
+    /// the historical fact the paragraph above explains — and the eighth module's contribution is added
+    /// from <c>NotificationsPermissions.All.Count</c>, so it cannot drift from the constant that
+    /// <c>NotificationsModule</c> actually registers. The same trick the per-module assertions below
+    /// already use.</para>
     /// </summary>
-    private const int TotalPermissionsAcrossAllModules = 114;
+    private const int PermissionsThroughPhase5 = 114;
+
+    private static int TotalPermissionsAcrossAllModules =>
+        PermissionsThroughPhase5 + NotificationsPermissions.All.Count;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()
@@ -56,7 +67,7 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     }
 
     [Fact]
-    public async Task GetPermissions_TotalsOneHundredAndFourteenAcrossSevenModules()
+    public async Task GetPermissions_TotalsOneHundredAndEighteenAcrossEightModules()
     {
         var client = fixture.CreateClient();
         var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);

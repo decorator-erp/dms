@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Notifications.Contracts;
+using Notifications.Infrastructure.Notifications;
 using Notifications.Infrastructure.Persistence;
 
 namespace Notifications.Infrastructure;
@@ -41,8 +42,22 @@ internal sealed class NotificationsModule : IModule
         services.AddModuleDbContext<NotificationsDbContext>(cfg);
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(Name, NotificationsPermissions.All));
 
+        // N1-04. SignalR needs no PackageReference: BuildingBlocks.Web carries
+        // <FrameworkReference Include="Microsoft.AspNetCore.App" />, and SignalR is in that shared
+        // framework. No backplane - see NotificationsHub for what that costs on a second instance.
+        services.AddSignalR();
+        services.AddScoped<INotificationService, NotificationService>();
+
         return services;
     }
 
-    public IEndpointRouteBuilder MapEndpoints(IEndpointRouteBuilder app) => app;
+    public IEndpointRouteBuilder MapEndpoints(IEndpointRouteBuilder app)
+    {
+        // MapHub from inside the module rather than from Api: the hub is internal (rule 4), so only
+        // this assembly can name it. What Api DOES own is the authentication scheme - see the
+        // OnMessageReceived handler in Api.DI, which cannot live here because the module has no access
+        // to the JwtBearer options and should not.
+        app.MapHub<NotificationsHub>(NotificationsHub.Route);
+        return app;
+    }
 }
