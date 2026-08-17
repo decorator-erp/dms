@@ -75,7 +75,7 @@ projects  → identity, hr, crm, approvals
 finance   → projects, crm
 documents → projects, hr, approvals
 notify    → identity
-(shared.outbox / shared.inbox reference nothing)
+(shared.outbox / shared.inbox / shared.audit_logs reference nothing — see the audit note below)
 ```
 
 `approvals → identity` (added at G4-03, dms-modular Phase 2): `approvals.approvals."RequestedByUserId" →
@@ -272,6 +272,37 @@ string[] order = ["shared", "identity", "hr", "approvals", "crm", "projects",
 foreach (var name in order)
     await app.Services.MigrateModuleAsync(name);
 ```
+
+**Shipped at N1-03: `notify` is real, and it is an append.** `ModuleDependencyOrder.SchemaOrder` is now
+`shared, identity, hr, approvals, crm, projects, documents, sites, notify` — `finance` will insert
+before `notify` when it lands, which is legal for the reason the rule above states: nothing points
+*into* `notify`, verified by grep before the append rather than assumed.
+
+Two constraints, both raw SQL (EF cannot emit a foreign key between two models), both
+`ON DELETE RESTRICT`:
+
+| Constraint | Column | Target |
+|---|---|---|
+| `fk_notifications_recipient_user` | `notify.notifications."RecipientUserId"` | `identity.users("Id")` |
+| `fk_activities_actor_user` | `notify.activities."ActorUserId"` | `identity.users("Id")` |
+
+RESTRICT where the backend cascades. Rule 9 forbids CASCADE across a schema boundary — a delete in one
+module silently destroying another module's rows is what the rule exists to prevent — so this diverges
+deliberately. The practical cost is nil: deleting a user is not a path this system models at all,
+deactivation is.
+
+### `shared.audit_logs` carries no foreign key, and its absence is asserted
+
+`audit_logs.user_id` holds an Identity user id and has **no** constraint pointing at
+`identity.users`. Two independent reasons, either sufficient:
+
+1. **It is structurally impossible.** `shared` migrates FIRST. `identity.users` does not exist yet.
+2. **An audit row must outlive its subject.** RESTRICT would make deleting a user fail *because* that
+   user did something auditable — the trail preventing the very cleanup it exists to record.
+
+`Rule9CrossSchemaForeignKeyTests` asserts `DoesNotContain(found, fk => fk.From == "shared")`, so this
+is a checked property rather than an intention. The same reasoning applies to any future table in
+`shared`: it is the schema everything writes and nothing owns, so it points at nobody.
 
 **(b) Constraints-last migration.** Every module creates its tables with plain columns; one final
 migration in the host adds all cross-schema constraints. Cleaner ordering, but it puts a module's

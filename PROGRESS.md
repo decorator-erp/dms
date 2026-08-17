@@ -6508,3 +6508,157 @@ positive half is what stops the negative halves passing because an endpoint quie
 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **846/846** across 26 suites (843 + 3);
 format gate clean. The spine runs twice and is stable.
+
+**N2-01** — done — `CLAUDE.md`, `docs/adding-a-module.md` (+6 patterns),
+`docs/low-resource-hosting.md` (§1 table, §2 scale note, §3 rewritten),
+`docs/cross-schema-foreign-keys.md`, `PROGRESS.md`.
+
+---
+
+## Phase 6 — final report (N1-01 → N2-01)
+
+### Task table
+
+| Task | Commit | Tests after |
+|---|---|---|
+| N1-01 — `Notifications.Contracts` + the `IPeriodicJob` seam | `4da3f2a` | 768 |
+| N1-02 — the audit interceptor, B18 closed by mechanism | `549a8b1` | 784 |
+| N1-03 — the `notify` schema + the minimal module | `cd08529` | 805 |
+| N1-04 — `NotificationService`, the hub, eighth module in the host | `beac290` | 810 |
+| N1-05 — the job inversion (7 jobs, one timer) | `cad4900` | 815 |
+| N1-06 — integration event consumers | `f0f4eda` | 833 |
+| N1-07 — endpoints + the `audit.view_own` split | `783e293` | 843 |
+| N1-08 — the eight-module spine + the `CapturedSql` finding | `451a1f1` | 846 |
+| N2-01 — close-out | this commit | 846 |
+
+**756 → 846 tests, 24 → 26 suites, 7 → 8 modules, 14 → 19 architecture facts, 114 → 118 permissions.**
+
+### Reconciliation 1 — sub-area → task, against what shipped
+
+| Sub-area the plan named | Landed at | Shipped as planned? |
+|---|---|---|
+| `Notifications.Contracts` (`INotificationService`, permissions, enums) | N1-01 | ✅ |
+| `IPeriodicJob` + `PeriodicJobWorker` in BuildingBlocks | N1-01 | ✅ |
+| `AuditAction` enum | N1-01 | ⚠️ **moved to BuildingBlocks** — in Contracts it would close a cycle with `AuditLog` [N1] |
+| `DeadlineTiers` | N1-01 | ✅ in Contracts, per the plan's own correction to the brief |
+| `Notification`, `Activity` entities | N1-03 | ✅ |
+| `AuditLog` + interceptor + `ConfigureAudit` | N1-02 | ✅ `shared` schema, `SharedDbContext` owns it |
+| `AuditModules` / `AuditEntityNames` constants | — | ✅ **not ported, deliberately** — they *are* B18 |
+| `IRecipientResolver` | — | ✅ **not ported** — the placement rule removed the need |
+| `NotificationService` + `NotificationsHub` | N1-04 | ✅ |
+| 7 periodic jobs | N1-05 | ✅ 7, not 8 — `InvoiceDueJob` deferred to Finance |
+| Integration event consumers | N1-06 | ⚠️ 12 handlers; `DocumentApproved` **deferred**, not silent |
+| `NotificationsModule` | N1-03 → N1-07 | ✅ built up across four tasks, per R1 |
+| 3 endpoint files | N1-07 | ✅ (activities folded into `AuditEndpoints.cs` — two files, three route groups) |
+| Spine + eight-module smoke | N1-08 | ✅ extended the existing seven-module spine rather than adding a ninth flow |
+
+### Reconciliation 2 — verify-clause diff
+
+| Plan clause | Evidence | |
+|---|---|---|
+| `Notifications.Contracts` references only SharedKernel + BuildingBlocks | `NotificationsContractsIsolationTests`, fault-injected red with `Hr.Contracts` | ✅ |
+| rules 5 and 10 green (N1-01) | green, but **vacuous at that point** — no integration events, no commands yet. Recorded as such | ⚠️ stated |
+| `PeriodicJobWorker` with zero jobs is a clean no-op | `RunAllJobs_WithNoRegisteredJobs_IsACleanNoOp` | ✅ |
+| no EF reference in Domain; dedupe unit-tested | rule 1; `NotificationTests` (7 cases on `ScopeDedupeKey`) | ✅ |
+| eight schemas apply clean from empty | `ApiFixture` + `Rule9CrossSchemaForeignKeyTests`, both migrate all eight | ✅ |
+| probe empty | `SharedDbContext` and `NotificationsDbContext` both produced an empty `Up()` | ✅ |
+| rules 1/4/6/8a fault-injected | four injections, each matching the rule's own mechanism; 8a needed a real member access | ✅ |
+| audit entity name from EF metadata | `AuditRow_TakesEntityNameAndModule_FromEfMetadata_NotFromLiterals`, **both halves fault-injected red** | ✅ |
+| R3 named-list for raw SQL | `NotificationsSchemaObjectTests`, fail-closed | ✅ |
+| 3 recipients → 3 rows; re-run → none | `OneReminderToThreeRecipients_...` (asserts the *delta*) | ✅ |
+| SignalR: own push received, another's not | `AConnectedClient_ReceivesItsOwnPush_AndNotAnotherUsersReceives`, real client over long polling | ✅ |
+| every job idempotent, run twice | `AnOverdueApproval_NotifiesEveryApproverOnce_AndNotAgainOnASecondTick`, asserted on `(key, recipient)` pairs | ✅ |
+| worker executes all jobs in one tick | `PeriodicJobWorker_ExecutesEveryJob_InOneTick` | ✅ |
+| no job's module reads another module's schema | `ApprovalsJobs_IssueNoSqlAgainstAnotherModulesSchema` (all six); Projects/Crm narrower **and stated as such** | ⚠️ asymmetric, deliberately |
+| enumeration in `PROGRESS.md` | N1-06's decision table, 25 events | ✅ |
+| every handler through `OutboxProcessor` | `NotificationEventConsumerTests`, nothing calls a handler directly | ✅ |
+| a previously-silent event notifies end to end | `EmployeeHired_PreviouslySilent_NowNotifiesTheNewEmployee_ThroughTheOutbox` | ✅ |
+| eight modules by name | `CrmSmokeTests.Boot_RegistersExactlyEightModules` | ✅ (moved to N1-04) |
+| `/api/permissions` returns 118 | recounted additively, not re-typed | ✅ |
+| `/openapi/v1.json` lists the routes | `OpenApiDocument_ListsEveryNotificationsRoute`, all nine | ✅ |
+| `audit.view_own` cannot read another user's rows | three routes → 403, plus the `?userId=` spoof ignored | ✅ |
+| spine: audit row + notification per module, run twice | `Sites_flow_spans_all_eight_modules_..._stable_across_two_runs` | ✅ |
+
+**Three clauses landed differently from the plan and are marked ⚠️ rather than ✅:** rules 5/10 at
+N1-01 were vacuous; the job schema-isolation assertion is asymmetric by necessity; and `AuditAction`
+moved assembly. All three are argued where they occur.
+
+### B18 — confirmed closed by mechanism
+
+Phase 5 closed B18 on a prediction: dms-modular's audit "would be interceptor-based … so the backend's
+wrong-entity-name bug cannot recur." Phase 6 is where that became true rather than predicted. The
+mechanism is four things, each asserted:
+
+1. **`AuditAction` has three members** — exactly `MapAction(EntityState)`'s range. The backend's ~400
+   existed to serve `LogActionAsync(AuditAction.X, "X", …)`, and an unreachable member advertises that
+   API. `AuditMechanismTests` asserts the count.
+2. **`AuditLog.Record` is `internal` with exactly one call site**, the interceptor. Asserted by source
+   scan; no public constructor or factory exists.
+3. **Entity name and module are derived, never passed** — `entry.Metadata.ClrType.Name` and
+   `entry.Metadata.GetSchema()`. **Both fault-injected red**: a hard-coded name, and the module read
+   from the DbContext instead of the entity (the exact mistake the backend's dictionary
+   institutionalized).
+4. **There is no allow-list.** `IAuditable` is the opt-in — compiler-checked, in the entity's own file.
+   B18's real shape was a `HashSet` and a `Dictionary` disagreeing; neither construct exists.
+
+Closed by construction, not by absence.
+
+### Deferred
+
+| Item | Owner |
+|---|---|
+| `InvoiceDueJob` | Finance — its `IPeriodicJob` lands with that module |
+| Email/SMS channels | product decision; in-app + SignalR only |
+| Audit retention/archival | ops — **now sized: 232 rows per cold boot** from Identity seeding alone, before any user activity |
+| Failed-login / security-event auditing | a failed login mutates nothing, so the interceptor emits no row. Needs a different mechanism |
+| `DocumentApproved` notification | has a real recipient (the uploader); a handler in `Documents.Infrastructure` is the right home. Not built — **deferred, not decided silent** |
+| `UserDeactivatedIntegrationEvent` | declared and never published; a pre-existing dead seam |
+| Notification read/dismiss UX beyond `view_own` | frontend-driven |
+| SignalR backplane | only on a second instance; recorded in `docs/low-resource-hosting.md` §2 |
+
+### What Notifications should change in the Finance plan
+
+**1. Finance inherits three seams on day one, and two of them will break its fixtures.**
+`AddModuleDbContext` attaches the audit interceptor, so any `IAuditable` Finance entity is audited with
+no further work — but **every fixture Finance adds must migrate `shared` first**, and every host that
+boots Finance must also boot Notifications if Finance registers a notification handler. Phase 6 hit
+both, twice: N1-06 broke four tests on a missing service, N1-07 broke 131 on a missing assembly. Budget
+for it rather than discovering it.
+
+**2. `InvoiceDueJob` is ~40 lines and already has its home.** It goes in
+`Finance.Application/Features/Jobs/`, registered with the same Scrutor scan, calling
+`INotificationService`. `NotificationType` already reserves **150–179** for Finance and
+`NotificationEntityType` already has `Invoice` and `Variation`. Nothing in Notifications needs to
+change — which is the job inversion paying off.
+
+**3. Finance inserts into `SchemaOrder` before `notify`, not at the end.** `docs/cross-schema-foreign-keys.md`
+already lists `finance → projects, crm`, and rule 9 already allows both pairs. Apply the stated rule
+before assuming: grep that nothing points *into* `finance` first.
+
+**4. Decide Finance's notification handlers by the placement rule, at design time.** Recipients
+derivable from the payload → `Notifications.Infrastructure`; anything needing `finance.invoices` →
+`Finance.Infrastructure`. Phase 6 extended no module's Contracts because that rule was applied before
+writing, not after.
+
+**5. The two lessons that generalize past this codebase.** First: **a negative assertion needs a
+positive one beside it.** `CapturedSql` captured nothing for three phases and four tests stayed green
+the whole time. Second: **a test written after a fix proves nothing until it has been shown to depend
+on the fix.** Every mechanism claim in this phase that could be fault-injected, was.
+
+### Phase boundary — the seven non-negotiables, re-checked against eight modules
+
+1. **No repository pattern.** Handlers and jobs use their module's `DbContext` directly. ✅
+2. **One `DbContext` per module, one schema per module, one database.** `notify` is the eighth; `shared`
+   holds outbox, inbox and now `audit_logs`, mapped everywhere and migrated once. ✅
+3. **Cross-module reads via `*.Contracts`.** Phase 6 extended **no** module's Contracts — the placement
+   rule made every extension unnecessary. ✅
+4. **Cross-module writes via the outbox** — with `INotificationService` as the one recorded exception,
+   now written into `CLAUDE.md` where the rule is stated. ⚠️ documented exception
+5. **Sync cross-module calls are depth-1.** The deepest is `IProjectDirectory.GetProjectAsync` then
+   `IClientDirectory.GetAsync` — two independent depth-1 calls from one caller, not A→B→C. ✅
+6. **Only `*.Contracts` types are public.** Rule 4 green, fault-injected. ✅
+7. **Four projects per module.** Notifications has four; three were near-empty at N1-01 and all four are
+   populated now. ✅
+
+**Final gate:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet test` **846/846** across 26
+suites; `dotnet format` changed nothing; tree clean; on `master`.

@@ -10,7 +10,7 @@ notes cover the remaining consumers.
 |---|---|---|
 | Outbox on Postgres | one indexed query per poll, usually 0 rows (partial index `WHERE processed_utc IS NULL`) | Keep. This is the *alternative* to running RabbitMQ/Kafka — it exists to avoid a broker. |
 | Arch/integration tests, Testcontainers | CI and dev machines only | Zero production cost. |
-| SignalR (when Notifications is built) | memory per open connection; at low traffic, negligible | Keep when needed. |
+| SignalR (**built at N1-04**) | one WebSocket + a group membership per active user; at low traffic, negligible | Keep. No backplane on one instance — see §2's scale note. |
 | Per-module DbContexts | same connection pool, same DB | No extra cost vs one context. |
 
 The rule: **cost lives in always-on processes and the DB tier, not in code structure.** Do not trade
@@ -62,7 +62,27 @@ entirely.
 Nothing to do until someone adds a second instance. Recorded here so that day does not begin with
 rediscovering it.
 
-## 3. The 9 notification jobs — do NOT port them as 9 background loops
+### Scale-time note — SignalR has no backplane either (also not work to do now)
+
+`NotificationsHub` targets a user by group (`"user:{userId}"`), joined on connect. **Group membership
+is per-process.** On the single-instance target that is exactly right and costs one WebSocket per
+active user.
+
+On a second instance it degrades: a client connected to instance A misses a push originating on
+instance B. **The row is still written** — `NotificationService` persists first and pushes second, and a
+failed push never throws — so a page refresh recovers. What is lost is real-time delivery, not data.
+That asymmetry is deliberate and is why the push is best-effort.
+
+The fix at that point is a Redis backplane, which §6 correctly says not to add before then. Same shape
+as the outbox note above: recorded so the day someone adds an instance does not begin with
+rediscovering it.
+
+One related host detail, since it is easy to remove by accident: SignalR's browser client cannot set an
+`Authorization` header on a WebSocket handshake, so `Api.DI` reads `?access_token=` — **scoped to
+`/hubs` paths only**. A blanket query-string token reader would put bearer tokens in access logs, proxy
+logs, `Referer` headers and browser history on every route.
+
+## 3. The 9 notification jobs — one consolidated sweep. **DONE (Phase 6).**
 
 The old backend runs `NotificationJobsWorker` + 9 `IPeriodicJob`s (`InvoiceDue`, `TaskDeadline`,
 `StageDeadline`, `ApprovalOverdue`, …), each scanning tables on its own schedule. That is the single
@@ -80,6 +100,35 @@ query, not read precomputed notification rows. Reserve the sweep for the few cas
 
 **Never:** Hangfire/Quartz with dashboards and clustering, per-job threads, or cron containers. All of
 them are paying for scale that is not there.
+
+### What actually shipped (N1-05)
+
+Option A, with one correction this section could not have known: the jobs could not stay in
+Notifications at all. Each of the backend's nine reads another area's tables, and Notifications cannot
+read `projects.project_tasks` or `crm.crm_meetings`. Giving each job a read contract would have made
+Notifications depend on four modules.
+
+**So the jobs moved to the modules that own their data, and only the timer was consolidated:**
+
+| Job | Now lives in |
+|---|---|
+| `ProjectDeadlineJob`, `StageDeadlineJob`, `TaskDeadlineJob` | `Projects.Application` |
+| `CrmMeetingReminderJob`, `CrmPeriodCloseJob` | `Crm.Application` |
+| `ApprovalOverdueEscalationJob`, `ApprovalResponseDueJob` | `Approvals.Application` |
+| `InvoiceDueJob` | deferred — ships with Finance |
+
+`IPeriodicJob` and `PeriodicJobWorker` live in **BuildingBlocks**, so no module depends on Notifications
+for scheduling. One `BackgroundService`, one `PeriodicTimer`, seven jobs run sequentially, interval
+`Notifications:SweepMinutes` (default **15**). **Nine always-on loops became one** — and this process
+now has exactly two, this and `OutboxProcessor`.
+
+Cost per tick at idle: seven bounded queries, most returning nothing. The scan windows are what keep
+that true — `TaskDeadlineJob` reads `[now-30d, now+3d]`, not the table — and the per-recipient dedupe
+key is what makes re-running the whole sweep free, which is what lets one timer serve seven jobs
+safely.
+
+Option B (compute "overdue" at read time) still stands for badges and lists. The sweep is for the cases
+that genuinely push.
 
 ## 4. Process/runtime settings for a small instance
 

@@ -646,3 +646,119 @@ really has the id — so the check cannot be satisfied by marking everything. Ex
   `AddDbContext<SharedDbContext>()` + `AddOutbox()` if anything gets published — and drive
   `OutboxProcessor.ProcessPendingAsync(ct)` directly in the test rather than waiting for its real
   5-second poll interval.
+
+## Six more patterns (from Phase 6 — Notifications & Audit)
+
+### 1. `IPeriodicJob` — the third define-in-one-place / implement-in-many registry
+
+`IGateConditionTypeHandler` (Projects defines, three modules implement) established the shape;
+`IPeriodicJob` is the third instance, after that and the CQRS/integration-event handler scans.
+
+The seam lives in **BuildingBlocks**, not in `Notifications.Contracts`, and the reason is the whole
+design. The backend runs nine `IPeriodicJob`s inside its notification module, each reading another
+area's tables. Here that is impossible — Notifications cannot read `projects.project_tasks` — and the
+alternative (a read contract per job, Notifications depending on four modules) inverts the dependency.
+**So the jobs moved to the data**, and the scheduling seam moved to the one assembly everybody already
+depends on. One `PeriodicJobWorker : BackgroundService` resolves every registration and runs them
+sequentially on one timer, interval `Notifications:SweepMinutes`, default 15.
+
+Registration is the same Scrutor scan as the gate handlers, in each module's own `Register`:
+
+```csharp
+services.Scan(scan => scan.FromAssemblies(applicationAssembly)
+    .AddClasses(classes => classes.AssignableTo<IPeriodicJob>(), publicOnly: false)
+        .AsImplementedInterfaces()
+        .WithScopedLifetime());
+```
+
+Two things a new job must not get wrong. **Be idempotent** — the worker gives no at-most-once
+guarantee and deliberately does not try to; idempotence comes from the notification dedupe key, which
+is scoped per recipient. And **keep the scan window** — bounding an overdue scan to N days costs
+nothing in correctness (the dedupe key already stops repeats) and is the difference between reading a
+bounded slice and a growing table every tick.
+
+### 2. `ConfigureAudit(ownsMigration:)` — the outbox's `ExcludeFromMigrations` shape, reused
+
+`AuditLog` lives in BuildingBlocks next to `OutboxMessage`, in the `shared` schema, and every module's
+`DbContext` maps it with `ConfigureAudit(ownsMigration: false)` while `SharedDbContext` owns the
+migration. Identical in shape to `ConfigureOutbox`, and for the same reason: every module writes it,
+none owns it.
+
+**Why `shared` and not the new module's own schema.** Two reasons, and the second is the decisive one:
+
+1. `shared` is FIRST in `SchemaOrder`, so the table exists before any module migrates or seeds. A
+   module-owned audit table migrating last makes correctness depend on the unstated invariant "nobody
+   writes an audited entity between the first module migration and the last."
+2. `tests/BuildingBlocks.IntegrationTests` references only BuildingBlocks and SharedKernel. Had the
+   table been module-owned, the interceptor — a BuildingBlocks type — could not have been
+   integration-tested in the project that owns it without that project depending on a module.
+
+**Generalize it:** a table that every module writes and no module owns belongs in `shared`, mapped
+everywhere and migrated once.
+
+### 3. The audit opt-in is a marker interface, never a list
+
+`AuditSaveChangesInterceptor` audits every `IAuditable` entity in the change tracker. There is **no**
+allow-list and **no** entity-to-module dictionary. Entity name comes from `entry.Metadata.ClrType.Name`
+and module from `entry.Metadata.GetSchema()` — both derived, never passed.
+
+That is not style. The backend gates on a hand-maintained `HashSet<string>` beside a separate module
+`Dictionary`, and its own source carries a red comment recording the cost: the CRM catalog was in one
+and absent from the other, so every catalog write logged nothing at all, silently. Implementing
+`IAuditable` is compiler-checked, lives in the entity's own file, and cannot be spelled wrong.
+
+Consequences a new module inherits automatically: mark an entity `IAuditable` and it is audited; every
+context that has auditable entities must call `ConfigureAudit(false)` or the interceptor throws (an
+architecture test asserts this at build time); and **any fixture that writes auditable entities must
+migrate `shared` first**.
+
+### 4. Where a notification handler lives
+
+> A notification handler lives in `Notifications.Infrastructure` **iff** every recipient it needs is
+> derivable from the event payload plus the *existing* published Contracts surfaces. Otherwise it lives
+> in the **publishing module's** `.Infrastructure`, reading its own tables and calling
+> `INotificationService`.
+
+The alternative — growing a read contract so a handler in Notifications can fetch the recipient — puts
+another module's internals on a public surface for one caller. `SiteApproved` is the clearest case: the
+payload carries the approver, and the person who wants to know is the submitter
+(`sites.sites.CreatedById`), so the handler is in Sites.
+
+The same rule placed the periodic jobs. It is why Phase 6 extended **no** module's Contracts.
+
+**And the failure mode to watch:** a handler in a module that never calls `AddModuleIntegrationEvents`
+is registered nowhere, and its event is marked processed with zero handlers — legitimately, per R2 — so
+nothing fails, nothing logs, and the notification simply never arrives. Three modules made that call
+for the first time in Phase 6.
+
+### 5. The format gate is apply-then-diff, not `--verify-no-changes`
+
+```bash
+dotnet format DMS.Modular.slnx && git diff --exit-code
+```
+
+P5F recorded `--verify-no-changes` reporting a violation that apply mode then declined to fix, in a file
+it agreed was correct. Proving cleanliness by the tool's own transformation sidesteps the disagreement.
+
+**Operationally:** it only means "format changed nothing" when the tree is otherwise clean, so run it as
+`git add -A` → `dotnet format` → `git diff --exit-code`. Staged work is the baseline; anything the diff
+shows afterwards is the formatter's own edit. Run before staging, it just re-prints your own changes and
+always exits 1.
+
+### 6. `CapturedSql` measures the process, not the request
+
+`ApiFixture.CapturedSql` records every EF "Executed DbCommand" in the host. Two things about it are
+easy to get wrong, and Phase 6 got caught by both.
+
+**It needs `UseSerilog(..., writeToProviders: true)`.** Without that flag Serilog replaces the whole
+`ILoggerProvider` set and the capturing provider receives nothing. It was missing from `Program.cs` for
+three phases, during which four schema-isolation assertions passed vacuously — *"no captured SQL touches
+schema X"* is trivially true when nothing is captured.
+
+**So pair every negative assertion with a positive one.** A negative-only assertion cannot distinguish a
+clean run from a broken capture. Assert that the SQL you *expect* was issued, in the same test.
+
+**And quiesce before measuring.** The capture is process-global and cannot attribute a statement to the
+request that caused it, so a background `OutboxProcessor` delivery landing inside your window reads
+exactly like a leak. Drain the outbox (`ProcessPendingAsync`) before `ClearCapturedSql()`. Do not widen
+the schema filter instead — that hides real leaks in the same schema.
