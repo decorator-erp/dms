@@ -7,8 +7,23 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, loggerConfig) =>
-    loggerConfig.ReadFrom.Configuration(context.Configuration));
+// writeToProviders: true is not decoration - N1-08 found it missing the hard way.
+//
+// By default UseSerilog REPLACES the whole ILoggerProvider set, so any provider registered through
+// ConfigureLogging is silently dropped. ApiFixture registers a SqlCapturingLoggerProvider to record
+// every "Executed DbCommand" for the schema-isolation tests, and it was never receiving a single
+// event - which meant CrmSchemaIsolationTests, ProjectsSchemaIsolationTests,
+// DocumentsSchemaIsolationTests and CrossModuleSmokeTests' identity assertion were all passing
+// VACUOUSLY: "no captured SQL touches schema X" is trivially true when nothing is captured at all.
+// Proved by asserting CapturedSql was non-empty after a request that certainly queries, and watching
+// that fail.
+//
+// This flag makes Serilog forward events to other registered providers as well as its own sinks. In
+// production nothing else is registered, so it costs nothing there; in tests it is the difference
+// between four real assertions and four decorative ones.
+builder.Host.UseSerilog(
+    (context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration),
+    writeToProviders: true);
 
 builder.Services.AddApi(builder.Configuration);
 

@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BuildingBlocks.Outbox;
 using Identity.Contracts.Auth;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Integration.Tests;
@@ -11,24 +14,42 @@ namespace Integration.Tests;
 /// The Sites characterization spine, through real HTTP: project → site → definition module and field →
 /// records captured → document attached → submit → approve. Run twice, per the phase's flake check.
 ///
-/// <para><b>What this proves.</b> The survey lifecycle end to end across all seven modules — Identity
-/// registers the actor, Hr makes them an employee, Crm supplies the client, Projects the project,
-/// Documents the attached row, and Sites the survey itself — and that <c>SiteDocument</c> links a real
-/// <c>documents.project_documents</c> row rather than a fabricated id. Every cross-schema foreign key
-/// S1-05 added is exercised by the writes below simply by their succeeding.</para>
+/// <para><b>What this proves.</b> The survey lifecycle end to end across all seven original modules —
+/// Identity registers the actor, Hr makes them an employee, Crm supplies the client, Projects the
+/// project, Documents the attached row, and Sites the survey itself — and that <c>SiteDocument</c>
+/// links a real <c>documents.project_documents</c> row rather than a fabricated id. Every cross-schema
+/// foreign key S1-05 added is exercised by the writes below simply by their succeeding.</para>
 ///
-/// <para><b>What this does NOT prove, stated before it is written (lesson 4).</b> It does not prove
-/// <c>SourceBriefId</c> provenance. Nothing in this system writes that column —
-/// <c>BackfillSitesFromBriefs</c> is a backend data-migration utility that was not ported — so the
-/// brief→site link is untested here and the variance route that would have read it is not ported at all
-/// [D8]. A later reader expecting this spine to cover brief→site provenance should stop here: it does
-/// not, deliberately, and this sentence is why.</para>
+/// <para><b>N1-08 made it eight.</b> The flow now also asserts that each of those writes left an audit
+/// row whose <c>Module</c> matches the schema its entity really lives in, and that approving the survey
+/// notifies its SUBMITTER through the real outbox. That is the phase's spine: an action in a module
+/// produces its audit row and its notification, and running the whole thing twice produces no
+/// duplicates.</para>
+///
+/// <para><b>What this does NOT prove, stated before it is written (lesson 4).</b></para>
+/// <list type="bullet">
+///   <item><c>SourceBriefId</c> provenance. Nothing in this system writes that column —
+///   <c>BackfillSitesFromBriefs</c> is a backend data-migration utility that was not ported — so the
+///   brief→site link is untested here and the variance route that would have read it is not ported at
+///   all [D8].</item>
+///   <item><b>Same-transaction atomicity of the audit row.</b> This proves a row exists, not that it
+///   commits or rolls back with the change it audits. That is
+///   <c>AuditInterceptorTests.AuditRow_AndTheChangeItAudits_RollBackTogether</c>, which needs a
+///   deliberate rollback and cannot be shown by a flow that succeeds.</item>
+///   <item><b>SignalR delivery.</b> The notification ROW is asserted; whether a connected client
+///   received a push is <c>NotificationDeliveryTests</c>.</item>
+///   <item><b>Approvals.</b> This flow never requests an approval, so the eighth schema in the audit
+///   assertions is <c>identity</c>, not <c>approvals</c>. Approvals' own audit and notification paths
+///   are covered by <c>PeriodicJobTests</c> and <c>NotificationEventConsumerTests</c>.</item>
+///   <item><b>Job idempotency under concurrency.</b> Single process, sequential — two overlapping
+///   hosts are not exercised anywhere in this suite.</item>
+/// </list>
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class SitesSpineTests(ApiFixture fixture)
 {
     [Fact]
-    public async Task Sites_flow_spans_all_seven_modules_end_to_end_and_is_stable_across_two_runs()
+    public async Task Sites_flow_spans_all_eight_modules_end_to_end_and_is_stable_across_two_runs()
     {
         await RunFlowAsync();
         await RunFlowAsync();
@@ -197,7 +218,77 @@ public sealed class SitesSpineTests(ApiFixture fixture)
                 $"/api/sites/{siteId}/records/{recordId}/values",
                 new { Values = new[] { new { ItemId = itemId, ValueNumber = 120m } } });
             Assert.Equal(HttpStatusCode.Conflict, lockedResponse.StatusCode);
+
+            // ── Notifications (N1-08): the eighth module, and the audit trail underneath it ─────
+            //
+            // Every write above went through a module DbContext carrying the audit interceptor, so the
+            // trail should already span six schemas. Asserted per ENTITY ID rather than by counting
+            // rows: the fixture is shared across the collection, so a count proves nothing about which
+            // flow produced it, while "this project id has an audit row, and its module says projects"
+            // is about this run only.
+            await AssertAuditedAsync(fixture, "Project", projectId.ToString(), "projects");
+            await AssertAuditedAsync(fixture, "Client", clientId.ToString(), "crm");
+            await AssertAuditedAsync(fixture, "Site", siteId.ToString(), "sites");
+            await AssertAuditedAsync(fixture, "ProjectDocument", documentId.ToString(), "documents");
+            await AssertAuditedAsync(fixture, "ApplicationUser", appUserId, "identity");
+
+            // The notification arrives through the REAL outbox, not a direct handler call: approving a
+            // site publishes SiteApprovedIntegrationEvent, and Sites' own handler resolves the SUBMITTER
+            // from sites.sites.CreatedById (the payload carries only the approver).
+            var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+            await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+            var dedupeKeys = await ReadNotificationDedupeKeysAsync(fixture, appUserId);
+            Assert.Contains(dedupeKeys, key => key.StartsWith($"site-{siteId}-decided", StringComparison.Ordinal));
         }
+    }
+
+    /// <summary>
+    /// One audit row exists for this entity, and its <c>Module</c> is the schema the entity actually
+    /// lives in — which is the interceptor reading EF metadata rather than a hand-maintained map. The
+    /// module check is what makes this more than "a row was written".
+    /// </summary>
+    private static async Task AssertAuditedAsync(
+        ApiFixture fixture, string entityName, string entityId, string expectedModule)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new Npgsql.NpgsqlCommand(
+            """
+            SELECT DISTINCT module FROM shared.audit_logs
+            WHERE entity_name = @name AND entity_id = @id
+            """, connection);
+        command.Parameters.AddWithValue("name", entityName);
+        command.Parameters.AddWithValue("id", entityId);
+
+        var modules = new List<string?>();
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+                modules.Add(reader.IsDBNull(0) ? null : reader.GetString(0));
+        }
+
+        Assert.True(modules.Count > 0, $"No audit row for {entityName} {entityId}.");
+        Assert.Equal([expectedModule], modules);
+    }
+
+    private static async Task<List<string>> ReadNotificationDedupeKeysAsync(ApiFixture fixture, string recipientUserId)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using var command = new Npgsql.NpgsqlCommand(
+            """SELECT "DedupeKey" FROM notify.notifications WHERE "RecipientUserId" = @id AND "DedupeKey" IS NOT NULL""",
+            connection);
+        command.Parameters.AddWithValue("id", recipientUserId);
+
+        var keys = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            keys.Add(reader.GetString(0));
+
+        return keys;
     }
 
     /// <summary>

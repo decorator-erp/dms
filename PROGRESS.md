@@ -6429,3 +6429,82 @@ of the incremental-`Register` shape R1 mandated.
 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **843/843** across 26 suites (833 + 10);
 format gate clean.
+
+**N1-08** — done — `tests/Integration.Tests/SitesSpineTests.cs` (extended to eight modules),
+`tests/Integration.Tests/NotificationsSchemaIsolationTests.cs`, `src/Api/Program.cs`,
+`tests/Integration.Tests/DocumentsSchemaIsolationTests.cs`.
+
+**The spine extends the existing seven-module one rather than adding a ninth flow.** `SitesSpineTests`
+already drives Identity → Hr → Crm → Projects → Documents → Sites through real HTTP, twice. N1-08 adds
+the two assertions that make it this phase's spine: every write left an audit row whose `Module` is the
+schema its entity actually lives in, and approving the survey notified its **submitter** through the
+real outbox. Renamed to `..._all_eight_modules_...`, per the standing rule about a test whose name has
+become a false statement.
+
+Audit rows are asserted **per entity id**, not by counting: the fixture is shared across the
+collection, so a count proves nothing about which flow produced it, while "this project id has an audit
+row and its module says `projects`" is about this run alone. The module check is what makes it more
+than "a row was written" — it is the interceptor reading EF metadata, asserted through the real host.
+
+**What the spine does NOT prove is now written into it (lesson 4):** same-transaction atomicity (that
+needs a deliberate rollback — `AuditInterceptorTests`), SignalR delivery (`NotificationDeliveryTests`),
+Approvals (this flow never requests one; `PeriodicJobTests` and `NotificationEventConsumerTests` cover
+it), and job idempotency under concurrency (single process, nowhere covered).
+
+---
+
+### `ApiFixture.CapturedSql` had never captured anything, and four assertions were decorative [N11]
+
+The plan said to reuse the `CapturedSql` schema-isolation technique. Writing
+`NotificationsSchemaIsolationTests` I added a **positive** assertion — the audit read MUST touch
+`shared` — and it failed with an empty collection. A throwaway probe against `/api/notifications`, a
+route that certainly queries, confirmed it: **`CapturedSql.Count` was 0.**
+
+**Cause:** `Program.cs` called `builder.Host.UseSerilog(...)` without `writeToProviders: true`, which
+**replaces** the entire `ILoggerProvider` set. `ApiFixture` registers its `SqlCapturingLoggerProvider`
+through `ConfigureLogging`, and Serilog was dropping it. Every EF "Executed DbCommand" event went to
+Serilog's sinks and nowhere else.
+
+**Consequence, stated plainly: four assertions had been passing vacuously since G3-01.**
+`CrmSchemaIsolationTests`, `ProjectsSchemaIsolationTests`, `DocumentsSchemaIsolationTests` and
+`CrossModuleSmokeTests`' identity check all assert *"no captured SQL touches schema X"* — trivially
+true when nothing is captured. They were green for the whole of Phases 3–5 without constraining
+anything. This is the same failure class as the two memories this repo already carries: a test that
+passes for a reason unrelated to what it claims.
+
+**Fixed at the source:** `writeToProviders: true`, with the reasoning written above the call. In
+production nothing else is registered so it costs nothing; in tests it is the difference between four
+real assertions and four decorative ones.
+
+**Turning it on immediately found something**, which is the point:
+`DocumentsSchemaIsolationTests` failed on
+`SELECT ... FROM projects.gate_conditions AS g WHERE FALSE`.
+
+Not a leak from the Documents read. Uploading publishes `DocumentUploadedIntegrationEvent`, and
+**Projects'** handler for it queries `projects.gate_conditions` to satisfy Attachment gates —
+legitimately, in its own module — but the background `OutboxProcessor` delivered it *inside* the
+measured window. `CapturedSql` is process-global and cannot attribute a statement to the request that
+caused it, so a concurrent background delivery is indistinguishable from a leak.
+
+**Fixed by draining the outbox to quiescence before measuring**, not by widening the filter. Widening
+would have hidden real leaks in the same schema; quiescing removes the race and leaves the assertion as
+strict as it was written to be. The same drain is why `PeriodicJobTests`' isolation assertions were
+already reliable — they run jobs directly, with nothing pending.
+
+**The limitation itself is now recorded rather than latent:** `CapturedSql` measures the PROCESS, not
+the request. Any future use must quiesce first, and any assertion using it should include a positive
+clause — "this SQL was issued" — because a negative-only assertion cannot tell a clean run from a
+broken capture. `NotificationsSchemaIsolationTests.ReadingTheAuditLog_TouchesSharedAndNoOtherModulesSchema`
+carries exactly that pairing, deliberately.
+
+---
+
+**`NotificationsSchemaIsolationTests`, three cases.** Notifications is the module where this is most
+interesting, because it is the one module that legitimately reads a table it does not own —
+`shared.audit_logs`, mapped with `ExcludeFromMigrations`. "Touches only its own schema" is therefore
+false by construction, so the assertion is narrower and paired: the inbox read and the write path touch
+no other MODULE's schema, and the audit read touches `shared` *and* no other module's schema. The
+positive half is what stops the negative halves passing because an endpoint quietly stopped querying.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **846/846** across 26 suites (843 + 3);
+format gate clean. The spine runs twice and is stable.

@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BuildingBlocks.Outbox;
 using Identity.Contracts.Auth;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Integration.Tests;
@@ -73,6 +76,20 @@ public sealed class DocumentsSchemaIsolationTests(ApiFixture fixture)
         var uploadResponse = await client.PostAsync($"/api/projects/{projectId}/documents", content);
         Assert.Equal(HttpStatusCode.OK, uploadResponse.StatusCode);
         var documentId = (await uploadResponse.Content.ReadFromJsonAsync<DocumentIdBody>())!.DocumentId;
+
+        // Drain the outbox to quiescence BEFORE measuring. Uploading publishes
+        // DocumentUploadedIntegrationEvent, and Projects' handler for it queries
+        // projects.gate_conditions to satisfy Attachment gates - legitimately, in ITS own module. But
+        // CapturedSql is process-global and cannot attribute a statement to the request that caused it,
+        // so a background delivery landing inside the measured window reads exactly like a leak from
+        // this GET.
+        //
+        // N1-08 found this: CapturedSql had never captured anything (UseSerilog was replacing the
+        // provider), so this assertion had always passed vacuously. With capture working it failed
+        // immediately, on SQL the background processor issued. Draining first removes the race rather
+        // than widening the filter to hide it.
+        var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
 
         // Only the query under test is observed - setup above legitimately touches identity./hr./projects.
         // and would make the assertion meaningless if included.
