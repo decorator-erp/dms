@@ -13,6 +13,8 @@
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- N1-06: the two approval notification handlers call INotificationService. -->
+    <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
     <ProjectReference Include="..\Approvals.Domain\Approvals.Domain.csproj" />
   </ItemGroup>
 

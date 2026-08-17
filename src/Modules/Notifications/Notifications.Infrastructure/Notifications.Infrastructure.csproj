@@ -14,6 +14,19 @@
     <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\Notifications.Contracts\Notifications.Contracts.csproj" />
     <ProjectReference Include="..\Notifications.Domain\Notifications.Domain.csproj" />
+    <!--
+      N1-06. Inbound event types, plus IHrDirectory to turn an employee id into a user id.
+
+      This does NOT weaken the invariant NotificationsContractsIsolationTests protects: that rule is on
+      Notifications.CONTRACTS, which still references nothing but SharedKernel and BuildingBlocks. It is
+      Contracts that seven modules depend on, so it is Contracts that must depend on no module.
+      Infrastructure is free to reference other modules' Contracts like any other module's
+      Infrastructure does - and handlers that only need a payload plus a published contract are exactly
+      the ones the placement rule keeps here.
+    -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\..\Crm\Crm.Contracts\Crm.Contracts.csproj" />
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -56,7 +56,11 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
 
         var modules = ModuleDiscovery.DiscoverModules(
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
-            System.Reflection.Assembly.Load("Approvals.Infrastructure"));
+            System.Reflection.Assembly.Load("Approvals.Infrastructure"),
+            // N1-06: Notifications is a REQUIRED module now, not an optional extra. Approvals
+            // registers integration-event handlers that take INotificationService, so a host booting
+            // Approvals without this one fails to resolve the handler the moment an event is delivered.
+            System.Reflection.Assembly.Load("Notifications.Infrastructure"));
 
         foreach (var module in modules)
             module.Register(services, configuration);
@@ -87,6 +91,18 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
         {
             var approvalsDb = (DbContext)scope.ServiceProvider.GetRequiredService(approvalsContextType);
             await approvalsDb.Database.MigrateAsync();
+        }
+
+        // notify is LAST in SchemaOrder: its two foreign keys point at identity.users, and nothing
+        // points into it.
+        var notifyContextType = Type.GetType(
+            "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure")
+            ?? throw new InvalidOperationException("Could not load NotificationsDbContext.");
+
+        await using (var scope = _provider.CreateAsyncScope())
+        {
+            var notifyDb = (DbContext)scope.ServiceProvider.GetRequiredService(notifyContextType);
+            await notifyDb.Database.MigrateAsync();
         }
 
         var identityModule = modules.Single(m => m.Name == "Identity");

@@ -64,7 +64,12 @@ public sealed class CrmApplicationFixture : IAsyncLifetime
             Assembly.Load("Approvals.Infrastructure"),
             Assembly.Load("Crm.Infrastructure"),
             Assembly.Load("Projects.Infrastructure"),
-            Assembly.Load("Documents.Infrastructure"));
+            Assembly.Load("Documents.Infrastructure"),
+            // N1-06: Notifications is a REQUIRED module now, not an optional extra. Approvals,
+            // Projects, Crm and Sites all register integration-event handlers that take
+            // INotificationService, so a host that boots them without this one fails to resolve
+            // the handler the moment an event is delivered.
+            Assembly.Load("Notifications.Infrastructure"));
 
         foreach (var module in modules)
             module.Register(services, configuration);
@@ -84,6 +89,9 @@ public sealed class CrmApplicationFixture : IAsyncLifetime
         await MigrateAsync("Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
         await MigrateAsync("Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure");
         await MigrateAsync("Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure");
+        // notify is LAST in SchemaOrder: its two foreign keys point at identity.users, and
+        // nothing points into it.
+        await MigrateAsync("Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure");
 
         var identityModule = modules.Single(m => m.Name == "Identity");
         await using (var scope = _provider.CreateAsyncScope())

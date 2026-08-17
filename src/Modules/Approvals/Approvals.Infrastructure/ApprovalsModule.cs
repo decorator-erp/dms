@@ -4,6 +4,7 @@ using Approvals.Infrastructure.Persistence;
 using Approvals.Infrastructure.Services;
 using BuildingBlocks;
 using BuildingBlocks.Jobs;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -48,6 +49,13 @@ internal sealed class ApprovalsModule : IModule
             .AddClasses(classes => classes.AssignableTo<IPeriodicJob>(), publicOnly: false)
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
+
+        // N1-06: this module's FIRST AddModuleIntegrationEvents call - the type-level comment above
+        // used to record its absence. Approvals now subscribes to its OWN published events
+        // (ApprovalRequested, ApprovalDecided) because their recipients are rows in approvals.approvals
+        // and nowhere else. Self-subscription is legal - EventBus fans out by runtime type without
+        // regard to publisher - but it was unprecedented here before this task.
+        services.AddModuleIntegrationEvents<ApprovalsDbContext>(typeof(ApprovalsModule).Assembly);
 
         return services;
     }

@@ -45,6 +45,10 @@
     <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <!-- N1-06: Notifications is a required module for any host booting these - its handlers are
+         what supply INotificationService to Approvals/Projects/Crm/Sites. Referenced so the
+         fixture's Assembly.Load resolves the DLL from this project's output. -->
+    <ProjectReference Include="..\..\..\src\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

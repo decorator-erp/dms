@@ -1,5 +1,6 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,13 @@ internal sealed class SitesModule : IModule
         // find zero types, decorate nothing, and succeed silently -- which is exactly how G5-07 shipped
         // Projects with no row-level access control at all.
         services.AddSiteScopeDecorator(typeof(ISiteScoped).Assembly);
+
+        // N1-06: Sites' FIRST AddModuleIntegrationEvents call. SiteApprovedNotificationHandler
+        // subscribes to Sites' OWN event, because the recipient it wants - the SUBMITTER - is
+        // sites.sites.CreatedById, while the payload carries only the approver. Without this line the
+        // handler is registered nowhere and the event is marked processed with zero handlers,
+        // silently - the same failure shape the decorator comment above describes.
+        services.AddModuleIntegrationEvents<SitesDbContext>(typeof(SitesModule).Assembly);
 
         return services;
     }

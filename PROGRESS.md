@@ -6265,3 +6265,104 @@ writing none.
 
 **Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **815/815** across 26 suites (810 + 5);
 format gate clean.
+
+**N1-06** — done — 12 handlers across five modules, three modules' first
+`AddModuleIntegrationEvents` call, six csproj references, five test fixtures,
+`tests/Integration.Tests/NotificationEventConsumerTests.cs`.
+
+**The enumeration, from the code, not from a plan.** `grep` over `*.Contracts/IntegrationEvents.cs`
+for declarations, over `src/Modules` for `new *IntegrationEvent`, and over both for
+`IIntegrationEventHandler<T>`:
+
+- **25 declared, 24 published.** `UserDeactivatedIntegrationEvent` is declared and **never published**
+  anywhere — a pre-existing dead seam, recorded here rather than fixed, since publishing it is a
+  behaviour change no one asked for.
+- **7 had a consumer** before this task: `ApprovalDecided` (three), `CrmBriefApproved`,
+  `CrmItemsResolved`, `CrmPeriodClosed`, `DocumentApproved`, `DocumentUploaded`, `EmployeeDeactivated`.
+- **18 had none.**
+
+The earlier brief's expected list was wrong in three ways, which is why the plan mandated enumerating
+from source: it omitted `UserDeactivated` and `DocumentApproved`, and it listed `ApprovalDecided` as
+zero-handler when three modules already consume it.
+
+**The decision table. Every event, notify or deliberately silent.**
+
+| Event | Decision | Handler lives in | Why |
+|---|---|---|---|
+| `EmployeeHired` | **notify** | Notifications | payload carries `AppUserId` |
+| `ClientCreated` | **notify** | Notifications | payload carries `AppUserId` |
+| `ProjectTaskAssigned` | **notify** | Notifications | `AssigneeEmployeeId` + `IHrDirectory` |
+| `ProjectTaskCompleted` / `Rejected` / `Reopened` | **notify** | Notifications | same |
+| `ProjectTaskStarted` | silent | — | the assignee is the actor; telling someone what they just did trains people to ignore the badge |
+| `ProjectTaskCancelled` | silent | — | administrative; visible on the board |
+| `ProjectStageCompleted` | **notify** | Projects | needs `projects.projects.OwnerId` |
+| `ProjectStageRejected` | **notify** | Projects | needs `stage_teams.HeadId`; deliberately NOT the client |
+| `ApprovalRequested` | **notify** | Approvals | approvers are rows in `approvals.approvals` |
+| `ApprovalDecided` | **notify** | Approvals | requester is a row there; skipped when decider == requester |
+| `MeetingScheduled` | **notify** | Crm | requester is `crm_meetings.RequestedByEmployeeId` |
+| `SiteApproved` | **notify** | Sites | payload has the APPROVER; the recipient wanted is the submitter, `sites.sites.CreatedById` |
+| `SiteSubmitted` | silent | — | Sites models no reviewer role and no assignment — there is nobody to tell. Recorded as a decision, since the target does not exist rather than not mattering |
+| `UserRegistered` | silent | — | welcome-by-email is a deferred channel; an in-app notification to someone looking at the screen they just registered on says nothing |
+| `UserDeactivated` | silent | — | never published at all |
+| `EmployeeDeactivated` | silent | — | the only plausible recipient is the person losing access |
+| `LeadConverted` | silent | — | internal bookkeeping, no external party |
+| `CrmBriefApproved` / `CrmItemsResolved` | silent | — | gate plumbing, already consumed by Projects |
+| `CrmPeriodClosed` | silent | — | `CrmPeriodCloseJob` already notifies the client when it closes the window; a second handler would double up |
+| `DocumentUploaded` | silent | — | already consumed for gates; the only candidate recipient is the uploader |
+| `DocumentApproved` | silent | — | already consumed by Projects for gate satisfaction; deferred rather than decided, see below |
+
+**The placement rule decided every "where", and it is worth stating plainly:** a handler lives in
+`Notifications.Infrastructure` iff every recipient is derivable from the payload plus already-published
+contracts; otherwise it lives in the publishing module. `SiteApproved` is the clearest case — the
+payload carries `DecidedById`, and the person who wants to know is the submitter. Six handlers stayed
+in Notifications, six moved.
+
+**One deferral, stated as one rather than dressed up as a decision.** `DocumentApproved` has a real
+recipient (the uploader, from `documents.project_documents`) and a handler in `Documents.Infrastructure`
+would be the right home. It is not built. Calling it "deliberately silent" would be false; it is
+deferred, and it is in the deferred table.
+
+**Three modules made their FIRST `AddModuleIntegrationEvents` call: Notifications, Approvals, Sites.**
+`ApprovalsModule`'s type comment previously read *"No `AddModuleIntegrationEvents` call — unlike HR,
+Approvals has no…"*. A handler placed in any of them without that line is registered nowhere, and the
+event is marked processed with zero handlers — legitimately, per R2 — so nothing fails, nothing logs,
+and the notification simply never arrives. Identity needed no change: no handler landed there.
+
+**Approvals and Sites now subscribe to their own published events.** Legal — `EventBus` fans out by
+runtime type without regard to publisher — but unprecedented in this repo, so it is recorded rather
+than assumed. Confirmed by reading `EventBus`: no publisher filtering exists.
+
+**A real consequence, found by the suite rather than by reasoning [N9]: Notifications is now a
+REQUIRED module.** Approvals, Projects, Crm and Sites all register handlers taking
+`INotificationService`, which only `NotificationsModule` provides. Five `*.Application.Tests` fixtures
+boot subsets of modules and none included Notifications, so four tests failed with
+*"Unable to resolve service for type 'INotificationService' while attempting to activate
+ApprovalDecidedNotificationHandler"*. Fixed by adding the module (and the `notify` migration, last per
+`SchemaOrder`) to all five — which is the honest fix: the fixtures were modelling a composition that
+can no longer exist.
+
+**Verify.**
+
+| Clause | Test |
+|---|---|
+| enumeration recorded | the table above |
+| a previously-silent event notifies end to end | `EmployeeHired_PreviouslySilent_NowNotifiesTheNewEmployee_ThroughTheOutbox` |
+| every handler through `OutboxProcessor`, never a direct call | every test in the file drives a command, asserts the row is on the outbox unprocessed, then sweeps |
+| every notifying event has a registered handler | `EveryNotifyingEvent_HasAtLeastOneRegisteredHandler`, 12 cases |
+| every silent decision stays silent | `DeliberatelySilentEvents_HaveNoNotificationHandler`, 4 cases |
+| the two-`ProjectReference` invariant still holds | `NotificationsContractsIsolationTests`, still green with six modules now referencing Contracts |
+
+The `EmployeeHired` test asserts in three steps — the event is on the outbox *unprocessed*, the handler
+runs when the processor sweeps, the row exists for the right recipient — because each can fail
+independently and asserting only the last leaves "was it the outbox, or a coincidence?" unanswered.
+`DeliberatelySilentEvents_HaveNoNotificationHandler` is the counterpart that keeps the table a decision
+rather than a description: it goes red if someone adds a handler without revisiting the reasoning.
+
+**`Notifications.Infrastructure` gained `Hr.Contracts`, `Crm.Contracts` and `Projects.Contracts`.**
+This does not weaken the hub-not-sink invariant: that rule is on `Notifications.Contracts`, which still
+references SharedKernel and BuildingBlocks and nothing else. Contracts is what seven modules depend on,
+so Contracts is what must depend on nobody; Infrastructure is free to reference other modules'
+Contracts exactly as every other module's Infrastructure does.
+
+**Verify:** `dotnet build -warnaserror` 0/0; `dotnet test` **833/833** across 26 suites (815 + 18);
+format gate clean.

@@ -1,4 +1,6 @@
+using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -47,6 +49,13 @@ internal sealed class NotificationsModule : IModule
         // framework. No backplane - see NotificationsHub for what that costs on a second instance.
         services.AddSignalR();
         services.AddScoped<INotificationService, NotificationService>();
+
+        // N1-06. Without this, the handlers in IntegrationEvents/ are registered NOWHERE and every
+        // event they handle is marked processed with zero handlers - silently, which is the failure
+        // class this repo keeps writing tests against. Scans THIS assembly (Infrastructure), not
+        // Application: integration-event handlers live beside the contracts they call, the same split
+        // every other module documents on its own call.
+        services.AddModuleIntegrationEvents<NotificationsDbContext>(typeof(NotificationsModule).Assembly);
 
         return services;
     }
