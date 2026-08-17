@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using BuildingBlocks;
+using BuildingBlocks.Jobs;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
@@ -92,6 +93,12 @@ public static class DI
         services.AddDbContext<SharedDbContext>(options =>
             options.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));
         services.AddOutbox();
+
+        // N1-01: the second (and last) always-on loop in the process. Registers the worker only - each
+        // module registers its own IPeriodicJob implementations in its own Register, so with none
+        // registered yet this is a clean no-op. Nine backgrounded loops in the old backend become one
+        // here; see docs/low-resource-hosting.md §3.
+        services.AddPeriodicJobs();
 
         return services;
     }

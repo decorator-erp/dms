@@ -74,6 +74,14 @@
          Neither is ever used to NAME a type from those assemblies. -->
     <ProjectReference Include="..\Modules\Sites\Sites.Infrastructure\Sites.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Sites\Sites.Application\Sites.Application.csproj" />
+    <!-- Notifications (N1-01). Both references for the established reasons: Infrastructure so the EF
+         CLI can find NotificationsDbContext (N1-03) and so Program.cs's Assembly.Load resolves (N1-07),
+         Application so NotificationsModule.Register's own Assembly.Load("Notifications.Application")
+         finds the DLL in Api's output. Neither is ever used to NAME a type from those assemblies.
+         Added here at N1-01, ahead of the rest of the wiring, because Integration.Tests references only
+         Api.csproj - ApiFixture cannot Assembly.Load a module whose DLL never reaches Api's output. -->
+    <ProjectReference Include="..\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
   </ItemGroup>
 
 </Project>

@@ -5805,3 +5805,94 @@ with `IsEditable` reverted and green with it restored.
 > **`dotnet format --verify-no-changes` is therefore not reliably deterministic in this repo**, which
 > means a single clean run is weaker evidence than it looks. Not chased further — no source change is
 > implicated — but if it recurs, the fix is to run apply mode and diff, not to trust either verdict alone.
+
+---
+
+## Phase 6 — Notifications & Audit (N1-01 → N2-01)
+
+Plan: `PLAN-PHASE6.md`, which supersedes the earlier Phase 6 brief entirely — that brief was wrong on
+four verified points and mis-sequenced `NotificationsModule`. Head at phase start: `8c457a4`, seven
+modules, 756 tests across 24 suites.
+
+**The format gate changed here**, adopted from P5F's finding. It is now
+`dotnet format DMS.Modular.slnx && git diff --exit-code` — cleanliness proven by the tool's own
+transformation rather than by its opinion, because P5F recorded `--verify-no-changes` reporting a
+violation that apply mode then declined to fix in a file it agreed was correct. **Operational note:**
+the gate only means "format changed nothing" when the tree is otherwise clean, so it is run as
+`git add -A` → `dotnet format` → `git diff --exit-code`. Staged work is the baseline; anything the
+diff shows afterwards is the formatter's own edit. Run before staging, it just re-prints the task's
+own changes and always exits 1.
+
+**N1-01** — done — `src/Modules/Notifications/` (4 projects: `Notifications.Contracts` with
+`Notifications.Contracts.csproj`, `INotificationService.cs`, `NotificationsPermissions.cs`,
+`Enums.cs`, `DeadlineTiers.cs`; `Notifications.Domain`, `Notifications.Application`,
+`Notifications.Infrastructure`, csproj-only), `src/BuildingBlocks/Jobs/` (`IPeriodicJob.cs`,
+`PeriodicJobWorker.cs`, `PeriodicJobRegistration.cs`), `src/BuildingBlocks/Auditing/AuditAction.cs`,
+`DMS.Modular.slnx`, `tests/Architecture.Tests/Architecture.Tests.csproj`, `src/Api/Api.csproj`,
+`src/Api/DI.cs`, `tests/Architecture.Tests/NotificationsContractsIsolationTests.cs`,
+`tests/BuildingBlocks.UnitTests/PeriodicJobWorkerTests.cs` (+ that project's csproj).
+
+**All four projects created now, three of them empty.** `CLAUDE.md`'s four-project rule is absolute
+(F2, closed), and `MetaSelfEnforcementTests` XML-parses the slnx — a project appearing there without a
+matching `Architecture.Tests` reference goes red immediately. Creating them together with the four
+references means the tree is never red between commits, and an empty assembly makes every rule scan it
+harmlessly.
+
+**Corrected: `AuditAction` lives in `BuildingBlocks/Auditing/`, not `Notifications.Contracts` [N1].**
+`PLAN-PHASE6.md:100` puts it in the Contracts `Enums.cs` alongside `NotificationType`. That does not
+build. `AuditLog` lives in BuildingBlocks (the plan's own §1 decision), `AuditLog.Action` is of type
+`AuditAction`, and `Notifications.Contracts` references BuildingBlocks — so an `AuditAction` in
+Contracts makes BuildingBlocks → Notifications.Contracts → BuildingBlocks, a reference cycle. It sits
+next to `AuditLog` instead and Notifications gets it transitively. The plan's *content* decision
+(three members, not the backend's ~400) is unchanged; only the assembly moved.
+
+**Three members, and the reasoning is recorded on the type.** The backend's enum has ~400 values
+because it served `LogActionAsync(AuditAction.CrmCatalogItemMoved, "CrmCatalogItem", …)` — action,
+entity name and id all literals at the call site, which is the mechanism that produced B18. An
+interceptor can produce exactly `Create`/`Update`/`Delete` from `EntityState`, so 397 of those values
+would be unreachable — and an unreachable member is not inert, it advertises the API that caused the
+defect. `Read` and the four auth actions are deliberately absent; what that genuinely loses is the
+FAILED login, which mutates nothing and so writes no row. Recorded in the deferred table as a separate
+mechanism rather than papered over.
+
+**`DeadlineTiers` in `Notifications.Contracts`, not BuildingBlocks** — the plan's own correction to the
+earlier brief, applied. `Phrase()` returns user-facing notification body text ("due within 3 day(s)"),
+which is Notifications vocabulary, not scheduling infrastructure; and it costs no new reference, since
+every consumer already references this project for `INotificationService`. `IPeriodicJob` and
+`PeriodicJobWorker` stay in BuildingBlocks, which is what keeps BuildingBlocks free of any dependency
+on Notifications.
+
+**`PeriodicJobWorker` resolves jobs BY NAME, not by index [N2].** The backend
+(`NotificationJobsWorker.cs:44-50`) calls `GetServices<IPeriodicJob>()` in one scope to count, then
+`GetServices().ElementAt(i)` in a *different* scope to run — which silently assumes `GetServices`
+returns a stable order across two independently-built scopes. It does today; nothing states it and
+nothing tests it, and the failure mode if it ever stopped holding is one job never running while
+another runs twice. Names are enumerated once in a throwaway scope, then each job is re-resolved by
+name in its own scope. **Cost, measured not hand-waved:** one extra materialization of the job set per
+job — with 7 jobs, ~35 `DbContext` constructions per sweep, once every 15 minutes, and a `DbContext`
+constructor opens no connection. Duplicate names are logged as an error, because two jobs sharing a
+name means one silently never runs.
+
+`RunAllJobsAsync` is public (tests' "flush now", same as `OutboxProcessor.ProcessPendingAsync`) and
+single-flighted behind a `SemaphoreSlim`, for E2-01's reason: jobs being idempotent stops a duplicate
+notification, but not a test returning while the loop's un-awaited sweep is still mid-flight.
+
+**Verify.**
+
+| Clause | Evidence |
+|---|---|
+| `Notifications.Contracts` references only SharedKernel + BuildingBlocks | `NotificationsContractsIsolationTests` — exact set equality, parsed from the csproj (the `Rule7SharedKernelTests` mechanism). **Fault-injected:** adding `Hr.Contracts` turned it red naming the offending reference; reverted. |
+| `MetaSelfEnforcementTests` green | Architecture.Tests 15/15 |
+| `PeriodicJobWorker` with zero jobs is a clean no-op | `RunAllJobs_WithNoRegisteredJobs_IsACleanNoOp` — the load-bearing one, since the worker is wired into the composition root four tasks before the first job exists |
+| rules 5 and 10 green | **Vacuously.** `Notifications.Contracts` declares no integration event and no command/query yet, so neither rule has anything to scan. Stated rather than claimed as evidence. |
+
+Ten more worker tests beyond the no-op: every registered job runs exactly once (asserted as a *set*,
+ordinal-sorted — asserting order here would re-introduce in the test the very assumption resolve-by-name
+exists to delete); a throwing job does not cost the others their sweep; each job gets its own DI scope
+(proved via a scoped marker whose identity differs per job); and the `Notifications:SweepMinutes` read
+with its fallback across five bad values. That last one is not padding: `new PeriodicTimer(TimeSpan.Zero)`
+throws, so `SweepMinutes=0` without the `> 0` guard takes the host down at the first tick rather than
+degrading.
+
+**Verify:** `dotnet build -warnaserror` 0 warnings / 0 errors; `dotnet test` **768/768** across 24
+suites (756 + 11 worker + 1 architecture); format gate clean — `dotnet format` changed nothing.

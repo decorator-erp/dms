@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!--
+      SharedKernel and BuildingBlocks. Nothing else, ever.
+
+      Notifications is a HUB, not a sink: seven modules will reference this project (their jobs and
+      notification handlers call INotificationService), which is the one allowed outbound direction.
+      That only works while this project depends on no module. Add a *.Contracts reference here and
+      the next module to reference Notifications closes a build cycle.
+
+      NotificationsContractsIsolationTests asserts this by parsing the file, rather than trusting the
+      comment - same mechanism as Rule7SharedKernelTests.
+    -->
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -11,6 +11,9 @@
     </PackageReference>
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <!-- PeriodicJobWorkerTests builds a real IConfiguration to exercise the Notifications:SweepMinutes
+         read and its fallback; same reference BuildingBlocks.IntegrationTests already carries. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

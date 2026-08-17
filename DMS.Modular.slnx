@@ -48,6 +48,12 @@
     <Project Path="src/Modules/Sites/Sites.Infrastructure/Sites.Infrastructure.csproj" />
     <Project Path="src/Modules/Sites/Sites.Application/Sites.Application.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Notifications/">
+    <Project Path="src/Modules/Notifications/Notifications.Contracts/Notifications.Contracts.csproj" />
+    <Project Path="src/Modules/Notifications/Notifications.Domain/Notifications.Domain.csproj" />
+    <Project Path="src/Modules/Notifications/Notifications.Infrastructure/Notifications.Infrastructure.csproj" />
+    <Project Path="src/Modules/Notifications/Notifications.Application/Notifications.Application.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.IntegrationTests/BuildingBlocks.IntegrationTests.csproj" />
