@@ -72,7 +72,7 @@ approvals → identity
 crm       → identity, hr
 sites     → projects, crm, documents, hr
 projects  → identity, hr, crm, approvals
-finance   → projects, crm
+finance   → projects, crm, hr
 documents → projects, hr, approvals
 notify    → identity
 (shared.outbox / shared.inbox / shared.audit_logs reference nothing — see the audit note below)
@@ -324,10 +324,22 @@ foreach (var name in order)
     await app.Services.MigrateModuleAsync(name);
 ```
 
-**Shipped at N1-03: `notify` is real, and it is an append.** `ModuleDependencyOrder.SchemaOrder` is now
-`shared, identity, hr, approvals, crm, projects, documents, sites, notify` — `finance` will insert
-before `notify` when it lands, which is legal for the reason the rule above states: nothing points
-*into* `notify`, verified by grep before the append rather than assumed.
+**Shipped at N1-03: `notify` is real, and it is an append.** Nothing points *into* `notify`, verified by
+grep before the append rather than assumed.
+
+**Shipped at F1-04: `finance` inserted before `notify`, and the order is now complete at ten.**
+`ModuleDependencyOrder.SchemaOrder` is `shared, identity, hr, approvals, crm, projects, documents,
+sites, finance, notify`.
+
+The insertion is worth one more sentence than the fact, because it is the **second** insertion and the
+first one that was *not* forced. CRM's (G9-07) was compelled by a cycle. Finance's was free: it points
+outward at `projects`, `crm` and `hr`, **nothing points into it** — asserted by
+`Rule9CrossSchemaForeignKeyTests`, not merely observed — so appending at the end would have worked
+identically. It was inserted here because this document had shipped that ten-module order since N1-03,
+two phases before the module existed, and the alternative was editing a document that was already
+correct. **The position is arbitrary with respect to correctness and deliberate with respect to the
+record**, which is the distinction the next module should apply: it is the FK graph that decides, never
+the arrival order.
 
 Two constraints, both raw SQL (EF cannot emit a foreign key between two models), both
 `ON DELETE RESTRICT`:

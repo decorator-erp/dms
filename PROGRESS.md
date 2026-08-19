@@ -8345,3 +8345,196 @@ than dropping them from the strict list, which would have made the interesting c
   `docs/low-resource-hosting.md` (eight jobs, one timer); `PROGRESS.md` (nine-module boundary, all ten
   `ConditionType` values handled, deferred table); and the full final report — with the Contracts
   reconciliation at **52 types**, not 54.
+
+---
+
+# Phase 7 close-out — Finance, the ninth and last business module
+
+**Nine modules. 1106 tests across 29 suites. Build 0 warnings / 0 errors. Format clean.**
+
+Phase 7 closed three things open since Phase 2: `ConditionType.Budget` (the last unhandled gate type),
+`InvoiceDueJob` (deferred from Phase 6 because it reads `Invoices`), and the `Project*Financial`
+endpoint families (deferred from Projects because Finance owned the data).
+
+## Task table
+
+| Task | SHA | What |
+|---|---|---|
+| PC-03 | `12dbdf8` | *(committed outside this session)* liveness for reflection/catalog assertions |
+| PC-04 | `96bf0e8` | *(committed outside this session)* the rule, the count, what the sweep found |
+| F1-00 | `9e3969c` | `GateCondition.VariationId` — the fourth deliberately-absent FK |
+| F1-00b | `2b904c5` | `ProjectSummary.OwnerId` (R1) |
+| F1-01 | `2764031` | `Finance.Contracts` |
+| F1-02 | `876a41c` | Domain: cost, budget, ledger |
+| F1-03 | `85d1432` | Domain: invoices, variations, BOQ |
+| F1-04 | `241e58d` | Persistence, `FinanceDbContext`, `SchemaOrder` insertion, `FinanceModule` minimal |
+| F1-05 | `d8a28ea` | 22 cross-schema FKs + rule 9 allow-list |
+| F1-06 | `704b74f` | Application: cost categories, budget lines, BOQ |
+| F1-07 | `05a24b9` | Application: ledger, invoices, dashboard |
+| F1-07b | `511ad58` | The project/stage/task financial read slice |
+| F1-08 | `fdb8c6b` | Variations, `BudgetHandler`, gate satisfaction, `InvoiceDueJob` |
+| F1-09 | `b3c0999` | 54 routes, nine-module registration |
+| F1-10 | `a4c120c` | Nine-module spine, Finance schema isolation, the F1-00 race |
+| F2-01 | *(this)* | Docs + close-out |
+
+Each is followed by a `<TASK>: PROGRESS line` commit. **16 tasks**, as corrected at planning time (the
+plan said 14).
+
+## Test counts by suite
+
+| Suite | Tests | | Suite | Tests |
+|---|---|---|---|---|
+| Crm.UnitTests | 201 | | Documents.Infrastructure.Tests | 24 |
+| **Finance.Application.Tests** | **128** | | Projects.Application.Tests | 21 |
+| Sites.UnitTests | 110 | | Architecture.Tests | 19 |
+| **Finance.UnitTests** | **104** | | BuildingBlocks.IntegrationTests | 19 |
+| Integration.Tests | 87 | | Documents.Application.Tests | 18 |
+| Sites.Application.Tests | 69 | | **Finance.Infrastructure.Tests** | **17** |
+| Crm.Application.Tests | 62 | | Sites.Infrastructure.Tests | 17 |
+| Projects.UnitTests | 61 | | Crm.Infrastructure.Tests | 15 |
+| Documents.UnitTests | 30 | | BuildingBlocks.UnitTests | 14 |
+| — | | | (ten smaller suites) | 92 |
+
+**Finance contributes 249 tests in three suites**, plus 12 in `Integration.Tests`. The suite grew from
+846 (start of phase) to **1106**.
+
+## Reconciliation 1 — sub-area → task
+
+| Backend sub-area | Count | Ported at |
+|---|---|---|
+| Entities | 9 | F1-02 (4), F1-03 (5) |
+| Enums | 8 | F1-02 (3), F1-03 (5) |
+| CostCategories | 6 features | F1-06 |
+| BudgetLines | 5 features | F1-06 |
+| BoqSnapshots | 4 features | F1-06 |
+| LedgerEntries | 6 features | F1-07 |
+| Invoices | 6 features | F1-07 |
+| Finance dashboard | 1 feature | F1-07 |
+| Project/stage/task financial slice | 15 features | F1-07b |
+| Variations | 11 features | F1-08 |
+| **Total features** | **54** | |
+| Domain services | 6 + `BudgetHandler` | F1-06/07/07b/08 |
+| Endpoint files | 10 → 10 classes, 54 routes | F1-09 |
+| Permission strings | 12 | F1-01 |
+| `IPeriodicJob` | 1 (`InvoiceDueJob`) | F1-08 |
+
+**The feature count was 39 in the plan and is 54.** Twelve queries live under the backend's
+`Projects`/`ProjectStages`/`ProjectTasks` folders (filed by the noun that *scopes* them, not the one that
+*owns* them) and three more were route-only. Found at planning, built as F1-07b.
+
+**Not ported, each with a reason:** `ProjectBudgetView` (a database view — deferred to Reporting);
+`ChangeCategory` (a client document-review enum, not Finance); `GateCondition.LinkToVariation` at F1-00
+(dead code in the backend — ported at F1-08 once a real caller existed);
+`InvoiceLineErrors.InvalidNetAmount`/`InvalidLineTotal` (describe a tax-bearing shape this module does
+not model).
+
+## Reconciliation 2 — verify-clause diff
+
+Every task's verify clause ran as written, with these deviations:
+
+| Clause | What happened |
+|---|---|
+| F1-01: "references … + `Projects.Contracts`" | **Corrected.** `docs/adding-a-module.md` forbids Contracts→Contracts. `Finance.Contracts` references only SharedKernel + BuildingBlocks. |
+| F1-04: raise floors in `MetaSelfEnforcementTests:39`, `Rule10…:71`, `Rule6…:32` | **Corrected.** Seven floors across six files, not three; only one counts modules. Line numbers had shifted under PC-03. `Rule10` is not a module count and was left alone. |
+| F1-04: "money precision is invisible to the probe, as raw SQL is" | **Corrected.** `HasColumnType` *is* in the model. The real gap is a coordinated edit; guard asserts `information_schema`. |
+| F1-06: "port BOQ generation's rounding rule" | **Corrected.** There is none. The absence is the rule, and is pinned by a test that reddens under an injected `Math.Round`. |
+| F1-07b: "by-category and cashflow resolve through `FinancialBlocks`" | **Corrected.** Both have real query files; cashflow takes a date range the Contract omitted. |
+| F1-08: "`PeriodicJobWorker` executes all 8 jobs" + rename | **Moved to F1-09.** That test resolves from the Api host, which did not register Finance until F1-09. F1-08 proved the registration against the nine-module fixture instead; both assertions kept. |
+| F1-10: "extend `CrossModuleSmokeTests` to nine" | **Separate file**, `FinanceSpineTests`, following the `SitesSpineTests` precedent. Intent met. |
+
+## Every decision the plan did not specify
+
+**Structural**
+
+1. **Structural item 3 resolved as events-only.** Both Budget verdicts compute from Finance's own
+   tables, so Finance publishes a decided verdict and no `IFinanceReader` ships.
+2. **Enums stored as `int`, not strings.** The backend uses `HasConversion<string>()`; all eight other
+   modules here use `int`, and `EnumParityTests` exists *because* the numeric values are what land in
+   the column. The two `variations` check constraints were rewritten to compare ints.
+3. **No handler opens a transaction.** `DomainEventDispatchDecorator` already wraps every command;
+   opening a second on the same connection throws. Consequence: BOQ version allocation is protected by
+   a unique index detecting a collision, where the backend's `RepeatableRead` prevented it.
+4. **Two Contracts records removed at F1-07b** — 54 types became **52**.
+5. **`BackgroundLoops:Enabled`** added to BuildingBlocks (default on) so the test host can stand down
+   the two timer loops.
+
+**Behavioural, recorded rather than silently changed**
+
+6. Dashboard and summary **stage lists are derived from financial activity** — a stage with no financial
+   activity is absent rather than present with zeros, because `IProjectDirectory` resolves stages by id
+   and extending it was out of scope.
+7. **Signed differences are not stage-filtered** in BOQ generation, matching the backend.
+8. **Cashflow is unsigned**, alone among the aggregates — a reversal appears as an opposite-column
+   movement rather than cancelling.
+9. **`StageBudgetRow.Order` is always 0** — `StageSummary` does not publish it, and a fabricated
+   sequence would be worse than an honest zero.
+10. **R1 recipient rule**: project owner + client user, deduped. Finance staff who are not the project
+    owner get no invoice reminder.
+
+## Backend defects: fixed, closed, deferred
+
+**Nine fixed.** None deferred.
+
+| # | Defect | Fixed at |
+|---|---|---|
+| D-F1 | `Invoice.Create` never validates the number — which is also the duplicate-check key, and the unique index permits exactly one blank | F1-03 |
+| D-F2 | `InvoiceLine.Create` guards quantity but not unit price; a negative price silently reduces the invoice header and the BOQ purchase total | F1-03 |
+| D-F3 | `CreateBudgetLine` never validates the project — an unknown id returns a FK violation, not a 404 | F1-06 |
+| D-F4 | `GenerateBoqSnapshot`, same | F1-06 |
+| D-F5 | Validators cap `Code`/`Name`/`Description` looser than the columns, so a 40-char code passes validation then fails as a truncation error | F1-06 |
+| D-F6 | Ledger dedupe is **global**, so two projects using the same reference collide | F1-07 |
+| D-F7 | `LedgerEntryErrors.NotAPayment` defined and never raised — a Commitment could be allocated to an invoice, marking it paid with money that has not moved | F1-07 |
+| D-F8 | `AddInvoiceLine` accepts a paid invoice, leaving it `Paid` with a non-zero balance | F1-07 |
+| D-F9 | `CreateInvoice` accepts `DueOn < IssuedOn` — overdue the moment it exists | F1-07 |
+
+**Plus one defect of my own**, found by reading the handler I was porting: F1-02's `CreateReversal`
+carried the original's `OccurredOn`, backdating a correction into a period that may already be reported.
+Fixed at F1-07, along with the unit test that pinned the wrong behaviour.
+
+**And one in the consumer**, found by a test: the re-lock path queried gate status after mutating in
+memory but before the decorator saved, so it read the stale row and never re-locked. The entire
+de-satisfy path would have been silently dead.
+
+## Anything thinner than intended
+
+- **`GetTaskBoqLines` returns empty for an unknown task** while `GetStageFinancialMovements` returns
+  `NotFound` for an unknown stage. That inconsistency is the backend's and was preserved deliberately,
+  but it is inconsistent.
+- **Rule 10 was vacuous for Finance until F1-08.** Stated at F1-01 rather than glossed; closed when
+  `Projects.Infrastructure` took its `Finance.Contracts` reference.
+- **The spine drains the outbox deterministically.** Nothing in this phase proves delivery under
+  concurrency; that was never in scope, and the test says so rather than implying otherwise.
+- **`InvoiceIssued` and `PaymentPosted` have no subscriber.** Stated in their own doc comments as
+  supported no-ops. They are published because the write path is where they belong; if Reporting never
+  consumes them, they should be deleted rather than left.
+
+## Anything in the plan that looks wrong, having built it
+
+1. **"39 feature files"** — the single largest error, and it came from grepping seven noun folders. An
+   inventory of a module should be driven by its *data*, not its folders.
+2. **"BOQ generation's rounding rule"** — assumed a rule existed because the area handles money.
+3. **"Money precision is invisible to the probe"** — plausible and wrong; it cost nothing because the
+   guard was built anyway, but the stated reason would have misled the next reader.
+4. **The three floors at F1-04** — cited by line number after a task (PC-03) had edited those files.
+   **Cite assertions, not line numbers.**
+5. **"Extend `CrossModuleSmokeTests` to nine"** — assumed one file; the Sites precedent had already
+   moved away from that.
+
+## What Finance teaches the Reporting plan
+
+1. **Count features by data ownership, not by folder.** Reporting will read every module's tables; if
+   its inventory is built from a `Reporting/` folder it will be wrong by more than 12.
+2. **Decide whether Reporting publishes verdicts or reads state — and prefer neither.** Finance avoided
+   `IFinanceReader` because it could decide alone. Reporting probably cannot: it aggregates across
+   modules by definition. That makes it the first genuine case for read contracts, and the
+   `IFinanceReader` shape declined here is the one to reach for — **with its consumer, in one commit**.
+3. **Route shape will diverge again, harder.** Reporting's URLs will sit under every module's space.
+   The rule is written down now; apply it rather than rediscovering it.
+4. **Do not add a tenth `IPeriodicJob` without re-reading `docs/low-resource-hosting.md`.** Eight jobs on
+   one timer is the design's stated ceiling-shaped assumption, not a hard limit — but it deserves a
+   deliberate look.
+5. **The probe is not a precision guard, and the arch rules are not a coverage guard.** Every Finance
+   defect this phase found was found by a *test that named the specific wrong answer*, never by a rule.
+   Reporting's money assertions need the same treatment.
+6. **Inject to check discrimination, and expect to be wrong.** Two F1-08 injections passed, and both
+   revealed vacuous assertions rather than working code. Injection is the only thing that found them.

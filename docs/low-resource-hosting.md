@@ -115,17 +115,27 @@ Notifications depend on four modules.
 | `ProjectDeadlineJob`, `StageDeadlineJob`, `TaskDeadlineJob` | `Projects.Application` |
 | `CrmMeetingReminderJob`, `CrmPeriodCloseJob` | `Crm.Application` |
 | `ApprovalOverdueEscalationJob`, `ApprovalResponseDueJob` | `Approvals.Application` |
-| `InvoiceDueJob` | deferred — ships with Finance |
+| `InvoiceDueJob` | `Finance.Application` (F1-08) |
 
 `IPeriodicJob` and `PeriodicJobWorker` live in **BuildingBlocks**, so no module depends on Notifications
-for scheduling. One `BackgroundService`, one `PeriodicTimer`, seven jobs run sequentially, interval
+for scheduling. One `BackgroundService`, one `PeriodicTimer`, eight jobs run sequentially, interval
 `Notifications:SweepMinutes` (default **15**). **Nine always-on loops became one** — and this process
 now has exactly two, this and `OutboxProcessor`.
 
-Cost per tick at idle: seven bounded queries, most returning nothing. The scan windows are what keep
-that true — `TaskDeadlineJob` reads `[now-30d, now+3d]`, not the table — and the per-recipient dedupe
-key is what makes re-running the whole sweep free, which is what lets one timer serve seven jobs
-safely.
+Cost per tick at idle: eight bounded queries, most returning nothing. The scan windows are what keep
+that true — `TaskDeadlineJob` reads `[now-30d, now+3d]` and `InvoiceDueJob` reads `[now-60d, now+5d]`,
+neither reads the table — and the per-recipient dedupe key is what makes re-running the whole sweep
+free, which is what lets one timer serve eight jobs safely.
+
+**Complete at eight (F1-08).** `InvoiceDueJob` was the one job Phase 6 could not ship, because it reads
+`finance.invoices`. It arrived with the module rather than being written against a table that did not
+exist — which is the same rule the jobs themselves follow: a job lives with the data it reads.
+
+**The loops can be stood down** by `BackgroundLoops:Enabled=false` (default **on**). The only caller is
+`Integration.Tests.ApiFixture`, and the reason is measurement rather than performance: both workers
+write SQL into a process-wide capture that the schema-isolation tests read, so their timers turn a
+deterministic assertion into a race. Production never sets it, and the default means omitting the
+setting cannot disable delivery.
 
 Option B (compute "overdue" at read time) still stands for badges and lists. The sweep is for the cases
 that genuinely push.

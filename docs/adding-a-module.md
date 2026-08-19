@@ -861,3 +861,91 @@ clean run from a broken capture. Assert that the SQL you *expect* was issued, in
 request that caused it, so a background `OutboxProcessor` delivery landing inside your window reads
 exactly like a leak. Drain the outbox (`ProcessPendingAsync`) before `ClearCapturedSql()`. Do not widen
 the schema filter instead — that hides real leaks in the same schema.
+
+## Four more patterns (from Phase 7 — Finance)
+
+Finance is the ninth and last business module. It is the first that had to serve routes under another
+module's URL space, the first whose data drove another module's state machine, and the one that
+completed the gate-type registry — so its four lessons are about **boundaries under pressure**, not
+about layout.
+
+### 1. Route shape and module ownership are independent. Let them differ.
+
+Sixteen of Finance's 54 routes are mounted under `/api/projects`, `/api/project-stages` and
+`/api/project-tasks`. They are served entirely by Finance, because Finance owns every table they read.
+Projects contributes the id in the URL and nothing else.
+
+Nothing in the module system objects: `MapModuleEndpoints` scans the module's own assembly, and two
+modules mapping groups on one prefix is ordinary ASP.NET routing — the paths are distinct, so there is
+nothing to resolve. `FinanceSmokeTests` asserts all sixteen **and** that Projects' own `/api/projects`
+still resolves, which is what proves the absence of a collision rather than assuming it.
+
+**The failure mode this exists to prevent is the tidy-up.** Moving those handlers into Projects so the
+folder matches the URL would make Projects read `finance.*` tables and break rule 3. The URL is a
+client-facing information-architecture decision; the module boundary is a data-ownership one.
+
+**Permissions follow the data, not the URL.** Every one of those sixteen requires `finance.read`. A
+caller holding `projects.read` and no finance permission gets a 403, which is correct.
+
+### 2. When another module must react to your data, publish a VERDICT — not the inputs
+
+`ConditionType.Budget` was the last unhandled gate type. The backend resolves it by writing
+`gate_conditions`, `project_tasks` and `project_stages` from inside its own ledger and variation
+services — all cross-module writes, all forbidden here.
+
+The obvious alternative is a read contract: `IFinanceReader`, letting Projects ask whether a task is
+covered. **That was considered and rejected**, because every input to the rule is a Finance column, so
+Finance can decide it alone. It publishes `TaskBudgetCoverageChanged(taskId, isCovered)` and Projects
+acts. Nobody reads across the boundary in either direction.
+
+Three things that turned out to matter, each of which cost a bug or a vacuous test to learn:
+
+- **Publish on every relevant event, not only on a change.** Publishing transitions requires remembering
+  the previous verdict, and that memory is a second source of truth that drifts from the gates it
+  describes. Make the consumer idempotent instead — satisfying an already-satisfied gate is a no-op.
+- **The false branch is half the contract.** A consumer handling only `isCovered: true` leaves a gate
+  satisfied on a task that has gone over budget. The de-satisfy path is not an edge case.
+- **Do not re-query state you have just mutated but not saved.** The consumer runs inside
+  `InboxDedupeDecorator`, which stages writes and saves once at the end. A query issued after
+  `MarkPending()` still sees `Satisfied` in the database, so a "is anything still blocking?" check reads
+  the old world and silently skips its own follow-up action. Read the in-memory list you just changed.
+
+### 3. A contract with no consumer is not shipped early — it is not shipped
+
+F1-01 shipped two records (`ProjectTaskFinancialBlock`, `ProjectStageFinancialBlock`) because the
+backend had them. Porting the queries showed their only consumers there were **another module's** detail
+endpoints, which this port does not extend. They were removed at F1-07b.
+
+Keeping them would have been keeping half of a decision already made — they are `IFinanceReader`'s
+payload without its interface. The rule, which G9-14 first recorded and Finance re-learned: **name every
+Contracts type you ship without a handler, and which task builds it.** If the answer is "none", delete
+the type. Two public records nothing produces is a surface someone will eventually implement against.
+
+### 4. Money: precision belongs in the schema guard, not only in the model
+
+All 22 decimal columns are `numeric(19,4)`, and `InvoiceLine.Create` rounds to 4 places *because* the
+column does — widening one without the other silently reintroduces the truncation the rounding exists to
+make explicit.
+
+**The empty-probe verify does not cover this the way it covers a missing column.** `HasColumnType` is in
+the EF model, so an unmigrated change does produce a non-empty probe — but a *coordinated* edit
+(configuration changed, migration regenerated) leaves model and snapshot agreeing and the probe empty,
+while every deployed column changes scale. So assert the precision against `information_schema` as an
+exact named set, under the same R3 fail-closed guard as raw-SQL objects.
+
+Two more money rules worth stating once:
+
+- **Enums are `int` here, even where the source stores strings.** A check constraint comparing string
+  literals against an int column never matches, never fires, and passes every existence test. If you
+  rewrite such a constraint, the enum-parity test is what stops a renumbering unarming it later.
+- **Over-budget is `Actual > EffectiveCap`, never `Available < 0`.** `ApplyActualCost` moves Committed
+  and Actual in opposite directions by the same delta, so Available is *invariant* under an actual cost.
+  The second form looks equivalent and reports nothing.
+
+### One testing note, for whoever writes module ten
+
+`BackgroundLoops:Enabled=false` (default on) stands down `OutboxProcessor`'s and `PeriodicJobWorker`'s
+timer loops. `ApiFixture` sets it. Both workers stay registered and resolvable, and every test that
+needs them drives them directly — which is what you want anyway, since a test that waits on a timer is
+slow and still races. This is the fix for the quiesce-before-measuring problem the Positive controls
+section above describes: it removes the interleave rather than draining ahead of it.
