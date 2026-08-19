@@ -8046,3 +8046,139 @@ remaining unhandled Finance Contracts are `Variations` and the seven integration
 - No handler may open a transaction (F1-06 finding) — held.
 - F1-09 maps these fifteen under `/api/projects`, `/api/project-stages`, `/api/project-tasks`: the
   route-shape-vs-module-ownership divergence F2-01 writes up in `docs/adding-a-module.md`.
+
+---
+
+## F1-08 — Variations, BudgetHandler, gate satisfaction, InvoiceDueJob (`fdb8c6b`)
+
+Eleven variation features, `BudgetHandler`, the coverage/funding verdict computation, `InvoiceDueJob`,
+and five Projects-side consumers. 28 new tests. **1097/1097 across 29 suites**, build 0/0, format clean.
+
+**Files:** `Finance.Application/{Common/FinanceGateVerdicts.cs, Features/Variations/VariationHandlers.cs,
+Features/Gates/BudgetHandler.cs, Features/Jobs/InvoiceDueJob.cs}` + edits to the ledger and invoice
+handlers; `Finance.Infrastructure/FinanceModule.cs`;
+`Projects.Infrastructure/IntegrationEvents/{FinanceVariation,FinanceBudgetGate}IntegrationEventHandlers.cs`;
+`Projects.Domain/Gates/GateCondition.cs`, `Projects.Domain/Errors/Errors.cs`;
+`Notifications.{Contracts,Domain}/Enums.cs`; four csprojs; four new test files.
+
+### THE MILESTONE: every ConditionType now has a handler
+
+`ConditionType.Budget` has been the one unhandled value since Phase 2, rejected at gate creation because
+the module owning budgets did not exist. Finance is the fourth module to contribute a gate type and the
+one that completes the set.
+
+`EveryConditionType_HasARegisteredHandler` enumerates the enum and requires a registration for each,
+**asserted against the registered handlers rather than a list**. The old
+`UnsupportedConditionType` message carried a hand-maintained roster ("Supported types: Task, Stage,
+Approval, ManualCheck") that had been wrong since Documents and CRM shipped five more, with nothing able
+to notice. The message no longer enumerates anything — the registry is the list.
+
+### The structural decision, proven rather than asserted
+
+The backend resolves Budget gates by writing `gate_conditions`, `project_tasks` and `project_stages`
+from inside its ledger and variation services. Every one is a cross-module write. Here Finance computes
+a verdict (`FinanceGateVerdicts`) and publishes it; Projects consumes and writes.
+
+**Every gate test drives a Finance command and asserts on Projects' TABLES, with the real outbox in
+between.** Calling a Projects handler directly would prove the handler works and say nothing about
+whether the event is ever published, routed or delivered. `FinanceApplicationFixture` gained
+`DrainOutboxAsync` for exactly this.
+
+Covered end to end: raise → gate opens and locks the task → submit → approve → gate satisfies → the
+ordinary unlock cascade (a Projects domain-event handler Finance knows nothing about) reopens the task.
+
+### A stale-read bug the tests caught
+
+`RelockTaskAsync` queried `db.GateConditions` for an unsatisfied Unlock gate — **after** `MarkPending`
+had mutated the tracked entities but **before** `InboxDedupeDecorator` saves them. The query saw the
+rows still `Satisfied`, found nothing blocking, and skipped the lock: the gate re-pended and the task
+stayed Open. **The de-satisfy path — half of the coverage event's purpose — would have been silently
+dead.** Now reads the in-memory list, which is also *equivalent* to the backend's predicate rather than
+merely close to it: a gate this handler just re-pended IS an unsatisfied Unlock gate on that owner.
+
+### Two injections initially PASSED — and both revealed vacuous assertions
+
+This is the most useful thing F1-08 found, and it was found by injecting rather than by reading.
+
+| Injection | Why it passed | Fix |
+|---|---|---|
+| Drop `ClientInvoicesSum > 0` from `IsFunded` | No funding verdict is ever published for an **uninvoiced** stage in the existing test — it invoices first, so the clause is never reached | New test posts a payment to a stage with **no** client invoice, which is the case that arrives with `invoiced == 0` |
+| Make the variation apply symmetrical | The `ClientDifference` under test had **no `BudgetLineId`**, so "writes nothing to the line" was true because there was no line | It now carries one, leaving the `Kind` check as the only thing between it and a wrong 150 adjustment |
+
+Both injections now redden exactly one test each. Restored and reconfirmed green. This is the
+"negative assertion needs a positive one" failure mode in both cases: the assertion was true for a
+reason unrelated to the code it claimed to pin.
+
+### A third module's Contracts touched — flagged, not slipped in
+
+`NotificationType` gains `InvoiceDueSoon = 150` and `InvoiceOverdue = 151`, in the **150–179 range
+N1-01 explicitly reserved for Finance** ("Do not reclaim"), with `NotificationEntityType.Invoice = 10`
+already present and commented as held for Finance.
+
+The hard stop names two permitted Contracts additions and this is a third. **Stated plainly so it can
+be objected to:** the range was pre-allocated for this exact task by a previous phase, nothing new is
+invented, and the alternative was reusing an unrelated notification type (`ProjectDueSoon`) which would
+be actively misleading. If the call is wrong it is a two-line revert plus removing the job's notify
+calls. The `Notifications.Domain` copy needed the same two values — the enum parity test caught the
+one-sided addition immediately, which is that guard doing precisely its job.
+
+### R1 shipped as decided, with its loss recorded
+
+Recipients = project owner (`Invoice.ProjectId` → `IProjectDirectory` → `OwnerId` → `IHrDirectory` →
+`AppUserId`) **+** client user (`Invoice.ClientId` → `IClientDirectory` → `AppUserId`), deduped,
+skipping the invoice when empty. `ProjectSummary.OwnerId` (F1-00b) is what makes the owner hop possible
+at all.
+
+- **Lost:** finance staff who are not the project owner get no reminder. The backend broadcasts to every
+  `finance.read` holder; nothing in `Identity.Contracts` enumerates users by permission and inventing
+  `GetUsersWithPermissionAsync` was rejected. Arguably an improvement — a broadcast on every overdue
+  invoice is the notification-fatigue shape.
+- **Vendor invoices reach the owner only**, tested: they carry no `ClientId`, and notifying the
+  project's client about a vendor invoice would be wrong.
+- Tier `0` classifies as **DueSoon, not Overdue** — tested, because `>=` instead of `>` would tell every
+  client their invoice is overdue on the morning it falls due.
+- Dedupe keys are stored **per recipient** (`...-due-0d:{userId}`), so the tier is asserted as a prefix.
+  That suffix is what makes two recipients two notifications rather than one.
+
+### Decided here, not specified by the plan
+
+- **Verdicts are published on every relevant posting, not only on a change.** Publishing transitions
+  only would require Finance to remember the previous verdict — a second source of truth that can drift
+  from the gates it describes. The consumer is idempotent, so a repeated verdict costs one event.
+- **Which verdict a posting publishes follows the entry type**: `ActualCost` → task coverage,
+  `ClientPayment` → stage funding, `Commitment` → neither (it moves money neither spent nor received,
+  and the backend resolves no gates for it either).
+- **Creating a client invoice republishes stage funding.** It changes the *denominator* of `IsFunded`;
+  without this an invoice issued after a payment leaves a stage reading as funded on stale figures.
+- **Approving a variation republishes task coverage**, which is not redundant with the posting path: a
+  signed difference changes the coverage inputs with no ledger posting involved.
+- **`SignVariationCommand` routes through `Variation.Approve`**, the same transition as
+  `ApproveVariationCommand` with the signature arguments mandatory. Two commands because they carry
+  separately grantable permissions; one transition because a second would be a second place for the
+  signature rules to drift.
+- **`GateCondition.LinkVariation` ported now**, since `VariationRaisedIntegrationEventHandler` is a real
+  caller. F1-00 deliberately left the backend's equivalent out as dead code.
+- **`VariationErrors.ProjectNotFound`** — the fourth creation path to get the 404-not-500 fix.
+- **`PeriodicJobTests` is NOT updated to eight here.** It resolves from the real Api host, and
+  `Program.cs` does not load `Finance.Infrastructure` until F1-09. `InvoiceDueJob_IsRegisteredByFinanceModule`
+  proves the registration now against the nine-module fixture; the host-level exact-set assertion moves
+  to eight in the same commit that registers the module.
+
+### G9-14 accounting for this task
+
+Every Contracts type in `Variations` has a handler. **All seven integration events are now published**,
+and five have consumers. The two without — `InvoiceIssued` and `PaymentPosted` — are stated as
+deliberate no-ops in their own doc comments rather than left to be discovered: zero registered handlers
+is supported, and the gate consequences travel on the two verdict events instead, because those carry a
+decided answer where these carry a raw fact.
+
+### Carried forward
+
+- **Rule 10 is no longer vacuous for Finance** — `Projects.Infrastructure` now references
+  `Finance.Contracts`, completing the bidirectional Contracts pair.
+- `NotificationsSchemaIsolationTests` race — still deferred to F1-10, and **F1-08 has now added the
+  eighth job**, which raises the rate as predicted.
+- F1-09: register Finance in `Program.cs`, rename `Boot_RegistersExactlyEightModules`, move
+  `PeriodicJobTests` to eight, extend the permission total additively.
+- F2-01: Contracts reconciliation is **52 types**; `docs/cross-schema-foreign-keys.md`'s SchemaOrder
+  paragraph still needs past tense.
