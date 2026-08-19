@@ -197,6 +197,15 @@ internal static class FinanceDashboardErrors
 /// scope you asked about does not exist" is a distinct answer from "that scope has no financial
 /// activity" — a caller can act on the difference, and collapsing the two into an empty list hides a
 /// bad id behind a plausible-looking empty panel.</summary>
+/// <summary>F1-09. Every Finance command that stamps a person needs an HR employee id, and the four
+/// columns carrying one have real foreign keys to <c>hr.employees</c>. A caller with no employee row
+/// cannot be stamped, and that is a bad request rather than a forbidden one.</summary>
+internal static class FinanceActorErrors
+{
+    public static readonly Error InvalidActor = Error.BadRequest(
+        "finance.InvalidActor", "The calling user is not linked to an employee record.");
+}
+
 internal static class FinancialScopeErrors
 {
     public static readonly Error StageNotFound = Error.NotFound(

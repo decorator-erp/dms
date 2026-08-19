@@ -40,6 +40,10 @@ var moduleAssemblies = new[]
     Assembly.Load("Projects.Infrastructure"),
     Assembly.Load("Documents.Infrastructure"),
     Assembly.Load("Sites.Infrastructure"),
+    // F1-09. Referenced by Api since F1-04 (so ApiFixture could migrate the schema) but not registered
+    // until now, because a module registers when it has something to serve — 54 routes across ten
+    // endpoint classes, of which sixteen live under Projects' URL space and are served from here.
+    Assembly.Load("Finance.Infrastructure"),
     // N1-04, three tasks before this module has an endpoint to serve. Loaded now because MapEndpoints
     // is what mounts NotificationsHub, and because N1-05's relocated jobs resolve INotificationService
     // from this container. CrmSmokeTests.Boot_RegistersExactlyEightModules moves in the same commit.

@@ -20,6 +20,10 @@
          Finance.Application carries the other three cross-module references (Crm/Hr/Notifications) for
          InvoiceDueJob, because that is where the job lives. -->
     <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- F1-09: FinanceEndpointActors resolves the calling user's HR employee id at the boundary, for
+         the six commands that stamp a person on the row they create. Those four columns carry real
+         foreign keys to hr.employees (F1-05), so this is a correctness dependency, not a convenience. -->
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -25,17 +25,23 @@ namespace Integration.Tests;
 public sealed class PeriodicJobTests(ApiFixture fixture)
 {
     /// <summary>
-    /// <b>All seven, by name.</b> Registration is per module via a Scrutor scan, and a scan that finds
+    /// <b>All eight, by name.</b> Registration is per module via a Scrutor scan, and a scan that finds
     /// nothing throws nothing — G5-07 was exactly this (wrong scanned assembly, silent zero
     /// decoration), and the symptom of a missing job here would be "some reminders stopped", months
     /// later, with nothing pointing at the cause.
     ///
-    /// <para><b>Seven, not eight.</b> <c>InvoiceDueJob</c> reads <c>Invoices</c> and ships with Finance.
-    /// Asserting the exact set rather than a count is what makes that a recorded boundary rather than an
-    /// omission — swapping one job for another would keep a count green.</para>
+    /// <para><b>Eight as of F1-09, and the eighth is why this assertion is a SET rather than a
+    /// count.</b> <c>InvoiceDueJob</c> was named here as absent from N1-05 onward, because it reads
+    /// <c>Invoices</c> and had to wait for Finance. It arrived with the module's registration in
+    /// <c>Program.cs</c> — not with the job's own code at F1-08, which this fixture could not see,
+    /// since it resolves from the real Api host.</para>
+    ///
+    /// <para><b>Eight is also the ceiling this design was built for.</b> Nine deadline loops in the
+    /// backend collapse into one timer here; <c>docs/low-resource-hosting.md</c> §3 is the reasoning,
+    /// and F2-01 updates its count.</para>
     /// </summary>
     [Fact]
-    public void EverySevenPeriodicJobs_AreRegistered_AcrossTheirOwningModules()
+    public void EveryEightPeriodicJobs_AreRegistered_AcrossTheirOwningModules()
     {
         using var scope = fixture.Services.CreateScope();
 
@@ -50,6 +56,7 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
                 "ApprovalResponseDueJob",        // Approvals
                 "CrmMeetingReminderJob",         // Crm
                 "CrmPeriodCloseJob",             // Crm
+                "InvoiceDueJob",                 // Finance (F1-09)
                 "ProjectDeadlineJob",            // Projects
                 "StageDeadlineJob",              // Projects
                 "TaskDeadlineJob",               // Projects

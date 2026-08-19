@@ -70,7 +70,7 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     /// together, in one commit, so the tree is never red in between.</para>
     /// </summary>
     [Fact]
-    public async Task Boot_RegistersExactlyEightModules()
+    public async Task Boot_RegistersExactlyNineModules()
     {
         var client = fixture.CreateClient();
         var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
@@ -83,7 +83,7 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
         Assert.NotNull(modules);
 
         Assert.Equal(
-            ["Approvals", "Crm", "Documents", "Hr", "Identity", "Notifications", "Projects", "Sites"],
+            ["Approvals", "Crm", "Documents", "Finance", "Hr", "Identity", "Notifications", "Projects", "Sites"],
             modules!.Select(m => m.Module).OrderBy(m => m, StringComparer.Ordinal));
     }
 

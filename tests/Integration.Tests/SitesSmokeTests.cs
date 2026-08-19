@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Identity.Contracts;
 using Notifications.Contracts;
+using Finance.Contracts;
 using Sites.Contracts;
 using Xunit;
 
@@ -34,11 +35,17 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// from <c>NotificationsPermissions.All.Count</c>, so it cannot drift from the constant that
     /// <c>NotificationsModule</c> actually registers. The same trick the per-module assertions below
     /// already use.</para>
+    ///
+    /// <para><b>F1-09 adds Finance's 12 the same way</b>, and the pattern is now the rule rather than a
+    /// one-off: every module past the seventh contributes <c>&lt;Module&gt;Permissions.All.Count</c>, so
+    /// the only literal in this expression is the frozen historical figure. Re-typing the new total
+    /// would make this test agree with itself and with nothing else — which is exactly how
+    /// <c>PLAN-PHASE5.md</c> arrived at 62 when the answer was 114.</para>
     /// </summary>
     private const int PermissionsThroughPhase5 = 114;
 
     private static int TotalPermissionsAcrossAllModules =>
-        PermissionsThroughPhase5 + NotificationsPermissions.All.Count;
+        PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()
@@ -67,7 +74,7 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     }
 
     [Fact]
-    public async Task GetPermissions_TotalsOneHundredAndEighteenAcrossEightModules()
+    public async Task GetPermissions_TotalsAcrossAllNineModules()
     {
         var client = fixture.CreateClient();
         var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
