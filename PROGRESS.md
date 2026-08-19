@@ -8182,3 +8182,88 @@ decided answer where these carry a raw fact.
   `PeriodicJobTests` to eight, extend the permission total additively.
 - F2-01: Contracts reconciliation is **52 types**; `docs/cross-schema-foreign-keys.md`'s SchemaOrder
   paragraph still needs past tense.
+
+---
+
+## F1-09 — Endpoints + nine-module registration (`b3c0999`)
+
+Ten endpoint classes (54 routes), Finance registered in `Program.cs`, and the three assertions that
+encoded "eight" moved to nine. 5 new tests. **1102/1102 across 29 suites**, build 0/0, format clean.
+
+**Files:** `Finance.Infrastructure/Endpoints/*.cs` (10 files + `FinanceEndpointActors.cs`);
+`Finance.Domain/Errors.cs`; `Finance.Infrastructure.csproj`; `src/Api/Program.cs`;
+`tests/Integration.Tests/{FinanceSmokeTests.cs, CrmSmokeTests.cs, SitesSmokeTests.cs, PeriodicJobTests.cs}`.
+
+### Route count reconciles at 54
+
+CostCategories 6, BudgetLines 5, BoqSnapshots 4, LedgerEntries 6, Invoices 6, Variations 11,
+ProjectFinancial 8 (7 + the folded-in dashboard), ProjectStageFinancial 4, ProjectTaskFinancial 4.
+Matches the plan's figure exactly.
+
+### The divergence this task exists to establish
+
+**Sixteen routes live under `/api/projects`, `/api/project-stages` and `/api/project-tasks` and are
+served entirely by Finance.** First place in the system where the URL tree and the module boundary
+deliberately disagree.
+
+Asserted, not merely documented: `OpenApiDocument_ListsTheFinanceRoutesMountedUnderProjectsUrlSpace`
+names all sixteen **and** asserts Projects' own `/api/projects` still resolves — which is what proves
+two modules mapping groups on one prefix collide over nothing. The test would fail if someone "tidied"
+these into Projects, which is the change that would make Projects read `finance.*` tables and break
+rule 3.
+
+**The rule, for `docs/adding-a-module.md` at F2-01:** the URL is a client-facing
+information-architecture decision; the module boundary is a data-ownership one. Let them differ. What
+is never acceptable is moving the *handler* to match the *folder*.
+
+### Decided here, not specified by the plan
+
+- **`FinanceEndpointActors`** resolves the caller's HR employee id at the boundary for the six commands
+  that stamp a person (`RecordedById`, `GeneratedById`, `RequestedById`, `ApprovedById`, `ActorId`),
+  following the S1-01 precedent. **This is a correctness dependency, not a convenience:** those columns
+  carry real FKs to `hr.employees` (F1-05), so a caller with no employee row must get a 400 rather than
+  a fabricated Guid that would violate the constraint. New `FinanceActorErrors.InvalidActor`;
+  `Finance.Infrastructure` takes `Hr.Contracts` for this and nothing else.
+- **The backend's `FinanceEndpoints` is folded into `ProjectFinancialEndpoints`.** It is one route on
+  the same `/api/projects` prefix; a second class existing only to map a sibling route is a file, not a
+  boundary. The plan flagged watching that shared prefix — this is the resolution.
+- **Permission choices, all matching the backend's split and each load-bearing:** `recalculate` is
+  `manage_budget` not `read` (it overwrites the aggregates a project is managed by);
+  `reverse_payment` is separate from `record_payment` (reversing is the operation an auditor cares about
+  most); `cancel_invoice` is separate from `manage_invoice` (it voids a document a client may hold); and
+  the three variation transitions are separately grantable, which
+  `ApprovingAVariation_RequiresItsOwnPermission_NotTheAuthoringOne` proves is real rather than
+  decorative.
+- **Every `Project*Financial` route is `finance.read`, not `projects.read`** — the permission follows
+  the data, not the URL. A caller with `projects.read` and no finance permission gets a 403 there,
+  which is correct.
+
+### The three "eight" assertions
+
+| Test | Change |
+|---|---|
+| `CrmSmokeTests.Boot_RegistersExactlyEightModules` | → `...NineModules`, `"Finance"` inserted between `"Documents"` and `"Hr"` |
+| `SitesSmokeTests.GetPermissions_TotalsOneHundredAndEighteenAcrossEightModules` | → `...AcrossAllNineModules`, total extended **additively** with `FinancePermissions.All.Count` |
+| `PeriodicJobTests.EverySevenPeriodicJobs...` | → `EveryEight...`, `"InvoiceDueJob"` added to the exact-set assertion |
+
+**The permission total is never a re-typed literal.** `PermissionsThroughPhase5 + Notifications' count +
+Finance's count` — the only literal is the frozen historical figure. Re-typing the new total makes the
+test agree with itself and with nothing else, which is exactly how `PLAN-PHASE5.md` arrived at 62 when
+the answer was 114. That is now the standing rule for module ten.
+
+**`PeriodicJobTests` moved to eight HERE, not at F1-08**, because it resolves from the real Api host and
+`Program.cs` did not load `Finance.Infrastructure` until this commit. F1-08 proved the registration
+against the nine-module fixture instead; the two assertions cover different things and both are kept.
+
+### G9-14 accounting for this task
+
+Every Contracts message now has both a handler and a route. **The Contracts surface is fully consumed** —
+52 types, 54 routes, nothing shipped without a caller.
+
+### Carried forward
+
+- `NotificationsSchemaIsolationTests` race — **F1-10's** to fix, and the eighth job now runs in the host
+  on every fixture boot, which raises the rate exactly as predicted at F1-00.
+- F2-01: Contracts reconciliation is **52 types**; `docs/cross-schema-foreign-keys.md`'s SchemaOrder
+  paragraph needs past tense; `docs/low-resource-hosting.md` needs eight jobs; `docs/adding-a-module.md`
+  needs the route-shape rule, the deliberately-absent-FK entry and money precision under the R3 guard.
