@@ -8267,3 +8267,81 @@ Every Contracts message now has both a handler and a route. **The Contracts surf
 - F2-01: Contracts reconciliation is **52 types**; `docs/cross-schema-foreign-keys.md`'s SchemaOrder
   paragraph needs past tense; `docs/low-resource-hosting.md` needs eight jobs; `docs/adding-a-module.md`
   needs the route-shape rule, the deliberately-absent-FK entry and money precision under the R3 guard.
+
+---
+
+## F1-10 — Integration suite + nine-module spine (`a4c120c`)
+
+`FinanceSpineTests` (the whole lifecycle, run twice), `FinanceSchemaIsolationTests`, and the fix for the
+race deferred at F1-00. 5 new tests. **1106/1106 across 29 suites**, build 0/0, format clean.
+
+**Files:** `tests/Integration.Tests/{FinanceSpineTests,FinanceSchemaIsolationTests}.cs`,
+`ApiFixture.cs`; `src/BuildingBlocks/BackgroundLoops.cs`, `Outbox/OutboxProcessor.cs`,
+`Jobs/PeriodicJobWorker.cs`.
+
+### The deferred race, fixed the way that keeps the tests meaningful
+
+`ApiFixture.CapturedSql` is a **process-wide sink with no per-request correlation**. `OutboxProcessor`
+polls on a 60s fallback and `PeriodicJobWorker` sweeps at startup, so their SQL can land between a
+schema-isolation test's `ClearCapturedSql()` and its assertion — reading as the module under test having
+touched another module's schema.
+
+**Fixed by standing down the two TIMER loops in the test host**, via `BackgroundLoops.Enabled` (default
+**ON**, so no deployment can disable delivery by omitting a setting). Both workers stay registered and
+resolvable; the **ten call sites** that drive them explicitly are untouched, because nothing in the test
+host ever relied on the timers — a test that waits on one is slow and still races.
+
+**The alternative was explicitly rejected at F1-00 and stays rejected**: widening the forbidden-schema
+list until the noise stops would hide exactly the leaks those tests exist to catch. Removing the
+interleave is the same argument `PeriodicJobWorker._sweepGate` already makes for its own re-entrancy.
+Verified with three consecutive clean runs of the isolation suite.
+
+This is a small production change made for testability. It is stated as such in `BackgroundLoops`' own
+doc comment, with the only caller named so the connection is greppable from both ends.
+
+### What the spine proves — and what it does not
+
+Written into the test file before the test was written, as the plan required.
+
+**Proves:** nine schemas coexist under one host; Finance's 54 routes are reachable with real tokens and
+real permissions; the Budget gate closes end to end across a module boundary **the request never crosses
+directly**.
+
+**Does not prove:** delivery under concurrency. The outbox is drained deterministically here.
+`BudgetGateFlowTests` owns the gate mechanics in detail; this owns the claim that all of it works when
+assembled. Neither substitutes for the other.
+
+The spine ends by **reconciling from the far end of the system**: the applied `ClientDifference` wrote
+nothing to the budget line, so the BOQ still reports 1000 budgeted with the 300 as a *difference* line —
+the asymmetry F1-08 protects, observed through HTTP rather than through the entity.
+
+### The Project\*Financial routes get their own isolation assertion
+
+They live under Projects' URL space, so a reader assuming URL implies ownership would expect
+`projects.` SQL. They must still read `finance.` for every figure; the only Projects SQL is
+`IProjectDirectory` resolving names through its own DbContext.
+
+Asserted **separately**, with a filter permitting `projects.` and forbidding all seven others — rather
+than dropping them from the strict list, which would have made the interesting case the untested one.
+
+### Decided here, not specified by the plan
+
+- **A separate `FinanceSpineTests` file** rather than extending `CrossModuleSmokeTests`, following the
+  `SitesSpineTests` precedent: that file is already ~600 lines and this spine shares none of its
+  fixtures. The plan's intent — a nine-module spine test exists and runs twice — is met.
+- **Each setup step asserts its own status code.** The first run failed with an empty-JSON
+  deserialization error that named nothing; a 403 from a missing permission now names the step that
+  produced it.
+- **`FinanceSchemaIsolationTests` asserts the WRITE path touches `finance.` and the outbox**, positively
+  — so the negative half cannot pass because the write silently stopped enqueuing its
+  `InvoiceIssuedIntegrationEvent`.
+
+### Carried forward
+
+- Nothing deferred out of F1-10. **The F1-00 race is closed.**
+- F2-01 owes: `docs/adding-a-module.md` (route shape vs module ownership, deliberately-absent-FK as a
+  named entry, money precision under the R3 guard, and the `BackgroundLoops` note for test authors);
+  `docs/cross-schema-foreign-keys.md` (SchemaOrder paragraph to past tense);
+  `docs/low-resource-hosting.md` (eight jobs, one timer); `PROGRESS.md` (nine-module boundary, all ten
+  `ConditionType` values handled, deferred table); and the full final report — with the Contracts
+  reconciliation at **52 types**, not 54.
