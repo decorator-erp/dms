@@ -110,26 +110,46 @@ internal sealed class LedgerEntry : Entity, IAuditable
         return entry;
     }
 
-    /// <summary>Builds the mirror entry that reverses <paramref name="original"/>: same magnitude, same
-    /// scope, flipped direction, <see cref="ReversalOfId"/> set. Kept here rather than in a handler so
-    /// "a reversal is exact" is a property of the type, not of one call site.</summary>
+    /// <summary>
+    /// Builds the mirror entry that reverses <paramref name="original"/>: same magnitude, same scope,
+    /// flipped direction, <see cref="ReversalOfId"/> set. Kept here rather than in a handler so "a
+    /// reversal is exact" is a property of the type, not of one call site.
+    ///
+    /// <para><b>Three fields deliberately do NOT travel, corrected at F1-07 after reading
+    /// <c>LedgerEntryDomainService.ReverseAsync</c>. The first of them was a defect I introduced at
+    /// F1-02.</b>
+    /// <list type="bullet">
+    /// <item><see cref="OccurredOn"/> is <b>today</b>, not the original's date. A reversal is a new
+    /// event that happens when it is posted; carrying the original date backdates a correction into a
+    /// period that may already be reported, which is the kind of silent restatement a ledger exists to
+    /// prevent. F1-02 copied the original's date and a unit test pinned that — both were wrong, and the
+    /// test now asserts today.</item>
+    /// <item><see cref="Reference"/> is dropped. It is the source key the posting dedupe check reads,
+    /// and a reversal is not another posting of that source. Harmless in practice — the dedupe query
+    /// excludes reversals outright — but carrying it makes the row read as a second posting of the same
+    /// source to any human or query that does not know about that exclusion.</item>
+    /// <item><see cref="Method"/> is dropped. Reversing a bank transfer is not itself a bank
+    /// transfer.</item>
+    /// </list>
+    /// <see cref="VendorName"/> follows the backend and is also dropped, which is the one of the four I
+    /// would argue with: it is descriptive rather than functional, and keeping it would make the
+    /// reversal self-explanatory. Left as the backend has it because nothing reads it on a reversal, and
+    /// diverging here would buy nothing.</para>
+    /// </summary>
     public static Result<LedgerEntry> CreateReversal(LedgerEntry original, Guid recordedById, string? note = null) =>
         Create(
             original.ProjectId,
             original.Amount,
             original.Direction == LedgerDirection.In ? LedgerDirection.Out : LedgerDirection.In,
             original.Type,
-            original.OccurredOn,
+            DateOnly.FromDateTime(DateTime.UtcNow),
             recordedById,
             original.ProjectStageId,
             original.ProjectTaskId,
             original.BudgetLineId,
-            original.Method,
-            original.ClientId,
-            original.VendorName,
-            original.VariationId,
+            clientId: original.ClientId,
+            variationId: original.VariationId,
             reversalOfId: original.Id,
-            reference: original.Reference,
             note: note);
 
     private static Result ValidateDirection(LedgerEntry entry)

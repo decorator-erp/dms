@@ -117,6 +117,11 @@ internal static class InvoiceErrors
 
     public static readonly Error InvalidStatusTransition = Error.BadRequest(
         $"{Code}.InvalidStatusTransition", "The invoice status does not allow this operation.");
+
+    /// <summary>F1-07 addition, same shape as the budget-line and BOQ cases: the backend leaves an
+    /// unknown project to the foreign key, which surfaces as a 500 rather than a 404.</summary>
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        $"{Code}.ProjectNotFound", "The project for this invoice was not found.");
 }
 
 /// <summary>Ported from <c>../backend/Domain/Errors/InvoiceLineErrors.cs</c>. The backend's
@@ -171,6 +176,16 @@ internal static class VariationErrors
 
     public static readonly Error NotApproved = Error.BadRequest(
         $"{Code}.NotApproved", "Only approved variations can be applied.");
+}
+
+/// <summary>F1-07. The financial dashboard is Finance-owned but project-scoped, and its first act is to
+/// confirm the project exists. The backend returns <c>ProjectErrors.NotFound</c> — another module's
+/// error, which this module cannot reference and should not: the caller asked Finance for a dashboard,
+/// and the code it gets back should say which surface refused.</summary>
+internal static class FinanceDashboardErrors
+{
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        "finance_dashboard.ProjectNotFound", "The project for this financial dashboard was not found.");
 }
 
 /// <summary>Ported from <c>../backend/Domain/Errors/BoqSnapshotErrors.cs</c>.</summary>

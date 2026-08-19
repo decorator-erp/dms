@@ -136,8 +136,13 @@ public class LedgerInvariantTests
     public void CreateReversal_MirrorsTheOriginalExactly()
     {
         var clientId = Guid.NewGuid();
+
+        // Explicitly historical rather than the shared Occurred constant, which is "today" and would
+        // make the NotEqual below pass or fail depending on the date the suite runs.
+        var longAgo = new DateOnly(2020, 3, 4);
+
         var original = LedgerEntry.Create(
-            ProjectId, 1234.5678m, LedgerDirection.In, LedgerEntryType.ClientPayment, Occurred, ActorId,
+            ProjectId, 1234.5678m, LedgerDirection.In, LedgerEntryType.ClientPayment, longAgo, ActorId,
             projectStageId: Guid.NewGuid(), projectTaskId: Guid.NewGuid(), budgetLineId: Guid.NewGuid(),
             method: PaymentMethod.BankTransfer, clientId: clientId, reference: "REF-1").Value!;
 
@@ -155,7 +160,19 @@ public class LedgerInvariantTests
         Assert.Equal(original.ProjectTaskId, reversal.ProjectTaskId);
         Assert.Equal(original.BudgetLineId, reversal.BudgetLineId);
         Assert.Equal(original.ClientId, reversal.ClientId);
-        Assert.Equal(original.OccurredOn, reversal.OccurredOn);
+
+        // CHANGED AT F1-07, and the change is to the ASSERTION as well as the code. This previously
+        // asserted the reversal carried the original's OccurredOn -- which is what F1-02 implemented
+        // and what reading LedgerEntryDomainService.ReverseAsync showed to be wrong. A reversal is a new
+        // event dated when it is posted; backdating it restates a period that may already be reported.
+        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), reversal.OccurredOn);
+        Assert.NotEqual(original.OccurredOn, reversal.OccurredOn);
+
+        // Reference is the source key the posting dedupe reads, and a reversal is not another posting of
+        // that source. Method is dropped for the same class of reason: reversing a bank transfer is not
+        // itself a bank transfer.
+        Assert.Null(reversal.Reference);
+        Assert.Null(reversal.Method);
     }
 
     [Fact]
