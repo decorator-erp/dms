@@ -647,6 +647,105 @@ really has the id — so the check cannot be satisfied by marking everything. Ex
   `OutboxProcessor.ProcessPendingAsync(ct)` directly in the test rather than waiting for its real
   5-second poll interval.
 
+
+## Positive controls
+
+**The standing rule: an assertion that something never happens proves nothing until the instrument has
+been shown to detect it happening.**
+
+A negative assertion over a set that machinery gathered — a logger provider, an EF interceptor, a
+reflection scan, a `pg_*` catalog query, a DI resolution — passes identically whether the system is
+clean or the machinery is dead. Both produce an empty set. Four instances of this shape have been
+found in this codebase so far (E1-01, P5F-01, D1, N1-08), and the sweep that established this rule
+found the fifth in the one place designed to prevent it: `MetaSelfEnforcementTests`, the test whose
+whole job is stopping other tests from passing vacuously, had no check that its own `.slnx` parse
+returned anything.
+
+### Which assertions need one
+
+Apply the criterion literally:
+
+> An assertion is at risk **iff the thing asserted about is gathered by machinery**, rather than being
+> a direct return value of the call under test.
+
+`Assert.False(result.IsSuccess)` is not at risk — the object exists and the property is read off it.
+`Assert.Empty(fixture.CapturedSql.Where(...))` is, and so is `Assert.Empty(violatingTypes)` in an arch
+rule. Most negative assertions in this repo are the first kind and must be left alone; adding controls
+to all of them would be noise.
+
+### Shape 1 — liveness. Mandatory, one line.
+
+Assert the gathered set is non-empty **in the same test**, before asserting what it does not contain:
+
+```csharp
+// Prove the collector collected...
+Assert.Contains(fixture.CapturedSql, sql => sql.Contains("crm.", StringComparison.OrdinalIgnoreCase));
+// ...then that it saw no violation.
+Assert.DoesNotContain(fixture.CapturedSql, sql => sql.Contains("identity.", StringComparison.OrdinalIgnoreCase));
+```
+
+Name the thing that **must** be there rather than asserting bare non-emptiness where you can. Same cost,
+and it additionally proves the measured window covers the operation under test rather than some
+unrelated statement.
+
+Two details that decide whether the liveness line is worth anything:
+
+- **Clear before the action, never after.** `ClearCapturedSql()` after the operation empties the very
+  evidence you are about to assert on.
+- **Watch the direction of `Except`.** `Expected.Except(actual)` fails loudly when the query returns
+  nothing — the whole expected list shows up as missing. `actual.Except(Expected)` passes green on an
+  empty result. Only the second needs a liveness line, and it needs one badly: a typo'd schema name in
+  a `pg_constraint` query is invisible without it.
+
+### Shape 2 — discrimination. Where a violation can be injected in a few lines.
+
+Inject a real violation, confirm the failure names it, revert. **The injection must match the mechanism
+the rule uses** (P5F-01's own finding) or you have tested something other than the rule.
+
+**Liveness on a set does not cover a filter, and this is not hypothetical.** Where an assertion
+resolves a collection and then narrows it, a dead *filter* is a second failure mode that non-emptiness
+cannot see. `NotificationEventConsumerTests` asserted that no handler whose class name contains
+`"Notification"` is registered for four deliberately-silent events. It could never have failed:
+`AddModuleIntegrationEvents` wraps every handler in `InboxDedupeDecorator<TContext, TEvent>`, so
+`GetServices` returns the decorator and `GetType().Name` is always ``InboxDedupeDecorator`2`` — the
+filter matched nothing for any event, ever. Its sibling test resolved handlers *without* the name
+filter and stayed green throughout, which is exactly why one control over half a query proves nothing
+about the other half.
+
+The fix was to the instrument, not the assertion: the claim is structural — *"no notification handler
+class exists for this event"* — so it now reflects over the `*.Infrastructure` assemblies, which no
+container wrapping can disguise. **If a filter is part of your assertion, exercise the filter against a
+case you know it should match.**
+
+### A gathered set that is legitimately empty needs a pair, not a `NotEmpty`
+
+The at-risk criterion is necessary but not sufficient. Some assertions run against a state where the
+gathered set is *correctly* empty — a pivot after its only column is detached, a guard given an empty
+input list. Asserting non-emptiness there is simply wrong, and turns a correct test red.
+
+Use a before/after pair instead: prove the query returns the row **before** the operation, so its
+absence afterwards is attributable to the operation rather than to a query that returns nothing.
+
+```csharp
+var before = await ListAsync(projectId);
+Assert.Contains(before, d => d.Id == documentId);   // the query can see it...
+
+await DeleteAsync(documentId);
+
+var after = await ListAsync(projectId);
+Assert.DoesNotContain(after, d => d.Id == documentId);   // ...so this absence is the delete's doing
+```
+
+Where even that is impossible — an empty input can only produce an empty output — record why, and lean
+on whatever sibling assertion carries the real claim (typically "no query was issued at all").
+
+### What this means for a new module
+
+A new module's schema-isolation and schema-object tests are exactly the shape that was dead for three
+phases. **Liveness belongs in the verify clause of the task that writes them, not in a follow-up.** A
+schema-object test whose catalog query names the wrong schema, and a schema-isolation test whose
+collector is unplugged, are both green on the day they ship.
+
 ## Six more patterns (from Phase 6 — Notifications & Audit)
 
 ### 1. `IPeriodicJob` — the third define-in-one-place / implement-in-many registry

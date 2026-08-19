@@ -6957,3 +6957,75 @@ alone above.
 
 **Gate:** build 0 warnings / 0 errors; `dotnet test` **846/846** across 26 suites; `dotnet format` exit 0,
 no content change.
+
+## PC-04 — Close-out
+
+`docs/adding-a-module.md` gains a **Positive controls** section: the standing rule, the at-risk
+criterion, both shapes, and the two details that decide whether a liveness line is worth anything
+(clear-before-the-action, and the direction of `Except`). `CapturedSql` is the worked example. Every
+future module's schema-isolation and schema-object tests inherit it.
+
+### The standing rule, alongside the other two
+
+| Rule | From |
+|---|---|
+| A grep proves nothing until it has been shown to match the positive case. | D1 (+2 earlier) |
+| A test written after a fix proves nothing until it has been shown to depend on the fix. | E1-01, P5F-01 |
+| **An assertion that something never happens proves nothing until the instrument has been shown to detect it happening.** | **N1-08, this sweep** |
+
+### Final count
+
+| | |
+|---|---|
+| Negative assertions in the widened census | **206** (the plan's 173 + 33 the four-form grep missed) |
+| At-risk — gathered by machinery | **92** |
+| Already carrying a control | **57** |
+| Controls added | **32** |
+| At-risk but uncontrollable by construction, recorded | **3** |
+| Direct — a return value or property read | **114** |
+| Fault injections run, each matching its rule's own mechanism | **6** |
+| Tests proven red by injection | **26** |
+| Of those, newly detecting because of this sweep | **18** |
+
+### What the sweep actually found
+
+The expected outcome, written before starting, was *"most at-risk sites will already be sound; the
+value is the small number that are not."* That held — 57 of 92 were already controlled, and N1-02's
+audit family needed nothing at all. Three findings were real:
+
+1. **`DeliberatelySilentEvents_HaveNoNotificationHandler` could never have failed.**
+   `InboxDedupeDecorator` means `GetServices` never returns a handler whose name contains
+   "Notification". Vacuous since N1-06. Instrument replaced with a type scan; discrimination proved.
+2. **`MetaSelfEnforcementTests` was fail-open.** With its `.slnx` parse broken it passed while
+   scanning nothing — the guard against vacuity, itself vacuous. Demonstrated by removing the new
+   assertion and re-running under the same injection.
+3. **Rules 5, 6 and 10 had unasserted vacuity paths.** Rule 10's summary claimed non-vacuity that
+   nothing checked; rules 5 and 6 could execute zero assertions and report success.
+
+And one methodological finding, from the census rather than the code: **the plan's own grep for
+unguarded negative assertions was too narrow to match the case it was written for.** All eight
+`CapturedSql` assertions use `Assert.True(count == 0, "…")` so the failure message can name the
+offending SQL, and none of them appeared in the 173.
+
+### What this changes about the Finance plan
+
+`PLAN-PHASE7.md` was drafted at `3d5dd01` and **already requires liveness in the verify clause** —
+item 101 ("positive controls from the start"), F-task verify text ("liveness on every gathered
+assertion"), and a hard stop on weakening one. That is the right shape and needs no change. Four
+refinements this sweep produced afterwards:
+
+1. **Prefer naming the module's own schema over `Assert.NotEmpty(captured)`.** The plan specifies the
+   weaker form. `Assert.Contains(captured, sql => sql.Contains("finance."))` costs the same and also
+   proves the measured window covers the operation, not merely that something was captured.
+2. **The direction of `Except` decides whether liveness is needed at all.** Finance's schema-object
+   tests will have both halves. `Expected.Except(actual)` fails loudly on a dead query; only
+   `actual.Except(Expected)` — the fail-closed "nothing unexpected exists" half — needs the line.
+3. **Liveness on a set does not cover a filter.** Finance resolves `IGateConditionTypeHandler` for
+   `ConditionType.Budget` and registers `InvoiceDueJob`. Any assertion that resolves from DI *and then
+   filters by name or type* needs the filter itself exercised against a known-present case — that is
+   precisely the gap that hid the Notifications defect, and the milestone "every `ConditionType` has a
+   handler" assertion is the same shape.
+4. **"Gathered by machinery" is necessary but not sufficient.** A gathered set that is *legitimately
+   empty in the state under test* needs a before/after pair, not a non-emptiness assertion. Adding
+   `NotEmpty` to one such site turned a correct test red during this sweep. Finance's variation and
+   budget-line tests will have several.
