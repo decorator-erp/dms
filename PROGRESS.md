@@ -7792,3 +7792,135 @@ Both restored and reconfirmed green.
 - Rule 10 still effectively vacuous for Finance until F1-08.
 - **F1-07 must not open transactions** — see the transaction finding above.
 - F2-01 still owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense.
+
+---
+
+## F1-07 — `Finance.Application`: ledger and invoices (`05a24b9`)
+
+13 handlers — 6 LedgerEntries + 6 Invoices + the project financial dashboard — plus the seed of
+`FinancialBlocks` and 49 new tests. **1051/1051 across 29 suites**, build 0/0, format clean.
+
+**Files:** `Finance.Application/{Common/FinancialBlocks.cs, Features/LedgerEntries/LedgerEntryHandlers.cs,
+Features/Invoices/InvoiceHandlers.cs, Features/Dashboard/ProjectFinancialDashboardHandler.cs}`;
+`Finance.Domain/{LedgerEntry.cs, Errors.cs}`; `tests/Modules/Finance.UnitTests/LedgerInvariantTests.cs`;
+`tests/Modules/Finance.Application.Tests/{LedgerFlowTests,InvoiceFlowTests,FinancialDashboardTests}.cs`.
+
+### A defect I introduced at F1-02, caught by reading the handler I was porting
+
+`LedgerEntry.CreateReversal` carried the **original's `OccurredOn`**. The backend stamps
+`DateOnly.FromDateTime(DateTime.UtcNow)`. Backdating a correction into a period that may already have
+been reported is precisely the silent restatement a ledger exists to prevent. Also dropped, following
+the backend: `Reference` (it is the source key the dedupe reads, and a reversal is not another posting
+of that source) and `Method` (reversing a bank transfer is not itself a bank transfer). `VendorName` is
+dropped too — the one of the four I would argue with, kept as the backend has it because nothing reads
+it on a reversal.
+
+**The unit test that pinned the old behaviour was changed, not deleted, and says so in the test body.**
+Its shared `Occurred` constant is today's date, which would have made the new `NotEqual` assertion a
+time bomb — replaced locally with an explicit historical date. This is the "green test, changed meaning"
+shape from the other direction: the test was green and wrong.
+
+### Three backend defects fixed (D-F7, D-F8, D-F9)
+
+- **D-F7 — dedupe was global, not per-project.** `ExistsForSourceAsync` matches on `(Type, VariationId,
+  Reference)` across all projects, so two projects both posting a commitment referenced
+  `"MILESTONE-1"` collide and the second is rejected as a duplicate. A reference is free text whose
+  meaning is local to its project; a variation id is globally unique and unaffected either way. Scoped,
+  and `Post_TheSameReferenceInADifferentProject_Succeeds` is the test that fails if the predicate is
+  ever "simplified" back out.
+- **D-F8 — `NotAPayment` defined and never raised.** The backend declares the error with the message
+  "Only cleared client/vendor payment entries can be allocated to invoices" and then allows a
+  **Commitment** to be allocated against an invoice, marking it paid with money that has not moved.
+  Enforced **narrowly**: only `Commitment` is refused. `ClientPayment` and `ActualCost` are both real
+  movements — the latter is how a vendor invoice gets paid — so excluding either would break a
+  legitimate flow.
+- **D-F9 — `AddLine` accepted a paid or cancelled invoice**, raising `TotalAmount` above `PaidAmount`
+  while leaving the status `Paid`: an invoice simultaneously settled and owing, a state nothing else in
+  the module can produce and no code path expects.
+
+Plus two of the F1-06 shape: `CreateInvoice` validates the project (404 not a foreign-key 500), and a
+`DueOn` before `IssuedOn` is rejected rather than producing an invoice that is overdue the moment it
+exists and would be flagged by F1-08's job on its first tick.
+
+### Recorded, not changed: an actual cost does not reduce AvailableAmount
+
+Found by writing an expectation that turned out wrong. `ApplyActualCost` moves `Committed` and `Actual`
+by the same delta in **opposite** directions, so `Available = Effective − Committed − Actual` is
+**invariant** under it. An uncommitted overspend surfaces as a **negative `CommittedAmount`**, never as
+a negative `Available`.
+
+This is why every over-budget check in the module — the BOQ difference line, the dashboard's
+over-budget list, and the Budget gate's coverage rule at F1-08 — is written as
+`Actual > EffectiveCap` and never as `Available < 0`. **The second form looks equivalent and would
+report nothing.** `Post_AnActualCostBeyondAvailable_IsAllowed_AndLeavesAvailableUnchanged` pins it.
+
+### Dashboard divergence, and the one place it does not apply
+
+The backend enumerates every stage of the project and shows zero rows for stages with no financial
+activity. `IProjectDirectory` resolves stages **by id** and extending it is outside this phase's two
+permitted Contracts additions, so the stage list is derived from Finance's own budget lines, invoices
+and ledger entries, with names fetched by id. **A stage with no financial activity is absent rather
+than present with zeros**; any stage with an invoice, payment or budget line is present with identical
+figures.
+
+The **over-budget task list is not affected**, and the handler says why rather than leaving it to be
+re-derived: a task with no budget line and no ledger entry has zero on both sides and can never pass
+the `Actual > EffectiveCap` filter, so the set reached from Finance's own data is exactly the set the
+backend reaches by filtering.
+
+### `IsFunded`, and the half that is easy to drop
+
+`ClientInvoicesSum > 0 && ClientPaymentsSum >= ClientInvoicesSum`. Without the `> 0`, a stage nobody has
+invoiced reads as **funded**, because zero payments trivially cover zero invoices. This is the same
+expression the Budget gate uses at F1-08, so getting it wrong here would unlock stages.
+`Dashboard_StageIsFundedOnlyWhenInvoicedAndCovered` asserts both the uninvoiced case and the
+invoiced-then-paid transition.
+
+### Decided here, not specified by the plan
+
+- **`FinancialBlocks` seeded rather than pulled forward whole.** The backend's file is 366 lines and
+  reads `ProjectTasks`/`ProjectStages` throughout — genuinely F1-07b work. Only
+  `BuildTaskBlocksAsync` lands now, because the dashboard needs it and writing it inline would
+  guarantee duplication at F1-07b. F1-07b extends the file rather than replacing it.
+- **A ledger entry is attributed to a task two ways** — directly via `ProjectTaskId`, or indirectly via
+  a task-scoped `BudgetLineId`. Dropping the indirect route silently under-reports every posting made
+  against a budget line, which is the more common shape since `InsufficientBudget` is checked against
+  the line.
+- **`FinanceDashboardErrors.ProjectNotFound`** rather than the backend's `ProjectErrors.NotFound` —
+  another module's error, which Finance cannot reference and should not: the caller asked Finance for a
+  dashboard and the code should say which surface refused.
+- **`GetUnallocated` excludes reversals and reversed entries.** Neither has money left to allocate, and
+  offering either would let a user settle an invoice against a movement that has been undone. The
+  backend excludes neither.
+- **Allocation applies the invoice side before adding the allocation row**, so an over-payment refusal
+  leaves nothing to undo. Both land in the decorator's transaction regardless; this just keeps the
+  failure path from depending on that.
+- **`Create_WithAnInvalidLine` asserts the VALIDATOR error, not the domain one**, and a separate test
+  reaches `InvoiceLine.Create` directly. The validator and the F1-03 domain guard now enforce the same
+  bound, so the domain code is unreachable through the command path — asserting it there would mean the
+  edge had stopped guarding. Both are tested, at the level each actually fires.
+
+### G9-14 accounting for this task
+
+Every Contracts type in `LedgerEntries`, `Invoices` and `Dashboard` now has a handler. Remaining
+unhandled: `Financial` (F1-07b) and `Variations` (F1-08), plus the seven integration events, which are
+declared but not yet published — F1-08 publishes them alongside the Projects-side consumer, since a
+publisher with no consumer is the G9-14 shape.
+
+### Discrimination proven
+
+| Injection | Result |
+|---|---|
+| Split the commitment-to-actual handoff (`ApplyCommitment(delta)` after `ApplyActualCost`) | 3 tests red, across ledger and dashboard |
+| Drop the project scope from the dedupe predicate | `Post_TheSameReferenceInADifferentProject_Succeeds` red, alone |
+
+Both restored and reconfirmed green.
+
+### Carried forward
+
+- **F1-08 seam is marked in code**, in `ApplyPostingEffectsAsync`: the verdict computation and the
+  `TaskBudgetCoverageChanged` / `StageFundingChanged` publications go exactly there.
+- `NotificationsSchemaIsolationTests` race — unchanged, still deferred to F1-10.
+- Rule 10 still effectively vacuous for Finance until F1-08.
+- No handler may open a transaction (F1-06 finding) — held throughout F1-07.
+- F2-01 still owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense.
