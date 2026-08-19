@@ -62,6 +62,7 @@
     <ProjectReference Include="..\..\src\Modules\Sites\Sites.Domain\Sites.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sites\Sites.Infrastructure\Sites.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sites\Sites.Application\Sites.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Finance\Finance.Contracts\Finance.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Domain\Notifications.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
