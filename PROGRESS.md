@@ -7924,3 +7924,125 @@ Both restored and reconfirmed green.
 - Rule 10 still effectively vacuous for Finance until F1-08.
 - No handler may open a transaction (F1-06 finding) — held throughout F1-07.
 - F2-01 still owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense.
+
+---
+
+## F1-07b — Project/stage/task financial read slice (`511ad58`)
+
+**15 queries, not the plan's 12**: 7 project-scope, 4 stage-scope, 4 task-scope — plus `LedgerScopes`,
+`LedgerSums`, `LedgerMovementProjection`, `FinancialProjections` and the rest of `FinancialBlocks`.
+18 new tests. **1069/1069 across 29 suites**, build 0/0, format clean.
+
+**Files:** `Finance.Application/Common/{LedgerScopes,LedgerSums,LedgerMovementProjection,FinancialBlocks}.cs`;
+`Finance.Application/Features/Financial/{FinancialProjections,ProjectFinancialQueryHandlers,
+StageFinancialQueryHandlers,TaskFinancialQueryHandlers}.cs`;
+`Finance.Contracts/Financial/FinancialMessages.cs`; `Finance.Domain/Errors.cs`;
+`tests/Modules/Finance.Application.Tests/FinancialReadSliceTests.cs`.
+
+### The count reconciles at 15
+
+Project: Summary, Movements, CostCategoryBreakdown, Cashflow, Invoices, Variations, BoqSnapshots (7).
+Stage: Movements, Invoices, Variations, BoqSnapshots (4). Task: Movements, InvoiceLines, BoqLines,
+Variations (4). The plan named 12; F1-01's recount added the three route-only ones and got 15. Confirmed
+against the backend's own file tree.
+
+### Two plan claims falsified — both were flagged "to be confirmed while porting"
+
+- **"`financial/by-category` and `financial/cashflow` resolve through `FinancialBlocks` rather than their
+  own query file."** False. Both have real query files —
+  `GetProjectCostBreakdownByCategoryQuery` and `GetProjectMonthlyCashflowQuery` — and the cashflow one
+  **takes a date range** the Contract omitted. Added, defaulting to the trailing twelve months.
+- **`GetTaskBoqLinesQuery` takes a `SnapshotVersion`** the Contract was missing. Without it, the default
+  behaviour — the **latest snapshot of each TYPE**, not every snapshot — has no override. Added.
+
+### Two Contracts records removed, and why that is the disciplined answer
+
+`ProjectTaskFinancialBlock` and `ProjectStageFinancialBlock`. F1-01 shipped both, following the
+backend's DTO set. Porting the queries showed their only consumers there are
+`GetProjectById` / `GetProjectDetails` / `GetProjectStageById` / `GetProjectTaskById` /
+`GetProjectTaskDetails` / `GetProjectTasksByStage` — **all Projects-owned detail queries this port does
+not extend** — and none of the fifteen queries returns either.
+
+Two public records nothing produces is exactly the G9-14 shape. Keeping them would keep **half of a
+decision this phase already made**: structural item 3 declined to ship an `IFinanceReader` because it
+had no consumer, and these are that contract's payload without its interface. The day Projects wants an
+enriched detail response, the right shape is `IFinanceReader` carrying these — added then, with the
+consumer, in one commit. **54 Contracts types becomes 52**; F2-01's reconciliation must use 52.
+
+`ProjectFinancialBlock` and `StageBudgetRow` stay — `GetProjectFinancialSummaryQuery` returns both.
+
+### A scope is a union of three routes, not one column
+
+An entry belongs to a **task** if it names the task directly **or** names a budget line the task owns;
+to a **stage** if it names the stage, a task of that stage, or a budget line under either. Collapsing
+either to the direct column silently under-reports every posting made against a budget line — the more
+common shape, since `InsufficientBudget` is checked against the line.
+
+**The stage scope is the only query whose SCOPE, not just its filter, needs Projects — and it resolves
+exactly rather than approximately.** Candidate task ids come from Finance's own ledger entries and
+budget lines, are resolved in one batched `GetTasksAsync`, and are filtered by
+`TaskSummary.ProjectStageId`. That is not a narrowing: a task Finance has no financial data for
+contributes nothing to any sum, so both routes reach the same numbers. No Contracts extension needed.
+
+### The effective-stage fallback chain
+
+A budget line or ledger entry is attributed to its own stage, else its task's stage, else its budget
+line's stage. Without the last hop, **a posting naming only a budget line vanishes from every stage row
+while still counting in the project total**, and the two silently disagree.
+`ProjectSummary_AttributesABudgetLineOnlyPostingToItsEffectiveStage` asserts the stage rows sum to the
+project totals, which is the property the fallback protects.
+
+### An EF mistake of mine, and the comment that asserted it
+
+`FinancialProjections` started as ordinary methods called inside `Select`, with a doc comment claiming
+EF inlines a method call at expression-tree build time. **That is wrong** — the compiler does not inline
+the body, so the call stays a `MethodCallExpression` EF cannot translate, and EF evaluated it
+client-side per row while the outer reader was still open. Two of the three projections run a correlated
+count, so it failed with `NpgsqlOperationInProgressException` rather than merely being slow. Rewritten
+as `Expression<Func<,>>`-returning factories; the comment now states the real reason. Three tests
+caught it.
+
+### Decided here, not specified by the plan
+
+- **`FinancialScopeErrors.StageNotFound`.** `ForStageAsync` returns null for an unknown stage rather
+  than an empty query, so "no such stage" and "a stage with no movements" stay different answers.
+  Collapsing them hides a bad id behind a plausible-looking empty panel.
+- **`GetTaskBoqLines` returns empty for an unknown task**, matching the backend — it is a drilldown
+  panel, where "no lines" and "no task" look the same to the caller. The inconsistency with the stage
+  case is the backend's and is preserved deliberately.
+- **Cashflow is UNSIGNED**, alone among the aggregates here: inflow and outflow are separate positive
+  figures because a chart wants two bars. The consequence is that a reversal appears as a movement in
+  the opposite column rather than cancelling — the correct depiction, since the money really did move
+  twice. `Cashflow_ReportsInflowAndOutflowSeparately_AndDoesNotNetReversals` pins it.
+- **Uncategorised budget lines roll into one bucket** with a null id rather than being dropped, and the
+  test asserts the category rows sum to the project's effective cap — which is what dropping them would
+  break.
+- **`StageBudgetRow.Order` is always 0.** `StageSummary` does not publish it, and a fabricated sequence
+  would be worse than an honest zero. Rows are ordered by name instead, which is a property the caller
+  can rely on.
+- **The two same-named `InvoiceListItemResponse` records collide** in any file using both namespaces —
+  the hazard their own doc comments warn about, hit for real in the test file and resolved with an
+  alias rather than by merging the two wire contracts.
+
+### Discrimination proven
+
+| Injection | Result |
+|---|---|
+| Collapse the stage scope to `e.ProjectStageId == stageId` | `StageMovements_ReachEntriesByStage_ByTaskOfTheStage_AndByBudgetLine` red |
+| Drop the budget-line fallback from the stage rollup | `ProjectSummary_AttributesABudgetLineOnlyPostingToItsEffectiveStage` red |
+
+Both alone, both restored and reconfirmed green.
+
+### G9-14 accounting for this task
+
+Every Contracts type in `Financial` now has a handler, after removing the two that could not. The only
+remaining unhandled Finance Contracts are `Variations` and the seven integration events — both F1-08's.
+
+### Carried forward
+
+- F2-01's Contracts reconciliation is **52 types, not 54**.
+- `NotificationsSchemaIsolationTests` race — unchanged, still deferred to F1-10.
+- Rule 10 still effectively vacuous for Finance until F1-08.
+- No handler may open a transaction (F1-06 finding) — held.
+- F1-09 maps these fifteen under `/api/projects`, `/api/project-stages`, `/api/project-tasks`: the
+  route-shape-vs-module-ownership divergence F2-01 writes up in `docs/adding-a-module.md`.
