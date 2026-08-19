@@ -187,6 +187,12 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
             SELECT tablename FROM pg_tables WHERE schemaname = 'notify'
             """);
 
+        // PC-03 liveness: the three absences below are all satisfied by an empty result set, so a
+        // typo'd schema name would prove the opposite of what this test claims. Asserting the tables
+        // that MUST be here is what makes the three that must not be here mean something.
+        Assert.Contains("notifications", tables);
+        Assert.Contains("activities", tables);
+
         Assert.DoesNotContain("audit_logs", tables);
         Assert.DoesNotContain("outbox_messages", tables);
         Assert.DoesNotContain("inbox_messages", tables);

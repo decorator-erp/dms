@@ -72,6 +72,9 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
         var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(user.Id);
 
+        // PC-03 liveness: the user's role grants employees.read, so an empty resolve would satisfy the
+        // absence assertion below while proving nothing about the override having expired.
+        Assert.Contains("employees.read", resolved);
         Assert.DoesNotContain("roles.manage", resolved);
     }
 

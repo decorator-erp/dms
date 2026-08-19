@@ -80,6 +80,13 @@ public sealed class HrSchemaTests : IAsyncLifetime
 
         var employeeType = context.Model.FindEntityType(typeof(Employee))!;
 
+        // PC-03 liveness: all three assertions below read EF metadata, and all three are satisfied by a
+        // metadata reader that returns nothing. The property list proves the model is really built and
+        // really describes Employee — including the scalar AppUserId, which is precisely the column the
+        // absent navigation would otherwise have been mapped through.
+        Assert.NotEmpty(employeeType.GetProperties());
+        Assert.Contains(employeeType.GetProperties(), p => p.Name == nameof(Employee.AppUserId));
+
         Assert.Empty(employeeType.GetNavigations());
         Assert.Empty(employeeType.GetForeignKeys());
         Assert.DoesNotContain(

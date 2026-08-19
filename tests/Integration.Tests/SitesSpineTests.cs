@@ -315,8 +315,18 @@ public sealed class SitesSpineTests(ApiFixture fixture)
         using var context = (Microsoft.EntityFrameworkCore.DbContext)
             Activator.CreateInstance(contextType, built)!;
 
-        var strays = context.Model.GetEntityTypes()
+        var entityTypes = context.Model.GetEntityTypes()
             .Select(e => new { e.ClrType.Name, Schema = e.GetSchema() })
+            .ToArray();
+
+        // PC-03 liveness. The whole assertion is reached through reflection over a context type
+        // resolved by string name; if that produced a context whose model was empty, "names no table
+        // outside the sites schema" would be true because it names no table at all. Both halves
+        // asserted: the model is populated, and it really is the Sites model.
+        Assert.NotEmpty(entityTypes);
+        Assert.Contains(entityTypes, e => e.Schema == "sites");
+
+        var strays = entityTypes
             // The outbox lives in "shared" by design -- ConfigureOutbox(ownsMigration: false).
             .Where(e => e.Schema is not null and not "sites" and not "shared")
             .Select(e => $"{e.Name} -> {e.Schema}")

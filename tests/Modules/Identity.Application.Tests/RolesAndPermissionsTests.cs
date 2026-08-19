@@ -179,6 +179,14 @@ public sealed class RolesAndPermissionsTests(IdentityApplicationFixture fixture)
         Assert.Equal(newName, afterUpdate.Value!.Name);
         Assert.Equal("a new description", afterUpdate.Value!.Description);
 
+        var getAllRoles = sp.GetRequiredService<IQueryHandler<GetAllRolesQuery, IReadOnlyList<RoleResponse>>>();
+
+        // PC-03 liveness, as a before/after pair rather than a bare non-empty check: this proves
+        // GetAllRolesQuery can see THIS role, so its absence afterwards is the delete's doing. A query
+        // that always returned nothing would satisfy the assertion below on its own.
+        var beforeDelete = await getAllRoles.HandleAsync(new GetAllRolesQuery());
+        Assert.Contains(beforeDelete.Value!, r => r.Id == roleId);
+
         var delete = sp.GetRequiredService<ICommandHandler<DeleteRoleCommand>>();
         var deleteResult = await delete.HandleAsync(new DeleteRoleCommand(roleId));
         Assert.True(deleteResult.IsSuccess);
@@ -186,7 +194,6 @@ public sealed class RolesAndPermissionsTests(IdentityApplicationFixture fixture)
         var afterDelete = await getRole.HandleAsync(new GetRoleQuery(roleId));
         Assert.True(afterDelete.IsFailure);
 
-        var getAllRoles = sp.GetRequiredService<IQueryHandler<GetAllRolesQuery, IReadOnlyList<RoleResponse>>>();
         var allRoles = await getAllRoles.HandleAsync(new GetAllRolesQuery());
         Assert.DoesNotContain(allRoles.Value!, r => r.Id == roleId);
     }

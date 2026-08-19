@@ -157,6 +157,13 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
             ORDER BY con.conname;
             """);
 
+        // PC-03 liveness, and this direction is the one that needs it. The two sibling tests compute
+        // Expected.Except(actual), which goes RED when the query returns nothing — the full expected
+        // list shows up as missing. This one computes actual.Except(Expected), which goes GREEN on an
+        // empty result: a typo'd schema name, a renamed catalog view, or a connection to the wrong
+        // database all read as "no unexpected constraints".
+        Assert.NotEmpty(actual);
+
         var unexpected = actual.Except(ExpectedCheckConstraints).ToArray();
 
         Assert.Empty(unexpected);

@@ -28,6 +28,13 @@ public class Rule6DbContextIsolationTests
                 .Select(t => (Module: ModuleAssemblies.ModuleOf(a.GetName().Name!), Type: t)))
             .ToList();
 
+        // PC-03 liveness. The early return below is a silent exit: no module DbContext discovered means
+        // no assertion runs and the rule reports success. Eight modules, eight contexts — the floor
+        // makes the "vacuous today" comment above a statement this test can now falsify.
+        Assert.True(dbContextsByModule.Count >= 8,
+            $"Discovered only {dbContextsByModule.Count} module DbContexts, expected at least 8. "
+            + "Reflection is not seeing them, so this rule checks nothing.");
+
         if (dbContextsByModule.Count == 0)
             return;
 

@@ -19,7 +19,14 @@ public class Rule5IntegrationEventPayloadTests
     {
         var eventTypes = ModuleAssemblies.All
             .SelectMany(ModuleAssemblies.SafeGetTypes)
-            .Where(t => typeof(IIntegrationEvent).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false });
+            .Where(t => typeof(IIntegrationEvent).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false })
+            .ToList();
+
+        // PC-03 liveness. The only assertion in this test lives inside the loop below, so zero
+        // discovered event types means zero assertions executed and a green result — the rule would
+        // report "every payload is primitive-shaped" having examined no payload at all. Unlike rules
+        // 1/4/6/8a this one was never fault-injected, so nothing had ever shown it capable of failing.
+        Assert.NotEmpty(eventTypes);
 
         foreach (var type in eventTypes)
         {

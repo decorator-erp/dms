@@ -182,6 +182,16 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     public async Task Save_ContentExceedingMaxUploadBytes_NonSeekableStream_RejectedDuringCopy_AndPartialFileDeleted()
     {
         var service = CreateService(maxUploadBytes: 10);
+
+        // PC-03 liveness. The assertion below observes the filesystem, and "no leftover files under
+        // _root" is equally true of a service that writes somewhere else entirely — a changed
+        // RootPath key, a different temp base. One successful save proves the enumeration below is
+        // pointed at the directory this service actually writes into; deleting it restores the
+        // preconditions for the real case.
+        var probePath = await service.SaveAsync(ContentStream("ok"), "probe.txt", "");
+        Assert.NotEmpty(Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories));
+        await service.DeleteAsync(probePath);
+
         var content = new NonSeekableStream(ContentStream(new string('a', 1000)));
 
         await Assert.ThrowsAsync<InvalidOperationException>(

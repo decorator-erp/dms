@@ -125,18 +125,66 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
     [InlineData(typeof(Crm.Contracts.LeadConvertedIntegrationEvent))]
     public void DeliberatelySilentEvents_HaveNoNotificationHandler(Type eventType)
     {
-        using var scope = fixture.Services.CreateScope();
+        // PC-03 discrimination, not just liveness — and it found a live defect. This assertion has two
+        // ways to pass without meaning anything, and the sibling test above closes only the first: the
+        // lookup could find nothing for the constructed handler type, OR the `Contains("Notification")`
+        // filter could match nothing because the names it sees are not handler names at all. Running
+        // the IDENTICAL lookup and filter against an event that IS wired proves both halves live.
+        //
+        // The second failure mode was real: see NotificationHandlerNamesFor for what the DI route
+        // actually returned, and why this now scans types instead.
+        var wiredHandlers = NotificationHandlerNamesFor(typeof(EmployeeHiredIntegrationEvent));
+        Assert.True(wiredHandlers.Count > 0,
+            "The positive control failed: EmployeeHiredIntegrationEvent has no handler class whose name "
+            + "contains 'Notification', so the four absence assertions below prove nothing. Either the "
+            + "assembly scan or the name filter is broken.");
 
-        var handlerType = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
-        var handlerNames = scope.ServiceProvider.GetServices(handlerType)
-            .Select(h => h!.GetType().Name)
-            .Where(name => name.Contains("Notification", StringComparison.Ordinal))
-            .ToList();
+        var handlerNames = NotificationHandlerNamesFor(eventType);
 
         Assert.True(handlerNames.Count == 0,
             $"{eventType.Name} was recorded as deliberately silent at N1-06 but now has a notification "
             + $"handler ({string.Join(", ", handlerNames)}). Update the decision table, or remove it.");
     }
+
+    /// <summary>
+    /// The handler classes registered for <paramref name="eventType"/>, by name.
+    ///
+    /// <para><b>Reflection over the module assemblies, deliberately, not <c>GetServices</c>.</b> PC-03
+    /// found that the DI route cannot work here: <c>AddModuleIntegrationEvents</c> wraps every handler
+    /// in <c>InboxDedupeDecorator&lt;TContext, TEvent&gt;</c>, so the container hands back the
+    /// decorator and <c>GetType().Name</c> is always <c>InboxDedupeDecorator`2</c> — a string that
+    /// never contains "Notification". The filter therefore matched nothing for ANY event, and the four
+    /// absence assertions below had been passing vacuously since N1-06.</para>
+    ///
+    /// <para>The claim being made is structural — "no notification handler class exists for this
+    /// event" — so scanning types answers it directly and is immune to how the container wraps them.
+    /// Handlers live in <c>*.Infrastructure</c> assemblies by the N1-06 placement rule; the open
+    /// generic decorator cannot match a closed <c>IIntegrationEventHandler&lt;TEvent&gt;</c> and so
+    /// excludes itself.</para>
+    /// </summary>
+    private static List<string> NotificationHandlerNamesFor(Type eventType)
+    {
+        var handlerInterface = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
+
+        return [.. HandlerAssemblies.Value
+            .SelectMany(a => a.GetTypes())
+            .Where(t => t is { IsAbstract: false, IsInterface: false, IsGenericTypeDefinition: false })
+            .Where(handlerInterface.IsAssignableFrom)
+            .Select(t => t.Name)
+            .Where(name => name.Contains("Notification", StringComparison.Ordinal))
+            .Distinct()
+            .Order(StringComparer.Ordinal)];
+    }
+
+    /// <summary>Every module's Infrastructure assembly, loaded by name the way <c>ApiFixture</c> does —
+    /// the test project references them all, so this cannot silently miss one.</summary>
+    private static readonly Lazy<IReadOnlyList<System.Reflection.Assembly>> HandlerAssemblies = new(() =>
+        [.. new[]
+        {
+            "Identity.Infrastructure", "Hr.Infrastructure", "Approvals.Infrastructure",
+            "Crm.Infrastructure", "Projects.Infrastructure", "Documents.Infrastructure",
+            "Sites.Infrastructure", "Notifications.Infrastructure",
+        }.Select(System.Reflection.Assembly.Load)]);
 
     private async Task DrainOutboxAsync()
     {

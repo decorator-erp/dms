@@ -30,6 +30,14 @@ public class Rule10CommandQueryPrivacyTests
         var contractsAssemblies = ModuleAssemblies.WithSuffix(".Contracts");
         var allModuleAssemblies = ModuleAssemblies.All;
 
+        // PC-03 liveness. This rule has TWO independent ways to pass without checking anything, and the
+        // summary above claims non-vacuity that nothing verified: the `continue` below skips any
+        // Contracts assembly whose command/query set is empty, and NetArchTest's Types.InAssembly
+        // returns IsSuccessful == true for an empty type set. Counting the pairs actually evaluated —
+        // and asserting the count at the end — is what makes the summary's claim checkable.
+        var pairsChecked = 0;
+        var commandsAndQueriesFound = 0;
+
         foreach (var contractsAssembly in contractsAssemblies)
         {
             var ownModule = ModuleAssemblies.ModuleOf(contractsAssembly.GetName().Name!);
@@ -43,6 +51,8 @@ public class Rule10CommandQueryPrivacyTests
             if (commandAndQueryTypeNames.Length == 0)
                 continue;
 
+            commandsAndQueriesFound += commandAndQueryTypeNames.Length;
+
             var otherModuleAssemblies = allModuleAssemblies
                 .Where(a => ModuleAssemblies.ModuleOf(a.GetName().Name!) != ownModule);
 
@@ -54,7 +64,17 @@ public class Rule10CommandQueryPrivacyTests
                     .GetResult();
 
                 ArchAssert.Passes(assembly, result);
+                pairsChecked++;
             }
         }
+
+        // Eight modules, each with a populated Contracts assembly, checked against the other seven
+        // modules' assemblies. Exact floors would be brittle as modules land; these are low enough to
+        // stay true and high enough that a broken discovery path cannot slip under them.
+        Assert.True(commandsAndQueriesFound >= 100,
+            $"Found only {commandsAndQueriesFound} command/query types across all *.Contracts assemblies. "
+            + "Discovery is broken, so every `continue` above is skipping silently.");
+        Assert.True(pairsChecked >= 100,
+            $"Evaluated only {pairsChecked} (contracts, foreign assembly) pairs. The rule is near-vacuous.");
     }
 }

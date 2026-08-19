@@ -656,19 +656,36 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
             SiteTestData.OwnerUserId));
 
+        // PC-03 discrimination, as a before/after pair. Detaching the only item leaves a pivot with no
+        // columns and no cells, so the ragged-row assertion below is satisfied by an empty row — which
+        // is equally what a projection emitting no cells at all would give. Reading the pivot WHILE the
+        // item is attached proves it really does emit one, so the emptiness afterwards is the detach's
+        // doing rather than the query's.
+        var attached = await ReadPivotAsync(siteId, moduleId);
+        Assert.Single(attached.Columns);
+        Assert.Single(Assert.Single(attached.Rows).Cells);
+
         // The value survives the detach by design -- reattaching makes it visible again.
         Assert.True((await SendAsync(new DetachSiteItemCommand(moduleId, itemId))).IsSuccess);
 
+        var pivot = await ReadPivotAsync(siteId, moduleId);
+
+        var columnCodes = pivot.Columns.Select(c => c.Code).ToHashSet();
+        var row = Assert.Single(pivot.Rows);
+
+        Assert.Empty(row.Cells.Keys.Except(columnCodes));
+    }
+
+    /// <summary>The pivot read both halves of the detach assertion go through, so the control cannot
+    /// drift from the thing it controls.</summary>
+    private async Task<SitePivotResponse> ReadPivotAsync(Guid siteId, Guid moduleId)
+    {
         var pivot = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSitePivotQuery, SitePivotResponse>>()
             .HandleAsync(new GetSitePivotQuery(siteId, moduleId, SiteTestData.OwnerUserId)));
 
         Assert.True(pivot.IsSuccess);
-
-        var columnCodes = pivot.Value!.Columns.Select(c => c.Code).ToHashSet();
-        var row = Assert.Single(pivot.Value!.Rows);
-
-        Assert.Empty(row.Cells.Keys.Except(columnCodes));
+        return pivot.Value!;
     }
 
     // ── Families ───────────────────────────────────────────────────────────────

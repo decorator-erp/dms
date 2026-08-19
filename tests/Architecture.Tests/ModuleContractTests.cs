@@ -22,6 +22,17 @@ public class ModuleContractTests
             .Select(a => a.GetName().Name)
             .ToHashSet();
 
+        // PC-03 liveness: the scan must actually find IModule implementations. If reflection returned
+        // none, `offenders` is empty and "every IModule lives in an Infrastructure assembly" passes
+        // having located no IModule at all. One per module, eight modules.
+        var implementations = ModuleAssemblies.All
+            .SelectMany(a => ModuleAssemblies.SafeGetTypes(a)
+                .Where(t => typeof(IModule).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false }))
+            .ToList();
+
+        Assert.True(implementations.Count >= 8,
+            $"Found only {implementations.Count} IModule implementations, expected at least 8.");
+
         var offenders = ModuleAssemblies.All
             .SelectMany(a => ModuleAssemblies.SafeGetTypes(a)
                 .Where(t => typeof(IModule).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false })

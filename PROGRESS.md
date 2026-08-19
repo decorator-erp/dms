@@ -6854,3 +6854,106 @@ Fault reverted, `src/` confirmed clean by `git diff --stat src/` before the gate
 
 **Gate:** build 0 warnings / 0 errors; `dotnet test` **846/846** across 26 suites; `dotnet format`
 exit 0 with no content change (one line-ending-only touch to `SitesSpineTests.cs`, reverted).
+
+## PC-03 — Liveness for the reflection- and catalog-gathered assertions
+
+Nineteen files. The arch rules got numeric floors rather than bare `NotEmpty` checks, because the
+failure they guard against is a *partial* discovery too — an assembly list that loses four modules is
+as wrong as one that loses all of them, and only a floor catches it.
+
+| Rule | The vacuity path it had | Floor asserted |
+|---|---|---|
+| `MetaSelfEnforcementTests` | an empty `.slnx` parse | ≥ 32 module projects |
+| `ModuleContractTests` | no `IModule` found | ≥ 8 implementations |
+| `Rule3` (both facts) | loop over an empty assembly set | ≥ 24 layered assemblies |
+| `Rule5` | **the only assertion lives inside the loop** | event-type set non-empty |
+| `Rule6` | explicit `if (…Count == 0) return;` | ≥ 8 module DbContexts |
+| `Rule8a` | loop over an empty scope | ≥ 16 Application/Domain |
+| `Rule10` | `continue` + NetArchTest's empty-set `IsSuccessful` | ≥ 100 types, ≥ 100 pairs evaluated |
+
+`Rule10`'s is the one worth reading twice. Its summary already claimed *"Expected to pass
+non-vacuously today with zero findings"*. Nothing checked that claim. Counting the (contracts, foreign
+assembly) pairs actually evaluated and asserting the count is what turns a comment into a test.
+
+### The four fault injections
+
+Each one breaks the mechanism the rule actually uses, per P5F-01's discipline.
+
+| Injection | Red | Newly detecting |
+|---|---|---|
+| `ModuleAssemblies.LoadAll()` → `[]` | 8 arch facts | **7** |
+| `.slnx` element renamed | `MetaSelfEnforcementTests` | **1** |
+| `'sites'`/`'notify'` → `'sitez'`/`'notifyz'` in the catalog queries | 4 schema-object tests | **2** |
+| handler name filter renamed | all 4 silent-event cases | **4** |
+
+**PC-01's classification was confirmed by experiment, not by reading.** Under the catalog injection the
+two tests PC-01 marked *already controlled* failed on their **pre-existing** assertions
+(`Assert.Empty() Failure: Collection was not empty`; `Assert.Equal() Collections differ`), and the two
+it flagged as unguarded failed on the lines added here. The `Expected.Except(actual)` versus
+`actual.Except(Expected)` distinction PC-01 drew turned out to be exactly the line between an
+assertion that survives a dead query and one that does not.
+
+Under the assembly injection, `MetaSelfEnforcementTests` failed on its **original** assertion — it was
+already sound against *that* fault. Its new line targets the opposite direction, so it got its own
+injection, and that one produced the sweep's most serious result:
+
+> With the `.slnx` parse broken and the new assertion removed, `MetaSelfEnforcementTests` **passes**.
+> The test whose entire purpose is stopping other tests from passing vacuously was itself fail-open.
+
+Demonstrated directly — assertion removed, same injection, green; assertion restored, red. Every
+injection reverted; `git diff --stat src/` empty before the gate.
+
+### Where a control was recorded rather than added
+
+Three sites assert that an empty input yields an empty output (`CrmAccessGuardTests:137`,
+`ProjectAccessGuardTests:156`, `EffectivePermissionServiceTests:86`). There is no non-empty state to
+assert, and the real control is already the sibling `Assert.Equal(0, commandCount)` — the actual claim
+is "no query was issued at all". Left alone deliberately.
+
+For the before/after cases (`RolesAndPermissionsTests`, `FileFlowTests`) a paired assertion replaced
+the bare non-empty check: the list query is shown to return the row **before** the delete, so its
+absence afterwards is attributable to the delete rather than to a query that lists nothing.
+
+### The defect the sweep existed to find
+
+**`DeliberatelySilentEvents_HaveNoNotificationHandler` had been vacuous since N1-06**, and the
+liveness assertion is what exposed it. PC-01 flagged it as finding 4 — a theoretical risk that the
+`Contains("Notification")` filter might match nothing. It was not theoretical.
+
+`AddModuleIntegrationEvents` wraps every handler in `InboxDedupeDecorator<TContext, TEvent>`. So
+`GetServices(IIntegrationEventHandler<T>)` returns the **decorator**, never the inner handler, and
+`GetType().Name` is always ``InboxDedupeDecorator`2`` — a string that contains no "Notification" for
+any event, ever. All four `[InlineData]` cases were passing for the wrong reason. The test could not
+have failed even if someone had wired a notification handler to a deliberately-silent event, which is
+the one thing it exists to catch.
+
+Neither existing assertion could have noticed. The sibling
+`EveryNotifyingEvent_HasAtLeastOneRegisteredHandler` resolves handlers **without** the name filter, so
+it stayed green throughout — a reminder that a control covering one half of a query says nothing about
+the other.
+
+**Fixed the instrument, not the assertion.** The claim is structural — *"no notification handler class
+exists for this event"* — so it now reflects over the eight `*.Infrastructure` assemblies instead of
+resolving from DI. That is immune to container wrapping, and the open generic decorator cannot match a
+closed `IIntegrationEventHandler<TEvent>`, so it excludes itself. Reaching the decorator's inner
+handler would have required making an internal type public — a hard stop.
+
+Discrimination on the repaired instrument: pointed at `ClientCreatedIntegrationEvent`, which does have
+a handler, it fails naming `ClientCreatedNotificationHandler`. Under the DI version that probe passed.
+
+### One over-classification of my own, corrected
+
+PC-01 listed `SiteRecordFlowTests:671` as lacking liveness. It did not: the test detaches the **only**
+item, so empty columns and empty cells are the correct post-detach result, and `Assert.Single(rows)`
+was already proving the projection ran. The `NotEmpty` assertions added there were wrong and went red
+on their first gate. Replaced with a before/after pair that reads the pivot **while the item is still
+attached** — stronger than either the original or the mistaken version, because it proves the
+projection emits a cell at all before asserting the detach removes it.
+
+Worth recording as its own lesson: the criterion *"is the set gathered by machinery"* is necessary but
+not sufficient. A gathered set that is **legitimately empty in the state under test** needs a
+before/after pair, not a non-emptiness assertion — the same shape as the three empty-input guards left
+alone above.
+
+**Gate:** build 0 warnings / 0 errors; `dotnet test` **846/846** across 26 suites; `dotnet format` exit 0,
+no content change.

@@ -14,7 +14,12 @@ public class Rule8BuildingBlocksWebTests
     [Fact]
     public void ApplicationAndDomainAssemblies_MustNotReferenceBuildingBlocksWeb()
     {
-        foreach (var assembly in ModuleAssemblies.WithSuffix(".Application").Concat(ModuleAssemblies.WithSuffix(".Domain")))
+        var scoped = ModuleAssemblies.WithSuffix(".Application").Concat(ModuleAssemblies.WithSuffix(".Domain")).ToList();
+
+        // PC-03 liveness: an empty scope runs the loop zero times and reports compliance.
+        Assert.True(scoped.Count >= 16, $"Discovered only {scoped.Count} Application/Domain assemblies, expected at least 16.");
+
+        foreach (var assembly in scoped)
         {
             var referencesWeb = assembly.GetReferencedAssemblies().Any(a => a.Name == "BuildingBlocks.Web");
 
@@ -27,6 +32,10 @@ public class Rule8BuildingBlocksWebTests
     {
         var csprojPath = Path.Combine(SolutionRoot.Path, "src", "BuildingBlocks", "BuildingBlocks.csproj");
         var content = File.ReadAllText(csprojPath);
+
+        // PC-03 liveness: prove the file was actually read and is the project file we mean. An empty or
+        // wrong-path read makes "contains no AspNetCore" true for the wrong reason.
+        Assert.Contains("<Project", content, StringComparison.Ordinal);
 
         Assert.DoesNotContain("AspNetCore", content, StringComparison.OrdinalIgnoreCase);
     }

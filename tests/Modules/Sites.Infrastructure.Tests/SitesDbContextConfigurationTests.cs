@@ -76,8 +76,16 @@ public class SitesDbContextConfigurationTests
     {
         using var context = CreateContext();
 
-        var strays = context.Model.GetEntityTypes()
+        var siteEntities = context.Model.GetEntityTypes()
             .Where(e => e.ClrType.Name.StartsWith("Site", StringComparison.Ordinal))
+            .ToArray();
+
+        // PC-03 liveness: "no Site entity sits outside the sites schema" is trivially true when the
+        // filter matches no Site entity at all — a renamed type prefix or an unbuilt model both read as
+        // compliance. The sibling test pins the exact eight; this one only needs to know it found them.
+        Assert.Equal(EntityCount, siteEntities.Length);
+
+        var strays = siteEntities
             .Where(e => e.GetSchema() is not null and not "sites")
             .Select(e => $"{e.ClrType.Name} -> {e.GetSchema()}")
             .ToArray();

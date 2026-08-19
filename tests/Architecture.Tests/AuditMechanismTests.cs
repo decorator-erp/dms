@@ -42,6 +42,12 @@ public class AuditMechanismTests
     [Fact]
     public void AuditLog_ExposesNoPublicWayToConstructARow()
     {
+        // PC-03 liveness: both assertions below are over reflected member lists, and both are satisfied
+        // by a reflection call that returned nothing at all. These two lines prove the type is being
+        // read — a non-public constructor exists, and public members exist to have been filtered.
+        Assert.NotEmpty(typeof(AuditLog).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.NotEmpty(typeof(AuditLog).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance));
+
         Assert.Empty(typeof(AuditLog).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
 
         var publicFactories = typeof(AuditLog)

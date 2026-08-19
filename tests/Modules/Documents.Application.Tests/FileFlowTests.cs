@@ -201,10 +201,17 @@ public sealed class FileFlowTests(DocumentsApplicationFixture fixture)
         var storagePath = await db.ProjectDocuments.AsNoTracking()
             .Where(d => d.Id == documentId).Select(d => d.StoragePath).SingleAsync();
 
+        var getByProject = sp.GetRequiredService<IQueryHandler<GetProjectDocumentsByProjectQuery, IReadOnlyList<ProjectDocumentResponse>>>();
+
+        // PC-03 liveness, as a before/after pair: the list query must be shown to return this document
+        // while it exists, or its later absence is equally well explained by a query that lists nothing
+        // for this project at all.
+        var beforeDelete = (await getByProject.HandleAsync(new GetProjectDocumentsByProjectQuery(projectId))).Value!;
+        Assert.Contains(beforeDelete, d => d.Id == documentId);
+
         var delete = sp.GetRequiredService<ICommandHandler<DeleteProjectDocumentCommand>>();
         Assert.True((await delete.HandleAsync(new DeleteProjectDocumentCommand(documentId))).IsSuccess);
 
-        var getByProject = sp.GetRequiredService<IQueryHandler<GetProjectDocumentsByProjectQuery, IReadOnlyList<ProjectDocumentResponse>>>();
         var afterDelete = (await getByProject.HandleAsync(new GetProjectDocumentsByProjectQuery(projectId))).Value!;
         Assert.DoesNotContain(afterDelete, d => d.Id == documentId);
 
