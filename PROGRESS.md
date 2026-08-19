@@ -7145,3 +7145,80 @@ Phase 7's hard stops forbid extending another module's `Contracts` beyond `GateC
 This is the **second and only other** permitted addition, agreed before the run rather than taken
 mid-task, on the grounds that a planned cross-module change budgeted as its own task is exactly what
 the alternative (option b) prescribed for this situation. No further `Contracts` extension is in scope.
+
+## F1-01 — `Finance.Contracts`
+
+New project `src/Modules/Finance/Finance.Contracts/`: `Enums.cs`, `FinancePermissions.cs`,
+`IntegrationEvents.cs`, and per-noun message files under `CostCategories/`, `BudgetLines/`,
+`LedgerEntries/`, `Invoices/`, `Variations/`, `BoqSnapshots/`, `Dashboard/`, `Financial/`. Registered
+in `DMS.Modular.slnx` and `Architecture.Tests.csproj` **in this commit, before the constrained code** —
+an assembly missing from the latter is invisible to every convention-scanning rule.
+
+**54 command/query types · 7 integration events · 12 permission strings.**
+
+### The count: 39 was wrong, and the reason generalises
+
+The plan says 39 feature files. There are **51**. Twelve finance queries live under
+`Application/Features/{Projects,ProjectStages,ProjectTasks}/` in the backend — filed by the noun that
+*scopes* them, not the noun that owns them. They read invoices, ledger entries, variations and BOQ
+snapshots, and they back the three `Project*Financial` endpoint families F1-09 mandates; dropping them
+would have left those routes with no handler. They port at **F1-07b**.
+
+**54, not 51**, because three routes have no query record of their own and resolve through
+`FinancialBlocks`: `financial/by-category`, `financial/cashflow`, `project-tasks/{id}/boq-lines`. Named
+here so every route has a message. 51 + 3 = 54.
+
+**Permissions: 12**, recounted with `finance\.[a-z_.]+` and no `head`. An earlier inventory said 8 —
+three carry a *second* dot (`finance.variations.approve`/`.sign`/`.apply`) and a two-segment pattern
+collapses all three into one match. Same defect class as D1.
+
+### Structural item 3, resolved: events only, no read contract
+
+Both Budget-gate verdicts are computable from Finance's own tables — task coverage is
+`OverBudgetAmount == 0 || signedClientDifferenceSum >= OverBudgetAmount` over `BudgetLine` columns and
+`Variation` rows; stage funding is `ClientInvoicesSum > 0 && ClientPaymentsSum >= ClientInvoicesSum`
+over Invoices and LedgerEntries. So **Finance publishes a decided verdict and Projects acts on it**,
+and **no `IFinanceReader` ships**. A read contract with no consumer is the G9-14 failure mode, avoided
+by construction rather than caught in review. Reporting is the first plausible consumer.
+
+The bidirectional pair is `Finance.Infrastructure → Projects.Contracts` (BudgetHandler) and
+`Projects.Infrastructure → Finance.Contracts` (the events).
+
+### Plan correction
+
+F1-01's verify clause says `Finance.Contracts` may reference `Projects.Contracts`. **It must not** —
+`docs/adding-a-module.md` is explicit that `*.Contracts` may only reference SharedKernel/BuildingBlocks,
+and two `*.Contracts` referencing each other is exactly what would turn the bidirectional pattern into a
+real cycle. This csproj references those two and nothing else. No `Crm.Contracts` either: `Invoice.ClientId`
+is a bare `Guid`, so Contracts needs no `IClientDirectory`.
+
+### Divergences, each deliberate
+
+- `PagedResponse<T>` dropped for BuildingBlocks' `PagedResult<T>` — the backend declares both and uses
+  one in the 39 and the other in the 12.
+- `IEnumerable<T>` query returns tightened to `IReadOnlyList<T>`.
+- `InvoiceListItemResponse` and `VariationListItemResponse` are each declared **twice** in the backend,
+  same name, different shape, two namespaces. **Preserved as two records in two namespaces**, not
+  merged — merging would silently change one of two existing wire contracts. Cross-referenced both ways.
+- **`ChangeCategory` not ported.** The plan lists it as a Finance enum; it is the client
+  document-review change bucket and no finance entity or service references it.
+
+### Types shipped without a handler, and which task builds each (the G9-14 rule)
+
+All 54. CostCategories/BudgetLines/BoqSnapshots → **F1-06**; LedgerEntries/Invoices/Dashboard →
+**F1-07**; Financial (the 12+3) → **F1-07b**; Variations → **F1-08**. Of the 7 integration events,
+`VariationRaised`, `VariationApproved`, `VariationClosed`, `TaskBudgetCoverageChanged` and
+`StageFundingChanged` get consumers at F1-08; **`InvoiceIssued` and `PaymentPosted` get none**, and say
+so in their own doc comments per the `SiteSubmitted` precedent.
+
+### Verify — stated as vacuous or not, rather than claimed to prove something
+
+- **Rule 5 is not vacuous.** Proven: adding a `StringBuilder` member to `InvoiceIssuedIntegrationEvent`
+  turned it red naming `Finance.Contracts.InvoiceIssuedIntegrationEvent.Forbidden
+  (System.Text.StringBuilder)`. Reverted, green.
+- **Rule 10 is effectively vacuous for Finance today.** Finance.Contracts *is* scanned and its types
+  *are* counted — the census rose to **310** command/query types across all Contracts assemblies — but
+  no module references `Finance.Contracts` yet, so no dependency could exist to catch. It becomes
+  meaningful at **F1-08**, when `Projects.Infrastructure` takes its reference for the events.
+
+**Gate:** build 0/0; **848/848** across 26 suites; `dotnet format` exit 0, no content change.
