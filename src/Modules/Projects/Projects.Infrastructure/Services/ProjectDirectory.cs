@@ -59,7 +59,7 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
     }
 
     private static System.Linq.Expressions.Expression<Func<Domain.Project, ProjectSummary>> ToProjectSummary() => p =>
-        new ProjectSummary(p.Id, p.Code, p.Name, ProjectsEnumMappingShim.ToContractsStatus(p.Status), p.ClientId);
+        new ProjectSummary(p.Id, p.Code, p.Name, ProjectsEnumMappingShim.ToContractsStatus(p.Status), p.ClientId, p.OwnerId);
 
     private static System.Linq.Expressions.Expression<Func<Domain.ProjectStage, StageSummary>> ToStageSummary() => s =>
         new StageSummary(s.Id, s.ProjectId, s.Name, ProjectsEnumMappingShim.ToContractsStageStatus(s.Status));

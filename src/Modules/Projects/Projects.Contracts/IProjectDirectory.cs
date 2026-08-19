@@ -1,6 +1,21 @@
 namespace Projects.Contracts;
 
-public sealed record ProjectSummary(Guid Id, string Code, string Name, ProjectStatus Status, Guid ClientId);
+/// <summary>
+/// <para><see cref="OwnerId"/> added at F1-00b: a bare Guid → <c>hr.employees</c>, the same value
+/// <c>Project.OwnerId</c> holds. Finance's <c>InvoiceDueJob</c> needs the project owner as a
+/// notification recipient and cannot read <c>projects.projects</c> to get it; every other module's job
+/// resolves its recipients from its own tables, which is precisely what a job living in Finance cannot
+/// do for a Projects-owned field. Publishing the id here — rather than growing a bespoke read
+/// interface — keeps the resolution on the existing directory surface, and the id is already published
+/// in spirit: <c>ProjectDeadlineJob</c> reads the same column and resolves it the same way, through
+/// <c>IHrDirectory.GetAsync(OwnerId).AppUserId</c>.</para>
+/// <para>Required, not defaulted. A defaulted <c>Guid</c> would let a caller construct a summary whose
+/// owner is <c>Guid.Empty</c>, which resolves to no employee and therefore silently to no recipient —
+/// the failure mode being avoided. One construction site exists and it is updated in the same
+/// commit.</para>
+/// </summary>
+public sealed record ProjectSummary(
+    Guid Id, string Code, string Name, ProjectStatus Status, Guid ClientId, Guid OwnerId);
 
 public sealed record StageSummary(Guid Id, Guid ProjectId, string Name, StageStatus Status);
 
