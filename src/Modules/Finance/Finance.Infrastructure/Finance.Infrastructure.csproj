@@ -14,12 +14,12 @@
     <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\Finance.Contracts\Finance.Contracts.csproj" />
     <ProjectReference Include="..\Finance.Domain\Finance.Domain.csproj" />
-    <!-- No cross-module reference yet, deliberately. Finance's outward references arrive with the code
-         that needs them, not ahead of it: Projects.Contracts at F1-08 (BudgetHandler implements
-         IGateConditionTypeHandler, and InvoiceDueJob resolves the project owner through
-         IProjectDirectory), Crm.Contracts and Hr.Contracts at F1-08 for the same job's other two
-         resolution hops, Notifications.Contracts for INotificationService. Adding them now would make
-         rule 3's isolation checks pass over references nothing uses. -->
+    <!-- F1-08. Needed here only for the Scrutor scan that registers BudgetHandler: the scan names the
+         PUBLIC interface type IGateConditionTypeHandler, which lives in Projects.Contracts. The handler
+         itself is `internal` in Finance.Application and is never named from this assembly.
+         Finance.Application carries the other three cross-module references (Crm/Hr/Notifications) for
+         InvoiceDueJob, because that is where the job lives. -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

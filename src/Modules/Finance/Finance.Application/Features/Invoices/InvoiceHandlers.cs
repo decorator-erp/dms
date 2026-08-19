@@ -1,5 +1,7 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Pagination;
+using Finance.Application.Common;
 using Finance.Contracts.Invoices;
 using Finance.Domain;
 using Finance.Infrastructure.Persistence;
@@ -38,8 +40,7 @@ internal sealed class CreateInvoiceCommandValidator : AbstractValidator<CreateIn
 
 /// <summary>
 /// <b>Creation IS issuance</b> — there is no separate issue step, and the backend raises its
-/// <c>InvoiceIssued</c> event right here. The integration event lands at F1-08 with the rest of the
-/// event surface; the shape of this handler does not change when it does.
+/// <c>InvoiceIssued</c> event right here, as this does since F1-08.
 ///
 /// <para><b>The header total is computed from the lines and never supplied by the caller.</b> That is
 /// the whole reason <c>SetTotal</c> takes an argument the caller cannot reach: an invoice whose header
@@ -90,7 +91,24 @@ internal sealed class CreateInvoiceCommandHandler(FinanceDbContext db, IProjectD
 
         db.Invoices.Add(invoice);
         db.InvoiceLines.AddRange(lines);
+
+        // Creation IS issuance, so the event goes out here (F1-08). No subscriber exists in this repo,
+        // which the event's own doc comment states rather than leaving to be discovered -- zero
+        // registered handlers is a supported no-op, not a gap.
+        db.Outbox().Enqueue(new Finance.Contracts.InvoiceIssuedIntegrationEvent(
+            Guid.NewGuid(), invoice.Id, invoice.ProjectId, invoice.ClientId, invoice.TotalAmount,
+            DateTimeOffset.UtcNow));
+
         await db.SaveChangesAsync(ct);
+
+        // A client invoice changes what a stage is owed, so it re-decides that stage's funding -- the
+        // denominator of IsFunded, not just the numerator. Without this an invoice issued after a
+        // payment leaves a stage reading as funded on stale figures until the next posting.
+        if (invoice.Type == InvoiceType.ClientInvoice && invoice.ProjectStageId is Guid stageId)
+        {
+            await FinanceGateVerdicts.PublishAsync(db, projectTaskId: null, projectStageId: stageId, ct);
+            await db.SaveChangesAsync(ct);
+        }
 
         return invoice.Id;
     }

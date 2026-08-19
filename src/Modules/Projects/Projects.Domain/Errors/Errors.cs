@@ -129,7 +129,23 @@ internal static class GateConditionErrors
     public static readonly Error CrossProjectReference = Error.BadRequest(
         "gate_conditions.CrossProjectReference", "A gate condition cannot reference a stage or task in another project.");
 
+    /// <summary>
+    /// Raised when no <c>IGateConditionTypeHandler</c> is registered for the requested
+    /// <c>ConditionType</c>.
+    ///
+    /// <para><b>The message no longer enumerates the supported types, and that is the fix.</b> It used
+    /// to read "Supported types: Task, Stage, Approval, ManualCheck" — already wrong once Documents and
+    /// CRM contributed five more handlers, and wrong for EVERY value once Finance's <c>Budget</c> handler
+    /// landed at F1-08 and completed the set. A hand-maintained list inside an error string has no test
+    /// that can notice it drifting, so the durable answer is not to keep a list there at all: the
+    /// registered handlers are the list, and <c>GateConditionCoverageTests</c> asserts they cover every
+    /// value.</para>
+    ///
+    /// <para>As of F1-08 this error is unreachable through the normal path. It stays because the
+    /// registry is a runtime lookup — a module failing to register its handler would reach it — and
+    /// because that is precisely what the coverage test is written to catch.</para>
+    /// </summary>
     public static readonly Error UnsupportedConditionType = Error.BadRequest(
         "gate_conditions.UnsupportedConditionType",
-        "This condition type is not supported yet. Supported types: Task, Stage, Approval, ManualCheck.");
+        "No handler is registered for this gate condition type.");
 }

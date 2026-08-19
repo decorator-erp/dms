@@ -13,6 +13,12 @@
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- F1-08: the second half of the bidirectional Finance/Projects pair. Finance.Infrastructure takes
+         Projects.Contracts (BudgetHandler); this takes Finance.Contracts to consume the five events that
+         drive Budget gates. Two modules referencing each other's CONTRACTS is the intended shape - what
+         rule 3 forbids is referencing the other's Domain/Application/Infrastructure, and neither does.
+         This reference is also what makes arch rule 10 non-vacuous for Finance for the first time. -->
+    <ProjectReference Include="..\..\Finance\Finance.Contracts\Finance.Contracts.csproj" />
     <ProjectReference Include="..\Projects.Domain\Projects.Domain.csproj" />
     <!-- Cross-module reads: IProjectAccessGuard (G5-05) calls Hr.Contracts.IHrDirectory. Cross-module
          *.Contracts references are always allowed. -->

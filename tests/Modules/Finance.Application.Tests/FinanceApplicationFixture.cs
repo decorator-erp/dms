@@ -32,6 +32,22 @@ public sealed class FinanceApplicationFixture : IAsyncLifetime
 
     public string ConnectionString => _container.GetConnectionString();
 
+    /// <summary>F1-08. Finance's Budget-gate design is publish-and-consume, so the tests that prove it
+    /// must drive the real outbox rather than calling the consumer directly — asserting on a handler
+    /// invoked by hand would prove the handler works and say nothing about whether the event is ever
+    /// published, routed, or delivered to it.</summary>
+    public OutboxProcessor OutboxProcessor { get; private set; } = null!;
+
+    /// <summary>Drains the outbox until it stops producing work, so a chain of events (a posting
+    /// publishing a verdict, whose consumer satisfies a gate, whose cascade publishes again) settles
+    /// before assertions run. Bounded rather than looping forever — a chain that will not settle is a
+    /// bug this should surface as a failed assertion, not a hang.</summary>
+    public async Task DrainOutboxAsync(int passes = 5)
+    {
+        for (var i = 0; i < passes; i++)
+            await OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+    }
+
     public async Task InitializeAsync()
     {
         _container = new PostgreSqlBuilder("postgres:17").Build();
@@ -100,6 +116,8 @@ public sealed class FinanceApplicationFixture : IAsyncLifetime
         {
             await identityModule.SeedAsync(scope.ServiceProvider);
         }
+
+        OutboxProcessor = _provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
     }
 
     private async Task MigrateAsync(string assemblyQualifiedContextTypeName)

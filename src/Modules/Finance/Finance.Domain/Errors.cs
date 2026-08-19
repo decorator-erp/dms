@@ -176,6 +176,11 @@ internal static class VariationErrors
 
     public static readonly Error NotApproved = Error.BadRequest(
         $"{Code}.NotApproved", "Only approved variations can be applied.");
+
+    /// <summary>F1-08 addition, same shape as the budget-line, BOQ and invoice cases: the backend leaves
+    /// an unknown project to the foreign key, which surfaces as a 500 rather than a 404.</summary>
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        $"{Code}.ProjectNotFound", "The project for this variation was not found.");
 }
 
 /// <summary>F1-07. The financial dashboard is Finance-owned but project-scoped, and its first act is to

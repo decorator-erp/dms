@@ -1,5 +1,7 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using BuildingBlocks.Pagination;
+using Finance.Application.Common;
 using Finance.Contracts.LedgerEntries;
 using Finance.Domain;
 using Finance.Infrastructure.Persistence;
@@ -36,10 +38,11 @@ internal sealed class PostLedgerEntryCommandValidator : AbstractValidator<PostLe
 /// entry and its budget-line effects therefore still commit atomically, which is the property the
 /// backend's transaction was there for.</para>
 ///
-/// <para><b>What is deliberately NOT here:</b> the backend also resolves Budget gates from this path —
-/// satisfying or re-pending them as task coverage and stage funding change. That half is F1-08's, and
-/// it arrives as integration events rather than as a direct call into Projects, per this phase's
-/// structural decision. The seam is marked in <c>ApplyPostingEffectsAsync</c>.</para>
+/// <para><b>The gate consequences leave by the outbox, not by a call.</b> The backend resolves Budget
+/// gates from this same path — satisfying or re-pending them as task coverage and stage funding change,
+/// and locking or unlocking the owner. Every one of those is a write into Projects' tables. Finance
+/// instead computes the verdict (<c>FinanceGateVerdicts</c>) and publishes it; Projects acts on it.
+/// See <c>PublishPostingConsequencesAsync</c>.</para>
 /// </summary>
 internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
     : ICommandHandler<PostLedgerEntryCommand, Guid>
@@ -96,7 +99,35 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
         await ApplyPostingEffectsAsync(db, entry, sign: +1, ct);
         await db.SaveChangesAsync(ct);
 
+        // F1-08: the seam this handler reserved. The budget-line effects above are Finance's own; the
+        // GATE consequences are Projects', so Finance publishes decided verdicts and Projects acts.
+        await PublishPostingConsequencesAsync(db, entry, reversal: false, ct);
+        await db.SaveChangesAsync(ct);
+
         return entry.Id;
+    }
+
+    /// <summary>
+    /// Everything a posting tells other modules, published once for both the posting and the reversal
+    /// path so the two can never diverge.
+    ///
+    /// <para><b>Which verdicts are published depends on the entry type, and the mapping is the backend's
+    /// own.</b> An <c>ActualCost</c> changes what a task has spent, so it re-decides task coverage. A
+    /// <c>ClientPayment</c> changes what a stage has collected, so it re-decides stage funding. A
+    /// <c>Commitment</c> changes neither — it moves money that has not been spent and has not been
+    /// received — which is why the backend resolves no gates for it either.</para>
+    /// </summary>
+    internal static async Task PublishPostingConsequencesAsync(
+        FinanceDbContext db, LedgerEntry entry, bool reversal, CancellationToken ct)
+    {
+        db.Outbox().Enqueue(new Finance.Contracts.PaymentPostedIntegrationEvent(
+            Guid.NewGuid(), entry.Id, entry.ProjectId, entry.Amount, reversal, DateTimeOffset.UtcNow));
+
+        await FinanceGateVerdicts.PublishAsync(
+            db,
+            projectTaskId: entry.Type == LedgerEntryType.ActualCost ? entry.ProjectTaskId : null,
+            projectStageId: entry.Type == LedgerEntryType.ClientPayment ? entry.ProjectStageId : null,
+            ct);
     }
 
     /// <summary>
@@ -137,13 +168,9 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
     /// <c>BudgetLine.ApplyActualCost</c> raises Actual and lowers Committed together — splitting it is
     /// the classic way to double-count a spend against a budget forever.</para>
     ///
-    /// <para><b>F1-08 SEAM.</b> The backend also resolves Budget gates here: an <c>ActualCost</c>
-    /// re-evaluates its task's coverage, a <c>ClientPayment</c> re-evaluates its stage's funding, and
-    /// both can satisfy OR re-pend a gate. Finance can compute both verdicts entirely from its own
-    /// tables (see this phase's structural decision), so F1-08 adds the verdict computation and
-    /// publishes <c>TaskBudgetCoverageChanged</c> / <c>StageFundingChanged</c> from exactly here, with
-    /// Projects consuming them off the outbox. Publishing them now, with no consumer, would be the
-    /// G9-14 shape.</para>
+    /// <para>This method moves budget lines only. The gate consequences are published separately by
+    /// <see cref="PublishPostingConsequencesAsync"/>, which both call sites invoke immediately after —
+    /// kept apart because one is a Finance-owned write and the other is a cross-module announcement.</para>
     /// </summary>
     internal static async Task ApplyPostingEffectsAsync(
         FinanceDbContext db, LedgerEntry entry, int sign, CancellationToken ct)
@@ -219,6 +246,11 @@ internal sealed class ReverseLedgerEntryCommandHandler(FinanceDbContext db)
         await db.SaveChangesAsync(ct);
 
         await PostLedgerEntryCommandHandler.ApplyPostingEffectsAsync(db, original, sign: -1, ct);
+        await db.SaveChangesAsync(ct);
+
+        // The ORIGINAL's scope decides which verdicts changed -- the mirror carries the same scope, but
+        // reading it from the original keeps this identical to the effects call above it.
+        await PostLedgerEntryCommandHandler.PublishPostingConsequencesAsync(db, original, reversal: true, ct);
         await db.SaveChangesAsync(ct);
 
         return mirror.Value!.Id;

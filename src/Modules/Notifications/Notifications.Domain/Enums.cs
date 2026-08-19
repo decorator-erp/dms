@@ -43,7 +43,9 @@ internal enum NotificationType
     TeamMemberRoleChanged = 142,
     TeamHeadChanged = 143,
 
-    // ----- 150-179 RESERVED for Finance. Do not reclaim. -----
+    // ----- Finance (150-179). Range reserved by N1-01; the first two slots filled at F1-08. -----
+    InvoiceDueSoon = 150,
+    InvoiceOverdue = 151,
 
     // ----- Documents & project (180-199) -----
     DocumentUploaded = 180,

@@ -106,6 +106,21 @@ internal sealed class GateCondition : Entity, IAuditable
 
     public void LinkApproval(Guid approvalId) => ApprovalId = approvalId;
 
+    /// <summary>
+    /// Attaches an existing unlinked Budget gate to a newly raised variation, so approving that
+    /// variation satisfies this gate.
+    ///
+    /// <para><b>Added at F1-08, not at F1-00, and the delay was deliberate.</b> The backend has an
+    /// equivalent <c>LinkToVariation</c> that nothing calls — <c>VariationDomainService</c> stamps the
+    /// column by <c>ExecuteUpdateAsync</c> in both of its branches — so F1-00 ported the column and the
+    /// factory parameter but not the setter, on the rule that dead code is not ported. It arrives now
+    /// because <c>VariationRaisedIntegrationEventHandler</c> is a real caller.</para>
+    ///
+    /// <para>Re-linking is what stops a second variation on the same owner opening a second gate beside
+    /// the first, which would leave the owner needing both approved to proceed.</para>
+    /// </summary>
+    public void LinkVariation(Guid variationId) => VariationId = variationId;
+
     public void Update(string label, GateTrigger trigger)
     {
         Label = label;

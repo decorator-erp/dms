@@ -18,6 +18,14 @@
          descriptions (GetTasksAsync, batched). Everything else BOQ computes (budgeted, actual,
          purchases, signed differences) comes from finance's own tables. -->
     <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
+    <!-- F1-08. BudgetHandler implements Projects.Contracts.IGateConditionTypeHandler (above), and
+         InvoiceDueJob resolves its two recipients across three modules: the project owner via
+         IProjectDirectory then IHrDirectory, and the client via IClientDirectory. The one outbound
+         call is INotificationService - the recorded exception to the outbox rule, which is why the
+         job passes a dedupe key. -->
+    <ProjectReference Include="..\..\Crm\Crm.Contracts\Crm.Contracts.csproj" />
+    <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
