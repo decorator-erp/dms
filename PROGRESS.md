@@ -7222,3 +7222,55 @@ so in their own doc comments per the `SiteSubmitted` precedent.
   meaningful at **F1-08**, when `Projects.Infrastructure` takes its reference for the events.
 
 **Gate:** build 0/0; **848/848** across 26 suites; `dotnet format` exit 0, no content change.
+
+## F1-02 — `Finance.Domain`: cost, budget, ledger
+
+New: `Finance.Domain/{Enums,Errors,CostCategory,BudgetLine,LedgerEntry,LedgerAllocation}.cs` and
+`tests/Modules/Finance.UnitTests/{LedgerInvariantTests,BudgetLineTests,CostCategoryTests,EnumParityTests}.cs`.
+Both projects into `DMS.Modular.slnx`; `Finance.Domain` into `Architecture.Tests.csproj` so rules
+1/2/3/4 scan it from the moment it exists.
+
+**`ChangeCategory` is not here.** The plan lists it among F1-02's enums; it is the client
+document-review change bucket and no finance entity or service references it.
+
+**No navigation properties.** The backend's `BudgetLine` carries `Project`/`ProjectStage`/`ProjectTask`
+and `LedgerAllocation` carries `LedgerEntry`/`Invoice`. Cross-module navigations are what rule 3
+forbids, so every cross-module reference is a bare `Guid`. `CostCategoryId` is Finance-owned and could
+have kept one; left bare for symmetry since every read projects straight to a DTO.
+
+### The three decisions worth recording
+
+- **The commitment-to-actual handoff is one operation** (`ApplyActualCost`), because it is one fact.
+  It raises `ActualAmount` and lowers `CommittedAmount` by the same delta, so `AvailableAmount` is
+  unchanged when an actual matches its commitment. The backend spreads it across two
+  `ExecuteUpdateAsync` calls; expressing it as two independent operations is how the port
+  double-counts every spend against the budget forever. One method, with a test pinning
+  `AvailableAmount` either side.
+- **`CommittedAmount` is not floored at zero.** An actual with no prior commitment drives it negative,
+  which correctly records an unreserved spend while `AvailableAmount` still falls by what was spent.
+  Clamping would report more available budget than exists.
+- **The allocation bound could not live on the entity.** "Allocations never exceed the entry" is a fact
+  about the *set*, invisible to one row. `Create` enforces the per-row rule; `WouldExceedUnallocated`
+  states the set-level arithmetic once so the handler holding the sum reuses it. Equality is allowed —
+  settling a payment to exactly zero remaining is normal, not overflow.
+
+**Reversal is exact, as a property of the type.** `CreateReversal` mirrors magnitude and scope and
+flips `Direction`, never negating `Amount`. Reversals are exempt from both invariants by construction —
+without the exemption a client payment could never be reversed, since the reversal must carry the
+opposite direction.
+
+### Verify
+
+48 tests. Every failure assertion names the **specific** error, never a bare `IsFailure` — on a
+double-entry structure a test accepting any failure stays green while money moves the wrong way. The
+party test asserts `InvalidPartyForType` in a case where the direction is deliberately correct, so a
+direction bug cannot hide behind it.
+
+**Enum parity, fault-injected.** Domain and Contracts each declare the enums (rule 4 requires Contracts
+be public; Domain must not reference Contracts). Both persist and project as `int`.
+`EnumParityTests` compares full member sets by name **and** value in both directions. Renumbering
+Domain's `ActualCost` to 5 turned it red — *"LedgerEntryType.ActualCost is 5 in Finance.Domain but 2 in
+Finance.Contracts"* — restored, green. This is the one edit in the module no compiler catches and that
+would silently remap every stored row.
+
+**Gate:** build 0/0; **896/896** across 27 suites (848 + 48); `dotnet format` exit 0, no content change.
