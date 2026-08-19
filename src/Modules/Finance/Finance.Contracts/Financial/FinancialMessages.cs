@@ -90,28 +90,21 @@ public sealed record VariationListItemResponse(
     DateTime? ApprovedAt,
     DateTime? SignedAt);
 
-public sealed record ProjectTaskFinancialBlock(
-    decimal EstimatedBudget,
-    decimal ApprovedAdjustments,
-    decimal EffectiveCap,
-    decimal AllocatedAmount,
-    decimal CommittedAmount,
-    decimal ActualAmount,
-    decimal AvailableAmount);
-
-public sealed record ProjectStageFinancialBlock(
-    decimal EstimatedBudget,
-    decimal ApprovedAdjustments,
-    decimal EffectiveCap,
-    decimal RequiredBudget,
-    decimal ClientPaidAmount,
-    decimal FundingGap,
-    decimal AllocatedAmount,
-    decimal CommittedAmount,
-    decimal ActualAmount,
-    decimal AvailableAmount,
-    int TasksCount,
-    int OverBudgetTasksCount);
+// REMOVED AT F1-07b: ProjectTaskFinancialBlock and ProjectStageFinancialBlock.
+//
+// F1-01 shipped both, following the backend's DTO set. Porting the queries showed they have NO consumer
+// here: in the backend they are returned only by GetProjectById / GetProjectDetails /
+// GetProjectStageById / GetProjectTaskById / GetProjectTaskDetails / GetProjectTasksByStage -- all
+// PROJECTS-owned detail queries that enrich a Projects response with a financial block. This port does
+// not extend those, and none of the fifteen queries below returns either type.
+//
+// Two public records nothing produces is exactly the G9-14 shape, and keeping them would be keeping
+// half of a decision this phase already made: structural item 3 declined to ship an IFinanceReader
+// because it had no consumer. These are that contract's payload without its interface. The day Projects
+// wants an enriched detail response, the right shape is IFinanceReader carrying these -- added then,
+// with the consumer, in one commit.
+//
+// ProjectFinancialBlock and StageBudgetRow below STAY: GetProjectFinancialSummaryQuery returns both.
 
 public sealed record ProjectFinancialBlock(
     string Currency,
@@ -206,8 +199,20 @@ public sealed record GetProjectFinancialMovementsQuery(
 /// <summary>Backs <c>GET /api/projects/{id}/financial/by-category</c>.</summary>
 public sealed record GetProjectCostCategoryBreakdownQuery(Guid ProjectId) : IQuery<IReadOnlyList<CostCategoryRow>>;
 
-/// <summary>Backs <c>GET /api/projects/{id}/financial/cashflow</c>.</summary>
-public sealed record GetProjectCashflowQuery(Guid ProjectId) : IQuery<IReadOnlyList<MonthlyCashRow>>;
+/// <summary>
+/// Backs <c>GET /api/projects/{id}/financial/cashflow</c>.
+///
+/// <para>The date range was added at F1-07b. F1-01 recorded, from the phase plan, that this and
+/// <see cref="GetProjectCostCategoryBreakdownQuery"/> "resolve through <c>FinancialBlocks</c> rather
+/// than their own query file" — the plan flagged it as needing confirmation while porting, and it is
+/// <b>wrong</b>: both have real query files in the backend
+/// (<c>GetProjectMonthlyCashflowQuery</c>, <c>GetProjectCostBreakdownByCategoryQuery</c>), and the
+/// cashflow one takes a window. Defaults to the trailing twelve months.</para>
+/// </summary>
+public sealed record GetProjectCashflowQuery(
+    Guid ProjectId,
+    DateOnly? FromDate = null,
+    DateOnly? ToDate = null) : IQuery<IReadOnlyList<MonthlyCashRow>>;
 
 public sealed record GetProjectInvoicesQuery(
     Guid ProjectId,
@@ -260,8 +265,12 @@ public sealed record GetTaskFinancialMovementsQuery(
 
 public sealed record GetTaskInvoiceLinesQuery(Guid ProjectTaskId) : IQuery<IReadOnlyList<TaskInvoiceLineResponse>>;
 
-/// <summary>Backs <c>GET /api/project-tasks/{id}/boq-lines</c>.</summary>
-public sealed record GetTaskBoqLinesQuery(Guid ProjectTaskId) : IQuery<IReadOnlyList<TaskBoqLineResponse>>;
+/// <summary>Backs <c>GET /api/project-tasks/{id}/boq-lines</c>. Without
+/// <paramref name="SnapshotVersion"/> it returns the task's lines from the LATEST snapshot of each
+/// type; naming a version overrides that and returns only that version's. The parameter was added at
+/// F1-07b — the backend has it and F1-01 missed it.</summary>
+public sealed record GetTaskBoqLinesQuery(Guid ProjectTaskId, int? SnapshotVersion = null)
+    : IQuery<IReadOnlyList<TaskBoqLineResponse>>;
 
 public sealed record GetTaskVariationsQuery(Guid ProjectTaskId, VariationStatus? Status = null)
     : IQuery<IReadOnlyList<VariationListItemResponse>>;

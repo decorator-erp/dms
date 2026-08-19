@@ -188,6 +188,16 @@ internal static class FinanceDashboardErrors
         "finance_dashboard.ProjectNotFound", "The project for this financial dashboard was not found.");
 }
 
+/// <summary>F1-07b. The project/stage/task read slice is scoped by ids Finance does not own, so "the
+/// scope you asked about does not exist" is a distinct answer from "that scope has no financial
+/// activity" — a caller can act on the difference, and collapsing the two into an empty list hides a
+/// bad id behind a plausible-looking empty panel.</summary>
+internal static class FinancialScopeErrors
+{
+    public static readonly Error StageNotFound = Error.NotFound(
+        "financial.StageNotFound", "The project stage was not found.");
+}
+
 /// <summary>Ported from <c>../backend/Domain/Errors/BoqSnapshotErrors.cs</c>.</summary>
 internal static class BoqSnapshotErrors
 {
