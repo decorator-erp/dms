@@ -7029,3 +7029,59 @@ refinements this sweep produced afterwards:
    empty in the state under test* needs a before/after pair, not a non-emptiness assertion. Adding
    `NotEmpty` to one such site turned a correct test red during this sweep. Finance's variation and
    budget-line tests will have several.
+
+## F1-00 — `GateCondition.VariationId` (Projects change, before Finance exists)
+
+`Guid? VariationId` on `Projects.Domain/Gates/GateCondition.cs`, threaded through `Create` as a
+trailing optional parameter, an EF index, and `20260819154617_AddGateConditionVariationId`. Files:
+`GateCondition.cs`, `GateConditionConfiguration.cs`, the migration + designer + model snapshot.
+
+**Not a `GateConditionContext` change.** `BudgetHandler.ValidateAsync` returns `Result.Success()`
+unconditionally — read from the backend source, not assumed — so creation needs no references and only
+satisfaction needs to remember. The purest instance of the companion rule in
+`docs/adding-a-module.md`: the context extension is unnecessary and the persisted column is not.
+
+**No FK**, fourth instance of the pattern. It would point at `finance.variations`, and Finance depends
+on Projects, so `projects → finance` makes the migration order unsatisfiable. Documented in the
+migration's `<remarks>`; F1-05 gives the pattern a named entry in `docs/cross-schema-foreign-keys.md`.
+No `Variation` navigation property either — arch rule 3 forbids a navigation to another module's type,
+so this diverges from the backend deliberately.
+
+### Two decisions the plan did not specify
+
+- **The column is indexed.** The backend indexes it, and satisfaction looks a gate up *by* variation id
+  when a variation is approved — a keyed read, not a scan. Including it now avoids a second Projects
+  migration at F1-08. The migration therefore contains the column **and** its intended index; that is
+  the whole of it.
+- **`LinkToVariation` is not ported yet.** It is dead code in the backend: `VariationDomainService`
+  stamps the FK via `ExecuteUpdateAsync` in both branches and nothing calls the method. It lands at
+  F1-08 with its first real caller rather than shipping unused here.
+
+### Verify
+
+Generated migration contains **exactly** the one column and its index, nothing else — no accidental
+model drift in a seven-module-old context (the G7-02 check). Projects' existing tests pass
+**unchanged** — 61 UnitTests, 21 Application.Tests, 5 Infrastructure.Tests — which is what proves the
+addition is source- and behaviour-compatible.
+
+**Gate:** build 0/0; `dotnet test` **846/846** across 26 suites; `dotnet format` exit 0, no content
+change.
+
+### Found, not fixed: `NotificationsSchemaIsolationTests` is racy (deferred to F1-10)
+
+`WritingANotification_IssuesNoSqlAgainstAnotherModulesSchema` failed once in the full-solution run and
+passed in isolation, in the baseline, and on re-run of identical code. Not caused by this task — a
+notification write cannot be affected by a `projects` DDL column.
+
+**Diagnosis, so F1-10 does not rediscover it.** `ApiFixture` leaves both `OutboxProcessor` (5s poll)
+and `PeriodicJobWorker` live; the worker runs its first sweep *at startup* and its seven jobs read
+`projects.`, `crm.` and `approvals.` — every one of which is in this test's `OtherModuleSchemas`. A
+sweep or outbox tick landing between `ClearCapturedSql()` and the assertion is indistinguishable from
+a leak. This is exactly the "`CapturedSql` measures the process, not the request" hazard.
+`DocumentsSchemaIsolationTests` drains the outbox first, which covers half of it; **nothing anywhere
+addresses the job-worker half.**
+
+Deferred rather than fixed here because F1-00's scope is one column, and the attempt budget belongs to
+the port. It is fixed at F1-10, which writes a `FinanceDbContext` isolation test of exactly this shape
+— and F1-08 adds an eighth job, which raises the sweep's SQL volume and therefore the flake rate. Do
+not fix it by widening the schema filter; that hides real leaks.
