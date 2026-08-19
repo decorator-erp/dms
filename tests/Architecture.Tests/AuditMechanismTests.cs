@@ -95,9 +95,9 @@ public class AuditMechanismTests
             .Where(c => c.Text.Contains("ConfigureOutbox(", StringComparison.Ordinal))
             .ToList();
 
-        // Non-vacuity: seven module contexts today, eight once Notifications lands. If this list is
-        // ever empty the test below passes while proving nothing.
-        Assert.True(contexts.Count >= 7, $"Expected at least 7 module DbContexts, found {contexts.Count}.");
+        // Non-vacuity: nine module contexts as of Finance (F1-04). Raised from 7 there, having drifted
+        // two modules behind reality. If this list is ever empty the test below passes proving nothing.
+        Assert.True(contexts.Count >= 9, $"Expected at least 9 module DbContexts, found {contexts.Count}.");
 
         var missing = contexts
             .Where(c => !c.Text.Contains("ConfigureAudit(", StringComparison.Ordinal))

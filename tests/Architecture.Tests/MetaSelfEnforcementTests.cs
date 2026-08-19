@@ -36,10 +36,10 @@ public class MetaSelfEnforcementTests
         // above having found something: if `Path` were renamed, the layout moved out of src/Modules/,
         // or .slnx replaced by .sln, `moduleProjectNames` would be empty, `missing` would be empty, and
         // THIS test — the one whose entire job is to stop other tests passing vacuously — would itself
-        // pass while scanning nothing. Eight modules x four projects; the floor rises as modules land.
-        Assert.True(moduleProjectNames.Count >= 32,
+        // pass while scanning nothing. Nine modules x four projects; the floor rises as modules land.
+        Assert.True(moduleProjectNames.Count >= 36,
             $"Parsed only {moduleProjectNames.Count} module projects from DMS.Modular.slnx, expected at "
-            + "least 32. The parse is broken, so this test is not checking anything.");
+            + "least 36. The parse is broken, so this test is not checking anything.");
 
         var discoveredNames = ModuleAssemblies.All.Select(a => a.GetName().Name).ToHashSet();
 

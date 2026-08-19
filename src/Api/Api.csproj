@@ -82,6 +82,16 @@
          Api.csproj - ApiFixture cannot Assembly.Load a module whose DLL never reaches Api's output. -->
     <ProjectReference Include="..\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
+    <!-- Finance (F1-04). Added here ahead of the rest of the wiring for exactly the reason recorded on
+         the Notifications pair above: Integration.Tests references only Api.csproj, so ApiFixture
+         cannot Assembly.Load a module whose DLL never reaches Api output - and ApiFixture must migrate
+         the finance schema from F1-04 onward, since "finance" is now in ModuleDependencyOrder. Also
+         what lets the `dotnet ef migrations add` CLI (startup project Api) find FinanceDbContext.
+         Program.cs's own Assembly.Load("Finance.Infrastructure") + moduleAssemblies registration land
+         at F1-09, once the module has endpoints to serve; until then FinanceModule is referenced but
+         never registered in the host, and Boot_RegistersExactlyEightModules stays correct. -->
+    <ProjectReference Include="..\Modules\Finance\Finance.Infrastructure\Finance.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Finance\Finance.Application\Finance.Application.csproj" />
   </ItemGroup>
 
 </Project>

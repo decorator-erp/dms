@@ -43,6 +43,22 @@ namespace BuildingBlocks.Web;
 /// <c>notify → identity</c> and already placed <c>notify</c> last, two phases before the module
 /// existed; this is that plan being carried out, not a new decision.</para>
 ///
+/// <para><b>"finance" is the second INSERTION, and unlike CRM it is not forced — it is honoured.</b>
+/// Applying the same rule proves the position is free: Finance points OUTWARD at <c>projects</c>
+/// (ProjectId, ProjectStageId, ProjectTaskId), <c>crm</c> (ClientId, SignedByClientId) and <c>hr</c>
+/// (RecordedById, RequestedById, ApprovedById, GeneratedById), and <b>nothing points into it</b> — the
+/// one thing that appears to, <c>projects.gate_conditions.VariationId</c> (F1-00), deliberately carries
+/// no foreign key precisely because a <c>projects → finance</c> constraint would make this order
+/// unsatisfiable in both directions at once. So <c>finance</c> would migrate correctly appended at the
+/// end, exactly as <c>sites</c> and <c>notify</c> do.
+///
+/// It is inserted before <c>notify</c> anyway because
+/// <c>docs/cross-schema-foreign-keys.md</c> has shipped that ten-module order since N1-03, two phases
+/// before this module existed, with prose saying finance would insert there. Choosing the append would
+/// have meant editing a document that was already correct. <b>The position is arbitrary with respect to
+/// correctness and deliberate with respect to the record</b> — which is the useful distinction for the
+/// next module to apply, since it is the FK graph, never the arrival order, that decides.</para>
+///
 /// <para>Note that <c>audit_logs</c> is <b>not</b> in <c>notify</c> despite Notifications serving the
 /// audit endpoints. It lives in <c>shared</c>, which is FIRST — the audit interceptor fires on every
 /// module's writes, so its table has to exist before any of them migrate. See
@@ -60,6 +76,7 @@ public static class ModuleDependencyOrder
         "projects",
         "documents",
         "sites",
+        "finance",
         "notify",
     ];
 }

@@ -26,11 +26,11 @@ public class Rule3ModuleIsolationTests
     {
         var layered = LayeredModuleAssemblies;
 
-        // PC-03 liveness: eight modules x three layered assemblies. An empty (or single-module) set
+        // PC-03 liveness: nine modules x three layered assemblies. An empty (or single-module) set
         // makes the `otherModuleAssemblyNames.Length == 0` continue below fire for every iteration,
         // and the rule reports isolation it never tested.
-        Assert.True(layered.Count >= 24,
-            $"Discovered only {layered.Count} layered module assemblies, expected at least 24.");
+        Assert.True(layered.Count >= 27,
+            $"Discovered only {layered.Count} layered module assemblies, expected at least 27.");
 
         foreach (var assembly in layered)
         {
@@ -57,8 +57,8 @@ public class Rule3ModuleIsolationTests
     public void Modules_MustNotGrantInternalsVisibleToAcrossAModuleBoundary()
     {
         // PC-03 liveness — same reason as the test above: no assemblies means no grants examined.
-        Assert.True(LayeredModuleAssemblies.Count >= 24,
-            $"Discovered only {LayeredModuleAssemblies.Count} layered module assemblies, expected at least 24.");
+        Assert.True(LayeredModuleAssemblies.Count >= 27,
+            $"Discovered only {LayeredModuleAssemblies.Count} layered module assemblies, expected at least 27.");
 
         foreach (var assembly in LayeredModuleAssemblies)
         {

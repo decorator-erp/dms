@@ -17,7 +17,7 @@ public class Rule8BuildingBlocksWebTests
         var scoped = ModuleAssemblies.WithSuffix(".Application").Concat(ModuleAssemblies.WithSuffix(".Domain")).ToList();
 
         // PC-03 liveness: an empty scope runs the loop zero times and reports compliance.
-        Assert.True(scoped.Count >= 16, $"Discovered only {scoped.Count} Application/Domain assemblies, expected at least 16.");
+        Assert.True(scoped.Count >= 18, $"Discovered only {scoped.Count} Application/Domain assemblies, expected at least 18.");
 
         foreach (var assembly in scoped)
         {

@@ -84,7 +84,13 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             // "notify" added at N1-03. Omitting it would leave notification and activity rows alive
             // across every reset in this collection - and because the dedupe index is unique per
             // recipient, a leaked row makes the NEXT test's identical notification silently skip.
-            SchemasToInclude = ["identity", "hr", "approvals", "crm", "projects", "documents", "sites", "notify", "shared"],
+            // "finance" added at F1-04, in the same commit as the migration case above. Omitting it
+            // would leave budget lines, ledger entries and invoices alive across every reset in this
+            // collection - and unlike a stale read, that leaks in a way the tests would enforce: the
+            // unique index on invoices."Number" is global, so a leaked invoice makes the NEXT test that
+            // issues the same number fail with a database error rather than a clear assertion.
+            SchemasToInclude =
+                ["identity", "hr", "approvals", "crm", "projects", "documents", "sites", "finance", "notify", "shared"],
             DbAdapter = DbAdapter.Postgres,
         });
 
@@ -242,11 +248,29 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                     "Sites.Infrastructure.Persistence.SitesDbContext, Sites.Infrastructure");
                 break;
 
+            case "finance":
+                await MigrateModuleSchemaAsync(
+                    "Finance.Infrastructure",
+                    "Finance.Infrastructure.Persistence.FinanceDbContext, Finance.Infrastructure");
+                break;
+
             case "notify":
                 await MigrateModuleSchemaAsync(
                     "Notifications.Infrastructure",
                     "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure");
                 break;
+
+            // F1-04. There was no `default` here, and the plan for this task named the resulting hazard
+            // precisely: a schema added to ModuleDependencyOrder.SchemaOrder without a case here is
+            // simply never migrated, and the first symptom is a "relation does not exist" error from
+            // whichever test happens to touch that module first - a message that points at the module,
+            // not at this switch. Turning it into an immediate, named failure costs nothing: every
+            // schema in SchemaOrder has a case today, so this line can only fire for the next module
+            // someone adds, which is exactly who needs to read it.
+            default:
+                throw new InvalidOperationException(
+                    $"ModuleDependencyOrder.SchemaOrder contains \"{schema}\" but MigrateSchemaAsync has no "
+                    + "case for it, so that schema is never migrated. Add one here.");
         }
     }
 

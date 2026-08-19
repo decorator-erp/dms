@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\Finance.Contracts\Finance.Contracts.csproj" />
+    <ProjectReference Include="..\Finance.Domain\Finance.Domain.csproj" />
+    <!-- Own Infrastructure, same reasoning as every other module: handlers use FinanceDbContext
+         directly - "no repository pattern" - so Application needs the concrete type. -->
+    <ProjectReference Include="..\Finance.Infrastructure\Finance.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Finance.Application.Tests" />
+  </ItemGroup>
+
+</Project>

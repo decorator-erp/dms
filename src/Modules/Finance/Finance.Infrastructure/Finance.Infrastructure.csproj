@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\Finance.Contracts\Finance.Contracts.csproj" />
+    <ProjectReference Include="..\Finance.Domain\Finance.Domain.csproj" />
+    <!-- No cross-module reference yet, deliberately. Finance's outward references arrive with the code
+         that needs them, not ahead of it: Projects.Contracts at F1-08 (BudgetHandler implements
+         IGateConditionTypeHandler, and InvoiceDueJob resolves the project owner through
+         IProjectDirectory), Crm.Contracts and Hr.Contracts at F1-08 for the same job's other two
+         resolution hops, Notifications.Contracts for INotificationService. Adding them now would make
+         rule 3's isolation checks pass over references nothing uses. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Finance.Application uses FinanceDbContext directly ("no repository pattern"), so it needs the
+         internal concrete type - the same grant every other module makes to its own Application. -->
+    <InternalsVisibleTo Include="Finance.Application" />
+    <InternalsVisibleTo Include="Finance.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Finance.Application.Tests" />
+  </ItemGroup>
+
+</Project>
