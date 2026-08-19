@@ -128,6 +128,16 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
         builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
+        // F1-10. Stands down OutboxProcessor's and PeriodicJobWorker's TIMER loops -- both remain
+        // registered and resolvable, and the ten call sites that drive them explicitly are unaffected.
+        //
+        // CapturedSql below is a process-wide sink with no per-request correlation, so a background
+        // sweep landing between a schema-isolation test's ClearCapturedSql() and its assertion reads as
+        // the module under test having touched another module's schema. That race was diagnosed at
+        // F1-00, deferred here, and is fixed by removing the interleave rather than by widening the
+        // forbidden-schema list -- which would hide the leaks those tests exist to catch. See
+        // BuildingBlocks.BackgroundLoops.
+        builder.UseSetting(BuildingBlocks.BackgroundLoops.EnabledKey, "false");
         builder.ConfigureLogging(logging => logging.AddProvider(new SqlCapturingLoggerProvider(_capturedSql)));
     }
 

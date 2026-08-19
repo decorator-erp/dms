@@ -60,6 +60,9 @@ public sealed class OutboxProcessor(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!BackgroundLoops.Enabled(configuration))
+            return;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try

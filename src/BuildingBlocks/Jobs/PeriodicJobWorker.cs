@@ -48,6 +48,9 @@ public sealed class PeriodicJobWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!BackgroundLoops.Enabled(configuration))
+            return;
+
         using var timer = new PeriodicTimer(_interval);
 
         try
