@@ -34,6 +34,26 @@ public class EnumParityTests
     public void PaymentMethod_MatchesBetweenDomainAndContracts() =>
         AssertParity<Domain.PaymentMethod, Contracts.PaymentMethod>();
 
+    [Fact]
+    public void InvoiceStatus_MatchesBetweenDomainAndContracts() =>
+        AssertParity<Domain.InvoiceStatus, Contracts.InvoiceStatus>();
+
+    [Fact]
+    public void InvoiceType_MatchesBetweenDomainAndContracts() =>
+        AssertParity<Domain.InvoiceType, Contracts.InvoiceType>();
+
+    [Fact]
+    public void VariationStatus_MatchesBetweenDomainAndContracts() =>
+        AssertParity<Domain.VariationStatus, Contracts.VariationStatus>();
+
+    [Fact]
+    public void VariationKind_MatchesBetweenDomainAndContracts() =>
+        AssertParity<Domain.VariationKind, Contracts.VariationKind>();
+
+    [Fact]
+    public void BoqSnapshotType_MatchesBetweenDomainAndContracts() =>
+        AssertParity<Domain.BoqSnapshotType, Contracts.BoqSnapshotType>();
+
     private static void AssertParity<TDomain, TContracts>()
         where TDomain : struct, Enum
         where TContracts : struct, Enum

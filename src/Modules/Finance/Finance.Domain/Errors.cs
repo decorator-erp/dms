@@ -79,3 +79,101 @@ internal static class LedgerAllocationErrors
     public static readonly Error ExceedsUnallocated = Error.BadRequest(
         $"{Code}.ExceedsUnallocated", "Allocations exceed the unallocated amount of the ledger entry.");
 }
+
+/// <summary>Ported from <c>../backend/Domain/Errors/InvoiceErrors.cs</c>.</summary>
+internal static class InvoiceErrors
+{
+    private const string Code = "invoices";
+
+    public static readonly Error NotFound = Error.NotFound($"{Code}.NotFound", "Invoice was not found.");
+
+    public static readonly Error DuplicatedNumber = Error.Conflict(
+        $"{Code}.DuplicatedNumber", "An invoice with this number already exists.");
+
+    /// <summary>F1-03 addition. The backend's <c>Invoice.Create</c> never checks the number, relying on
+    /// a FluentValidation rule at the edge — so a handler constructing an invoice directly could
+    /// persist one with an empty number, which is also the natural key humans and the duplicate check
+    /// use.</summary>
+    public static readonly Error NumberRequired = Error.BadRequest(
+        $"{Code}.NumberRequired", "Invoice number is required.");
+
+    public static readonly Error ClientRequired = Error.BadRequest(
+        $"{Code}.ClientRequired", "A client invoice requires a client.");
+
+    public static readonly Error VendorRequired = Error.BadRequest(
+        $"{Code}.VendorRequired", "A vendor invoice requires a vendor name.");
+
+    public static readonly Error NotPayable = Error.BadRequest(
+        $"{Code}.NotPayable", "Payments can only be allocated to open invoices.");
+
+    public static readonly Error OverAllocation = Error.BadRequest(
+        $"{Code}.OverAllocation", "The allocation exceeds the invoice's outstanding balance.");
+
+    public static readonly Error InvalidStatusTransition = Error.BadRequest(
+        $"{Code}.InvalidStatusTransition", "The invoice status does not allow this operation.");
+}
+
+/// <summary>Ported from <c>../backend/Domain/Errors/InvoiceLineErrors.cs</c>. The backend's
+/// <c>InvalidNetAmount</c>/<c>InvalidLineTotal</c> are not ported: they describe a tax-bearing shape
+/// (net + tax = total) this module does not model, and nothing raises them.</summary>
+internal static class InvoiceLineErrors
+{
+    private const string Code = "invoice_lines";
+
+    public static readonly Error DescriptionRequired = Error.BadRequest(
+        $"{Code}.DescriptionRequired", "Invoice line description is required.");
+
+    public static readonly Error InvalidQuantity = Error.BadRequest(
+        $"{Code}.InvalidQuantity", "Invoice line quantity must be greater than zero.");
+
+    /// <summary>F1-03 addition — the backend accepts a negative unit price, which produces a negative
+    /// line total and silently reduces an invoice.</summary>
+    public static readonly Error InvalidUnitPrice = Error.BadRequest(
+        $"{Code}.InvalidUnitPrice", "Invoice line unit price cannot be negative.");
+}
+
+/// <summary>Ported from <c>../backend/Domain/Errors/VariationErrors.cs</c>.</summary>
+internal static class VariationErrors
+{
+    private const string Code = "variations";
+
+    public static readonly Error NotFound = Error.NotFound($"{Code}.NotFound", "Variation was not found.");
+
+    public static readonly Error ReasonRequired = Error.BadRequest(
+        $"{Code}.ReasonRequired", "Variation reason is required.");
+
+    public static readonly Error MissingClientDifferenceFields = Error.BadRequest(
+        $"{Code}.MissingClientDifferenceFields",
+        "A client-difference variation requires a project task, a budgeted amount, and a chosen amount "
+        + "greater than the budgeted amount.");
+
+    public static readonly Error MissingBudgetLine = Error.BadRequest(
+        $"{Code}.MissingBudgetLine", "An internal-change variation requires a budget line.");
+
+    public static readonly Error AmountMustBePositive = Error.BadRequest(
+        $"{Code}.AmountMustBePositive", "An internal-change variation requires a positive amount.");
+
+    public static readonly Error SignatureFieldsNotAllowed = Error.BadRequest(
+        $"{Code}.SignatureFieldsNotAllowed",
+        "Client signature fields are only valid on client-difference variations.");
+
+    public static readonly Error SignatureRequired = Error.BadRequest(
+        $"{Code}.SignatureRequired", "Approving a client-difference variation requires the signing client.");
+
+    public static readonly Error InvalidStatusTransition = Error.BadRequest(
+        $"{Code}.InvalidStatusTransition", "The variation status does not allow this operation.");
+
+    public static readonly Error NotApproved = Error.BadRequest(
+        $"{Code}.NotApproved", "Only approved variations can be applied.");
+}
+
+/// <summary>Ported from <c>../backend/Domain/Errors/BoqSnapshotErrors.cs</c>.</summary>
+internal static class BoqSnapshotErrors
+{
+    private const string Code = "boq_snapshots";
+
+    public static readonly Error NotFound = Error.NotFound($"{Code}.NotFound", "BOQ snapshot was not found.");
+
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        $"{Code}.ProjectNotFound", "The project for this BOQ snapshot was not found.");
+}
