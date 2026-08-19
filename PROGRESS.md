@@ -7085,3 +7085,63 @@ Deferred rather than fixed here because F1-00's scope is one column, and the att
 the port. It is fixed at F1-10, which writes a `FinanceDbContext` isolation test of exactly this shape
 — and F1-08 adds an eighth job, which raises the sweep's SQL volume and therefore the flake rate. Do
 not fix it by widening the schema filter; that hides real leaks.
+
+## F1-00b — `ProjectSummary.OwnerId` (R1: the invoice job needs a recipient)
+
+Files: `Projects.Contracts/IProjectDirectory.cs` (the record), `Projects.Infrastructure/Services/
+ProjectDirectory.cs` (the one construction site), `tests/Modules/Projects.Infrastructure.Tests/
+ProjectDirectoryTests.cs` (new).
+
+**Why this exists at all.** F1-08 specifies `InvoiceDueJob`'s recipients as "`finance.read` holders +
+the client user". Neither half survived contact with the code, and finding that at F1-08 — the largest
+task — would have been an outcome-changing ambiguity, which is a hard stop.
+
+- **`finance.read` holders.** The backend resolves finance staff as *"users whose role carries the
+  `finance.read` claim"* (`RecipientResolver.cs:38`). `Identity.Contracts` has three surfaces and none
+  enumerates users by permission: `IUserDirectory` is by-id, `IUserAdministration` is
+  deactivate/reactivate, `IPermissionCatalog.All()` returns permission **strings**. Not ported; it
+  would need a new Identity capability.
+- **The project owner.** `ProjectSummary` was `(Id, Code, Name, Status, ClientId)` — no owner. The
+  Phase 6 precedent does **not** transfer: `ProjectDeadlineJob` reads `p.OwnerId` off
+  `ProjectsDbContext` because it *lives in* Projects. A job in Finance cannot do that for a
+  Projects-owned column.
+
+Without the field the only reachable recipient is the client, from `Invoice.ClientId` — and vendor
+invoices carry no `ClientId` (`VendorName` is free text), so they would notify **nobody** while the
+office was never told either.
+
+**Shipped rule for F1-08:** project owner (`Invoice.ProjectId` → `IProjectDirectory` → `OwnerId` →
+`IHrDirectory` → `AppUserId`) **+** client user (`Invoice.ClientId` → `IClientDirectory` →
+`AppUserId`), deduped, skip when empty. **Recorded divergence:** finance staff who are not the project
+owner get no invoice-due reminder. Deliberate, and arguably better — a broadcast to every
+`finance.read` holder on every overdue invoice is the notification-fatigue shape.
+
+**Required, not defaulted.** A defaulted `Guid` would let a caller build a summary whose owner is
+`Guid.Empty`, resolving to no employee and so silently to no recipient — the failure mode this closes.
+One construction site existed; adding a required member cost exactly one line there.
+
+### Verify
+
+No migration — `Project.OwnerId` already held the value; the probe is empty `Up`/`Down`, which also
+re-proves F1-00's migration captured its model change completely.
+
+`ProjectDirectoryTests` asserts `OwnerId` round-trips **the owner the project was created with**, not
+that the field is non-empty. Two employees are seeded and the project gets the second, so "returns some
+employee id" cannot pass; `ClientId` is asserted separately so a transposition of the two trailing
+`Guid`s fails rather than reading as correct. **Discrimination proven:** injecting that exact
+transposition (`p.ClientId, p.ClientId`) turned both new tests red; restored, both green. Per PC-04's
+criterion no liveness control applies — the summary is a direct return value, not a machinery-gathered
+set.
+
+Projects' existing tests pass **unchanged**: 61 UnitTests, 21 Application.Tests, the 5 pre-existing
+Infrastructure.Tests.
+
+**Gate:** build 0/0; **848/848** across 26 suites (846 + 2 new); `dotnet format` exit 0, no content
+change.
+
+### Hard stop amended, deliberately and by name
+
+Phase 7's hard stops forbid extending another module's `Contracts` beyond `GateCondition.VariationId`.
+This is the **second and only other** permitted addition, agreed before the run rather than taken
+mid-task, on the grounds that a planned cross-module change budgeted as its own task is exactly what
+the alternative (option b) prescribed for this situation. No further `Contracts` extension is in scope.
