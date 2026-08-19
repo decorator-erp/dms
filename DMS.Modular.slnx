@@ -56,6 +56,7 @@
   </Folder>
   <Folder Name="/src/Modules/Finance/">
     <Project Path="src/Modules/Finance/Finance.Contracts/Finance.Contracts.csproj" />
+    <Project Path="src/Modules/Finance/Finance.Domain/Finance.Domain.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
@@ -81,6 +82,7 @@
     <Project Path="tests/Modules/Crm.UnitTests/Crm.UnitTests.csproj" />
     <Project Path="tests/Modules/Crm.Infrastructure.Tests/Crm.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Crm.Application.Tests/Crm.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Finance.UnitTests/Finance.UnitTests.csproj" />
     <Project Path="tests/Modules/Sites.UnitTests/Sites.UnitTests.csproj" />
     <Project Path="tests/Modules/Sites.Infrastructure.Tests/Sites.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Sites.Application.Tests/Sites.Application.Tests.csproj" />
