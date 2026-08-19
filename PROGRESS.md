@@ -7566,3 +7566,110 @@ the failure mode is 78 red Integration.Tests with an empty-looking stack.
   cross-schema FKs point at projects/crm/hr, none of which exist in that isolated container.
 - Rule 10 remains effectively vacuous for Finance until `Projects.Infrastructure` takes its
   `Finance.Contracts` reference at F1-08.
+
+---
+
+## F1-05 — Cross-schema FKs + rule 9 allow-list (`d8a28ea`)
+
+22 foreign keys in `20260819180739_FinanceCrossSchemaForeignKeys`, rule 9's allow-list and `Modules`
+dictionary extended, four indexes added, `docs/cross-schema-foreign-keys.md` given Finance's section and
+a named entry for the deliberately-absent-FK pattern. **969/969 across 28 suites**, build 0/0, format
+clean.
+
+**Files:** `Persistence/Migrations/InitialFinance/20260819180739_FinanceCrossSchemaForeignKeys.{cs,Designer.cs}`,
+`FinanceDbContextModelSnapshot.cs`, `Configurations/{LedgerEntry,Variation,BoqSnapshot}Configuration.cs`,
+`tests/Architecture.Tests/Rule9CrossSchemaForeignKeyTests.cs`,
+`tests/Modules/Finance.Infrastructure.Tests/FinanceSchemaObjectTests.cs`,
+`docs/cross-schema-foreign-keys.md`.
+
+### The 22, enumerated from the entities
+
+Counted by grepping `Bare Guid →` across `Finance.Domain`, not from the plan's list:
+
+- **→ projects (15).** `ProjectId` on `budget_lines`, `ledger_entries`, `invoices`, `variations`,
+  `boq_snapshots` (all NOT NULL); `ProjectStageId` on the same five; `ProjectTaskId` on `budget_lines`,
+  `ledger_entries`, `invoice_lines`, `variations`, `boq_snapshot_lines`.
+- **→ crm (3).** `ledger_entries."ClientId"`, `invoices."ClientId"`, `variations."SignedByClientId"`.
+- **→ hr (4).** `ledger_entries."RecordedById"`, `variations."RequestedById"`,
+  `variations."ApprovedById"`, `boq_snapshots."GeneratedById"`.
+
+All `ON DELETE RESTRICT`, all quoted PascalCase columns, all outbound. Written through one private
+`AddForeignKey` helper because they genuinely are one shape — writing 22 longhand would bury the only
+thing that varies (the target) in 130 lines of identical text.
+
+### The line without which the whole task was decorative
+
+Rule 9's `Modules` dictionary had **no `["finance"]` entry**. `InitializeAsync` loops `SchemaOrder` and
+`continue`s on any schema it cannot resolve, so finance was never migrated in that test — all 22
+constraints would have been absent from the `pg_constraint` query and the rule would have reported
+success over foreign keys it never saw. `AllowedPairs` already had `("finance","projects")` and
+`("finance","crm")` from two phases back; **an allow-list entry is inert on its own**. The plan flagged
+this ("without it the checks silently skip") and it was exactly right.
+
+`("finance","hr")` is the one genuinely new pair.
+
+### RESTRICT, reclassified
+
+Every prior module records RESTRICT as a *divergence* forced by rule 9 where the backend cascades.
+Finance is the first where it is what you would choose anyway, and the doc now says so: a ledger is
+append-only and corrects by reversal rows pointing at the entry they undo, so a cascade would delete the
+audit trail along with the row that explains it. Visible consequence: a project, client or employee
+carrying finance history cannot be deleted until that history is dealt with.
+
+### The named pattern, and instance 5
+
+`docs/cross-schema-foreign-keys.md` gains **"The deliberately-absent foreign key — the pattern, named"**:
+five instances sorted into four reason classes, with whether each is closable.
+
+`projects.gate_conditions."VariationId"` (F1-00) is instance 5, and it reads best against instance 3
+(`crm.crm_artifact_documents."DocumentId"`) because it is the same class reached from the opposite end.
+CRM's cycle was **inherited** — three desired FKs across three modules, one had to be dropped. Finance's
+is **self-inflicted and benign**: the 22 constraints all require `finance` after `projects`, and a
+constraint for `VariationId` would require `finance` before `projects`. Adding the 23rd invalidates the
+other 22. The absence is load-bearing, not regrettable.
+
+Two absence assertions added, the second stronger than the first:
+
+```
+Assert.DoesNotContain(found, fk => fk.From == "projects" && fk.To == "finance");
+Assert.DoesNotContain(found, fk => fk.To == "finance");
+```
+
+The second is the property `ModuleDependencyOrder`'s insertion note actually relies on — **nothing
+anywhere points into finance** — which is what makes finance's position free rather than forced. Both
+sit after 22 `Assert.Contains` calls, so the negative assertions cannot pass on an empty result set: the
+positive ones fail first. (That is the standing "a negative assertion needs a positive one" rule, and
+here it is satisfied by construction rather than by an added `NotEmpty`.)
+
+### Decided here, not specified by the plan
+
+- **Four indexes moved into this migration rather than the initial one.** `RecordedById`,
+  `RequestedById`, `ApprovedById`, `GeneratedById` were the only constrained columns not already indexed
+  (or leading a composite). Declared in the EF configurations so the model stays the source of truth,
+  and they land immediately above the constraints that need them.
+- **`FinanceSchemaObjectTests` pinned to `MigrateAsync("InitialFinance")`** via
+  `IMigrator`, the `SitesSchemaObjectTests` precedent. Its container has no projects/crm/hr, and standing
+  up eight modules there would turn a schema-object test into a composition test.
+
+### Fault injection — rule 9, and an accidental second demonstration
+
+Injected a real wrong-way constraint. **First attempt pointed at `notify.notifications` and failed with
+`3F000: schema "notify" does not exist`** — notify migrates *after* finance, so the schema is not there
+yet. That is the ordering rule demonstrating itself: the injection could not even be created in the
+direction I first reached for. Retargeted at `documents.project_documents` (documents migrates 7th,
+finance 9th, and `("finance","documents")` is not allow-listed), and rule 9 named it:
+
+```
+Cross-schema foreign keys pointing the wrong way: fk_injection_wrong_way: finance -> documents
+```
+
+Reverted; `grep -c fk_injection_wrong_way` returns 0.
+
+### Carried forward
+
+- `NotificationsSchemaIsolationTests` race — unchanged, still deferred to F1-10, still **not** to be
+  fixed by widening the schema filter.
+- Rule 10 still effectively vacuous for Finance until `Projects.Infrastructure` takes its
+  `Finance.Contracts` reference at F1-08.
+- F2-01 owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense — it still
+  says finance "will insert before notify when it lands". It has landed.
