@@ -29,5 +29,9 @@ internal sealed class GateConditionConfiguration : IEntityTypeConfiguration<Gate
         // ResolvedById: bare Guid FK to hr.employees, raw-SQL constraint in the migration.
         // ApprovalId: bare Guid FK to approvals.approvals (nullable), raw-SQL constraint in the migration.
         builder.HasIndex(g => g.ApprovalId);
+        // F1-00: VariationId is a bare Guid pointing at finance.variations with no FK (see the entity's
+        // own note and the migration). Indexed because the satisfaction path looks a gate up BY variation
+        // id when a variation is approved — the backend indexes it for the same reason.
+        builder.HasIndex(g => g.VariationId);
     }
 }

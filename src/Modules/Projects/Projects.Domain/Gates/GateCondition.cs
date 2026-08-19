@@ -31,6 +31,29 @@ internal sealed class GateCondition : Entity, IAuditable
     /// <c>DocumentApprovedHandler</c> against its own <c>DbContext</c>. Documented in the migration and
     /// in <c>docs/cross-schema-foreign-keys.md</c>.</summary>
     public Guid? ReferencedDocumentId { get; private set; }
+
+    /// <summary>Added at F1-00 for <see cref="Domain.ConditionType.Budget"/>: the Finance variation
+    /// (<c>finance.variations."Id"</c>) this gate's satisfaction is linked to. Stamped when a raised
+    /// variation opens or reuses a Budget gate, and read back when that variation is approved to find
+    /// the gate to satisfy — <see cref="Projects.Contracts.GateConditionContext"/> is deliberately NOT
+    /// extended, because <c>BudgetHandler.ValidateAsync</c> returns success unconditionally: creation
+    /// needs no references, only satisfaction needs to remember. The companion-rule case from
+    /// <c>docs/adding-a-module.md</c>, in its purest form.
+    ///
+    /// <para>No FK, for the same reason as <see cref="ReferencedDocumentId"/> but a different graph
+    /// edge: it would point at <c>finance.variations</c>, and Finance depends on Projects
+    /// (<c>BudgetLine.ProjectId</c>, <c>Invoice.ProjectId</c>, …), so a <c>projects → finance</c>
+    /// constraint makes the migration order unsatisfiable. Fourth instance of the
+    /// deliberately-absent-FK pattern, after <c>projects.projects."ClientId"</c> (pre-Phase 4),
+    /// <see cref="ReferencedDocumentId"/> (Phase 3) and <c>crm_artifact_documents."DocumentId"</c>
+    /// (Phase 4). Documented in the migration and in <c>docs/cross-schema-foreign-keys.md</c>.</para>
+    ///
+    /// <para>Unlike the backend's <c>GateCondition.VariationId</c> there is no <c>Variation</c>
+    /// navigation property beside it — a navigation to another module's entity type is exactly what
+    /// arch rule 3 forbids. A bare <see cref="Guid"/>, validated in Finance's own application code
+    /// against its own <c>DbContext</c>.</para>
+    /// </summary>
+    public Guid? VariationId { get; private set; }
     public GateStatus Status { get; private set; }
     public Guid? ResolvedById { get; private set; }
     public DateTime? ResolvedAt { get; private set; }
@@ -60,7 +83,7 @@ internal sealed class GateCondition : Entity, IAuditable
     public static Result<GateCondition> Create(
         Guid? projectStageId, Guid? projectTaskId, ConditionType conditionType, GateTrigger trigger, string label,
         Guid? referencedTaskId = null, Guid? referencedStageId = null, ApprovalType? approvalType = null,
-        Guid? referencedDocumentId = null)
+        Guid? referencedDocumentId = null, Guid? variationId = null)
     {
         if (projectStageId.HasValue == projectTaskId.HasValue)
             return GateConditionErrors.InvalidScope;
@@ -76,6 +99,7 @@ internal sealed class GateCondition : Entity, IAuditable
             ReferencedStageId = referencedStageId,
             ApprovalType = approvalType,
             ReferencedDocumentId = referencedDocumentId,
+            VariationId = variationId,
             Status = GateStatus.Pending,
         };
     }

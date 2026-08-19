@@ -23,6 +23,96 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BuildingBlocks.Auditing.AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ChangedColumns")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_columns");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("entity_name");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("new_values");
+
+                    b.Property<string>("OldValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("old_values");
+
+                    b.Property<string>("RequestMethod")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("request_method");
+
+                    b.Property<string>("RequestPath")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("request_path");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("text")
+                        .HasColumnName("user_agent");
+
+                    b.Property<string>("UserEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("user_email");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Timestamp")
+                        .IsDescending()
+                        .HasDatabaseName("ix_audit_logs_timestamp");
+
+                    b.HasIndex("EntityName", "EntityId")
+                        .HasDatabaseName("ix_audit_logs_entity");
+
+                    b.HasIndex("UserId", "Timestamp")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_audit_logs_user_timestamp");
+
+                    b.ToTable("audit_logs", "shared", t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
             modelBuilder.Entity("BuildingBlocks.Outbox.InboxMessage", b =>
                 {
                     b.Property<Guid>("EventId")
@@ -151,6 +241,9 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("VariationId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovalId");
@@ -158,6 +251,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.HasIndex("ProjectStageId");
 
                     b.HasIndex("ProjectTaskId");
+
+                    b.HasIndex("VariationId");
 
                     b.ToTable("gate_conditions", "projects");
                 });
