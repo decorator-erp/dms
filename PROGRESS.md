@@ -7325,3 +7325,86 @@ factory set, because a state machine's gaps live in the combinations nobody wrot
 twice fails — it drives a budget-line adjustment that must happen exactly once.
 
 **Gate:** build 0/0; **952/952** across 27 suites; `dotnet format` exit 0, no content change.
+
+---
+
+# Phase 7 handoff — resume at F1-04
+
+**Stopped at a task boundary after F1-03, committed and gated. Context exhaustion, not a blocker.**
+Nothing is half-done: every task below has its commit, its `PROGRESS.md` entry and a green full gate.
+
+## Done (7 of 16)
+
+| Task | SHA | What |
+|---|---|---|
+| PC-03 | `12dbdf8` | *(committed outside this session)* liveness for reflection/catalog assertions |
+| PC-04 | `96bf0e8` | *(committed outside this session)* the rule, the count, what the sweep found |
+| F1-00 | `9e3969c` | `GateCondition.VariationId`, the fourth absent FK |
+| F1-00b | `2b904c5` | `ProjectSummary.OwnerId` (R1) |
+| F1-01 | `2764031` | `Finance.Contracts` — 54 messages, 7 events, 12 permissions |
+| F1-02 | `876a41c` | Domain: cost, budget, ledger |
+| F1-03 | `85d1432` | Domain: invoices, variations, BOQ |
+
+Each is followed by a `<TASK>: PROGRESS line` commit. **Gate at F1-03: build 0/0, 952/952 across 27
+suites, `dotnet format` exit 0.**
+
+## Remaining (9): F1-04 → F1-05 → F1-06 → F1-07 → F1-07b → F1-08 → F1-09 → F1-10 → F2-01
+
+Task count is **16**, not the plan's 14: PC-03, PC-04, F1-00, **F1-00b**, F1-01…F1-10 including
+**F1-07b**, F2-01. F2-01's sub-area reconciliation must diff against 16.
+
+## Environment
+
+- **`dotnet-ef` was not installed.** Installed globally at 10.0.10 to match `Directory.Packages.props`.
+  Not a local manifest — that would leave an uncommitted repo file and break the format gate. Add
+  `export PATH="$PATH:$HOME/.dotnet/tools"` before any `dotnet ef` call.
+- `dotnet ef migrations remove` needs a live DB. An unapplied probe is removed by deleting its two files;
+  an **empty** probe leaves the model snapshot untouched, so nothing else needs reverting.
+- Git identity was unset; set repo-locally to the existing history's `Mohamed lotfi <mohamed80f@gmail.com>`.
+- Heredocs choke on apostrophes in C# doc comments — use the Write tool for files, `cat >>` only for
+  prose without them.
+
+## What F1-04 must not miss
+
+Already registered: `Finance.Contracts` and `Finance.Domain` are in `DMS.Modular.slnx` **and**
+`Architecture.Tests.csproj`; `Finance.UnitTests` is in the slnx. **F1-04 must add `Finance.Application`
+and `Finance.Infrastructure` to both** before writing constrained code.
+
+1. **`SchemaOrder`: INSERT `"finance"` at index 8**, between `"sites"` and `"notify"` — not an append.
+   `docs/cross-schema-foreign-keys.md:270-279` already ships that order in prose. Decided with the user.
+2. **Money: `numeric(19,4)` on all 22 columns.** The backend has **zero** `HasPrecision` calls; it uses
+   `HasColumnType("decimal(19,4)")` uniformly. This repo's idiom is `HasColumnType("numeric(18,4)")`
+   (Sites), so `numeric(19,4)` preserves precision and scale exactly. Backend CRM money is
+   `numeric(18,2)` — do not unify. Money precision goes **under the R3 named-list guard**: the probe
+   migration is blind to it exactly as it is to raw SQL.
+3. **Three hand-maintained lists**: `ApiFixture.MigrateSchemaAsync`'s switch (**no `default:`** — a
+   missing case fails later as a confusing missing-table error), `ApiFixture`'s Respawn
+   `SchemasToInclude`, and Rule 9's `Modules` dictionary at F1-05 (`AllowedPairs` already has
+   `finance→projects` and `finance→crm`).
+4. **Three "eight modules" floors rise**: `MetaSelfEnforcementTests:39`, `Rule10…:71`, `Rule6…:32`.
+5. **`FinanceModule` minimal** — `AddModuleDbContext` + `IModulePermissions` only (R1 precedent).
+6. **PC-04's four refinements apply directly here**: prefer `Assert.Contains(captured, sql =>
+   sql.Contains("finance."))` over bare `NotEmpty`; only the `actual.Except(Expected)` half needs
+   liveness; liveness on a set does **not** cover a filter; a legitimately-empty gathered set needs a
+   before/after pair, not `NotEmpty`.
+
+## Carried forward
+
+- **Deferred to F1-10 (found at F1-00):** `NotificationsSchemaIsolationTests.WritingANotification_…`
+  is racy. `ApiFixture` leaves `OutboxProcessor` (5s poll) and `PeriodicJobWorker` live; the worker's
+  first sweep runs **at startup** and its seven jobs read `projects.`/`crm.`/`approvals.`, all of which
+  are in that test's `OtherModuleSchemas`. `DocumentsSchemaIsolationTests` drains the outbox — nothing
+  addresses the job-worker half. F1-08 adds an eighth job and raises the rate. **Do not fix it by
+  widening the schema filter.**
+- **Backend defects fixed so far:** D-F1 (`Invoice.Create` never validates the number), D-F2
+  (`InvoiceLine.Create` never validates unit price). None deferred yet.
+- **F1-08 recipient rule, settled at F1-00b:** project owner (`Invoice.ProjectId` → `IProjectDirectory`
+  → `OwnerId` → `IHrDirectory` → `AppUserId`) **+** client user (`Invoice.ClientId` →
+  `IClientDirectory` → `AppUserId`), deduped, skip when empty. Divergence to record: finance staff who
+  are not the project owner get no reminder.
+- **Hard stop amended by name, twice only:** `GateCondition.VariationId` (F1-00) and
+  `ProjectSummary.OwnerId` (F1-00b). No further `Contracts` extension is in scope.
+- **Rule 10 is still effectively vacuous for Finance** until `Projects.Infrastructure` takes its
+  `Finance.Contracts` reference at F1-08. Say so if reporting on it before then.
+- **F1-06/F1-07/F1-07b/F1-08 each owe a per-task list** of the Contracts types they did *not* build a
+  handler for (the G9-14 rule). F1-01's entry has the full 54-type map.
