@@ -86,6 +86,7 @@
     <Project Path="tests/Modules/Crm.Application.Tests/Crm.Application.Tests.csproj" />
     <Project Path="tests/Modules/Finance.UnitTests/Finance.UnitTests.csproj" />
     <Project Path="tests/Modules/Finance.Infrastructure.Tests/Finance.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Finance.Application.Tests/Finance.Application.Tests.csproj" />
     <Project Path="tests/Modules/Sites.UnitTests/Sites.UnitTests.csproj" />
     <Project Path="tests/Modules/Sites.Infrastructure.Tests/Sites.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Sites.Application.Tests/Sites.Application.Tests.csproj" />

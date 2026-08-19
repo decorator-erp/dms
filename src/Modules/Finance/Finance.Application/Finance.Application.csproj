@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\Finance.Contracts\Finance.Contracts.csproj" />
@@ -8,6 +12,12 @@
     <!-- Own Infrastructure, same reasoning as every other module: handlers use FinanceDbContext
          directly - "no repository pattern" - so Application needs the concrete type. -->
     <ProjectReference Include="..\Finance.Infrastructure\Finance.Infrastructure.csproj" />
+    <!-- Cross-module read (F1-06). Two uses, both reads that Finance cannot answer from its own tables:
+         a task-scoped budget line must prove the task really belongs to the stage and project it names
+         (IProjectDirectory.GetTaskAsync), and BOQ generation needs task NAMES for its budget-item line
+         descriptions (GetTasksAsync, batched). Everything else BOQ computes (budgeted, actual,
+         purchases, signed differences) comes from finance's own tables. -->
+    <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

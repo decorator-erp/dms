@@ -33,6 +33,12 @@ internal static class BudgetLineErrors
 
     public static readonly Error CostCategoryNotFound = Error.NotFound(
         $"{Code}.CostCategoryNotFound", "The cost category was not found.");
+
+    /// <summary>F1-06 addition. The backend validates the task's scope but never the project on its
+    /// own, so a budget line naming an unknown project reaches the database and fails as a foreign-key
+    /// violation — a 500 where a 404 belongs. Same defect and same fix as Sites' B1.</summary>
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        $"{Code}.ProjectNotFound", "The project for this budget line was not found.");
 }
 
 /// <summary>Ported from <c>../backend/Domain/Errors/LedgerEntryErrors.cs</c>.</summary>
