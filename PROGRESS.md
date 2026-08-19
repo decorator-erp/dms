@@ -7328,7 +7328,11 @@ twice fails — it drives a budget-line adjustment that must happen exactly once
 
 ---
 
-# Phase 7 handoff — resume at F1-04
+# Phase 7 handoff (written after F1-03) — resumed, F1-04 is done
+
+**Superseded as a resumption point** — F1-04 landed at `241e58d` and its own entry is at the end of
+this file. Kept in place because its environment notes, carried-forward items and the reasoning behind
+the F1-04 checklist are all still current; only the "resume at" line is stale.
 
 **Stopped at a task boundary after F1-03, committed and gated. Context exhaustion, not a blocker.**
 Nothing is half-done: every task below has its commit, its `PROGRESS.md` entry and a green full gate.
@@ -7408,3 +7412,157 @@ and `Finance.Infrastructure` to both** before writing constrained code.
   `Finance.Contracts` reference at F1-08. Say so if reporting on it before then.
 - **F1-06/F1-07/F1-07b/F1-08 each owe a per-task list** of the Contracts types they did *not* build a
   handler for (the G9-14 rule). F1-01's entry has the full 54-type map.
+
+---
+
+## F1-04 — Finance.Infrastructure persistence + FinanceModule minimal (`241e58d`)
+
+`FinanceDbContext` on schema `finance` with `ConfigureOutbox(false)`/`ConfigureAudit(false)`, nine
+entity configurations, `20260819174436_InitialFinance`, a minimal `FinanceModule`, `"finance"` inserted
+into `SchemaOrder` at index 8, and `Finance.Infrastructure.Tests` (17 tests). **969/969 across 28
+suites**, build 0/0, format clean.
+
+**Files:** `src/Modules/Finance/Finance.Infrastructure/{Finance.Infrastructure.csproj, FinanceModule.cs,
+Persistence/{FinanceDbContext.cs, FinanceDbContextFactory.cs}, Persistence/Configurations/*.cs (9),
+Persistence/Migrations/InitialFinance/*}`; `src/Modules/Finance/Finance.Application/Finance.Application.csproj`;
+`tests/Modules/Finance.Infrastructure.Tests/{csproj, FinanceDbContextConfigurationTests.cs,
+FinanceSchemaObjectTests.cs}`; edits to `DMS.Modular.slnx`, `Architecture.Tests.csproj`, `Api.csproj`,
+`ModuleDependencyOrder.cs`, `ApiFixture.cs`, and six Architecture.Tests floors.
+
+### Two divergences from the backend, both deliberate
+
+**1. Enums are stored as `int`, not as strings.** The backend's finance configurations use
+`HasConversion<string>()` on every enum. All eight existing modules here use `HasConversion<int>()`, and
+`Finance.UnitTests.EnumParityTests` exists *because* the numeric values are what land in the column —
+storing text would have made 104 tests decorative and Finance the only module whose enum columns cannot
+be range-checked. Consequence: the backend's two `variations` check constraints compare string literals
+(`kind <> 'ClientDifference'`) and are **rewritten to compare ints** (`"Kind" <> 1`), with quoted
+PascalCase columns per this repo's no-snake_case-mapping rule. That rewrite is now the sharpest reason
+`EnumParityTests` matters: a renumbered `VariationKind` silently unarms both constraints, and a
+string-comparing constraint against an int column would never match, never fire, and pass every
+existence check — which is why `FinanceSchemaObjectTests` proves each one actually rejects a row.
+
+**2. Money is `numeric(19,4)`.** Backend `decimal(19,4)`, same Postgres type, repo spelling. **22
+columns, recounted from the entities** (4 BudgetLine + 1 LedgerEntry + 1 LedgerAllocation + 2 Invoice +
+3 InvoiceLine + 3 Variation + 4 BoqSnapshot + 4 BoqSnapshotLine) and confirmed independently: the
+generated migration contains exactly 22 `numeric(19,4)` and zero `decimal(`.
+
+### Decided here, not specified by the plan
+
+- **Cross-module navigations dropped means indexes dropped.** The backend got indexes on `ProjectId`,
+  `ClientId`, `SignedByClientId`, `ProjectTaskId` and `CostCategoryId` free from `HasOne(x => x.Project)`
+  and friends. Rule 3 forbids those navigations, so the indexes vanish with them — six are now declared
+  explicitly. F1-05 requires every cross-schema FK column indexed and would otherwise have had to add
+  them, one task after the model stopped generating them.
+- **`ix_invoices_due_on` added, not in the backend.** F1-08 reads this table by due date on every tick;
+  without it the job sequentially scans every invoice ever issued.
+- **`MigrateSchemaAsync` gains a `default:` that throws.** There was none. A schema added to
+  `SchemaOrder` without a case here is never migrated, and the first symptom is a
+  relation-does-not-exist error naming the *module*, not this switch. Every schema has a case today, so
+  the line can only ever fire for the next module — exactly who needs to read it.
+- **`Api.csproj` references Finance ahead of `Program.cs`**, per the N1-01 precedent recorded in that
+  file. `Integration.Tests` references only `Api`. Registration lands at F1-09;
+  `Boot_RegistersExactlyEightModules` stays correct meanwhile.
+- **`FinanceModule` registers only `AddModuleDbContext` + `IModulePermissions`.** No `AddModuleCqrs`,
+  no `AddModuleIntegrationEvents`, no Scrutor scan — scanning an assembly with no handlers succeeds
+  silently, the failure shape `SitesModule` documents on its own decorator registration.
+- **`Finance.Application` ships empty.** It exists so `MetaSelfEnforcementTests`' four-projects-per-module
+  parse is satisfied and so the floors below are correct; it gains content at F1-06.
+
+### The floors: the plan named three, there are seven — and only one counts modules
+
+PC-03 both shifted every line number the plan cited and added floors the plan never knew about.
+Navigated by grepping the assertion:
+
+| File:line | Assertion | Counts | Was → now |
+|---|---|---|---|
+| `MetaSelfEnforcementTests:40` | `moduleProjectNames.Count` | projects (9×4) | 32 → **36** |
+| `Rule3ModuleIsolationTests:32` | `layered.Count` | layered asms (9×3) | 24 → **27** |
+| `Rule3ModuleIsolationTests:60` | `LayeredModuleAssemblies.Count` | same | 24 → **27** |
+| `Rule8BuildingBlocksWebTests:20` | `scoped.Count` | App+Domain (9×2) | 16 → **18** |
+| `ModuleContractTests:33` | `implementations.Count` | `IModule` impls | 8 → **9** |
+| `Rule6DbContextIsolationTests:34` | `dbContextsByModule.Count` | module DbContexts | 8 → **9** |
+| `AuditMechanismTests:100` | `contexts.Count` | contexts mapping the outbox | 7 → **9** |
+
+The plan cited `MetaSelfEnforcementTests:39` as a *module* count to raise to 9; it is line 40 and counts
+**projects**. `Rule10CommandQueryPrivacyTests` was cited at `:71` as a floor to raise; it is at 74/77 and
+asserts `commandsAndQueriesFound >= 100` / `pairsChecked >= 100` — not a module count, and its own
+comment says exact floors would be brittle. Finance's 54 Contracts types clear both, so it is unchanged.
+`AuditMechanismTests` had silently drifted two modules behind reality (7 with eight modules shipped).
+
+### A plan claim corrected while writing the guard
+
+The plan and the F1-03 handoff both said money precision is invisible to the empty-probe verify
+"exactly as raw SQL is". **That is not accurate.** `HasColumnType` is part of the EF model, so a
+configuration edited without regenerating the migration does produce a non-empty probe. The real gap is
+narrower and still worth the test: a *coordinated* edit (configuration changed, migration regenerated)
+leaves model and snapshot agreeing and the probe empty while every deployed column changes scale; and
+the probe never asks the database anything. `FinanceSchemaObjectTests` asserts the 22 columns from
+`information_schema` — what Postgres actually holds — as an exact set, so a lost precision, a wrong one,
+a deleted money column and a new decimal column added without precision all fail there.
+
+Finance has **no raw-SQL objects** in its initial migration, so unlike `SitesSchemaObjectTests` that is
+not the gap being closed. What the named lists do close is *absence*: nothing else would notice an index
+or constraint drifting in unlisted. Every "nothing outside this list" test carries its own liveness
+assertion, because that direction goes **green** on an empty result — the PC-04 refinement, applied at
+the point it was written for.
+
+### The configuration-count assertion is stronger than its precedent
+
+Sites and CRM compare each count to a shared `EntityCount` constant; the edit that drops a configuration
+and updates the constant in the same pass still passes. Here `EveryDbSet_HasExactlyOneEntityTypeConfiguration`
+compares the two reflection counts **to each other**, with no literal between them, plus liveness on both
+sides (zero equals zero). `Model_ContainsExactlyTheNineFinanceEntities` then pins which nine.
+
+### Fault injections — all four fired and named the Finance type, all reverted
+
+| Rule | Injection | Message |
+|---|---|---|
+| 1 | `DbContext?` property in `Finance.Domain` | `Finance.Domain: Finance.Domain.Injection` |
+| 4 | `FinanceModule` made public | `Finance.Infrastructure exposes public types outside Contracts: Finance.Infrastructure.FinanceModule` |
+| 6 | `SitesDbContext` property in `Finance.Infrastructure` (+ temp IVT and reference) | `Finance.Infrastructure.Injection ... references a DbContext outside its own module` |
+| 8a | `BuildingBlocks.Web` referenced and used from `Finance.Domain` | `Finance.Domain references BuildingBlocks.Web` |
+
+Two findings from doing it rather than asserting it:
+
+- **Rule 4 cannot be injected through the DbContext.** Making `FinanceDbContext` public fails to
+  *compile* — nine `CS0053` errors, because its `DbSet<T>` properties are over internal entity types.
+  The compiler is a stricter backstop than the rule for that particular shape; `FinanceModule` (whose
+  members are all public types) is what can actually go public.
+- **Rule 6 is unreachable from Finance without first violating rule 3 or rule 4.** All nine module
+  DbContexts are internal, so no module can name another's. Reaching rule 6 required temporarily
+  granting `InternalsVisibleTo` across the Sites boundary — itself a rule 3 violation. Rule 6 is a
+  genuine backstop, not a first line of defence, and that is worth knowing before anyone treats it as
+  the thing keeping contexts apart.
+- **`nameof(...)` is not an injection.** The first rule 1 attempt used `nameof(DbContext)`, which the
+  compiler erases entirely; the rule correctly passed. A real typed member was needed.
+
+### Two bugs my own new tests caught, both first-run
+
+- `ConfigureOutbox` maps **`InboxMessage`** as well as `OutboxMessage`, so the model holds three shared
+  entities, not two. The entity-list test found it. Now asserted as an exact set, because the
+  nine-entities test subtracts those names — a shared entity that stopped being mapped would silently
+  shrink what that test checks rather than failing anywhere.
+- The well-formed `InternalChange` row was written with a random uuid for `BudgetLineId` and hit
+  `FK_variations_budget_lines_BudgetLineId`. Worth keeping in the comment: the check constraint says
+  such a variation must **name** a budget line, the foreign key says the line it names must **exist**,
+  and neither implies the other.
+
+### Environment
+
+Docker Desktop was not running; the container-backed suites failed with `DockerUnavailableException`
+while every in-process suite passed. Started it and re-ran — not a code failure, but worth noting that
+the failure mode is 78 red Integration.Tests with an empty-looking stack.
+
+### Carried forward
+
+- `NotificationsSchemaIsolationTests` race — unchanged, still deferred to F1-10, still **not** to be
+  fixed by widening the schema filter.
+- F1-05 must add the `["finance"]` entry to Rule 9's `Modules` dictionary; without it the checks
+  silently skip. `AllowedPairs` already has `finance→projects` and `finance→crm`; `finance→hr` is new
+  (RecordedById, RequestedById, ApprovedById, GeneratedById) and needs its reasoning recorded.
+- F1-05 should change `FinanceSchemaObjectTests.InitializeAsync` from `MigrateAsync()` to
+  `MigrateAsync("InitialFinance")`, for the reason `SitesSchemaObjectTests` pins its own: the
+  cross-schema FKs point at projects/crm/hr, none of which exist in that isolated container.
+- Rule 10 remains effectively vacuous for Finance until `Projects.Infrastructure` takes its
+  `Finance.Contracts` reference at F1-08.
