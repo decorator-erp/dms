@@ -7274,3 +7274,54 @@ Finance.Contracts"* — restored, green. This is the one edit in the module no c
 would silently remap every stored row.
 
 **Gate:** build 0/0; **896/896** across 27 suites (848 + 48); `dotnet format` exit 0, no content change.
+
+## F1-03 — `Finance.Domain`: invoices, variations, BOQ
+
+New: `Invoice.cs`, `InvoiceLine.cs`, `Variation.cs`, `BoqSnapshot.cs`, `BoqSnapshotLine.cs`; five enums
+and four error classes appended; `VariationStateMachineTests.cs` and `InvoiceTests.cs` added, enum
+parity extended to all eight enums. **56 new tests, 104 in `Finance.UnitTests`.**
+
+### Two backend defects, found by reading and fixed here
+
+- **D-F1 — `Invoice.Create` never validates the number.** The backend leaves it to an edge validator, so
+  a handler constructing an invoice directly persists one with an empty natural key — which is also what
+  `DuplicatedNumber` keys on, so empty-numbered invoices would not even collide with each other. Added
+  `InvoiceErrors.NumberRequired`.
+- **D-F2 — `InvoiceLine.Create` guards quantity but not unit price.** A negative price yields a negative
+  `LineTotal`, silently reducing the invoice header total and, through the BOQ purchase total, the
+  project's reported spend. Added `InvoiceLineErrors.InvalidUnitPrice`; zero stays legal.
+
+### The rounding rule — and the plan's expectation corrected
+
+`InvoiceLine.Create`'s `Math.Round(quantity * unitPrice, 4)` is the **only** rounding in the entire
+Finance area, verified by reading every site. The plan says to port *"BOQ generation's rounding rule"*;
+**BOQ generation does not round** — its four header totals are raw `Sum(...)`, as are variation
+application, invoice header totals and every ledger delta. **The absence is the ported rule.**
+
+`MidpointRounding` appears nowhere in the backend, so .NET's default `ToEven` (banker's) is the rule.
+Pinned by theory with **both** midpoints because they round in opposite directions — `0.00005 → 0.0000`
+and `0.00015 → 0.0002`. Only the first distinguishes `ToEven` from `AwayFromZero`, so asserting one
+alone would not catch a policy switch.
+
+### Two shapes worth preserving deliberately
+
+- **BOQ line kind is implicit and the precedence is ordered, not exclusive.** `VariationId` ⇒ Difference,
+  else `InvoiceLineId` ⇒ Purchase, else BudgetItem — and a line can carry **both** ids. A reader testing
+  `InvoiceLineId` first classifies difference lines as purchases and under-reports the difference total.
+  Added a derived `Kind`, with the both-ids-set case tested; not persisted, since a stored column could
+  drift from the ids it describes.
+- **Variation application is asymmetric.** `InternalChange` pushes `Amount` into
+  `BudgetLine.AdjustmentAllocation`; `ClientDifference` writes **nothing** — the signed delta stays on the
+  row and is read back by the Budget gate's coverage check. Symmetry here would double-count every client
+  difference. Likewise, for a `ClientDifference` approval **is** the signature (approving without the
+  signing client is refused), while for an `InternalChange` passing signature fields is an error rather
+  than ignored.
+
+### Verify
+
+The state machine is **enumerated, not sampled**: every legal and illegal transition, each asserting the
+specific error. Approve, Reject and Cancel are each tested against all four terminal states via a shared
+factory set, because a state machine's gaps live in the combinations nobody wrote down. `MarkApplied`
+twice fails — it drives a budget-line adjustment that must happen exactly once.
+
+**Gate:** build 0/0; **952/952** across 27 suites; `dotnet format` exit 0, no content change.
