@@ -76,5 +76,7 @@ internal sealed class VariationConfiguration : IEntityTypeConfiguration<Variatio
         // Explicit because the backend got this one free from HasOne(Client), and F1-05 needs every
         // cross-schema foreign key column indexed.
         builder.HasIndex(x => x.SignedByClientId).HasDatabaseName("ix_variations_signed_by_client_id");
+        builder.HasIndex(x => x.RequestedById).HasDatabaseName("ix_variations_requested_by_id");
+        builder.HasIndex(x => x.ApprovedById).HasDatabaseName("ix_variations_approved_by_id");
     }
 }

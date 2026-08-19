@@ -1,5 +1,7 @@
 using Finance.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -141,13 +143,14 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
 
         await using (var context = new FinanceDbContext(options))
         {
-            // Migrates to latest, which is InitialFinance and nothing else. Unlike Sites, there is no
-            // later cross-schema migration to stop short of yet -- F1-05 adds one, and when it does this
-            // call becomes MigrateAsync("InitialFinance") for the same reason Sites pins its own:
-            // the foreign keys F1-05 creates point at projects/crm/hr, none of which exist in this
+            // Deliberately migrated to InitialFinance ONLY, not to latest -- the same pin
+            // SitesSchemaObjectTests uses, and F1-05 is what made it necessary. The next migration adds
+            // 22 cross-schema foreign keys pointing at projects/crm/hr, none of which exist in this
             // isolated container, and standing up eight other modules here would turn a schema-object
-            // test into a composition test. Rule9CrossSchemaForeignKeyTests owns those constraints.
-            await context.Database.MigrateAsync();
+            // test into a composition test. Those constraints have their own coverage:
+            // Rule9CrossSchemaForeignKeyTests migrates every module in SchemaOrder and asserts all 22
+            // by name. This file owns exactly what InitialFinance creates.
+            await context.Database.GetService<IMigrator>().MigrateAsync("InitialFinance");
         }
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());

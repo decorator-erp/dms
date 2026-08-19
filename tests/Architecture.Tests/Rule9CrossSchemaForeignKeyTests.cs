@@ -38,7 +38,12 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         // reason is entirely migration order. See docs/cross-schema-foreign-keys.md.
         ("sites", "projects"), ("sites", "crm"), ("sites", "documents"), ("sites", "hr"),
         ("projects", "identity"), ("projects", "hr"), ("projects", "crm"), ("projects", "approvals"),
-        ("finance", "projects"), ("finance", "crm"),
+        // F1-05: ("finance","hr") is NEW; the other two were allow-listed phases before the module
+        // existed. Finance stamps four "who did this" columns against hr.employees -- RecordedById on
+        // a ledger entry, RequestedById and ApprovedById on a variation, GeneratedById on a BOQ
+        // snapshot -- and all four now carry real constraints, because finance migrates ninth and hr
+        // is third. 22 outbound foreign keys in total, the most of any module; nothing points back in.
+        ("finance", "projects"), ("finance", "crm"), ("finance", "hr"),
         ("documents", "projects"), ("documents", "hr"), ("documents", "approvals"),
         ("notify", "identity"),
     ];
@@ -53,6 +58,11 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             ["projects"] = ("Projects.Infrastructure", "Projects.Infrastructure.Persistence.ProjectsDbContext, Projects.Infrastructure"),
             ["documents"] = ("Documents.Infrastructure", "Documents.Infrastructure.Persistence.DocumentsDbContext, Documents.Infrastructure"),
             ["sites"] = ("Sites.Infrastructure", "Sites.Infrastructure.Persistence.SitesDbContext, Sites.Infrastructure"),
+            // F1-05. Without this entry the loop in InitializeAsync hits `continue` for "finance", the
+            // schema is never migrated, and every finance constraint is simply absent from the query
+            // results -- so the rule reports success over 22 foreign keys it never saw. The allow-list
+            // entry above is inert on its own; this is the line that makes it mean anything.
+            ["finance"] = ("Finance.Infrastructure", "Finance.Infrastructure.Persistence.FinanceDbContext, Finance.Infrastructure"),
             ["notify"] = ("Notifications.Infrastructure", "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure"),
         };
 
@@ -170,6 +180,51 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         // auditable. "shared" is not in AllowedPairs, so any future FK out of it fails the main
         // assertion too - this makes the intent explicit at the point someone would be tempted.
         Assert.DoesNotContain(found, fk => fk.From == "shared");
+
+        // F1-05: all 22 finance foreign keys, enumerated from the entities rather than sampled - the
+        // G7-04/G9-08 discipline, and the module with the most to enumerate.
+        //
+        // finance -> projects, fifteen of them across three target tables.
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_budget_lines_project"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_ledger_entries_project"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_invoices_project"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_variations_project"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_boq_snapshots_project"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_budget_lines_project_stage"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_ledger_entries_project_stage"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_invoices_project_stage"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_variations_project_stage"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_boq_snapshots_project_stage"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_budget_lines_project_task"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_ledger_entries_project_task"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_invoice_lines_project_task"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_variations_project_task"));
+        Assert.Contains(found, fk => fk is ("finance", "projects", "fk_boq_snapshot_lines_project_task"));
+
+        // finance -> crm: who paid, who is billed, who signed.
+        Assert.Contains(found, fk => fk is ("finance", "crm", "fk_ledger_entries_client"));
+        Assert.Contains(found, fk => fk is ("finance", "crm", "fk_invoices_client"));
+        Assert.Contains(found, fk => fk is ("finance", "crm", "fk_variations_signed_by_client"));
+
+        // finance -> hr, the NEW pair: four "who did this" stamps.
+        Assert.Contains(found, fk => fk is ("finance", "hr", "fk_ledger_entries_recorded_by"));
+        Assert.Contains(found, fk => fk is ("finance", "hr", "fk_variations_requested_by"));
+        Assert.Contains(found, fk => fk is ("finance", "hr", "fk_variations_approved_by"));
+        Assert.Contains(found, fk => fk is ("finance", "hr", "fk_boq_snapshots_generated_by"));
+
+        // F1-00/F1-05: projects.gate_conditions."VariationId" carries NO foreign key, and the absence is
+        // asserted rather than merely intended -- the fourth instance of the pattern, and the first
+        // where the module creating the cycle is the one being constrained. The 22 assertions above all
+        // require finance AFTER projects; a constraint for VariationId would require projects AFTER
+        // finance. No ordering satisfies both, so this direction can never be constrained while those
+        // exist. ("projects","finance") is not in AllowedPairs either, so adding one would fail the main
+        // assertion too; this line names the intent where someone would be tempted to "fix" it.
+        Assert.DoesNotContain(found, fk => fk.From == "projects" && fk.To == "finance");
+
+        // And nothing at all points into finance, from anywhere. Stronger than the line above and the
+        // property the SchemaOrder insertion actually relies on: it is what makes finance's position
+        // free rather than forced.
+        Assert.DoesNotContain(found, fk => fk.To == "finance");
     }
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)

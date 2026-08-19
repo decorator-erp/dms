@@ -232,6 +232,9 @@ namespace Finance.Infrastructure.Persistence.Migrations.InitialFinance
 
                     b.HasKey("Id");
 
+                    b.HasIndex("GeneratedById")
+                        .HasDatabaseName("ix_boq_snapshots_generated_by_id");
+
                     b.HasIndex("ProjectStageId")
                         .HasDatabaseName("ix_boq_snapshots_project_stage_id");
 
@@ -668,6 +671,9 @@ namespace Finance.Infrastructure.Persistence.Migrations.InitialFinance
                     b.HasIndex("ProjectTaskId")
                         .HasDatabaseName("ix_ledger_entries_project_task_id");
 
+                    b.HasIndex("RecordedById")
+                        .HasDatabaseName("ix_ledger_entries_recorded_by_id");
+
                     b.HasIndex("ReversalOfId")
                         .HasDatabaseName("ix_ledger_entries_reversal_of_id");
 
@@ -761,6 +767,9 @@ namespace Finance.Infrastructure.Persistence.Migrations.InitialFinance
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ApprovedById")
+                        .HasDatabaseName("ix_variations_approved_by_id");
+
                     b.HasIndex("BudgetLineId")
                         .HasDatabaseName("ix_variations_budget_line_id");
 
@@ -772,6 +781,9 @@ namespace Finance.Infrastructure.Persistence.Migrations.InitialFinance
 
                     b.HasIndex("ProjectTaskId")
                         .HasDatabaseName("ix_variations_project_task_id");
+
+                    b.HasIndex("RequestedById")
+                        .HasDatabaseName("ix_variations_requested_by_id");
 
                     b.HasIndex("SignedByClientId")
                         .HasDatabaseName("ix_variations_signed_by_client_id");

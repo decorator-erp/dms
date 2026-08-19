@@ -230,6 +230,57 @@ trade — see `PLAN-PHASE4.md`'s structural item 1 for the full reasoning. Valid
 the dropped constraint; a test at G9-12 asserts an unknown `DocumentId` is rejected, since that check
 is now the only thing standing where a constraint would have been.
 
+**`finance → projects`, `finance → crm`, `finance → hr` (added at F1-05, Phase 7).** Twenty-two
+constraints, the most of any module, all raw SQL in `20260819180739_FinanceCrossSchemaForeignKeys`, all
+`ON DELETE RESTRICT`, all with quoted PascalCase columns, all outbound:
+
+- `finance → projects` (15) — `ProjectId` on `budget_lines`, `ledger_entries`, `invoices`,
+  `variations`, `boq_snapshots`; `ProjectStageId` on the same five; `ProjectTaskId` on `budget_lines`,
+  `ledger_entries`, `invoice_lines`, `variations`, `boq_snapshot_lines`.
+- `finance → crm` (3) — `ledger_entries."ClientId"`, `invoices."ClientId"`,
+  `variations."SignedByClientId"`, all to `crm.clients("Id")`.
+- `finance → hr` (4) — `ledger_entries."RecordedById"`, `variations."RequestedById"`,
+  `variations."ApprovedById"`, `boq_snapshots."GeneratedById"`, all to `hr.employees("Id")`.
+
+`("finance","hr")` is the one new pair in rule 9's allow-list; `("finance","projects")` and
+`("finance","crm")` were declared before the module existed. Every constrained column is indexed —
+eighteen in the initial migration (some leading a composite), the four `hr` columns in this one.
+
+**RESTRICT is not a compromise here, it is the right answer.** Elsewhere in this document RESTRICT is
+recorded as a divergence forced by rule 9 where the backend cascades. For a ledger it is what you would
+choose anyway: money records are append-only, corrections are reversal rows pointing at the entry they
+undo, and a cascade would delete the audit trail along with the row that explains it. The visible
+consequence is that a project, client or employee carrying finance history cannot be deleted until that
+history is dealt with.
+
+### The deliberately-absent foreign key — the pattern, named
+
+Four instances now exist, and they are not all absent for the same reason. Naming the pattern matters
+because the *reason class* determines whether the absence is permanent, and therefore whether a future
+reader should try to close it:
+
+| # | Column | Reason class | Closable? |
+|---|---|---|---|
+| 1 | `projects.projects."ClientId"` (before G9-13) | target module did not exist yet | **Closed** at G9-13 |
+| 2 | `projects.gate_conditions."ReferencedDocumentId"` | direction inverts the dependency graph | No |
+| 3 | `crm.crm_artifact_documents."DocumentId"` | migration-order cycle (`crm < projects < documents < crm`) | No |
+| 4 | `sites.sites."SourceBriefId"` | RESTRICT would be actively wrong; SET NULL is not permitted | No |
+| 5 | `projects.gate_conditions."VariationId"` (F1-00) | migration-order cycle **this module creates** | No |
+
+Instance 5 is worth reading against instance 3, because it is the same class arrived at from the
+opposite end. CRM's cycle was inherited — three desired FKs across three modules, one of which had to
+be dropped. Finance's is self-inflicted in a benign way: the 22 constraints above all require
+`finance` **after** `projects`, and a constraint for `gate_conditions."VariationId"` would require
+`finance` **before** `projects`. Adding the twenty-third would invalidate the other twenty-two. The
+absence is therefore load-bearing rather than regrettable, and `Rule9CrossSchemaForeignKeyTests`
+asserts it — along with the stronger property that **nothing anywhere points into `finance`**, which is
+what makes finance's position in `SchemaOrder` free rather than forced.
+
+The general rule the five instances support: **an absent FK is a decision with a stated reason, not a
+gap.** Record which of the four reason classes applies, assert the absence in
+`Rule9CrossSchemaForeignKeyTests`, and say what validates the id instead — a `*.Contracts` call in the
+handler, or nothing, but say which.
+
 ## The three things that actually need care
 
 ### 1. Delete behaviour — never cascade across a schema boundary

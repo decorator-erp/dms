@@ -71,5 +71,6 @@ internal sealed class LedgerEntryConfiguration : IEntityTypeConfiguration<Ledger
         // Explicit because the backend got it free from HasOne(Client) and this module has no such
         // navigation. Also required by F1-05, which indexes every cross-schema foreign key column.
         builder.HasIndex(x => x.ClientId).HasDatabaseName("ix_ledger_entries_client_id");
+        builder.HasIndex(x => x.RecordedById).HasDatabaseName("ix_ledger_entries_recorded_by_id");
     }
 }

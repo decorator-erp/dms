@@ -35,5 +35,6 @@ internal sealed class BoqSnapshotConfiguration : IEntityTypeConfiguration<BoqSna
             .HasDatabaseName("ix_boq_snapshots_project_id_version");
 
         builder.HasIndex(x => x.ProjectStageId).HasDatabaseName("ix_boq_snapshots_project_stage_id");
+        builder.HasIndex(x => x.GeneratedById).HasDatabaseName("ix_boq_snapshots_generated_by_id");
     }
 }
