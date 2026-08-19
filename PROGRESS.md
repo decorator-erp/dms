@@ -7673,3 +7673,122 @@ Reverted; `grep -c fk_injection_wrong_way` returns 0.
   `Finance.Contracts` reference at F1-08.
 - F2-01 owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense — it still
   says finance "will insert before notify when it lands". It has landed.
+
+---
+
+## F1-06 — `Finance.Application`: cost categories, budget lines, BOQ (`704b74f`)
+
+15 handlers, `FinanceEnumMapping`, `AddModuleCqrs` wired into `FinanceModule`, and
+`Finance.Application.Tests` (33 tests) booting all nine modules. **1002/1002 across 29 suites**,
+build 0/0, format clean.
+
+**Files:** `Finance.Application/{Finance.Application.csproj, FinanceEnumMapping.cs,
+Features/CostCategories/CostCategoryHandlers.cs, Features/BudgetLines/BudgetLineHandlers.cs,
+Features/BoqSnapshots/BoqSnapshotHandlers.cs}`; `Finance.Domain/Errors.cs`;
+`Finance.Infrastructure/FinanceModule.cs`; `tests/Modules/Finance.Application.Tests/*` (5 files);
+`DMS.Modular.slnx`.
+
+### Feature count reconciles
+
+6 CostCategories + 5 BudgetLines + 4 BoqSnapshots = **15**, matching both the backend's file tree and
+the Contracts written at F1-01, with no message left without a handler and no handler without a message.
+
+### G9-14 accounting for this task
+
+Every Contracts type in these three namespaces now has a handler. **Nothing shipped without one.** The
+remaining unhandled Finance Contracts types belong to F1-07 (LedgerEntries, Invoices, Dashboard),
+F1-07b (Financial) and F1-08 (Variations) — the map is in F1-01's entry.
+
+### BOQ does not round, and that is now proven rather than asserted
+
+The plan called for porting "BOQ generation's rounding rule". There is none: all four header totals are
+plain `Sum(...)` in the backend and so is every line amount. `Generate_SumsTotalsExactly_WithoutRounding`
+allocates `0.3333 + 0.3333 + 0.3335` and asserts the total is exactly `1.0001` — chosen so any rounding
+to two places destroys it. **Injected `Math.Round(budgetItems.Sum(...), 2)` → that test alone went red.**
+
+### Structural divergence in BOQ, same result — and no Contracts extension
+
+The backend starts from the Projects task list, asks Finance for each task's budget snapshot, and skips
+tasks whose budget is zero. Finance cannot enumerate another module's tasks. So this starts from its
+**own** task-scoped budget lines and groups by `ProjectTaskId`, which yields exactly the tasks that have
+an allocation — the same set the backend reaches by filtering. The only remaining need for Projects is
+the task **name** used as the line description, and `IProjectDirectory.GetTasksAsync` (batch by id)
+already existed, so the hard stop's two-addition limit is untouched.
+`Generate_SkipsTasksWithNoAllocation` pins that both routes agree.
+
+### The transaction finding — a real structural difference from the backend
+
+**No handler here opens a transaction, and none may.** `DomainEventDispatchDecorator` already wraps
+every command in one; opening a second on the same connection throws *"The connection is already in a
+transaction"*. Found by writing the backend's `RepeatableRead` transaction into
+`GenerateBoqSnapshotCommandHandler` and watching 11 tests fail with that exact message.
+
+The consequence is not cosmetic and is recorded on the handler: the decorator uses the **default**
+isolation level, so BOQ's read-then-derive of the next version is genuinely unprotected by isolation.
+The unique index on `(ProjectId, Version)` is what makes it safe. **The backend prevents the collision;
+this detects it.** Same reasoning retired the transaction on `UpdateBudgetLineAllocation`, where it
+bought nothing anyway — that command sets an absolute value, so last-writer-wins holds either way.
+
+This applies to every remaining Finance task. F1-07's postings must not open transactions either.
+
+### Two backend defects fixed (D-F3, D-F4), both Sites' B1 shape
+
+Neither `CreateBudgetLineCommandHandler` nor `GenerateBoqSnapshotCommandHandler` validated the project.
+An unknown id reached the database and came back as a foreign-key violation — a 500 where a 404 belongs.
+New `BudgetLineErrors.ProjectNotFound`; `BoqSnapshotErrors.ProjectNotFound` already existed unused. The
+task-scope check already proves the project when a task is supplied, so the extra lookup only runs on
+project- and stage-scoped lines.
+
+### A third defect, quieter: validator lengths contradicted the columns
+
+The backend caps `Code` at 50, `Name` at 200, `Description` at 1000 while its own EF configuration
+declares 32, 128 and 512. **The validator is looser than the column in all three cases**, so a
+40-character code passes validation and then fails as a truncation error from Postgres. Lengths here
+match the columns — the only pair of numbers that can agree. Same correction applied to `BudgetLine`.
+
+### Decided here, not specified by the plan
+
+- **`BudgetLineErrors.CostCategoryNotFound`** used rather than the backend's `CostCategoryErrors.NotFound`.
+  The failing operation is a budget-line create; naming the error under the operation that failed keeps
+  it distinguishable from the task-scope failure in the same handler.
+- **Duplicate code check is case-SENSITIVE**, matching the plain unique index on `"Code"`. A
+  case-insensitive check would reject codes the database is willing to store, and the two would disagree
+  about what "duplicate" means.
+- **`IsActive` filter added to the recalculation's ledger sum**, resolving an inconsistency in the
+  backend: `SumLedgerAggregatesAsync` omits it while `GetBudgetSnapshotAsync` — summing the same table
+  for the same purpose — includes it. Provably unobservable either way: `LedgerEntry` exposes no
+  deactivation method, so no ledger row in this port can be inactive. Corrections are reversal rows.
+- **`BoqSnapshotReads.ByIdAsync` is shared** by `GetBoqSnapshotById` and `GetLatestBoqSnapshot`. The
+  backend duplicates that read and the two copies **already differ** — one filters `IsActive`, the other
+  does not. One projection, so they cannot drift again.
+- **Signed differences are NOT stage-filtered**, ported as-is. The backend applies the stage filter to
+  vendor invoices and to the task set but not to variations, so a stage-scoped snapshot carries the
+  project's whole difference total. Arguably wrong; changing it changes reported money, which is not a
+  thing to do as a side effect of a port. `Generate_ForOneStage_NarrowsBudgetItemsToThatStage`
+  documents the shipped behaviour.
+
+### Test isolation, found by a failing assertion rather than by luck
+
+Four BOQ tests initially shared the fixture-level project and their budget lines summed together —
+expected 1000, got 2000. **A BOQ snapshot aggregates its whole project, so any test asserting on a SUM
+needs its own project.** `FinanceTestData.ForeignTaskAsync` became `IsolatedProjectAsync`, returning a
+fresh project with two stages and one task each; the shared scope stays for tests that assert on ids
+they created. The stage-narrowing test now allocates **both** stages of one project, so what it proves
+is the stage filter rather than the project filter — two different projects would have excluded the
+second task for the wrong reason and passed with the filter deleted.
+
+### Discrimination proven
+
+| Injection | Result |
+|---|---|
+| `Math.Round(budgetedTotal, 2)` | `Generate_SumsTotalsExactly_WithoutRounding` red, alone |
+| Drop `- actualCosts` in the recalculation | `Recalculate_DerivesCommittedNetOfActuals` red, alone |
+
+Both restored and reconfirmed green.
+
+### Carried forward
+
+- `NotificationsSchemaIsolationTests` race — unchanged, still deferred to F1-10.
+- Rule 10 still effectively vacuous for Finance until F1-08.
+- **F1-07 must not open transactions** — see the transaction finding above.
+- F2-01 still owes `docs/cross-schema-foreign-keys.md`'s SchemaOrder paragraph a move to past tense.
