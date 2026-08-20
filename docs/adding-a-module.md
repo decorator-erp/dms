@@ -746,6 +746,56 @@ phases. **Liveness belongs in the verify clause of the task that writes them, no
 schema-object test whose catalog query names the wrong schema, and a schema-isolation test whose
 collector is unplugged, are both green on the day they ship.
 
+### An injection that fails to go red is a finding about the test, not a pass for the code
+
+The Shape 2 loop has an outcome nobody plans for: you inject the violation and the test **stays
+green**. The reflex is to assume the injection was wrong. Check that, then stop assuming it — the more
+common cause is that the assertion never reached the clause it claims to pin, and you have just been
+handed the only evidence that will ever say so.
+
+Both of F1-08's injections did this, and neither was a near miss:
+
+- The **"stage is not funded"** test asserted a failure that a *different, earlier* condition was
+  already producing. The funding clause it named was never evaluated. Injecting a fault into that
+  clause changed nothing, because nothing was reading it.
+- The **"the consumer writes nothing"** test passed because there was nothing to write to. The absence
+  it asserted was structural, not behavioural — it would have held with the consumer deleted.
+
+Both were green. Both had been green since the day they were written. Both looked exactly like
+coverage, and the *only* thing in the entire process that distinguished them from coverage was an
+injection that refused to fail.
+
+**So when an injection passes, the finding is about the test.** Fix the test, then re-inject and
+confirm it now reddens — the fix is not done until the injection fails. And do not let a passing
+injection stand as evidence about the *code*: it says nothing about the code either way, because the
+instrument that would have reported on the code has just been shown not to work.
+
+The same applies to any instrument you are reading a result off, not only to injected faults. X-01
+measured line endings with `grep -c $'\r'`, whose `\r` the shell stripped; it returned the line count
+for every file and reported "CRLF everywhere" for LF files and CRLF files alike. Two conclusions were
+drawn from it before it was checked against a known-LF and a known-CRLF file, where a working
+instrument gives 2 and 0 and that one gave 2 and 2. **A measurement that cannot distinguish the two
+cases is not evidence about either**, and a dead instrument reads exactly like a real finding.
+
+### Cite assertions, not line numbers
+
+A plan or a comment that points at a test by line number breaks the moment any task edits that file,
+and it breaks *silently*: the cited line still exists and still contains plausible code, so following
+the reference lands you somewhere real and wrong.
+
+Phase 7 is the worked example. PC-03 added liveness across eight `Architecture.Tests` files, shifting
+every line number the Phase 7 plan cited into them. The plan named **three** discovery floors to raise
+for the ninth module. There were **seven**, across six files, and only one of them counted modules —
+`MetaSelfEnforcementTests` asserts `moduleProjectNames.Count >= 32`, a *project* count (8 modules × 4
+projects), which Finance raises to 36 and not to 9. Navigating by the cited line would have written the
+module number into the project-count assertion and left four floors untouched.
+
+**Cite the assertion text and grep for it**, and cite the part that will not move. `layered.Count >=`
+finds `Rule3ModuleIsolationTests`' floor in one command and keeps finding it after the number changes —
+which it does every time a module lands. Writing `layered.Count >= 27` into a plan is the same mistake
+one level down: correct on the day it is written, silently wrong the day after the next module ships,
+and a reader who trusts it never re-greps.
+
 ## Six more patterns (from Phase 6 — Notifications & Audit)
 
 ### 1. `IPeriodicJob` — the third define-in-one-place / implement-in-many registry

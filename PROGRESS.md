@@ -8667,3 +8667,31 @@ widened, direction A alone would pass.
 `FinanceSchemaIsolationTests`' write-test summary claimed it asserted an invoice create enqueuing
 `InvoiceIssued`. **The body has always written a cost category** — a plain insert that publishes
 nothing. The comment was wrong before this task touched it, independently of the deletion.
+
+---
+
+## X-03 — Phase 7's two rules into `docs/adding-a-module.md`
+
+Two subsections appended to `## Positive controls`, between "What this means for a new module" and the
+Phase 6 patterns. Build 0/0, **1107/1107 across 29 suites**, format clean.
+
+**1. An injection that fails to go red is a finding about the test, not a pass for the code.** Written
+around F1-08's two real injections rather than a hypothetical, because what makes them instructive is
+that neither was a near miss: one test asserted a failure an *earlier* condition was already producing,
+so the clause it named was never evaluated; the other asserted an absence that was structural and would
+have held with the consumer deleted. Both green since the day they were written, both indistinguishable
+from coverage, and the only thing that separated them from coverage was an injection that refused to
+fail. The rule: fix the test, re-inject, and do not let a passing injection stand as evidence about the
+code — the instrument that would have reported on the code has just been shown not to work.
+
+Extended one sentence beyond the brief, to measurements and not only injected faults, on the strength
+of X-01's dead `grep -c $'\r'`. Same failure, different dress.
+
+**2. Cite assertions, not line numbers.** PC-03 shifted every line the Phase 7 plan cited into
+`Architecture.Tests`; the plan named three floors and there were seven, only one counting modules.
+Navigating by the cited line would have written a module count into a project-count assertion.
+
+**Caught myself doing it while writing it.** The first draft cited `layered.Count >= 24` as the
+grep example — the value before Finance, already stale at `>= 27`. Rewritten to cite
+`layered.Count >=` without the number, which is what survives the next module, and the near-miss is
+now part of the rule's own text.
