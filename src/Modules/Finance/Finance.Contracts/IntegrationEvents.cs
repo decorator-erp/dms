@@ -77,35 +77,3 @@ public sealed record TaskBudgetCoverageChangedIntegrationEvent(
 /// </summary>
 public sealed record StageFundingChangedIntegrationEvent(
     Guid EventId, Guid ProjectStageId, bool IsFunded, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
-
-/// <summary>
-/// Published when an invoice is created, which the backend treats as issuance
-/// (<c>InvoiceDomainService.CreateAsync</c> raises <c>InvoiceIssuedDomainEvent</c> on create; there is
-/// no separate issue step).
-///
-/// <para><b>No subscriber exists in this repo</b>, and that is stated rather than left to be
-/// discovered — the pattern <c>SiteSubmittedIntegrationEvent</c> established after
-/// <c>ICrmBriefReader</c> became a dangling seam nobody noticed for two phases. Zero registered
-/// handlers is a supported no-op (R2 marks the event processed), not a gap. A client-facing "your
-/// invoice is ready" notification is the obvious future consumer; F1-08's <c>InvoiceDueJob</c>
-/// deliberately does <b>not</b> use this — it sweeps on due date, not on issuance.</para>
-/// </summary>
-public sealed record InvoiceIssuedIntegrationEvent(
-    Guid EventId, Guid InvoiceId, Guid ProjectId, Guid? ClientId, decimal TotalAmount,
-    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
-
-/// <summary>
-/// Published when a ledger entry is posted or reversed. <see cref="Reversal"/> distinguishes the two;
-/// <see cref="Amount"/> is always the posted magnitude, never negated, so a subscriber reads the sign
-/// from the flag rather than from the number.
-///
-/// <para><b>No subscriber exists in this repo</b> — same statement-not-omission reasoning as
-/// <see cref="InvoiceIssuedIntegrationEvent"/>. The gate consequences of a posting travel on
-/// <see cref="TaskBudgetCoverageChangedIntegrationEvent"/>/
-/// <see cref="StageFundingChangedIntegrationEvent"/> instead, because those carry a decided verdict and
-/// this carries a raw fact; a consumer of this event would have to recompute coverage, which is exactly
-/// the read-contract shape Phase 7 avoids.</para>
-/// </summary>
-public sealed record PaymentPostedIntegrationEvent(
-    Guid EventId, Guid LedgerEntryId, Guid ProjectId, decimal Amount, bool Reversal,
-    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

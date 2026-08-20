@@ -1,5 +1,4 @@
 using BuildingBlocks.Messaging;
-using BuildingBlocks.Outbox;
 using BuildingBlocks.Pagination;
 using Finance.Application.Common;
 using Finance.Contracts.LedgerEntries;
@@ -101,7 +100,7 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
 
         // F1-08: the seam this handler reserved. The budget-line effects above are Finance's own; the
         // GATE consequences are Projects', so Finance publishes decided verdicts and Projects acts.
-        await PublishPostingConsequencesAsync(db, entry, reversal: false, ct);
+        await PublishPostingConsequencesAsync(db, entry, ct);
         await db.SaveChangesAsync(ct);
 
         return entry.Id;
@@ -116,14 +115,17 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
     /// <c>ClientPayment</c> changes what a stage has collected, so it re-decides stage funding. A
     /// <c>Commitment</c> changes neither — it moves money that has not been spent and has not been
     /// received — which is why the backend resolves no gates for it either.</para>
+    ///
+    /// <para><b>It took a <c>bool reversal</c> until X-02</b>, read by nothing but the
+    /// <c>PaymentPosted</c> event that task deleted. Posting and reversal are indistinguishable to
+    /// everything that remains here, and correctly so: both change the sums the verdicts are computed
+    /// from, and the verdict is what travels. The parameter went with its only reader rather than
+    /// staying on as a hint that some branch below cares about the difference.</para>
     /// </summary>
-    internal static async Task PublishPostingConsequencesAsync(
-        FinanceDbContext db, LedgerEntry entry, bool reversal, CancellationToken ct)
+    internal static Task PublishPostingConsequencesAsync(
+        FinanceDbContext db, LedgerEntry entry, CancellationToken ct)
     {
-        db.Outbox().Enqueue(new Finance.Contracts.PaymentPostedIntegrationEvent(
-            Guid.NewGuid(), entry.Id, entry.ProjectId, entry.Amount, reversal, DateTimeOffset.UtcNow));
-
-        await FinanceGateVerdicts.PublishAsync(
+        return FinanceGateVerdicts.PublishAsync(
             db,
             projectTaskId: entry.Type == LedgerEntryType.ActualCost ? entry.ProjectTaskId : null,
             projectStageId: entry.Type == LedgerEntryType.ClientPayment ? entry.ProjectStageId : null,
@@ -250,7 +252,7 @@ internal sealed class ReverseLedgerEntryCommandHandler(FinanceDbContext db)
 
         // The ORIGINAL's scope decides which verdicts changed -- the mirror carries the same scope, but
         // reading it from the original keeps this identical to the effects call above it.
-        await PostLedgerEntryCommandHandler.PublishPostingConsequencesAsync(db, original, reversal: true, ct);
+        await PostLedgerEntryCommandHandler.PublishPostingConsequencesAsync(db, original, ct);
         await db.SaveChangesAsync(ct);
 
         return mirror.Value!.Id;

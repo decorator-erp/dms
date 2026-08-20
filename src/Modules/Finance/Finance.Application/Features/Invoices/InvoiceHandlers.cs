@@ -1,5 +1,4 @@
 using BuildingBlocks.Messaging;
-using BuildingBlocks.Outbox;
 using BuildingBlocks.Pagination;
 using Finance.Application.Common;
 using Finance.Contracts.Invoices;
@@ -39,8 +38,15 @@ internal sealed class CreateInvoiceCommandValidator : AbstractValidator<CreateIn
 }
 
 /// <summary>
-/// <b>Creation IS issuance</b> — there is no separate issue step, and the backend raises its
-/// <c>InvoiceIssued</c> event right here, as this does since F1-08.
+/// <b>Creation IS issuance</b> — there is no separate issue step, which is where the backend raises
+/// its <c>InvoiceIssuedDomainEvent</c>.
+///
+/// <para><b>No integration event is published for it.</b> X-02 deleted the one that was: it had no
+/// subscriber, and it could not have acquired a useful one without being fixed first — it fired only
+/// here, while <c>AddInvoiceLineCommandHandler</c> re-derives <c>TotalAmount</c> and
+/// <c>CancelInvoiceCommandHandler</c> changes status, neither publishing anything. A read model fed by
+/// it would have drifted from the second line onward. The stage-funding republish below is a different
+/// thing entirely and stays: it carries a decided verdict, and Projects consumes it.</para>
 ///
 /// <para><b>The header total is computed from the lines and never supplied by the caller.</b> That is
 /// the whole reason <c>SetTotal</c> takes an argument the caller cannot reach: an invoice whose header
@@ -91,13 +97,6 @@ internal sealed class CreateInvoiceCommandHandler(FinanceDbContext db, IProjectD
 
         db.Invoices.Add(invoice);
         db.InvoiceLines.AddRange(lines);
-
-        // Creation IS issuance, so the event goes out here (F1-08). No subscriber exists in this repo,
-        // which the event's own doc comment states rather than leaving to be discovered -- zero
-        // registered handlers is a supported no-op, not a gap.
-        db.Outbox().Enqueue(new Finance.Contracts.InvoiceIssuedIntegrationEvent(
-            Guid.NewGuid(), invoice.Id, invoice.ProjectId, invoice.ClientId, invoice.TotalAmount,
-            DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
 

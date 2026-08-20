@@ -8597,3 +8597,73 @@ about either**, and a dead measuring instrument reads exactly like a real findin
 `DOCKER_HOST=tcp://127.0.0.1:2375`, which task notes have carried since Phase 1, **no longer works on
 this machine and would now break the run** — Docker Desktop's TCP endpoint is off and the default
 `desktop-linux` context is what serves. Recorded in `docs/ci.md`; the gate needs no prefix.
+
+---
+
+## X-02 — The two subscriber-less events, deleted; the whole set, made machine-checked
+
+`InvoiceIssuedIntegrationEvent` and `PaymentPostedIntegrationEvent` deleted;
+`tests/Architecture.Tests/IntegrationEventConsumerTests.cs` added. Build 0/0,
+**1107/1107 across 29 suites**, format clean.
+
+### The decision, and what settled it
+
+Neither event is a Reporting feed, because **Reporting does not consume feeds**. The backend has no
+Reporting area; its reporting-shaped surfaces are three SQL *views* — `project_budget_view`,
+`v_project`, `V_EmployeeProfile` — recomputed on every read. `project_budget_view` aggregates
+`budget_lines` joined to projects/stages/tasks and consumes nothing.
+`docs/cross-schema-foreign-keys.md:436` already licenses that shape: the reporting module is the one
+place allowed to join across schemas. A module permitted to read the source has no use for a stream
+replaying it.
+
+The two were also not equally defensible, which is worth recording because the weaker one is the one a
+"keep it for later" instinct would have kept:
+
+- **`PaymentPosted` was a complete feed** — post and reverse both routed through
+  `PublishPostingConsequencesAsync`, magnitude never negated, direction on a flag. Well-built, and
+  still consumed by nobody.
+- **`InvoiceIssued` was an incomplete one.** It fired only in `CreateInvoiceCommandHandler`;
+  `AddInvoiceLine` re-derives `TotalAmount` and `Cancel` changes status, neither publishing. A read
+  model fed by it drifts from the second line onward — so keeping it *because Reporting might want it*
+  would have kept a feed that could not serve the use it was kept for.
+
+`reversal` turned out **dead**: its only reader was the deleted `Enqueue`, and
+`FinanceGateVerdicts.PublishAsync` never saw it. Removed, both call sites updated. Posting and reversal
+are now indistinguishable to everything that remains, correctly — both move the sums the verdicts are
+computed from, and the verdict is what travels.
+
+### The scope was four times what the task named
+
+The task said "the two subscriber-less events." Diffing all 32 `IIntegrationEvent` records against
+every `IIntegrationEventHandler<T>` implementation found **eight published-but-unconsumed** across six
+modules, plus `UserDeactivatedIntegrationEvent`, which is **defined and never published either** — one
+occurrence in all of `src`, its own declaration. Finance's two were not special.
+
+And the convention had already decayed: `SiteApprovedIntegrationEvent` still read *"No subscriber
+exists in this repo"* two phases after `SiteApprovedNotificationHandler` began consuming it. Stating a
+zero in prose works exactly as long as nobody changes anything.
+
+### The guard, and why it asserts both directions
+
+`DeclaredUnconsumed` is a named list of seven, each with its reason. Reflection over assemblies, never
+resolution from the container — N1-08's lesson, since `InboxDedupeDecorator<,>` disguises every
+handler the container returns.
+
+- **Direction A** (`actual.Except(expected)`): a new unconsumed event fails until someone writes a
+  handler or writes down why not. This is the direction that passes green on an empty result, so it is
+  the one the liveness pair guards.
+- **Direction B** (`expected.Except(actual)`): an entry that has *gained* a handler fails. **This is
+  the assertion that would have caught `SiteApproved` in Phase 6**, and a one-directional guard would
+  have decayed exactly as the prose did.
+
+**Three injections, one per mechanism, all confirmed red:** an undeclared event → direction A names it;
+a handler for a listed event → direction B names it; a dead handler collector → **the liveness line
+catches it first**, reporting `Set: []` rather than a misleading list of every event as "unconsumed."
+That third one is the whole reason liveness is there: with the collector dead and the list ever
+widened, direction A alone would pass.
+
+### Also corrected
+
+`FinanceSchemaIsolationTests`' write-test summary claimed it asserted an invoice create enqueuing
+`InvoiceIssued`. **The body has always written a cost category** — a plain insert that publishes
+nothing. The comment was wrong before this task touched it, independently of the deletion.

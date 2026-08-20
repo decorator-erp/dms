@@ -106,10 +106,14 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
     }
 
     /// <summary>
-    /// A Finance WRITE touches <c>finance.</c> and <c>shared.</c> — the latter because the outbox lives
-    /// there and creating an invoice enqueues <c>InvoiceIssuedIntegrationEvent</c>. That is the correct
-    /// shape and is asserted positively rather than excluded, so the negative half below cannot pass
-    /// because the write silently stopped enqueuing.
+    /// A Finance WRITE touches <c>finance.</c> and no other module's schema.
+    ///
+    /// <para>The write under test is a cost-category create — a plain insert that publishes nothing.
+    /// This summary claimed until X-02 that it was an invoice create enqueuing
+    /// <c>InvoiceIssuedIntegrationEvent</c>, which was never what the body did; the event has since
+    /// been deleted for want of a subscriber. The <c>finance.</c> assertion below is the liveness half
+    /// and is what makes the negative assertions mean anything, exactly as in the two read tests
+    /// above.</para>
     /// </summary>
     [Fact]
     public async Task WritingAFinanceRow_TouchesFinanceAndTheOutbox_AndNoOtherModulesSchema()

@@ -23,8 +23,11 @@ public sealed record SiteSubmittedIntegrationEvent(
 /// and branches on the outcome, and a subscriber that only wants approvals filtering on one bool is
 /// cheaper than one that must register for two events to learn the same fact.
 ///
-/// <para>No subscriber exists in this repo — same reasoning as
-/// <see cref="SiteSubmittedIntegrationEvent"/>.</para>
+/// <para>Consumed by <c>SiteApprovedNotificationHandler</c> since N1-06. This paragraph read "No
+/// subscriber exists in this repo" until X-02 found it still saying so two phases after the handler
+/// landed — which is why the unconsumed set is now asserted by
+/// <c>IntegrationEventConsumerTests</c> rather than carried in prose. A comment cannot notice that it
+/// has stopped being true.</para>
 /// </summary>
 public sealed record SiteApprovedIntegrationEvent(
     Guid EventId,
