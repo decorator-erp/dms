@@ -1,0 +1,17 @@
+# One setting, deliberately.
+#
+# `.gitattributes` pins `*.cs` to `eol=lf` in the repository. Without this file, `dotnet format`'s
+# line endings are a platform default rather than a declared value, so the same command produces LF
+# on the Linux CI runner and CRLF on a Windows dev box. The gate is `dotnet format` followed by
+# `git diff --exit-code` (docs/adding-a-module.md, Phase 6 pattern 5), so a mismatch does not show up
+# as "line endings differ" -- it shows up as EVERY .cs file appearing in the diff, which on a CI
+# summary page is indistinguishable from a real formatting regression.
+#
+# Nothing else belongs here. Directory.Build.props sets EnforceCodeStyleInBuild=true, which makes
+# every severity written in this file a new `-warnaserror` input. Adding rule severities or naming
+# conventions here is a separate decision with a separate blast radius; this file exists to make one
+# thing deterministic across two operating systems.
+root = true
+
+[*.cs]
+end_of_line = lf

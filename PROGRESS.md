@@ -8538,3 +8538,62 @@ de-satisfy path would have been silently dead.
    Reporting's money assertions need the same treatment.
 6. **Inject to check discrimination, and expect to be wrong.** Two F1-08 injections passed, and both
    revealed vacuous assertions rather than working code. Injection is the only thing that found them.
+
+---
+
+## X-01 — CI: the gate gets a machine, and is shown to fail before it is trusted
+
+`.github/workflows/gate.yml`, `global.json`, `.editorconfig`, `docs/ci.md`. Build 0/0,
+**1106/1106 across 29 suites**, format clean.
+
+**The workflow runs the local gate's three commands verbatim, in order.** A pipeline that runs
+something slightly different produces disagreements nobody can reproduce, resolved by believing
+whichever ran green.
+
+**No `services: postgres`.** `docker-compose.yml` is local dev only — every database-touching test
+builds its own container (`new PostgreSqlBuilder("postgres:17")`, 20+ call sites). Testcontainers needs
+a Docker *daemon*, which `ubuntu-latest` has; a service container would start a Postgres nothing
+connects to. Also no `DOCKER_HOST`, and `format`-then-`git diff` rather than `--verify-no-changes`
+(Phase 6 pattern 5).
+
+**`global.json` pins the SDK at 10.0.400, `rollForward: latestPatch`.** `TargetFramework` pins the
+runtime and says nothing about which SDK compiles the code; `-warnaserror` makes the build a hostage to
+the SDK's analyzer set, so a floating `10.0.x` can redden CI on a day nothing here changed.
+
+### Shown to fail — locally, and only locally
+
+A rule-4 violation (public type in `Finance.Domain`, primitive members only so it **compiles**:
+`0 Warning(s)`) produced exit 1 and named itself:
+
+> `Failed Architecture.Tests.Rule4PublicSurfaceTests.OnlyMigrationTypesMayBePublicOutsideContracts`
+> `Finance.Domain exposes public types outside Contracts: Finance.Domain.GateProbe`
+
+29/29 suites ran, 1105 passed, 1 failed. Reverted, green. **The runner harness is unexercised** — no
+git remote exists on this repository — so `docs/ci.md` carries a three-push procedure with **push 1
+(clean tree, expect green) named as load-bearing**: a single push conflates harness failure with gate
+failure, and running the violation against a broken harness gives a red run that proves nothing and
+reads as success.
+
+### `.editorconfig`: the risk was real in shape, absent in fact
+
+Added first, before the workflow, because its failure mode (`git diff --exit-code` failing on every
+`.cs` file) is indistinguishable on a CI summary page from a formatting regression — and lands entirely
+in the half the local rehearsal cannot reach. One setting only: `Directory.Build.props` sets
+`EnforceCodeStyleInBuild=true`, so every severity written there is a new `-warnaserror` input.
+
+Build clean with it, format clean with it. **Investigating why then found nothing wrong to fix**: the
+repo is already uniformly LF, worktree and committed blobs alike, and `.gitattributes` is honoured. The
+file now *declares* what was true by accident.
+
+**The detour is worth recording, because it is this phase's own rule catching me.** `grep -c $'\r'` had
+its `\r` stripped by the shell, so it matched every line and returned the line count — reporting
+"CRLF everywhere" for LF files and CRLF files identically. Two conclusions were drawn from it before
+the instrument was checked against a known-LF and known-CRLF pair, where `tr -cd '\r' | wc -c` gave
+2 vs 0 and the grep gave 2 vs 2. **A measurement that cannot distinguish the two cases is not evidence
+about either**, and a dead measuring instrument reads exactly like a real finding.
+
+### Also found
+
+`DOCKER_HOST=tcp://127.0.0.1:2375`, which task notes have carried since Phase 1, **no longer works on
+this machine and would now break the run** — Docker Desktop's TCP endpoint is off and the default
+`desktop-linux` context is what serves. Recorded in `docs/ci.md`; the gate needs no prefix.

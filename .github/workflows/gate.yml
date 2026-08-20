@@ -1,0 +1,89 @@
+# The gate, run by a machine.
+#
+# These are the same three commands CLAUDE.md and every task's verify clause have used since Phase 1,
+# in the same order. That is deliberate: a CI pipeline that runs something *slightly* different from
+# the local gate produces disagreements nobody can reproduce, and the resolution is always to trust
+# whichever one was green.
+#
+# Deliberately NOT here:
+#
+#   services: postgres        docker-compose.yml is a local dev convenience. Every database-touching
+#                             test builds its own container via `new PostgreSqlBuilder("postgres:17")`
+#                             -- ApiFixture, OutboxFixture, Rule9CrossSchemaForeignKeyTests and every
+#                             module fixture. What Testcontainers needs is a Docker DAEMON, which
+#                             ubuntu-latest already provides. A service container here would start a
+#                             Postgres nothing connects to.
+#
+#   DOCKER_HOST               The local gate sets tcp://127.0.0.1:2375 for Docker Desktop on Windows.
+#                             The runner's default socket is correct and setting it would break it.
+#
+#   dotnet format --verify-no-changes
+#                             See the format step below.
+
+name: gate
+
+on: [push, pull_request]
+
+# Push fires on ALL branches, not just master. X-01's verification procedure (docs/ci.md) pushes a
+# branch carrying a deliberate architecture-rule violation and expects a red run; a branch filter here
+# would silently skip it, and the procedure would report success by producing no run at all.
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    # 29 test suites, most of which start their own Postgres container. Generous on purpose: a timeout
+    # that trips on a slow runner is a red run that means nothing, which is the failure mode this
+    # whole file exists to avoid.
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # global.json is the single home for the SDK pin. TargetFramework in Directory.Build.props
+          # pins the RUNTIME; it says nothing about which SDK compiles the code, and `-warnaserror`
+          # makes the build a hostage to the SDK's analyzer set. A floating 10.0.x can redden CI on a
+          # day nothing in this repository changed.
+          global-json-file: global.json
+
+      - name: Pull the test database image once
+        # Testcontainers pulls on first use and reuses the local cache. Doing it here means a registry
+        # failure surfaces as "could not pull postgres:17" rather than as a timeout buried in the
+        # fixture of whichever suite happened to run first.
+        run: docker pull postgres:17
+
+      - run: dotnet restore DMS.Modular.slnx
+
+      - run: dotnet build DMS.Modular.slnx -warnaserror --no-restore
+
+      - run: dotnet test DMS.Modular.slnx --no-build --logger "trx;LogFileName=gate.trx"
+
+      - name: Format gate (apply-then-diff)
+        # NOT --verify-no-changes. P5F recorded that mode reporting a violation which apply mode then
+        # declined to fix, in a file it agreed was correct; proving cleanliness by the tool's own
+        # transformation sidesteps the disagreement. See docs/adding-a-module.md, Phase 6 pattern 5.
+        #
+        # The doc's `git add -A` prelude is a local-workflow detail -- it exists because the diff only
+        # means "the formatter changed nothing" when the tree is otherwise clean. A fresh checkout is
+        # already that clean tree.
+        run: |
+          dotnet format DMS.Modular.slnx
+          git diff --exit-code
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          # Every suite writes its own gate.trx; the directory structure keeps them from colliding.
+          path: '**/TestResults/gate.trx'
+          if-no-files-found: warn
