@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using BuildingBlocks.Pagination;
 using Hr.Contracts;
 using Hr.Contracts.Departments;
@@ -167,5 +168,49 @@ public sealed class HrSmokeTests(ApiFixture fixture)
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains("employees.NotFound", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B3's verify: the members route serves <c>EmployeeProfile</c>, not the bare <c>Guid[]</c> it used
+    /// to. The id is asserted alongside the name so this proves an ENRICHMENT of the same set rather
+    /// than merely that some list came back — a route returning the right names for the wrong
+    /// department would otherwise pass.
+    /// </summary>
+    [Fact]
+    public async Task GetDepartmentMembers_ReturnsProfiles_NotBareIds()
+    {
+        string email = $"b3-{Guid.NewGuid():N}@example.com";
+        (Guid employeeId, _) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, email, firstName: "Member", lastName: "Row");
+
+        HttpClient client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            fixture.IssueTestToken(
+                Guid.NewGuid().ToString(),
+                HrPermissions.DepartmentsCreate,
+                HrPermissions.DepartmentsAssignToUser,
+                HrPermissions.DepartmentsViewUsers));
+
+        HttpResponseMessage created = await client.PostAsJsonAsync(
+            "/api/departments", new { Name = $"Structures {Guid.NewGuid():N}"[..24] });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        Guid departmentId = (await created.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("departmentId").GetGuid();
+
+        HttpResponseMessage assigned = await client.PostAsync(
+            $"/api/employees/{employeeId}/department/{departmentId}", content: null);
+        Assert.Equal(HttpStatusCode.NoContent, assigned.StatusCode);
+
+        HttpResponseMessage response = await client.GetAsync($"/api/departments/{departmentId}/members");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        List<EmployeeProfile>? members = await response.Content.ReadFromJsonAsync<List<EmployeeProfile>>();
+        Assert.NotNull(members);
+
+        EmployeeProfile member = Assert.Single(members!);
+        Assert.Equal(employeeId, member.Id);
+        Assert.Contains("Member", member.FullName, StringComparison.Ordinal);
+        Assert.Equal(email, member.Email);
     }
 }

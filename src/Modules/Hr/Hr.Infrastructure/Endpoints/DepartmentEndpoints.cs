@@ -43,10 +43,19 @@ internal sealed class DepartmentEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRead);
 
+        // A bare Guid[] cannot render a member row. DepartmentMembersAsync answers with HR's own
+        // employee ids; GetProfilesAsync turns the whole set into names and emails in ONE batched
+        // Identity call - the same two-call shape the employees LIST and DETAIL routes use, and never a
+        // lookup per id. GetProfilesAsync already short-circuits an empty id list, so a memberless
+        // department costs one query here and no cross-module hop at all.
         group.MapGet("/{departmentId:guid}/members", async (
             Guid departmentId, IHrDirectory hrDirectory, CancellationToken ct) =>
-            Results.Ok(await hrDirectory.DepartmentMembersAsync(departmentId, ct)))
-            .RequirePermission(HrPermissions.DepartmentsViewUsers);
+        {
+            IReadOnlyList<Guid> memberIds = await hrDirectory.DepartmentMembersAsync(departmentId, ct);
+            IReadOnlyList<EmployeeProfile> members = await hrDirectory.GetProfilesAsync(memberIds, ct);
+
+            return Results.Ok(members);
+        }).RequirePermission(HrPermissions.DepartmentsViewUsers);
 
         group.MapPost("/", async (
             CreateDepartmentCommand command, ICommandHandler<CreateDepartmentCommand, Guid> handler, CancellationToken ct) =>
