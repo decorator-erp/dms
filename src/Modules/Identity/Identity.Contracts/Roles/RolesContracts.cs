@@ -15,3 +15,14 @@ public sealed record DeleteRoleCommand(string RoleId) : ICommand;
 public sealed record GetRoleQuery(string RoleId) : IQuery<RoleResponse>;
 
 public sealed record GetAllRolesQuery : IQuery<IReadOnlyList<RoleResponse>>;
+
+/// <summary>
+/// The service methods behind these three existed already — <c>IRoleService.AssignRoleToUserAsync</c>,
+/// <c>RemoveRoleFromUserAsync</c>, <c>GetUserRolesAsync</c> — reachable from no route. A user's roles
+/// could never be changed through the API at all.
+/// </summary>
+public sealed record AssignRoleToUserCommand(string UserId, string RoleId) : ICommand;
+
+public sealed record RemoveRoleFromUserCommand(string UserId, string RoleId) : ICommand;
+
+public sealed record GetUserRolesQuery(string UserId) : IQuery<IReadOnlyList<RoleResponse>>;
