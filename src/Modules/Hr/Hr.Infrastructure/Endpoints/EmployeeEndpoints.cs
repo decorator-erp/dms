@@ -136,7 +136,10 @@ internal sealed class EmployeeEndpoints : IEndpoint
             profile?.PrimaryDepartmentId));
     }
 
+    // No EmergencyContactName: the column was dropped by migration 20260827091145_UpdateEmployeeEntity,
+    // and the field is gone from Employee, EmployeeResponse and UpdateEmployeeCommand alike. Declaring
+    // it here without ever reading it would let a client send it and have it silently discarded.
     private sealed record UpdateEmployeeRequest(
         string? JobTitle, string? ContractType, string? PhoneNumber,
-        string? EmergencyContactName, string? EmergencyContactPhone, string? Notes, DateOnly? EndDate);
+        string? EmergencyContactPhone, string? Notes, DateOnly? EndDate);
 }

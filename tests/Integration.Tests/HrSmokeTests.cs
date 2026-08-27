@@ -213,4 +213,41 @@ public sealed class HrSmokeTests(ApiFixture fixture)
         Assert.Contains("Member", member.FullName, StringComparison.Ordinal);
         Assert.Equal(email, member.Email);
     }
+
+    /// <summary>
+    /// B4's verify. <c>emergencyContactName</c> was declared on the private
+    /// <c>UpdateEmployeeRequest</c> and never once read — the column behind it was dropped by migration
+    /// <c>20260827091145_UpdateEmployeeEntity</c>. A client sending it got no error and no effect: the
+    /// value was silently discarded.
+    ///
+    /// <para>The field no longer exists on the request record, so System.Text.Json's default behaviour
+    /// — ignore unrecognised members — takes over. Sending it must still 204, exactly as sending nothing
+    /// for it always did: removing a dead field is not a wire-breaking change for any client that was
+    /// never being honoured anyway. What proves B4 rather than merely "the PUT still works" is the
+    /// second half — the update takes effect (job title changes), which is what silently discarding a
+    /// stray field should still allow.</para>
+    /// </summary>
+    [Fact]
+    public async Task UpdateEmployee_WithEmergencyContactNameInTheBody_Is204AndTheRestOfTheUpdateApplies()
+    {
+        (Guid employeeId, _) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, $"b4-{Guid.NewGuid():N}@example.com", jobTitle: "Junior Engineer");
+
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(
+            Guid.NewGuid().ToString(), HrPermissions.EmployeesUpdate, HrPermissions.EmployeesRead);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response = await client.PutAsJsonAsync($"/api/employees/{employeeId}", new
+        {
+            JobTitle = "Senior Engineer",
+            EmergencyContactName = "Should Be Ignored",
+        });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        EmployeeDetailResponse? detail = await client.GetFromJsonAsync<EmployeeDetailResponse>(
+            $"/api/employees/{employeeId}");
+        Assert.Equal("Senior Engineer", detail!.JobTitle);
+    }
 }
