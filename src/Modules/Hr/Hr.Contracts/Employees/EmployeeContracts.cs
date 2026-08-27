@@ -3,18 +3,6 @@ using BuildingBlocks.Pagination;
 
 namespace Hr.Contracts.Employees;
 
-/// <summary>
-/// Command/query wrapper types and DTOs for HR's employee features, living here rather than in
-/// <c>Hr.Application</c> for the identical reason Identity's own command/DTO types moved to
-/// <c>Identity.Contracts</c> at G1-07: <c>Hr.Infrastructure</c>'s endpoints (G2-06) need to name these
-/// exact types, and <c>Hr.Application</c> already has a real <c>ProjectReference</c> to
-/// <c>Hr.Infrastructure</c> (mirroring Identity's G1-04 decision) — the reverse reference would be
-/// circular. <c>ContractType</c> is deliberately represented as a <c>string</c> here (the enum name,
-/// e.g. <c>"FullTime"</c>), not the actual <c>Hr.Domain.ContractType</c> enum — <c>Hr.Contracts</c> may
-/// only reference <c>SharedKernel</c>/<c>BuildingBlocks</c> (arch rule 5's own scope for this project),
-/// and <c>Hr.Domain</c> may only reference <c>SharedKernel</c> (the reference matrix), so neither side
-/// can depend on the other to share one enum type. The Application handler converts.
-/// </summary>
 public sealed record EmployeeResponse(
     Guid Id,
     string AppUserId,
@@ -24,17 +12,49 @@ public sealed record EmployeeResponse(
     string? Notes,
     string ContractType,
     string? PhoneNumber,
-    string? EmergencyContactName,
     string? EmergencyContactPhone,
     bool IsActive);
 
-public sealed record CreateEmployeeCommand(
+/// <summary>
+/// What the employee-detail and profile screens read: every field of <see cref="EmployeeResponse"/>,
+/// plus the name and email that live in Identity and the department membership that lives in HR's own
+/// join table. Composed at the endpoint from one <c>GetEmployeeQuery</c> and one batched
+/// <see cref="IHrDirectory.GetProfilesAsync"/> call — the same two-call shape the LIST route uses.
+///
+/// <para><b>Deliberately not <see cref="EmployeeSummary"/>, and deliberately not a widening of it.</b>
+/// <c>EmployeeSummary</c> is the cross-module lookup type; it carries no name on purpose, because the
+/// authorization and assignment paths that read it never need one, and it has nine consumers across
+/// four other modules. A detail screen asks a different question than an authorization check, so it
+/// gets its own answer rather than making every one of those callers pay for a name.</para>
+///
+/// <para><see cref="PrimaryDepartmentId"/> is here because <see cref="EmployeeSummary"/> carried it and
+/// this route used to return that type — dropping it would have been a silent regression on a field
+/// the screen shows. <see cref="IHrDirectory.GetProfilesAsync"/> already resolves it, so it is free.</para>
+/// </summary>
+public sealed record EmployeeDetailResponse(
+    Guid Id,
     string AppUserId,
+    string JobTitle,
+    DateOnly HireDate,
+    DateOnly? EndDate,
+    string? Notes,
+    string ContractType,
+    string? PhoneNumber,
+    string? EmergencyContactPhone,
+    bool IsActive,
+    string FullName,
+    string? Email,
+    Guid? PrimaryDepartmentId);
+
+public sealed record CreateEmployeeCommand(
+    string Email,
+    string Password,
+    string FirstName,
+    string LastName,
     string JobTitle,
     DateOnly HireDate,
     string ContractType,
     string? PhoneNumber = null,
-    string? EmergencyContactName = null,
     string? EmergencyContactPhone = null,
     string? Notes = null) : ICommand<Guid>;
 
@@ -43,7 +63,6 @@ public sealed record UpdateEmployeeCommand(
     string? JobTitle = null,
     string? ContractType = null,
     string? PhoneNumber = null,
-    string? EmergencyContactName = null,
     string? EmergencyContactPhone = null,
     string? Notes = null,
     DateOnly? EndDate = null) : ICommand;

@@ -13,12 +13,18 @@ using SharedKernel;
 namespace Hr.Infrastructure.Endpoints;
 
 /// <summary>
-/// The LIST endpoint returns <see cref="EmployeeProfile"/> (names — what the screen shows); the LOOKUP
-/// endpoint returns <see cref="EmployeeSummary"/> (HR-only fields — what another module, or a
-/// low-privilege caller, needs). <c>GetEmployeesQuery</c>'s own response type
-/// (<see cref="EmployeeResponse"/>) never carries a name — this endpoint enriches the page's ids through
-/// <see cref="IHrDirectory.GetProfilesAsync"/> after paging, not by changing what the CQRS query itself
+/// Neither the LIST nor the DETAIL route serves what its CQRS query returns. <c>GetEmployeesQuery</c>
+/// and <c>GetEmployeeQuery</c> both answer with <see cref="EmployeeResponse"/>, which never carries a
+/// name — names and emails live in Identity, not HR. So both routes enrich HR's own ids through
+/// <see cref="IHrDirectory.GetProfilesAsync"/>, one batched call, after the query has run: the LIST
+/// route for the page's ids, the DETAIL route for a single one. Neither changes what the query itself
 /// returns.
+///
+/// <para><b><see cref="EmployeeSummary"/> is deliberately not what any of these routes serve.</b> It is
+/// the cross-module lookup type — no name, by design, because the authorization and assignment paths
+/// that read it never need one — and <see cref="IHrDirectory.GetAsync"/> keeps returning it unchanged
+/// for its nine consumers in four other modules. Serving it from the DETAIL route was the bug: a
+/// profile screen normalised seventeen fields out of five and rendered blanks with no error.</para>
 /// </summary>
 internal sealed class EmployeeEndpoints : IEndpoint
 {
@@ -47,12 +53,12 @@ internal sealed class EmployeeEndpoints : IEndpoint
             return Results.Ok(new PagedResult<EmployeeProfile>(profiles, page.PageNumber, page.PageSize, page.TotalCount));
         }).RequirePermission(HrPermissions.EmployeesRead);
 
-        group.MapGet("/{employeeId:guid}", async (
-            Guid employeeId, IHrDirectory hrDirectory, CancellationToken ct) =>
-        {
-            EmployeeSummary? summary = await hrDirectory.GetAsync(employeeId, ct);
-            return summary is null ? Results.NotFound() : Results.Ok(summary);
-        }).RequirePermission(HrPermissions.EmployeesRead);
+        group.MapGet("/{employeeId:guid}", (
+            Guid employeeId,
+            IQueryHandler<GetEmployeeQuery, EmployeeResponse> handler,
+            IHrDirectory hrDirectory,
+            CancellationToken ct) => DetailAsync(employeeId, handler, hrDirectory, ct))
+            .RequirePermission(HrPermissions.EmployeesRead);
 
         // 201 + Location, matching the clients route. Still EmployeesCreate: hiring now creates the
         // login as well, but that is the same act by the same person, not a second privilege.
@@ -95,6 +101,39 @@ internal sealed class EmployeeEndpoints : IEndpoint
             Result result = await handler.HandleAsync(new AssignEmployeeToDepartmentCommand(employeeId, departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsAssignToUser);
+    }
+
+    /// <summary>
+    /// The DETAIL composition, shared with <c>/me</c> so the two routes cannot drift into answering the
+    /// same question differently: one <c>GetEmployeeQuery</c>, then one batched
+    /// <see cref="IHrDirectory.GetProfilesAsync"/> to attach the name, email and department that
+    /// <see cref="EmployeeResponse"/> does not carry. Two calls total, never a loop.
+    ///
+    /// <para>The 404 comes from the query handler's own <c>EmployeeErrors.NotFound</c> through
+    /// <c>ToProblem</c>, so a missing employee now answers with the same ProblemDetails body every other
+    /// HR route uses, rather than the bare empty 404 this route used to return.</para>
+    /// </summary>
+    private static async Task<IResult> DetailAsync(
+        Guid employeeId,
+        IQueryHandler<GetEmployeeQuery, EmployeeResponse> handler,
+        IHrDirectory hrDirectory,
+        CancellationToken ct)
+    {
+        Result<EmployeeResponse> result = await handler.HandleAsync(new GetEmployeeQuery(employeeId), ct);
+        if (result.IsFailure)
+        {
+            return result.ToProblem();
+        }
+
+        EmployeeResponse employee = result.Value!;
+        IReadOnlyList<EmployeeProfile> profiles = await hrDirectory.GetProfilesAsync([employeeId], ct);
+        EmployeeProfile? profile = profiles.Count > 0 ? profiles[0] : null;
+
+        return Results.Ok(new EmployeeDetailResponse(
+            employee.Id, employee.AppUserId, employee.JobTitle, employee.HireDate, employee.EndDate,
+            employee.Notes, employee.ContractType, employee.PhoneNumber, employee.EmergencyContactPhone,
+            employee.IsActive, profile?.FullName ?? string.Empty, profile?.Email,
+            profile?.PrimaryDepartmentId));
     }
 
     private sealed record UpdateEmployeeRequest(

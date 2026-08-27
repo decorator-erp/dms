@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using BuildingBlocks.Pagination;
 using Hr.Contracts;
 using Hr.Contracts.Departments;
+using Hr.Contracts.Employees;
 using Xunit;
 
 namespace Integration.Tests;
@@ -101,5 +102,70 @@ public sealed class HrSmokeTests(ApiFixture fixture)
 
         // Not BadRequest, though GetDepartmentsQueryValidator says it should be. See the remarks above.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// B2's verify: the DETAIL route must serve the enriched shape, not the five-field
+    /// <c>EmployeeSummary</c> it used to.
+    ///
+    /// <para>The employee is seeded IN-PROCESS on purpose. <c>HireEmployeeOverHttpAsync</c> reads this
+    /// very route back to recover the <c>AppUserId</c>, so seeding through it would make the test's
+    /// subject part of its own setup — and, because that helper deserialises into
+    /// <c>EmployeeSummary</c>, it keeps passing whatever the new fields do. That is precisely the shape
+    /// of a test that stays green while ceasing to prove anything.</para>
+    ///
+    /// <para>Every assertion below is on a field <c>EmployeeSummary</c> did not carry, because those are
+    /// the ones the profile screen was rendering blank. <c>FullName</c> and <c>Email</c> prove the
+    /// batched Identity enrichment actually ran — <c>FullName</c> falls back to an empty string when the
+    /// user cannot be resolved, so a non-empty name is the liveness check, not decoration.</para>
+    /// </summary>
+    [Fact]
+    public async Task GetEmployeeById_ReturnsTheDetailShape_WithNameAndEmailFromIdentity()
+    {
+        string email = $"b2-{Guid.NewGuid():N}@example.com";
+        (Guid employeeId, _) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, email, jobTitle: "Structural Engineer", firstName: "Detail", lastName: "Screen");
+
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), HrPermissions.EmployeesRead);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response = await client.GetAsync($"/api/employees/{employeeId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        EmployeeDetailResponse? detail = await response.Content.ReadFromJsonAsync<EmployeeDetailResponse>();
+        Assert.NotNull(detail);
+
+        // From Identity, via the one batched GetProfilesAsync call. Blank here means enrichment silently
+        // did not happen -- the exact failure B2 exists to fix.
+        Assert.NotEmpty(detail!.FullName);
+        Assert.Contains("Detail", detail.FullName, StringComparison.Ordinal);
+        Assert.Contains("Screen", detail.FullName, StringComparison.Ordinal);
+        Assert.Equal(email, detail.Email);
+
+        // From EmployeeResponse -- none of these existed on the old EmployeeSummary response.
+        Assert.Equal("Structural Engineer", detail.JobTitle);
+        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), detail.HireDate);
+        Assert.Equal("FullTime", detail.ContractType);
+
+        Assert.Equal(employeeId, detail.Id);
+    }
+
+    /// <summary>
+    /// The other half of B2: a missing employee is a ProblemDetails 404 from the query handler's own
+    /// <c>EmployeeErrors.NotFound</c>, not the bare empty 404 the route used to return. Asserting the
+    /// body, not just the status, is what distinguishes the new path from the old one.
+    /// </summary>
+    [Fact]
+    public async Task GetEmployeeById_ForAnUnknownId_Is404WithAProblemBody()
+    {
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), HrPermissions.EmployeesRead);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response = await client.GetAsync($"/api/employees/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("employees.NotFound", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 }
