@@ -250,4 +250,53 @@ public sealed class HrSmokeTests(ApiFixture fixture)
             $"/api/employees/{employeeId}");
         Assert.Equal("Senior Engineer", detail!.JobTitle);
     }
+
+    /// <summary>
+    /// B5's verify: <c>employees.view_own</c> was declared and registered, guarding no route, so the
+    /// Profile screen had no data source. The token here carries the employee's own <c>AppUserId</c> as
+    /// its subject — not the employee id, and not a caller with <c>employees.read</c> — the same
+    /// distinction B2's DETAIL route draws between "who is asking" and "which record".
+    ///
+    /// <para>Uses <see cref="EmployeeDetailResponse"/>, the same shape B2 built, on purpose: the two
+    /// routes answer the same question for two different callers and must not drift into two different
+    /// shapes for it.</para>
+    /// </summary>
+    [Fact]
+    public async Task GetEmployeesMe_ReturnsTheCallersOwnDetailRecord()
+    {
+        string email = $"b5-{Guid.NewGuid():N}@example.com";
+        (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, email, jobTitle: "Site Engineer", firstName: "Self", lastName: "Service");
+
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(appUserId, HrPermissions.EmployeesViewOwn);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response = await client.GetAsync("/api/employees/me");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        EmployeeDetailResponse? detail = await response.Content.ReadFromJsonAsync<EmployeeDetailResponse>();
+        Assert.NotNull(detail);
+        Assert.Equal(employeeId, detail!.Id);
+        Assert.Equal(email, detail.Email);
+        Assert.Equal("Site Engineer", detail.JobTitle);
+    }
+
+    /// <summary>
+    /// The outcome D5/B5 both call out explicitly: a client user legitimately has no employee record.
+    /// That is 404, not 401 and not 403 — the caller authenticated fine and holds the permission; there
+    /// is simply no row to answer with. A random authenticated id was never hired, so
+    /// <c>ResolveEmployeeIdAsync</c> answers <c>null</c>.
+    /// </summary>
+    [Fact]
+    public async Task GetEmployeesMe_ForACallerWithNoEmployeeRecord_Is404()
+    {
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), HrPermissions.EmployeesViewOwn);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response = await client.GetAsync("/api/employees/me");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

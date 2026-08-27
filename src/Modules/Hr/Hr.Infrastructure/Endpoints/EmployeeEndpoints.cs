@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
@@ -59,6 +60,18 @@ internal sealed class EmployeeEndpoints : IEndpoint
             IHrDirectory hrDirectory,
             CancellationToken ct) => DetailAsync(employeeId, handler, hrDirectory, ct))
             .RequirePermission(HrPermissions.EmployeesRead);
+
+        // Safe without reordering ahead of the route above: "/{employeeId:guid}" carries a :guid route
+        // constraint, so the literal segment "me" can never match it.
+        //
+        // 404, not 401, once the caller resolves: a client user legitimately has no employee record, and
+        // that is a normal outcome for this route, not a caller error the same way a missing token is.
+        group.MapGet("/me", (
+            ICurrentUser currentUser,
+            IQueryHandler<GetEmployeeQuery, EmployeeResponse> handler,
+            IHrDirectory hrDirectory,
+            CancellationToken ct) => MeAsync(currentUser, handler, hrDirectory, ct))
+            .RequirePermission(HrPermissions.EmployeesViewOwn);
 
         // 201 + Location, matching the clients route. Still EmployeesCreate: hiring now creates the
         // login as well, but that is the same act by the same person, not a second privilege.
@@ -134,6 +147,33 @@ internal sealed class EmployeeEndpoints : IEndpoint
             employee.Notes, employee.ContractType, employee.PhoneNumber, employee.EmergencyContactPhone,
             employee.IsActive, profile?.FullName ?? string.Empty, profile?.Email,
             profile?.PrimaryDepartmentId));
+    }
+
+    /// <summary>
+    /// Resolves the caller's own employee id through <see cref="IHrDirectory.ResolveEmployeeIdAsync"/>,
+    /// then answers with the same <see cref="DetailAsync"/> composition B2 built — the two routes must
+    /// not answer the same question differently. A caller the JWT pipeline never authenticated is a 401;
+    /// an authenticated caller with no employee record — any client-role user — is a 404, not a 401: it
+    /// is a normal outcome for this route, not a caller error.
+    /// </summary>
+    private static async Task<IResult> MeAsync(
+        ICurrentUser currentUser,
+        IQueryHandler<GetEmployeeQuery, EmployeeResponse> handler,
+        IHrDirectory hrDirectory,
+        CancellationToken ct)
+    {
+        if (currentUser.UserId is not { Length: > 0 } appUserId)
+        {
+            return Results.Unauthorized();
+        }
+
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
+        if (employeeId is null)
+        {
+            return Results.NotFound();
+        }
+
+        return await DetailAsync(employeeId.Value, handler, hrDirectory, ct);
     }
 
     // No EmergencyContactName: the column was dropped by migration 20260827091145_UpdateEmployeeEntity,
