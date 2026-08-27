@@ -8,6 +8,7 @@ using Hr.Contracts.Departments;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Hr.Infrastructure.Endpoints;
 
@@ -15,20 +16,30 @@ internal sealed class DepartmentEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/departments").WithTags("Departments");
+        RouteGroupBuilder group = app.MapGroup("/api/departments").WithTags("Departments");
 
+        // Paging is optional. Declared non-nullable, these bound as REQUIRED query parameters, so a
+        // caller that named no page got a BadHttpRequestException from model binding - a 400 raised
+        // before the handler, and before the validator that supposedly owns the range, ever ran.
+        //
+        // The default size is 200 here and 50 on /api/employees. That divergence is deliberate:
+        // departments is a lookup dimension backing a picker, and a picker silently truncated at 50
+        // with nothing to signal that more exist is a trap for the next caller. 200 is the validator's
+        // own ceiling - "everything you will allow". Employees is a genuine browse list, where one
+        // page is what the screen actually wants.
         group.MapGet("/", async (
-            int pageNumber, int pageSize, string? nameFilter,
+            int? pageNumber, int? pageSize, string? nameFilter,
             IQueryHandler<GetDepartmentsQuery, PagedResult<DepartmentResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetDepartmentsQuery(pageNumber, pageSize, nameFilter), ct);
+            Result<PagedResult<DepartmentResponse>> result = await handler.HandleAsync(
+                new GetDepartmentsQuery(pageNumber ?? 1, pageSize ?? 200, nameFilter), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRead);
 
         group.MapGet("/{departmentId:guid}", async (
             Guid departmentId, IQueryHandler<GetDepartmentQuery, DepartmentResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetDepartmentQuery(departmentId), ct);
+            Result<DepartmentResponse> result = await handler.HandleAsync(new GetDepartmentQuery(departmentId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRead);
 
@@ -40,7 +51,7 @@ internal sealed class DepartmentEndpoints : IEndpoint
         group.MapPost("/", async (
             CreateDepartmentCommand command, ICommandHandler<CreateDepartmentCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(departmentId => Results.Ok(new { DepartmentId = departmentId }), r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsCreate);
 
@@ -48,7 +59,7 @@ internal sealed class DepartmentEndpoints : IEndpoint
             Guid departmentId, UpdateDepartmentRequest request,
             ICommandHandler<UpdateDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateDepartmentCommand(departmentId, request.Name, request.Description), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsUpdate);
@@ -56,7 +67,7 @@ internal sealed class DepartmentEndpoints : IEndpoint
         group.MapDelete("/{departmentId:guid}", async (
             Guid departmentId, ICommandHandler<DeleteDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteDepartmentCommand(departmentId), ct);
+            Result result = await handler.HandleAsync(new DeleteDepartmentCommand(departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsDelete);
 
@@ -64,14 +75,14 @@ internal sealed class DepartmentEndpoints : IEndpoint
             Guid departmentId, Guid employeeId,
             ICommandHandler<AssignDepartmentHeadCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new AssignDepartmentHeadCommand(departmentId, employeeId), ct);
+            Result result = await handler.HandleAsync(new AssignDepartmentHeadCommand(departmentId, employeeId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsAssignDepartmentHead);
 
         group.MapDelete("/{departmentId:guid}/head", async (
             Guid departmentId, ICommandHandler<UnassignDepartmentHeadCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UnassignDepartmentHeadCommand(departmentId), ct);
+            Result result = await handler.HandleAsync(new UnassignDepartmentHeadCommand(departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsUnassignDepartmentHead);
     }

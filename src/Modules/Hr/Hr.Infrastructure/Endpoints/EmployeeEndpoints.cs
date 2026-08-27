@@ -8,6 +8,7 @@ using Hr.Contracts.Employees;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Hr.Infrastructure.Endpoints;
 
@@ -23,20 +24,25 @@ internal sealed class EmployeeEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/employees").WithTags("Employees");
+        RouteGroupBuilder group = app.MapGroup("/api/employees").WithTags("Employees");
 
+        // Paging is optional, for the reason spelled out on /api/departments - which also explains why
+        // that default is 200 and this one is 50.
         group.MapGet("/", async (
-            int pageNumber, int pageSize, string? jobTitleFilter,
+            int? pageNumber, int? pageSize, string? jobTitleFilter,
             IQueryHandler<GetEmployeesQuery, PagedResult<EmployeeResponse>> listHandler,
             IHrDirectory hrDirectory,
             CancellationToken ct) =>
         {
-            var pageResult = await listHandler.HandleAsync(new GetEmployeesQuery(pageNumber, pageSize, jobTitleFilter), ct);
+            Result<PagedResult<EmployeeResponse>> pageResult = await listHandler.HandleAsync(
+                new GetEmployeesQuery(pageNumber ?? 1, pageSize ?? 50, jobTitleFilter), ct);
             if (pageResult.IsFailure)
+            {
                 return pageResult.ToProblem();
+            }
 
-            var page = pageResult.Value!;
-            var profiles = await hrDirectory.GetProfilesAsync([.. page.Items.Select(e => e.Id)], ct);
+            PagedResult<EmployeeResponse> page = pageResult.Value!;
+            IReadOnlyList<EmployeeProfile> profiles = await hrDirectory.GetProfilesAsync([.. page.Items.Select(e => e.Id)], ct);
 
             return Results.Ok(new PagedResult<EmployeeProfile>(profiles, page.PageNumber, page.PageSize, page.TotalCount));
         }).RequirePermission(HrPermissions.EmployeesRead);
@@ -44,37 +50,41 @@ internal sealed class EmployeeEndpoints : IEndpoint
         group.MapGet("/{employeeId:guid}", async (
             Guid employeeId, IHrDirectory hrDirectory, CancellationToken ct) =>
         {
-            var summary = await hrDirectory.GetAsync(employeeId, ct);
+            EmployeeSummary? summary = await hrDirectory.GetAsync(employeeId, ct);
             return summary is null ? Results.NotFound() : Results.Ok(summary);
         }).RequirePermission(HrPermissions.EmployeesRead);
 
+        // 201 + Location, matching the clients route. Still EmployeesCreate: hiring now creates the
+        // login as well, but that is the same act by the same person, not a second privilege.
         group.MapPost("/", async (
             CreateEmployeeCommand command, ICommandHandler<CreateEmployeeCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
-            return result.Match(employeeId => Results.Ok(new { EmployeeId = employeeId }), r => r.ToProblem());
+            Result<Guid> result = await handler.HandleAsync(command, ct);
+            return result.Match(
+                employeeId => Results.Created($"/api/employees/{employeeId}", new { EmployeeId = employeeId }),
+                r => r.ToProblem());
         }).RequirePermission(HrPermissions.EmployeesCreate);
 
         group.MapPut("/{employeeId:guid}", async (
             Guid employeeId, UpdateEmployeeRequest request, ICommandHandler<UpdateEmployeeCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateEmployeeCommand(
+            Result result = await handler.HandleAsync(new UpdateEmployeeCommand(
                 employeeId, request.JobTitle, request.ContractType, request.PhoneNumber,
-                request.EmergencyContactName, request.EmergencyContactPhone, request.Notes, request.EndDate), ct);
+                request.EmergencyContactPhone, request.Notes, request.EndDate), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.EmployeesUpdate);
 
         group.MapPost("/{employeeId:guid}/deactivate", async (
             Guid employeeId, ICommandHandler<DeactivateEmployeeCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeactivateEmployeeCommand(employeeId), ct);
+            Result result = await handler.HandleAsync(new DeactivateEmployeeCommand(employeeId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.EmployeesSetActive);
 
         group.MapPost("/{employeeId:guid}/activate", async (
             Guid employeeId, ICommandHandler<ActivateEmployeeCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ActivateEmployeeCommand(employeeId), ct);
+            Result result = await handler.HandleAsync(new ActivateEmployeeCommand(employeeId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.EmployeesSetActive);
 
@@ -82,7 +92,7 @@ internal sealed class EmployeeEndpoints : IEndpoint
             Guid employeeId, Guid departmentId,
             ICommandHandler<AssignEmployeeToDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new AssignEmployeeToDepartmentCommand(employeeId, departmentId), ct);
+            Result result = await handler.HandleAsync(new AssignEmployeeToDepartmentCommand(employeeId, departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsAssignToUser);
     }
