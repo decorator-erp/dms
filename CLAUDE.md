@@ -1,6 +1,9 @@
 # dms-modular
 
-Modular monolith. Anatomy: ../backend/docs/backend/architecture-anatomy.md · Plan: PLAN.md
+Modular monolith. Anatomy: ../backend/docs/backend/architecture-anatomy.md · Plan: ../docs/backend/dms-modular/plans/PLAN.md
+
+## Docs
+**All documentation lives outside this repo:** `../docs/backend/dms-modular/` (architecture, hosting, plans, reviews, progress). Only `README.md` and this file stay here — new plans, reviews and reports go in the docs folder.
 
 ## Rules
 - No repository pattern. Handlers use their module's DbContext directly.
