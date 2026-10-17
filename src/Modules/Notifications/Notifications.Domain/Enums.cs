@@ -99,6 +99,7 @@ internal enum NotificationEntityType
 /// kind of change it was.</summary>
 internal enum ActivityAction
 {
+    None = 0,
     Create = 1,
     Update = 2,
     Delete = 3,

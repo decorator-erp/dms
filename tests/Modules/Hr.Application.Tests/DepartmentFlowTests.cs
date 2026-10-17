@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Hr.Contracts.Departments;
@@ -17,6 +19,8 @@ public sealed class DepartmentFlowTests(HrApplicationFixture fixture)
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
         string name = $"Engineering-{Guid.NewGuid():N}";
+        name = Regex.Replace(name, @"\s+", " ");
+        name = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower());
 
         ICommandHandler<CreateDepartmentCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
         Result<Guid> createResult = await create.HandleAsync(new CreateDepartmentCommand(name, "Builds the product"));

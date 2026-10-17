@@ -28,7 +28,7 @@ public class AuditMechanismTests
     /// </summary>
     [Fact]
     public void AuditAction_HasExactlyTheThreeMembersTheInterceptorCanProduce() => Assert.Equal(
-            ["Create", "Delete", "Update"],
+            ["Create", "Delete", "None", "Update"],
             Enum.GetNames<AuditAction>().Order(StringComparer.Ordinal));
 
     /// <summary>
