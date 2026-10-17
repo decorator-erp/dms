@@ -28,29 +28,37 @@ internal sealed class ProposeCrmMeetingCommandHandler(CrmDbContext db) : IComman
     public async Task<Result<Guid>> HandleAsync(ProposeCrmMeetingCommand command, CancellationToken ct = default)
     {
         if (command.Slots.Count == 0)
+        {
             return Result.Failure<Guid>(CrmMeetingErrors.NoSlotsProvided);
+        }
 
-        var periodCheck = await MeetingSupport.ValidatePeriodAsync(db, command.ProjectId, command.PeriodId, ct);
+        Result periodCheck = await MeetingSupport.ValidatePeriodAsync(db, command.ProjectId, command.PeriodId, ct);
         if (periodCheck.IsFailure)
+        {
             return Result.Failure<Guid>(periodCheck.Error);
+        }
 
-        var meetingResult = CrmMeeting.Create(
+        Result<CrmMeeting> meetingResult = CrmMeeting.Create(
             command.ProjectId, command.PeriodId, command.Title, CrmEnumMapping.ToDomain(command.Type),
             requestedByEmployeeId: command.RequestedByEmployeeId, requestedByContactId: null,
             location: command.Location, durationMinutes: command.DurationMinutes);
         if (meetingResult.IsFailure)
-            return Result.Failure<Guid>(meetingResult.Error);
-
-        var meeting = meetingResult.Value!;
-        var now = DateTime.UtcNow;
-        var slots = new List<CrmMeetingSlot>();
-        foreach (var s in command.Slots)
         {
-            var slotResult = CrmMeetingSlot.Create(
+            return Result.Failure<Guid>(meetingResult.Error);
+        }
+
+        CrmMeeting meeting = meetingResult.Value!;
+        DateTime now = DateTime.UtcNow;
+        var slots = new List<CrmMeetingSlot>();
+        foreach (CrmMeetingSlotRequest s in command.Slots)
+        {
+            Result<CrmMeetingSlot> slotResult = CrmMeetingSlot.Create(
                 meeting.Id, s.StartsAtUtc, s.EndsAtUtc,
                 proposedByEmployeeId: command.RequestedByEmployeeId, proposedByContactId: null, nowUtc: now);
             if (slotResult.IsFailure)
+            {
                 return Result.Failure<Guid>(slotResult.Error);
+            }
 
             slots.Add(slotResult.Value!);
         }

@@ -7,6 +7,7 @@ using Finance.Contracts.BudgetLines;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -22,14 +23,14 @@ internal sealed class BudgetLineEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/budget-lines").WithTags("BudgetLines");
+        RouteGroupBuilder group = app.MapGroup("/api/budget-lines").WithTags("BudgetLines");
 
         group.MapPost("/", async (
             CreateBudgetLineRequest request,
             ICommandHandler<CreateBudgetLineCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateBudgetLineCommand(request), ct);
+            Result<Guid> result = await handler.HandleAsync(new CreateBudgetLineCommand(request), ct);
 
             return result.Match(
                 id => Results.Created($"/api/budget-lines/{id}", new { BudgetLineId = id }),
@@ -40,7 +41,7 @@ internal sealed class BudgetLineEndpoints : IEndpoint
             Guid id, IQueryHandler<GetBudgetLineByIdQuery, BudgetLineResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetBudgetLineByIdQuery(id), ct);
+            Result<BudgetLineResponse> result = await handler.HandleAsync(new GetBudgetLineByIdQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -50,7 +51,7 @@ internal sealed class BudgetLineEndpoints : IEndpoint
             IQueryHandler<GetBudgetLinesByProjectQuery, IReadOnlyList<BudgetLineListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<IReadOnlyList<BudgetLineListItemResponse>> result = await handler.HandleAsync(
                 new GetBudgetLinesByProjectQuery(projectId, costCategoryId, projectStageId, projectTaskId), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -60,7 +61,7 @@ internal sealed class BudgetLineEndpoints : IEndpoint
             Guid id, UpdateBudgetLineAllocationRequest request,
             ICommandHandler<UpdateBudgetLineAllocationCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateBudgetLineAllocationCommand(id, request.AllocatedAmount), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -69,7 +70,7 @@ internal sealed class BudgetLineEndpoints : IEndpoint
         group.MapPut("/{id:guid}/recalculate", async (
             Guid id, ICommandHandler<RecalculateBudgetLineCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new RecalculateBudgetLineCommand(id), ct);
+            Result result = await handler.HandleAsync(new RecalculateBudgetLineCommand(id), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageBudget);

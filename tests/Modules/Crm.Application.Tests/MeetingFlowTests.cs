@@ -6,10 +6,10 @@ using Crm.Contracts.Contacts;
 using Crm.Contracts.Meetings;
 using Crm.Contracts.Portal;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.Application.Tests;
@@ -28,40 +28,40 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Propose_AcceptOneOfTwoSlots_SchedulesTheMeeting_DeclinesTheSibling_AndEnqueuesTheEvent()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "propose-owner");
-        var (projectId, clientId, _) = await SeedProjectAsync(sp, "propose-owner-2");
-        var contactId = await SeedContactAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "propose-owner");
+        (Guid projectId, Guid clientId, string _) = await SeedProjectAsync(sp, "propose-owner-2");
+        Guid contactId = await SeedContactAsync(sp, clientId);
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var proposeResult = await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Result<Guid> proposeResult = await propose.HandleAsync(new ProposeCrmMeetingCommand(
             projectId, employeeId, "Kickoff", MeetingType.InOffice,
             [
                 new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1)),
                 new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(2), DateTime.UtcNow.AddDays(2).AddHours(1)),
             ]));
         Assert.True(proposeResult.IsSuccess);
-        var meetingId = proposeResult.Value;
+        Guid meetingId = proposeResult.Value;
 
-        var getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
-        var slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
+        IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>> getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
+        IReadOnlyList<CrmMeetingSlotResponse> slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
         Assert.Equal(2, slots.Count);
-        var firstSlotId = slots[0].Id;
-        var secondSlotId = slots[1].Id;
+        Guid firstSlotId = slots[0].Id;
+        Guid secondSlotId = slots[1].Id;
 
         // Accept is the CONTACT's action - the employee proposed, so the contact is the counterparty.
         // The contact belongs to the SAME client that owns projectId - the tenant-scope check requires it.
-        var accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
-        var acceptResult = await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(firstSlotId, null, contactId));
+        ICommandHandler<AcceptCrmMeetingSlotCommand> accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
+        Result acceptResult = await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(firstSlotId, null, contactId));
         Assert.True(acceptResult.IsSuccess);
 
-        var getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
-        var meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
+        IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse> getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
+        CrmMeetingResponse meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
         Assert.Equal(MeetingStatus.Scheduled, meeting.Status);
         Assert.Equal(slots[0].StartsAtUtc, meeting.ScheduledAtUtc);
 
-        var afterAccept = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
+        IReadOnlyList<CrmMeetingSlotResponse> afterAccept = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
         Assert.Equal(MeetingSlotStatus.Accepted, afterAccept.Single(s => s.Id == firstSlotId).Status);
         Assert.Equal(MeetingSlotStatus.Declined, afterAccept.Single(s => s.Id == secondSlotId).Status);
 
@@ -71,32 +71,32 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task RequestByClient_ThenEmployeeDeclinesWithCounterSlot_AddsTheCounterAsProposed()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, clientId, _) = await SeedProjectAsync(sp, "request-owner");
-        var contactId = await SeedContactAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid clientId, string _) = await SeedProjectAsync(sp, "request-owner");
+        Guid contactId = await SeedContactAsync(sp, clientId);
 
-        var request = sp.GetRequiredService<ICommandHandler<RequestCrmMeetingByClientCommand, Guid>>();
-        var requestResult = await request.HandleAsync(new RequestCrmMeetingByClientCommand(
+        ICommandHandler<RequestCrmMeetingByClientCommand, Guid> request = sp.GetRequiredService<ICommandHandler<RequestCrmMeetingByClientCommand, Guid>>();
+        Result<Guid> requestResult = await request.HandleAsync(new RequestCrmMeetingByClientCommand(
             projectId, contactId, "Site visit", MeetingType.OnSite,
             DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1)));
         Assert.True(requestResult.IsSuccess);
-        var meetingId = requestResult.Value;
+        Guid meetingId = requestResult.Value;
 
-        var getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
-        var originalSlotId = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
+        IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>> getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
+        Guid originalSlotId = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
 
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "request-decliner");
-        var decline = sp.GetRequiredService<ICommandHandler<DeclineCrmMeetingSlotCommand>>();
-        var declineResult = await decline.HandleAsync(new DeclineCrmMeetingSlotCommand(
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "request-decliner");
+        ICommandHandler<DeclineCrmMeetingSlotCommand> decline = sp.GetRequiredService<ICommandHandler<DeclineCrmMeetingSlotCommand>>();
+        Result declineResult = await decline.HandleAsync(new DeclineCrmMeetingSlotCommand(
             originalSlotId, employeeId, null,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(3), DateTime.UtcNow.AddDays(3).AddHours(1))]));
         Assert.True(declineResult.IsSuccess);
 
-        var slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
+        IReadOnlyList<CrmMeetingSlotResponse> slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
         Assert.Equal(2, slots.Count);
         Assert.Equal(MeetingSlotStatus.Declined, slots.Single(s => s.Id == originalSlotId).Status);
-        var counter = slots.Single(s => s.Id != originalSlotId);
+        CrmMeetingSlotResponse counter = slots.Single(s => s.Id != originalSlotId);
         Assert.Equal(MeetingSlotStatus.Proposed, counter.Status);
         Assert.Equal(employeeId, counter.ProposedByEmployeeId);
     }
@@ -104,37 +104,37 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Reschedule_DemotesTheAcceptedSlot_ThenTheNewSlotCanBeAccepted()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "reschedule-owner");
-        var (projectId, clientId, _) = await SeedProjectAsync(sp, "reschedule-owner-2");
-        var contactId = await SeedContactAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "reschedule-owner");
+        (Guid projectId, Guid clientId, string _) = await SeedProjectAsync(sp, "reschedule-owner-2");
+        Guid contactId = await SeedContactAsync(sp, clientId);
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Guid meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
             projectId, employeeId, "First pass", MeetingType.Online,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1))]))).Value;
 
-        var getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
-        var firstSlotId = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
+        IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>> getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
+        Guid firstSlotId = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
 
-        var accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
+        ICommandHandler<AcceptCrmMeetingSlotCommand> accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
         Assert.True((await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(firstSlotId, null, contactId))).IsSuccess);
 
-        var reschedule = sp.GetRequiredService<ICommandHandler<RescheduleCrmMeetingCommand>>();
-        var newStart = DateTime.UtcNow.AddDays(5);
-        var rescheduleResult = await reschedule.HandleAsync(new RescheduleCrmMeetingCommand(
+        ICommandHandler<RescheduleCrmMeetingCommand> reschedule = sp.GetRequiredService<ICommandHandler<RescheduleCrmMeetingCommand>>();
+        DateTime newStart = DateTime.UtcNow.AddDays(5);
+        Result rescheduleResult = await reschedule.HandleAsync(new RescheduleCrmMeetingCommand(
             meetingId, employeeId, null, newStart, newStart.AddHours(1)));
         Assert.True(rescheduleResult.IsSuccess);
 
-        var getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
-        var meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
+        IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse> getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
+        CrmMeetingResponse meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
         Assert.Equal(MeetingStatus.Rescheduled, meeting.Status);
         Assert.Null(meeting.ScheduledAtUtc);
 
-        var slotsAfter = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
+        IReadOnlyList<CrmMeetingSlotResponse> slotsAfter = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
         Assert.Equal(MeetingSlotStatus.Declined, slotsAfter.Single(s => s.Id == firstSlotId).Status);
-        var newSlot = slotsAfter.Single(s => s.Id != firstSlotId);
+        CrmMeetingSlotResponse newSlot = slotsAfter.Single(s => s.Id != firstSlotId);
         Assert.Equal(MeetingSlotStatus.Proposed, newSlot.Status);
 
         // Accepting the new slot must succeed - proves Demote() actually cleared the unique-accepted-slot index.
@@ -144,23 +144,23 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Complete_BeforeTheMeetingStarts_FailsWithInvalidStateTransition()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "complete-owner");
-        var (projectId, clientId, _) = await SeedProjectAsync(sp, "complete-owner-2");
-        var contactId = await SeedContactAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "complete-owner");
+        (Guid projectId, Guid clientId, string _) = await SeedProjectAsync(sp, "complete-owner-2");
+        Guid contactId = await SeedContactAsync(sp, clientId);
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Guid meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
             projectId, employeeId, "Future meeting", MeetingType.InOffice,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(10), DateTime.UtcNow.AddDays(10).AddHours(1))]))).Value;
-        var slotId = (await sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>()
+        Guid slotId = (await sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>()
             .HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
-        var accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
+        ICommandHandler<AcceptCrmMeetingSlotCommand> accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
         Assert.True((await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, null, contactId))).IsSuccess);
 
-        var complete = sp.GetRequiredService<ICommandHandler<CompleteCrmMeetingCommand>>();
-        var result = await complete.HandleAsync(new CompleteCrmMeetingCommand(meetingId));
+        ICommandHandler<CompleteCrmMeetingCommand> complete = sp.GetRequiredService<ICommandHandler<CompleteCrmMeetingCommand>>();
+        Result result = await complete.HandleAsync(new CompleteCrmMeetingCommand(meetingId));
 
         Assert.True(result.IsFailure);
     }
@@ -168,30 +168,30 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Cancel_DeclinesEveryRemainingProposedSlot()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "cancel-owner");
-        var (projectId, _, _) = await SeedProjectAsync(sp, "cancel-owner-2");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "cancel-owner");
+        (Guid projectId, Guid _, string _) = await SeedProjectAsync(sp, "cancel-owner-2");
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Guid meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
             projectId, employeeId, "To be canceled", MeetingType.InOffice,
             [
                 new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1)),
                 new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(2), DateTime.UtcNow.AddDays(2).AddHours(1)),
             ]))).Value;
 
-        var cancel = sp.GetRequiredService<ICommandHandler<CancelCrmMeetingCommand>>();
-        var cancelResult = await cancel.HandleAsync(new CancelCrmMeetingCommand(meetingId, employeeId, null, "client asked"));
+        ICommandHandler<CancelCrmMeetingCommand> cancel = sp.GetRequiredService<ICommandHandler<CancelCrmMeetingCommand>>();
+        Result cancelResult = await cancel.HandleAsync(new CancelCrmMeetingCommand(meetingId, employeeId, null, "client asked"));
         Assert.True(cancelResult.IsSuccess);
 
-        var getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
-        var meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
+        IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse> getById = sp.GetRequiredService<IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>>();
+        CrmMeetingResponse meeting = (await getById.HandleAsync(new GetCrmMeetingByIdQuery(meetingId))).Value!;
         Assert.Equal(MeetingStatus.Canceled, meeting.Status);
         Assert.Equal("client asked", meeting.CancelReason);
 
-        var getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
-        var slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
+        IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>> getSlots = sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>();
+        IReadOnlyList<CrmMeetingSlotResponse> slots = (await getSlots.HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!;
         Assert.All(slots, s => Assert.Equal(MeetingSlotStatus.Declined, s.Status));
     }
 
@@ -205,24 +205,24 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Accept_ByAContactFromADifferentClient_IsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "tenant-owner");
-        var (projectId, _, _) = await SeedProjectAsync(sp, "tenant-owner-2");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "tenant-owner");
+        (Guid projectId, Guid _, string _) = await SeedProjectAsync(sp, "tenant-owner-2");
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Guid meetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
             projectId, employeeId, "Tenant test", MeetingType.InOffice,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1))]))).Value;
-        var slotId = (await sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>()
+        Guid slotId = (await sp.GetRequiredService<IQueryHandler<GetCrmMeetingSlotsByMeetingQuery, IReadOnlyList<CrmMeetingSlotResponse>>>()
             .HandleAsync(new GetCrmMeetingSlotsByMeetingQuery(meetingId))).Value!.Single().Id;
 
         // A different client's contact - never associated with projectId's owning client.
-        var strangerClientId = await SeedClientAsync(sp, "tenant-stranger");
-        var strangerContactId = await SeedContactAsync(sp, strangerClientId);
+        Guid strangerClientId = await SeedClientAsync(sp, "tenant-stranger");
+        Guid strangerContactId = await SeedContactAsync(sp, strangerClientId);
 
-        var accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
-        var result = await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, null, strangerContactId));
+        ICommandHandler<AcceptCrmMeetingSlotCommand> accept = sp.GetRequiredService<ICommandHandler<AcceptCrmMeetingSlotCommand>>();
+        Result result = await accept.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, null, strangerContactId));
 
         Assert.True(result.IsFailure);
         Assert.Equal(Domain.CrmMeetingErrors.NotCounterparty, result.Error);
@@ -239,25 +239,25 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task GetMyPortalMeetings_ReturnsOnlyMeetingsOnTheClientsOwnProjects()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "portal-owner");
-        var (ownProjectId, _, clientAppUserId) = await SeedProjectAsync(sp, "portal-owner-2");
-        var (otherProjectId, _, _) = await SeedProjectAsync(sp, "portal-other-owner");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "portal-owner");
+        (Guid ownProjectId, Guid _, string? clientAppUserId) = await SeedProjectAsync(sp, "portal-owner-2");
+        (Guid otherProjectId, Guid _, string _) = await SeedProjectAsync(sp, "portal-other-owner");
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        var ownMeetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        Guid ownMeetingId = (await propose.HandleAsync(new ProposeCrmMeetingCommand(
             ownProjectId, employeeId, "My project's meeting", MeetingType.InOffice,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1))]))).Value;
         Assert.True((await propose.HandleAsync(new ProposeCrmMeetingCommand(
             otherProjectId, employeeId, "Someone else's meeting", MeetingType.InOffice,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1))]))).IsSuccess);
 
-        var getPortalMeetings = sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>>>();
-        var result = await getPortalMeetings.HandleAsync(new GetMyPortalMeetingsQuery(clientAppUserId));
+        IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>> getPortalMeetings = sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>>>();
+        Result<IReadOnlyList<PortalMeetingResponse>> result = await getPortalMeetings.HandleAsync(new GetMyPortalMeetingsQuery(clientAppUserId));
 
         Assert.True(result.IsSuccess);
-        var meeting = Assert.Single(result.Value!);
+        PortalMeetingResponse meeting = Assert.Single(result.Value!);
         Assert.Equal(ownMeetingId, meeting.Id);
         Assert.Equal("My project's meeting", meeting.Title);
     }
@@ -265,21 +265,21 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task GetCrmMeetingsByProject_Pages_AndOrdersNewestFirst()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (employeeId, _) = await SeedEmployeeAsync(sp, "page-owner");
-        var (projectId, _, _) = await SeedProjectAsync(sp, "page-owner-2");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid employeeId, string _) = await SeedEmployeeAsync(sp, "page-owner");
+        (Guid projectId, Guid _, string _) = await SeedProjectAsync(sp, "page-owner-2");
 
-        var propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
-        for (var i = 0; i < 3; i++)
+        ICommandHandler<ProposeCrmMeetingCommand, Guid> propose = sp.GetRequiredService<ICommandHandler<ProposeCrmMeetingCommand, Guid>>();
+        for (int i = 0; i < 3; i++)
         {
             Assert.True((await propose.HandleAsync(new ProposeCrmMeetingCommand(
                 projectId, employeeId, $"Meeting {i}", MeetingType.InOffice,
                 [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(i + 1), DateTime.UtcNow.AddDays(i + 1).AddHours(1))]))).IsSuccess);
         }
 
-        var getByProject = sp.GetRequiredService<IQueryHandler<GetCrmMeetingsByProjectQuery, PagedResult<CrmMeetingResponse>>>();
-        var page = (await getByProject.HandleAsync(new GetCrmMeetingsByProjectQuery(projectId, PageNumber: 1, PageSize: 2))).Value!;
+        IQueryHandler<GetCrmMeetingsByProjectQuery, PagedResult<CrmMeetingResponse>> getByProject = sp.GetRequiredService<IQueryHandler<GetCrmMeetingsByProjectQuery, PagedResult<CrmMeetingResponse>>>();
+        PagedResult<CrmMeetingResponse> page = (await getByProject.HandleAsync(new GetCrmMeetingsByProjectQuery(projectId, PageNumber: 1, PageSize: 2))).Value!;
 
         Assert.Equal(2, page.Items.Count);
         Assert.Equal(3, page.TotalCount);
@@ -294,17 +294,15 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     private static async Task<(Guid ProjectId, Guid ClientId, string ClientAppUserId)> SeedProjectAsync(
         IServiceProvider sp, string ownerLabel)
     {
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
-        var ownerAppUserId = await RegisterIdentityUserAsync(sp, ownerLabel);
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        Assert.True((await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(ownerAppUserId, "Staff", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"))).IsSuccess);
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
+        (_, string ownerAppUserId) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"{ownerLabel}-{Guid.NewGuid():N}@example.com", jobTitle: "Staff", lastName: ownerLabel);
 
-        var (clientId, clientAppUserId) = await SeedClientWithAppUserIdAsync(sp, $"{ownerLabel}-client");
+        (Guid clientId, string? clientAppUserId) = await SeedClientWithAppUserIdAsync(sp, $"{ownerLabel}-client");
 
         currentUser.UserId = ownerAppUserId;
-        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-        var result = await createProject.HandleAsync(new CreateProjectCommand(
+        ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        Result<Guid> result = await createProject.HandleAsync(new CreateProjectCommand(
             $"P-{Guid.NewGuid():N}", "Meetings test project", "1 Test St", WorkflowType.Stage, clientId));
         Assert.True(result.IsSuccess);
         currentUser.UserId = null;
@@ -314,41 +312,27 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     private static async Task<Guid> SeedClientAsync(IServiceProvider sp, string label) =>
         (await SeedClientWithAppUserIdAsync(sp, label)).ClientId;
 
-    private static async Task<(Guid ClientId, string AppUserId)> SeedClientWithAppUserIdAsync(IServiceProvider sp, string label)
-    {
-        var appUserId = await RegisterIdentityUserAsync(sp, label);
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var result = await createClient.HandleAsync(new CreateClientCommand(appUserId, "123 Client St"));
-        Assert.True(result.IsSuccess);
-        return (result.Value, appUserId);
-    }
+    private static Task<(Guid ClientId, string AppUserId)> SeedClientWithAppUserIdAsync(IServiceProvider sp, string label) =>
+        CrmClientSeeding.CreateClientAsync(
+            sp, $"{label}-{Guid.NewGuid():N}@example.com", address: "123 Client St", lastName: label);
 
     private static async Task<Guid> SeedContactAsync(IServiceProvider sp, Guid clientId)
     {
-        var createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
-        var result = await createContact.HandleAsync(
+        ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
+        Result<Guid> result = await createContact.HandleAsync(
             new CreateCrmContactCommand(clientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true));
         Assert.True(result.IsSuccess);
         return result.Value;
     }
 
-    private static async Task<(Guid EmployeeId, string AppUserId)> SeedEmployeeAsync(IServiceProvider sp, string label)
-    {
-        var appUserId = await RegisterIdentityUserAsync(sp, label);
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var result = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Staff", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(result.IsSuccess);
-        return (result.Value, appUserId);
-    }
+    private static Task<(Guid EmployeeId, string AppUserId)> SeedEmployeeAsync(IServiceProvider sp, string label) =>
+        HrTestSeeding.HireEmployeeAsync(
+            sp, $"{label}-{Guid.NewGuid():N}@example.com", jobTitle: "Staff", lastName: label);
 
     private static async Task<string> RegisterIdentityUserAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var result = await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")));
-        Assert.True(result.IsSuccess);
-        return result.Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        return await IdentityTestSeeding.ProvisionActiveUserAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
     }
 }

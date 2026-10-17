@@ -3,6 +3,7 @@ using BuildingBlocks.Pagination;
 using FluentValidation;
 using Hr.Application.Features.Employees.Get;
 using Hr.Contracts.Employees;
+using Hr.Domain;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -24,13 +25,15 @@ internal sealed class GetEmployeesQueryHandler(HrDbContext db)
     public async Task<Result<PagedResult<EmployeeResponse>>> HandleAsync(
         GetEmployeesQuery query, CancellationToken ct = default)
     {
-        var baseQuery = db.Employees.AsNoTracking();
+        IQueryable<Employee> baseQuery = db.Employees.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(query.JobTitleFilter))
+        {
             baseQuery = baseQuery.Where(e => EF.Functions.ILike(e.JobTitle, $"%{query.JobTitleFilter}%"));
+        }
 
-        var totalCount = await baseQuery.CountAsync(ct);
+        int totalCount = await baseQuery.CountAsync(ct);
 
-        var employees = await baseQuery
+        List<Employee> employees = await baseQuery
             .OrderBy(e => e.JobTitle)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)

@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -8,7 +9,7 @@ public class CrmCatalogItemAttributeValueTests
     [Fact]
     public void Create_WithValidData_Succeeds()
     {
-        var result = CrmCatalogItemAttributeValue.Create(
+        Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Number, valueNumber: 200);
 
         Assert.True(result.IsSuccess);
@@ -18,7 +19,7 @@ public class CrmCatalogItemAttributeValueTests
     [Fact]
     public void Create_WithEmptyItemId_Fails()
     {
-        var result = CrmCatalogItemAttributeValue.Create(
+        Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
             Guid.Empty, Guid.NewGuid(), CatalogAttributeType.Number, valueNumber: 200);
 
         Assert.True(result.IsFailure);
@@ -28,7 +29,7 @@ public class CrmCatalogItemAttributeValueTests
     [Fact]
     public void Create_WithEmptyAttributeId_Fails()
     {
-        var result = CrmCatalogItemAttributeValue.Create(
+        Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
             Guid.NewGuid(), Guid.Empty, CatalogAttributeType.Number, valueNumber: 200);
 
         Assert.True(result.IsFailure);
@@ -38,7 +39,7 @@ public class CrmCatalogItemAttributeValueTests
     [Fact]
     public void Create_TrimsTextValue()
     {
-        var result = CrmCatalogItemAttributeValue.Create(
+        Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Text, valueText: "  Modern  ");
 
         Assert.True(result.IsSuccess);
@@ -48,7 +49,7 @@ public class CrmCatalogItemAttributeValueTests
     [Fact]
     public void Create_WithMismatchedType_Fails()
     {
-        var result = CrmCatalogItemAttributeValue.Create(
+        Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Boolean, valueText: "true");
 
         Assert.True(result.IsFailure);

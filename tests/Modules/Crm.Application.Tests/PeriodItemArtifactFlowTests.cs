@@ -7,11 +7,11 @@ using Crm.Contracts.Contacts;
 using Crm.Contracts.Items;
 using Crm.Contracts.Periods;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.Application.Tests;
@@ -26,43 +26,43 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task Period_OpenExtendClose_PublishesPeriodClosedWhenStageOwned()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "period-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "period-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
         var stageId = Guid.NewGuid();
 
-        var open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
-        var openResult = await open.HandleAsync(
+        ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
+        Result<Guid> openResult = await open.HandleAsync(
             new OpenCrmRequirementPeriodCommand(projectId, stageId, DateTime.UtcNow.AddDays(7), employeeId));
         Assert.True(openResult.IsSuccess);
-        var periodId = openResult.Value;
+        Guid periodId = openResult.Value;
 
-        var extend = sp.GetRequiredService<ICommandHandler<ExtendCrmRequirementPeriodCommand>>();
+        ICommandHandler<ExtendCrmRequirementPeriodCommand> extend = sp.GetRequiredService<ICommandHandler<ExtendCrmRequirementPeriodCommand>>();
         Assert.True((await extend.HandleAsync(
             new ExtendCrmRequirementPeriodCommand(periodId, DateTime.UtcNow.AddDays(14)))).IsSuccess);
 
-        var close = sp.GetRequiredService<ICommandHandler<CloseCrmRequirementPeriodCommand>>();
+        ICommandHandler<CloseCrmRequirementPeriodCommand> close = sp.GetRequiredService<ICommandHandler<CloseCrmRequirementPeriodCommand>>();
         Assert.True((await close.HandleAsync(new CloseCrmRequirementPeriodCommand(periodId))).IsSuccess);
 
-        var getById = sp.GetRequiredService<IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse>>();
-        var period = (await getById.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId))).Value!;
+        IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse> getById = sp.GetRequiredService<IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse>>();
+        CrmRequirementPeriodResponse period = (await getById.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId))).Value!;
         Assert.Equal(RequirementPeriodStatus.Closed, period.Status);
     }
 
     [Fact]
     public async Task Period_OpenTwiceForSameProject_SecondIsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "double-open-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "double-open-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
 
-        var open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
+        ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Assert.True((await open.HandleAsync(
             new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).IsSuccess);
 
-        var secondResult = await open.HandleAsync(
+        Result<Guid> secondResult = await open.HandleAsync(
             new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId));
 
         Assert.True(secondResult.IsFailure);
@@ -71,25 +71,25 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task RequirementItem_CreateSendSupersede_EmployeeAuthored()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "item-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
-        var open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
-        var periodId = (await open.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "item-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
+        Guid periodId = (await open.HandleAsync(
             new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
 
-        var createItem = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemCommand, Guid>>();
-        var itemResult = await createItem.HandleAsync(new CreateCrmRequirementItemCommand(
+        ICommandHandler<CreateCrmRequirementItemCommand, Guid> createItem = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemCommand, Guid>>();
+        Result<Guid> itemResult = await createItem.HandleAsync(new CreateCrmRequirementItemCommand(
             projectId, periodId, employeeId, RequirementCategory.Materials, "Matte flooring", RequirementPriority.High));
         Assert.True(itemResult.IsSuccess);
-        var itemId = itemResult.Value;
+        Guid itemId = itemResult.Value;
 
-        var send = sp.GetRequiredService<ICommandHandler<SendCrmRequirementItemCommand>>();
+        ICommandHandler<SendCrmRequirementItemCommand> send = sp.GetRequiredService<ICommandHandler<SendCrmRequirementItemCommand>>();
         Assert.True((await send.HandleAsync(new SendCrmRequirementItemCommand(itemId))).IsSuccess);
 
-        var supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>>();
-        var supersedeResult = await supersede.HandleAsync(new SupersedeCrmRequirementItemCommand(
+        ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>>();
+        Result<Guid> supersedeResult = await supersede.HandleAsync(new SupersedeCrmRequirementItemCommand(
             itemId, Guid.NewGuid(), RequirementCategory.Materials, "Corrected flooring", RequirementPriority.High));
 
         // Only a locked (Approved/NotRequired) item can be superseded - a PendingApproval item must
@@ -100,33 +100,33 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task RequirementItem_CreatedByClient_IsTrustedImmediately()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "client-item-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
-        var open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
-        var periodId = (await open.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "client-item-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
+        Guid periodId = (await open.HandleAsync(
             new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
-        var contactId = await SeedContactAsync(sp, clientId);
+        Guid contactId = await SeedContactAsync(sp, clientId);
 
-        var createByClient = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>();
-        var result = await createByClient.HandleAsync(new CreateCrmRequirementItemByClientCommand(
+        ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid> createByClient = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>();
+        Result<Guid> result = await createByClient.HandleAsync(new CreateCrmRequirementItemByClientCommand(
             projectId, periodId, contactId, RequirementCategory.Style, "I want warm colors", RequirementPriority.Medium));
         Assert.True(result.IsSuccess);
 
-        var getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>>();
-        var items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId))).Value!;
+        IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>>();
+        IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId))).Value!;
         Assert.Equal(CrmApprovalState.NotRequired, items.Single().ApprovalStatus);
     }
 
     [Fact]
     public async Task LinkArtifactDocument_WithUnknownDocumentId_IsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
 
-        var result = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
+        Result<Guid> result = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
             Guid.NewGuid(), Guid.NewGuid(), null, null, null, Guid.NewGuid(), null));
 
         Assert.True(result.IsFailure);
@@ -135,23 +135,23 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task LinkArtifactDocument_ThenQueryByBrief_RoundTrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "artifact-rt-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
-        var documentId = await SeedProjectDocumentAsync(projectId, employeeId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "artifact-rt-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        Guid documentId = await SeedProjectDocumentAsync(projectId, employeeId);
 
-        var createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
-        var briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
+        ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
+        Guid briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
             projectId, employeeId, null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
 
-        var link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
-        var linkResult = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
+        ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
+        Result<Guid> linkResult = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
             documentId, briefId, null, null, null, employeeId, null));
         Assert.True(linkResult.IsSuccess);
 
-        var getByBrief = sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>();
-        var artifacts = (await getByBrief.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId))).Value!;
+        IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> getByBrief = sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>();
+        IReadOnlyList<CrmArtifactDocumentResponse> artifacts = (await getByBrief.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId))).Value!;
 
         Assert.Single(artifacts);
         Assert.Equal(documentId, artifacts[0].DocumentId);
@@ -159,33 +159,24 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
     private static async Task<(string AppUserId, Guid ClientId)> CreateClientAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var appUserId = (await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")))).Value!;
-
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var clientId = (await createClient.HandleAsync(new CreateClientCommand(appUserId, "1 Test Way"))).Value;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid clientId, string appUserId) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
 
         return (appUserId, clientId);
     }
 
     private static async Task<(Guid ProjectId, Guid EmployeeId)> CreateProjectAsync(IServiceProvider sp, Guid clientId)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var ownerAppUserId = (await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"owner-{suffix}@example.com", "P@ssw0rd123!", "Owner", "Test", null, "employee")))).Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid employeeId, string ownerAppUserId) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"owner-{suffix}@example.com", jobTitle: "PM", firstName: "Owner");
 
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var employeeId = (await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(ownerAppUserId, "PM", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"))).Value;
-
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerAppUserId;
 
-        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-        var projectId = (await createProject.HandleAsync(
+        ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        Guid projectId = (await createProject.HandleAsync(
             new CreateProjectCommand($"P-{suffix}", "Test Project", "123 Main St", WorkflowType.Stage, clientId))).Value;
 
         return (projectId, employeeId);
@@ -197,8 +188,8 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     /// <c>CreateProjectAsync</c> for the employee side.</summary>
     private static async Task<Guid> SeedContactAsync(IServiceProvider sp, Guid clientId)
     {
-        var createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
-        var result = await createContact.HandleAsync(
+        ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
+        Result<Guid> result = await createContact.HandleAsync(
             new CreateCrmContactCommand(clientId, "Test", "Contact", ContactRole.Owner, IsPrimary: true));
         Assert.True(result.IsSuccess);
         return result.Value;
@@ -215,7 +206,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
+        await using NpgsqlCommand command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO documents.project_documents
                 ("Id", "ProjectId", "FileName", "StoragePath", "ContentType", "FileSizeBytes",

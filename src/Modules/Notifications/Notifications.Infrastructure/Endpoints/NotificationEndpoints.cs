@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Notifications.Contracts;
+using SharedKernel;
 
 namespace Notifications.Infrastructure.Endpoints;
 
@@ -21,7 +22,7 @@ internal sealed class NotificationEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/notifications")
+        RouteGroupBuilder group = app.MapGroup("/api/notifications")
             .WithTags("Notifications")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -35,9 +36,11 @@ internal sealed class NotificationEndpoints : IEndpoint
             int pageSize = 20) =>
         {
             if (currentUser.UserId is not { Length: > 0 } userId)
+            {
                 return Results.Unauthorized();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<PagedResult<NotificationResponse>> result = await handler.HandleAsync(
                 new GetMyNotificationsQuery(userId, unreadOnly, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         })
@@ -50,9 +53,11 @@ internal sealed class NotificationEndpoints : IEndpoint
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { Length: > 0 } userId)
+            {
                 return Results.Unauthorized();
+            }
 
-            var result = await handler.HandleAsync(new GetUnreadNotificationCountQuery(userId), ct);
+            Result<int> result = await handler.HandleAsync(new GetUnreadNotificationCountQuery(userId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         })
         .RequirePermission(NotificationsPermissions.ViewOwn)
@@ -65,9 +70,11 @@ internal sealed class NotificationEndpoints : IEndpoint
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { Length: > 0 } userId)
+            {
                 return Results.Unauthorized();
+            }
 
-            var result = await handler.HandleAsync(new MarkNotificationReadCommand(notificationId, userId), ct);
+            Result result = await handler.HandleAsync(new MarkNotificationReadCommand(notificationId, userId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         })
         .RequirePermission(NotificationsPermissions.ViewOwn)
@@ -80,9 +87,11 @@ internal sealed class NotificationEndpoints : IEndpoint
             CancellationToken ct) =>
         {
             if (currentUser.UserId is not { Length: > 0 } userId)
+            {
                 return Results.Unauthorized();
+            }
 
-            var result = await handler.HandleAsync(new MarkAllNotificationsReadCommand(userId), ct);
+            Result result = await handler.HandleAsync(new MarkAllNotificationsReadCommand(userId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         })
         .RequirePermission(NotificationsPermissions.ViewOwn)

@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Finance.Contracts.CostCategories;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.Application.Tests;
@@ -13,8 +14,8 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> CreateAsync(string code, string name = "Materials")
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(new CreateCostCategoryRequest(code, name)));
 
@@ -25,11 +26,11 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_ThenReadBack_RoundTripsEveryField()
     {
-        var code = Code();
-        var id = await CreateAsync(code, "Materials");
+        string code = Code();
+        Guid id = await CreateAsync(code, "Materials");
 
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<CostCategoryResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>()
             .HandleAsync(new GetCostCategoryByIdQuery(id));
 
@@ -42,11 +43,11 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_WithADuplicateCode_FailsWithDuplicatedCode()
     {
-        var code = Code();
+        string code = Code();
         await CreateAsync(code);
 
-        await using var scope = fixture.CreateScope();
-        var second = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> second = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(new CreateCostCategoryRequest(code, "Other")));
 
@@ -57,17 +58,17 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Update_ChangesTheName_AndLeavesTheCodeAlone()
     {
-        var code = Code();
-        var id = await CreateAsync(code, "Before");
+        string code = Code();
+        Guid id = await CreateAsync(code, "Before");
 
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var updated = await sp.GetRequiredService<ICommandHandler<UpdateCostCategoryCommand>>()
+        Result updated = await sp.GetRequiredService<ICommandHandler<UpdateCostCategoryCommand>>()
             .HandleAsync(new UpdateCostCategoryCommand(id, new UpdateCostCategoryRequest("After", "note")));
         Assert.True(updated.IsSuccess);
 
-        var read = await sp.GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>()
+        Result<CostCategoryResponse> read = await sp.GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>()
             .HandleAsync(new GetCostCategoryByIdQuery(id));
 
         Assert.Equal("After", read.Value!.Name);
@@ -83,15 +84,15 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Update_ADeactivatedCategory_FailsWithNotFound()
     {
-        var id = await CreateAsync(Code());
+        Guid id = await CreateAsync(Code());
 
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
         await sp.GetRequiredService<ICommandHandler<DeactivateCostCategoryCommand>>()
             .HandleAsync(new DeactivateCostCategoryCommand(id));
 
-        var updated = await sp.GetRequiredService<ICommandHandler<UpdateCostCategoryCommand>>()
+        Result updated = await sp.GetRequiredService<ICommandHandler<UpdateCostCategoryCommand>>()
             .HandleAsync(new UpdateCostCategoryCommand(id, new UpdateCostCategoryRequest("After")));
 
         Assert.True(updated.IsFailure);
@@ -104,49 +105,49 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Deactivate_ThenActivate_RoundTripsAndTheRowStaysReadableThroughout()
     {
-        var id = await CreateAsync(Code());
+        Guid id = await CreateAsync(Code());
 
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var read = sp.GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse> read = sp.GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>();
 
         await sp.GetRequiredService<ICommandHandler<DeactivateCostCategoryCommand>>()
             .HandleAsync(new DeactivateCostCategoryCommand(id));
 
-        var deactivated = await read.HandleAsync(new GetCostCategoryByIdQuery(id));
+        Result<CostCategoryResponse> deactivated = await read.HandleAsync(new GetCostCategoryByIdQuery(id));
         Assert.True(deactivated.IsSuccess);
         Assert.False(deactivated.Value!.IsActive);
 
         await sp.GetRequiredService<ICommandHandler<ActivateCostCategoryCommand>>()
             .HandleAsync(new ActivateCostCategoryCommand(id));
 
-        var reactivated = await read.HandleAsync(new GetCostCategoryByIdQuery(id));
+        Result<CostCategoryResponse> reactivated = await read.HandleAsync(new GetCostCategoryByIdQuery(id));
         Assert.True(reactivated.Value!.IsActive);
     }
 
     [Fact]
     public async Task List_FiltersByActiveAndSearchesCodeAndName()
     {
-        var code = Code();
-        var id = await CreateAsync(code, $"Searchable {code}");
+        string code = Code();
+        Guid id = await CreateAsync(code, $"Searchable {code}");
 
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var list = sp.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        IQueryHandler<GetCostCategoryListQuery, PagedResult<CostCategoryListItemResponse>> list = sp.GetRequiredService<
             IQueryHandler<GetCostCategoryListQuery, PagedResult<CostCategoryListItemResponse>>>();
 
-        var byCode = await list.HandleAsync(new GetCostCategoryListQuery(Search: code));
+        Result<PagedResult<CostCategoryListItemResponse>> byCode = await list.HandleAsync(new GetCostCategoryListQuery(Search: code));
         Assert.Contains(byCode.Value!.Items, c => c.Id == id);
 
         await sp.GetRequiredService<ICommandHandler<DeactivateCostCategoryCommand>>()
             .HandleAsync(new DeactivateCostCategoryCommand(id));
 
-        var active = await list.HandleAsync(new GetCostCategoryListQuery(Search: code, IsActive: true));
+        Result<PagedResult<CostCategoryListItemResponse>> active = await list.HandleAsync(new GetCostCategoryListQuery(Search: code, IsActive: true));
 
         // Liveness: the filtered query returning nothing would satisfy DoesNotContain no matter what the
         // filter did. The unfiltered search above is the positive control, and this asserts the row is
         // still findable when the filter is inverted -- so "absent" means "excluded", not "gone".
-        var inactive = await list.HandleAsync(new GetCostCategoryListQuery(Search: code, IsActive: false));
+        Result<PagedResult<CostCategoryListItemResponse>> inactive = await list.HandleAsync(new GetCostCategoryListQuery(Search: code, IsActive: false));
         Assert.Contains(inactive.Value!.Items, c => c.Id == id);
         Assert.DoesNotContain(active.Value!.Items, c => c.Id == id);
     }
@@ -154,11 +155,11 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task List_ReportsTheTotalCountAndPageSize_NotJustThePage()
     {
-        var code = Code();
+        string code = Code();
         await CreateAsync(code, $"Paged {code}");
 
-        await using var scope = fixture.CreateScope();
-        var page = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<PagedResult<CostCategoryListItemResponse>> page = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetCostCategoryListQuery, PagedResult<CostCategoryListItemResponse>>>()
             .HandleAsync(new GetCostCategoryListQuery(Skip: 0, Take: 1));
 
@@ -174,8 +175,8 @@ public sealed class CostCategoryFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetById_ForAnUnknownId_FailsWithNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<CostCategoryResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse>>()
             .HandleAsync(new GetCostCategoryByIdQuery(Guid.NewGuid()));
 

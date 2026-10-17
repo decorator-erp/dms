@@ -37,7 +37,9 @@ internal static class LedgerSums
             .FirstOrDefaultAsync(ct);
 
         if (sums is null)
+        {
             return (0m, 0m);
+        }
 
         return (sums.Commitments - sums.ActualCosts, sums.ActualCosts);
     }

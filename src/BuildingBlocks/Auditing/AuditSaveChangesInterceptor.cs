@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Metadata;
 using SharedKernel;
 
 namespace BuildingBlocks.Auditing;
@@ -63,11 +64,15 @@ internal sealed class AuditSaveChangesInterceptor(
         // `eventData.Context is ApplicationDbContext`, which works when there is one context and
         // silently audits nothing the moment there are eight.
         if (context is null)
+        {
             return;
+        }
 
-        var entries = BuildAuditEntries(context);
+        List<AuditLog> entries = BuildAuditEntries(context);
         if (entries.Count == 0)
+        {
             return;
+        }
 
         if (context.Model.FindEntityType(typeof(AuditLog)) is null)
         {
@@ -86,16 +91,18 @@ internal sealed class AuditSaveChangesInterceptor(
 
     private List<AuditLog> BuildAuditEntries(DbContext context)
     {
-        var auditContext = contextAccessor.GetCurrent();
-        var timestamp = timeProvider.GetUtcNow();
+        AuditContext auditContext = contextAccessor.GetCurrent();
+        DateTimeOffset timestamp = timeProvider.GetUtcNow();
         var entries = new List<AuditLog>();
 
-        foreach (var entry in context.ChangeTracker.Entries<IAuditable>())
+        foreach (EntityEntry<IAuditable> entry in context.ChangeTracker.Entries<IAuditable>())
         {
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+            {
                 continue;
+            }
 
-            var (oldValues, newValues, changedColumns) = BuildChangeSets(entry);
+            (string? oldValues, string? newValues, string? changedColumns) = BuildChangeSets(entry);
 
             entries.Add(AuditLog.Record(
                 action: MapAction(entry.State),
@@ -142,7 +149,9 @@ internal sealed class AuditSaveChangesInterceptor(
         // navigation fix-up). Recording an audit row whose diff is two empty objects says a change
         // happened when none did.
         if (changed.Count == 0)
+        {
             return (null, null, null);
+        }
 
         return (
             Serialize(changed.ToDictionary(
@@ -164,9 +173,11 @@ internal sealed class AuditSaveChangesInterceptor(
 
     private static string? ReadPrimaryKey(EntityEntry entry)
     {
-        var key = entry.Metadata.FindPrimaryKey();
+        IKey? key = entry.Metadata.FindPrimaryKey();
         if (key is null)
+        {
             return null;
+        }
 
         // Composite keys are joined in key-property order, which EF fixes - so the same row always
         // produces the same EntityId string and entity-history reads stay stable.

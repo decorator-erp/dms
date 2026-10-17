@@ -33,26 +33,34 @@ internal sealed class SendCrmBriefCommandHandler(CrmDbContext db, IProjectDirect
 {
     public async Task<Result> HandleAsync(SendCrmBriefCommand command, CancellationToken ct = default)
     {
-        var brief = await db.CrmDesignBriefs.FirstOrDefaultAsync(b => b.Id == command.BriefId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.FirstOrDefaultAsync(b => b.Id == command.BriefId, ct);
         if (brief is null)
+        {
             return CrmBriefErrors.NotFound;
+        }
 
-        var project = await projectDirectory.GetProjectAsync(brief.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(brief.ProjectId, ct);
         if (project is null)
+        {
             return CrmBriefErrors.NotFound;
+        }
 
-        var client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == project.ClientId, ct);
+        Client? client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == project.ClientId, ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
-        var round = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct) + 1;
+        int round = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct) + 1;
         db.CrmBriefHeadSnapshots.Add(CrmBriefHeadSnapshot.Create(brief, round));
 
-        var pendingResult = brief.MarkPendingApproval();
+        Result pendingResult = brief.MarkPendingApproval();
         if (pendingResult.IsFailure)
+        {
             return pendingResult;
+        }
 
-        var requestResult = await approvalRequester.RequestAsync(
+        Result<Guid> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
                 ApprovalSubjectType.DesignBrief, brief.Id, ApprovalType.ClientReview,
                 RequestedByUserId: client.AppUserId,
@@ -60,7 +68,9 @@ internal sealed class SendCrmBriefCommandHandler(CrmDbContext db, IProjectDirect
                 DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
+        {
             return requestResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

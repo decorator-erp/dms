@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts.Departments;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -24,20 +25,28 @@ internal sealed class AssignDepartmentHeadCommandHandler(HrDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(AssignDepartmentHeadCommand command, CancellationToken ct = default)
     {
-        var department = await db.Departments.FindAsync([command.DepartmentId], ct);
+        Department? department = await db.Departments.FindAsync([command.DepartmentId], ct);
         if (department is null)
+        {
             return DepartmentErrors.NotFound;
+        }
 
         if (department.DepartmentHeadId.HasValue)
+        {
             return DepartmentErrors.AlreadyHaveHead;
+        }
 
         if (!await db.Employees.AnyAsync(e => e.Id == command.EmployeeId, ct))
+        {
             return EmployeeErrors.NotFound;
+        }
 
-        var isMember = await db.EmployeeDepartments.AnyAsync(
+        bool isMember = await db.EmployeeDepartments.AnyAsync(
             ed => ed.EmployeeId == command.EmployeeId && ed.DepartmentId == command.DepartmentId, ct);
         if (!isMember)
+        {
             db.EmployeeDepartments.Add(EmployeeDepartment.Create(command.EmployeeId, command.DepartmentId));
+        }
 
         department.AssignHead(command.EmployeeId);
         await db.SaveChangesAsync(ct);

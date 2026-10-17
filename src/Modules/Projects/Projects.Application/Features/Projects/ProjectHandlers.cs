@@ -8,6 +8,7 @@ using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -44,13 +45,17 @@ internal sealed class CreateProjectCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateProjectCommand command, CancellationToken ct = default)
     {
-        var ownerId = currentUser.UserId is null ? null : await hrDirectory.ResolveEmployeeIdAsync(currentUser.UserId, ct);
+        Guid? ownerId = currentUser.UserId is null ? null : await hrDirectory.ResolveEmployeeIdAsync(currentUser.UserId, ct);
         if (ownerId is null)
+        {
             return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
+        }
 
-        var existingClientIds = await clientDirectory.ExistAsync([command.ClientId], ct);
+        IReadOnlyList<Guid> existingClientIds = await clientDirectory.ExistAsync([command.ClientId], ct);
         if (existingClientIds.Count == 0)
+        {
             return Result.Failure<Guid>(Domain.ProjectErrors.ClientNotFound);
+        }
 
         var project = Domain.Project.Create(
             command.Code, command.Name, command.Address, ProjectsEnumMapping.ToDomain(command.WorkflowType),
@@ -60,9 +65,11 @@ internal sealed class CreateProjectCommandHandler(
 
         if (command.StageTemplateId is { } stageTemplateId)
         {
-            var instantiated = await InstantiateAsync(project, stageTemplateId, ct);
+            Result instantiated = await InstantiateAsync(project, stageTemplateId, ct);
             if (instantiated.IsFailure)
+            {
                 return Result.Failure<Guid>(instantiated.Error);
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -79,65 +86,73 @@ internal sealed class CreateProjectCommandHandler(
     /// </summary>
     private async Task<Result> InstantiateAsync(Domain.Project project, Guid stageTemplateId, CancellationToken ct)
     {
-        var templateExists = await db.StageTemplates.AsNoTracking().AnyAsync(t => t.Id == stageTemplateId, ct);
+        bool templateExists = await db.StageTemplates.AsNoTracking().AnyAsync(t => t.Id == stageTemplateId, ct);
         if (!templateExists)
+        {
             return Domain.StageTemplateErrors.NotFound;
+        }
 
-        var stages = await db.Stages.AsNoTracking()
+        List<Stage> stages = await db.Stages.AsNoTracking()
             .Where(s => s.StageTemplateId == stageTemplateId)
             .OrderBy(s => s.Order)
             .ToListAsync(ct);
         if (stages.Count == 0)
+        {
             return Domain.StageTemplateErrors.StagesNotFound;
+        }
 
         var stageIds = stages.Select(s => s.Id).ToList();
-        var stageTasks = await db.StageTasks.AsNoTracking().Where(t => stageIds.Contains(t.StageId)).ToListAsync(ct);
+        List<StageTask> stageTasks = await db.StageTasks.AsNoTracking().Where(t => stageIds.Contains(t.StageId)).ToListAsync(ct);
         var taskIds = stageTasks.Select(t => t.Id).ToList();
-        var stageSubTasks = taskIds.Count == 0
+        List<StageSubTask> stageSubTasks = taskIds.Count == 0
             ? []
             : await db.StageSubTasks.AsNoTracking().Where(st => taskIds.Contains(st.StageTaskId)).ToListAsync(ct);
-        var stageDepartments = await db.StageDepartments.AsNoTracking()
+        List<StageDepartment> stageDepartments = await db.StageDepartments.AsNoTracking()
             .Where(sd => stageIds.Contains(sd.StageId) && sd.IsActive)
             .ToListAsync(ct);
 
         var departmentIds = stageDepartments.Select(sd => sd.DepartmentId).Distinct().ToList();
-        var heads = departmentIds.Count == 0 ? [] : await hrDirectory.GetDepartmentHeadsAsync(departmentIds, ct);
+        IReadOnlyList<DepartmentHeadSummary> heads = departmentIds.Count == 0 ? [] : await hrDirectory.GetDepartmentHeadsAsync(departmentIds, ct);
         var headsByDepartment = heads.ToDictionary(h => h.DepartmentId, h => h.HeadEmployeeId);
-        foreach (var departmentId in departmentIds)
+        foreach (Guid departmentId in departmentIds)
         {
             if (headsByDepartment.GetValueOrDefault(departmentId) is null)
+            {
                 return Domain.TeamErrors.MissingHead;
+            }
         }
 
-        foreach (var stage in stages)
+        foreach (Stage? stage in stages)
         {
             var tasksForStage = stageTasks.Where(t => t.StageId == stage.Id).ToList();
             var projectStage = Domain.ProjectStage.Create(
                 stage.Name, stage.Order, project.Id, tasksForStage.Count, stage.Id, stage.Description);
             db.ProjectStages.Add(projectStage);
 
-            foreach (var task in tasksForStage)
+            foreach (StageTask? task in tasksForStage)
             {
                 var subTasksForTask = stageSubTasks.Where(st => st.StageTaskId == task.Id).ToList();
-                var taskResult = Domain.ProjectTask.Create(
+                Result<ProjectTask> taskResult = Domain.ProjectTask.Create(
                     project.Id, task.Name, task.Order, project.WorkflowType, task.Weight,
                     projectStage.Id, task.Id, Domain.TaskPriority.Medium, Domain.ProjectTaskStatus.Open,
                     task.Description, subTasksForTask.Count, task.DepartmentId);
                 if (taskResult.IsFailure)
+                {
                     return taskResult.Error;
+                }
 
                 db.ProjectTasks.Add(taskResult.Value!);
 
-                foreach (var subTask in subTasksForTask.OrderBy(st => st.Order))
+                foreach (StageSubTask? subTask in subTasksForTask.OrderBy(st => st.Order))
                 {
                     db.ProjectSubTasks.Add(Domain.ProjectSubTask.Create(
                         taskResult.Value!.Id, subTask.Title, subTask.Order, subTask.IsRequired, subTask.Description));
                 }
             }
 
-            foreach (var departmentId in stageDepartments.Where(sd => sd.StageId == stage.Id).Select(sd => sd.DepartmentId))
+            foreach (Guid departmentId in stageDepartments.Where(sd => sd.StageId == stage.Id).Select(sd => sd.DepartmentId))
             {
-                var headId = headsByDepartment[departmentId]!.Value;
+                Guid headId = headsByDepartment[departmentId]!.Value;
                 db.StageTeams.Add(Domain.StageTeam.CreateProjectDepartmentTeam(projectStage.Id, departmentId, headId));
             }
         }
@@ -150,9 +165,11 @@ internal sealed class UpdateProjectCommandHandler(ProjectsDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(UpdateProjectCommand command, CancellationToken ct = default)
     {
-        var project = await db.Projects.FindAsync([command.ProjectId], ct);
+        Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
         if (project is null)
+        {
             return Domain.ProjectErrors.NotFound;
+        }
 
         project.Update(
             command.Name, command.Description, command.Address, command.Notes,
@@ -166,13 +183,17 @@ internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db) : 
 {
     public async Task<Result> HandleAsync(ChangeProjectStatusCommand command, CancellationToken ct = default)
     {
-        var project = await db.Projects.FindAsync([command.ProjectId], ct);
+        Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
         if (project is null)
+        {
             return Domain.ProjectErrors.NotFound;
+        }
 
-        var result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status));
+        Result result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status));
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -183,14 +204,20 @@ internal sealed class SetProjectActiveCommandHandler(ProjectsDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(SetProjectActiveCommand command, CancellationToken ct = default)
     {
-        var project = await db.Projects.FindAsync([command.ProjectId], ct);
+        Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
         if (project is null)
+        {
             return Domain.ProjectErrors.NotFound;
+        }
 
         if (command.IsActive)
+        {
             project.Activate();
+        }
         else
+        {
             project.Deactivate();
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -201,9 +228,11 @@ internal sealed class DeleteProjectCommandHandler(ProjectsDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(DeleteProjectCommand command, CancellationToken ct = default)
     {
-        var project = await db.Projects.FindAsync([command.ProjectId], ct);
+        Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
         if (project is null)
+        {
             return Domain.ProjectErrors.NotFound;
+        }
 
         db.Projects.Remove(project);
         await db.SaveChangesAsync(ct);
@@ -215,7 +244,7 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandl
 {
     public async Task<Result<ProjectResponse>> HandleAsync(GetProjectQuery query, CancellationToken ct = default)
     {
-        var response = await db.Projects.AsNoTracking()
+        ProjectResponse? response = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
             .Select(ToResponse())
             .FirstOrDefaultAsync(ct);
@@ -245,15 +274,17 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
 {
     public async Task<Result<PagedResult<ProjectResponse>>> HandleAsync(GetProjectsQuery query, CancellationToken ct = default)
     {
-        var projects = db.Projects.AsNoTracking().AsQueryable();
+        IQueryable<Project> projects = db.Projects.AsNoTracking().AsQueryable();
 
         if (!currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
         {
-            var employeeId = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct);
+            Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct);
             if (employeeId is null)
+            {
                 return PagedResult<ProjectResponse>.Empty(query.PageNumber, query.PageSize);
+            }
 
-            var accessibleProjectIds = db.StageTeamMembers.AsNoTracking()
+            IQueryable<Guid> accessibleProjectIds = db.StageTeamMembers.AsNoTracking()
                 .Where(m => m.EmployeeId == employeeId.Value)
                 .Join(db.StageTeams, m => m.StageTeamId, t => t.Id, (m, t) => t)
                 .Join(db.ProjectStages, t => t.ProjectStageId, s => s.Id, (t, s) => s.ProjectId)
@@ -263,10 +294,12 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
         }
 
         if (!string.IsNullOrWhiteSpace(query.NameFilter))
+        {
             projects = projects.Where(p => p.Name.Contains(query.NameFilter));
+        }
 
-        var totalCount = await projects.CountAsync(ct);
-        var items = await projects
+        int totalCount = await projects.CountAsync(ct);
+        List<ProjectResponse> items = await projects
             .OrderBy(p => p.Name)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)

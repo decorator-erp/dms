@@ -16,7 +16,7 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
 {
     public async Task<bool> HasClosedGatheringAsync(Guid projectStageId, CancellationToken ct)
     {
-        var periods = await db.CrmRequirementPeriods.AsNoTracking()
+        List<RequirementPeriodStatus> periods = await db.CrmRequirementPeriods.AsNoTracking()
             .Where(p => p.ProjectStageId == projectStageId)
             .Select(p => p.Status)
             .ToListAsync(ct);
@@ -30,12 +30,12 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
 
     public async Task<int> CountUnresolvedForStageAsync(Guid projectStageId, CancellationToken ct)
     {
-        var unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
+        int unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
             .Where(e => db.CrmDesignBriefs.Any(b => b.Id == e.BriefId && b.ProjectStageId == projectStageId))
             .Where(e => e.ApprovalStatus == ApprovalState.Draft || e.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
-        var unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
+        int unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
             .Where(i => db.CrmRequirementPeriods.Any(p => p.Id == i.PeriodId && p.ProjectStageId == projectStageId))
             .Where(i => i.ApprovalStatus == ApprovalState.Draft || i.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
@@ -45,12 +45,12 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
 
     public async Task<int> CountUnresolvedForTaskAsync(Guid projectTaskId, CancellationToken ct)
     {
-        var unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
+        int unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
             .Where(e => e.ProjectTaskId == projectTaskId)
             .Where(e => e.ApprovalStatus == ApprovalState.Draft || e.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
-        var unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
+        int unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
             .Where(i => i.ProjectTaskId == projectTaskId)
             .Where(i => i.ApprovalStatus == ApprovalState.Draft || i.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);

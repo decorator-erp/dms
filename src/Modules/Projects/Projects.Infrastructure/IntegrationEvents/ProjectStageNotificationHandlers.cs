@@ -32,16 +32,20 @@ internal sealed class ProjectStageCompletedNotificationHandler(
             .FirstOrDefaultAsync(ct);
 
         if (project is null)
+        {
             return;
+        }
 
-        var owner = await hrDirectory.GetAsync(project.OwnerId, ct);
-        var client = await clientDirectory.GetAsync(project.ClientId, ct);
+        EmployeeSummary? owner = await hrDirectory.GetAsync(project.OwnerId, ct);
+        ClientSummary? client = await clientDirectory.GetAsync(project.ClientId, ct);
 
         string?[] candidates = [owner?.AppUserId, client?.AppUserId];
         var targets = candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!)
             .Distinct(StringComparer.Ordinal).ToList();
         if (targets.Count == 0)
+        {
             return;
+        }
 
         await notifications.NotifyManyAsync(
             targets,
@@ -68,13 +72,13 @@ internal sealed class ProjectStageRejectedNotificationHandler(
 {
     public async Task HandleAsync(ProjectStageRejectedIntegrationEvent @event, CancellationToken ct)
     {
-        var ownerId = await db.Projects
+        Guid? ownerId = await db.Projects
             .AsNoTracking()
             .Where(p => p.Id == @event.ProjectId)
             .Select(p => (Guid?)p.OwnerId)
             .FirstOrDefaultAsync(ct);
 
-        var stageHeadId = await db.StageTeams
+        Guid? stageHeadId = await db.StageTeams
             .AsNoTracking()
             .Where(t => t.ProjectStageId == @event.StageId && t.IsActive)
             .OrderBy(t => t.CreatedAtUtc)
@@ -84,15 +88,19 @@ internal sealed class ProjectStageRejectedNotificationHandler(
         Guid[] employeeIds =
             [.. new[] { ownerId, stageHeadId }.Where(id => id is not null).Select(id => id!.Value).Distinct()];
         if (employeeIds.Length == 0)
+        {
             return;
+        }
 
-        var employees = await hrDirectory.GetManyAsync(employeeIds, ct);
+        IReadOnlyList<EmployeeSummary> employees = await hrDirectory.GetManyAsync(employeeIds, ct);
         var targets = employees.Select(e => e.AppUserId)
             .Where(id => !string.IsNullOrEmpty(id))
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (targets.Count == 0)
+        {
             return;
+        }
 
         await notifications.NotifyManyAsync(
             targets,

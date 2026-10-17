@@ -1,3 +1,4 @@
+using System.Reflection;
 using NetArchTest.Rules;
 using Xunit;
 
@@ -29,9 +30,9 @@ public class Rule1And2Tests
     [Fact]
     public void Rule1_DomainAssemblies_MustNotReferenceEfCore()
     {
-        foreach (var assembly in ModuleAssemblies.WithSuffix(".Domain"))
+        foreach (Assembly assembly in ModuleAssemblies.WithSuffix(".Domain"))
         {
-            var result = Types.InAssembly(assembly)
+            TestResult result = Types.InAssembly(assembly)
                 .ShouldNot()
                 .HaveDependencyOnAny("Microsoft.EntityFrameworkCore")
                 .GetResult();
@@ -43,7 +44,7 @@ public class Rule1And2Tests
     [Fact]
     public void Rule2_ApplicationAndDomainAssemblies_MustNotReferenceAspNetCore()
     {
-        foreach (var assembly in ModuleAssemblies.WithSuffix(".Application").Concat(ModuleAssemblies.WithSuffix(".Domain")))
+        foreach (Assembly? assembly in ModuleAssemblies.WithSuffix(".Application").Concat(ModuleAssemblies.WithSuffix(".Domain")))
         {
             var offenders = ModuleAssemblies.SafeGetTypes(assembly)
                 .SelectMany(ReferencedAspNetCoreNamespaces)
@@ -58,7 +59,7 @@ public class Rule1And2Tests
 
     private static IEnumerable<string> ReferencedAspNetCoreNamespaces(Type type)
     {
-        var candidates = new List<Type?> { type.BaseType }
+        IEnumerable<Type?> candidates = new List<Type?> { type.BaseType }
             .Concat(type.GetInterfaces())
             .Concat(type.GetProperties().Select(p => p.PropertyType))
             .Concat(type.GetFields().Select(f => f.FieldType))

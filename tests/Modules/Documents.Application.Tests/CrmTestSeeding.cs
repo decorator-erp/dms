@@ -1,24 +1,22 @@
-using BuildingBlocks.Messaging;
-using Crm.Contracts.Clients;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Documents.Application.Tests;
 
 /// <summary>
-/// G9-13's ripple: <c>Project.ClientId</c> now carries a real FK to <c>crm.clients(Id)</c>
-/// (<c>AddClientForeignKey</c>), so <c>FolderFlowTests</c> needs a real client row before it can create
-/// a project at all. <see cref="DocumentsApplicationFixture"/> boots <c>Crm.Infrastructure</c> as a real
-/// module in its own DI graph (added at this same task), so this goes through the real
-/// <c>Crm.Application</c> command handler — same shape as <c>Projects.Application.Tests</c>' own
-/// <c>CrmTestSeeding</c>, duplicated rather than shared because the two test projects don't reference
-/// each other.
+/// A real <c>crm.clients</c> row for <c>Project.ClientId</c>'s FK to reference, created through CRM's
+/// real command handler.
+///
+/// <para>No longer takes an <c>appUserId</c>: <c>CreateClientCommand</c> creates the portal login
+/// itself, so a client is now made from an email address rather than from a user someone else
+/// provisioned. See <see cref="CrmClientSeeding"/>, which this delegates to.</para>
 /// </summary>
 internal static class CrmTestSeeding
 {
-    public static async Task<Guid> SeedClientAsync(IServiceProvider sp, string appUserId)
+    public static async Task<Guid> SeedClientAsync(IServiceProvider sp, string? emailPrefix = null)
     {
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var result = await createClient.HandleAsync(new CreateClientCommand(appUserId, "1 Client Rd"));
-        return result.Value;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"{emailPrefix ?? "seeded-client"}-{Guid.NewGuid():N}@example.com", address: "1 Client Rd");
+
+        return clientId;
     }
 }

@@ -31,29 +31,37 @@ internal sealed class RescheduleCrmMeetingCommandHandler(CrmDbContext db, IProje
 {
     public async Task<Result> HandleAsync(RescheduleCrmMeetingCommand command, CancellationToken ct = default)
     {
-        var meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
         if (meeting is null)
+        {
             return CrmMeetingErrors.NotFound;
+        }
 
-        var scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
+        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
             db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
         if (scoped.IsFailure)
+        {
             return scoped.Error;
+        }
 
-        var rescheduling = meeting.MarkRescheduling(DateTime.UtcNow);
+        Result rescheduling = meeting.MarkRescheduling(DateTime.UtcNow);
         if (rescheduling.IsFailure)
+        {
             return rescheduling.Error;
+        }
 
-        var accepted = await db.CrmMeetingSlots.FirstOrDefaultAsync(
+        CrmMeetingSlot? accepted = await db.CrmMeetingSlots.FirstOrDefaultAsync(
             s => s.MeetingId == command.MeetingId && s.Status == MeetingSlotStatus.Accepted, ct);
         accepted?.Demote();
 
-        var newSlot = CrmMeetingSlot.Create(
+        Result<CrmMeetingSlot> newSlot = CrmMeetingSlot.Create(
             command.MeetingId, command.StartsAtUtc, command.EndsAtUtc,
             proposedByEmployeeId: command.ActingEmployeeId, proposedByContactId: command.ActingContactId,
             nowUtc: DateTime.UtcNow);
         if (newSlot.IsFailure)
+        {
             return newSlot.Error;
+        }
 
         db.CrmMeetingSlots.Add(newSlot.Value!);
         await db.SaveChangesAsync(ct);

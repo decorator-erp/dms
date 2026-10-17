@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SharedKernel;
 using Xunit;
 
 namespace BuildingBlocks.UnitTests;
@@ -32,11 +33,11 @@ public class ValidationDecoratorPipelineTests
         services.AddScoped<IValidator<ValidatedCommand>, ValidatedCommandValidator>();
         services.AddModuleCqrs<TestDbContext>(typeof(ValidationDecoratorPipelineTests).Assembly);
 
-        await using var provider = services.BuildServiceProvider();
-        using var scope = provider.CreateScope();
-        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ValidatedCommand>>();
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        using IServiceScope scope = provider.CreateScope();
+        ICommandHandler<ValidatedCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ValidatedCommand>>();
 
-        var result = await handler.HandleAsync(new ValidatedCommand(string.Empty));
+        Result result = await handler.HandleAsync(new ValidatedCommand(string.Empty));
 
         Assert.True(result.IsFailure);
         Assert.False(tracker.CommandHandlerInvoked);

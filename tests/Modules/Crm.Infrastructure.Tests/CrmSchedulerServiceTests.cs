@@ -1,3 +1,4 @@
+using Crm.Contracts;
 using Crm.Infrastructure.Services;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -27,9 +28,9 @@ public sealed class CrmSchedulerServiceTests
     public async Task GetFreeSlotsAsync_ReturnsBackToBackSlotsWithinWorkingHours()
     {
         // Monday 2026-01-05 00:00 UTC through end of day - one working day, 09:00-11:00, 60-minute slots.
-        var service = CreateService();
+        CrmSchedulerService service = CreateService();
 
-        var slots = await service.GetFreeSlotsAsync(
+        IReadOnlyList<CrmFreeSlot> slots = await service.GetFreeSlotsAsync(
             new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
@@ -45,9 +46,9 @@ public sealed class CrmSchedulerServiceTests
     public async Task GetFreeSlotsAsync_SkipsNonWorkingDays()
     {
         // 2026-01-03/04 is a Saturday/Sunday - neither is in the Mon-Fri WorkingDays list.
-        var service = CreateService();
+        CrmSchedulerService service = CreateService();
 
-        var slots = await service.GetFreeSlotsAsync(
+        IReadOnlyList<CrmFreeSlot> slots = await service.GetFreeSlotsAsync(
             new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
@@ -59,23 +60,23 @@ public sealed class CrmSchedulerServiceTests
     public async Task GetFreeSlotsAsync_ExcludesSlotsOutsideTheRequestedWindow()
     {
         // Window ends at 10:30 - the 10:00-11:00 slot no longer fits fully inside [from, to).
-        var service = CreateService();
+        CrmSchedulerService service = CreateService();
 
-        var slots = await service.GetFreeSlotsAsync(
+        IReadOnlyList<CrmFreeSlot> slots = await service.GetFreeSlotsAsync(
             new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 5, 10, 30, 0, DateTimeKind.Utc),
             CancellationToken.None);
 
-        var slot = Assert.Single(slots);
+        CrmFreeSlot slot = Assert.Single(slots);
         Assert.Equal(new DateTime(2026, 1, 5, 9, 0, 0, DateTimeKind.Utc), slot.StartsAtUtc);
     }
 
     [Fact]
     public async Task GetFreeSlotsAsync_WhenToBeforeFrom_ReturnsEmpty()
     {
-        var service = CreateService();
+        CrmSchedulerService service = CreateService();
 
-        var slots = await service.GetFreeSlotsAsync(
+        IReadOnlyList<CrmFreeSlot> slots = await service.GetFreeSlotsAsync(
             new DateTime(2026, 1, 5, 12, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 1, 5, 9, 0, 0, DateTimeKind.Utc),
             CancellationToken.None);
@@ -94,7 +95,7 @@ public sealed class CrmSchedulerServiceTests
             SlotMinutes = Options.SlotMinutes,
             TimezoneId = "Not/A_Real_Zone",
         };
-        var service = CreateService(badOptions);
+        CrmSchedulerService service = CreateService(badOptions);
 
         await Assert.ThrowsAsync<TimeZoneNotFoundException>(() => service.GetFreeSlotsAsync(
             new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),

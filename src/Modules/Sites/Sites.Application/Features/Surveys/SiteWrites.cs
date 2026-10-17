@@ -58,7 +58,7 @@ internal static class SiteWrites
     public static async Task<Result<SiteRecord>> LoadRecordForWriteAsync(
         SitesDbContext db, Guid siteId, Guid recordId, CancellationToken ct)
     {
-        var record = await db.SiteRecords
+        SiteRecord? record = await db.SiteRecords
             .FirstOrDefaultAsync(r => r.Id == recordId && r.SiteId == siteId, ct);
 
         return record is null ? SiteErrors.RecordNotFound : record;
@@ -77,11 +77,17 @@ internal static class SiteWrites
     public static async Task<Result> ValidateSpaceAsync(
         ICrmSpaceReader spaces, Guid? spaceId, Guid projectId, CancellationToken ct)
     {
-        if (spaceId is not { } id) return Result.Success();
+        if (spaceId is not { } id)
+        {
+            return Result.Success();
+        }
 
-        var space = await spaces.GetAsync(id, ct);
+        CrmSpaceSummary? space = await spaces.GetAsync(id, ct);
 
-        if (space is null || !space.IsActive) return SiteErrors.SpaceNotFound;
+        if (space is null || !space.IsActive)
+        {
+            return SiteErrors.SpaceNotFound;
+        }
 
         return space.ProjectId == projectId ? Result.Success() : SiteErrors.SpaceNotInProject;
     }

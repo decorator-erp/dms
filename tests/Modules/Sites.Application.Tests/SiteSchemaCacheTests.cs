@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Sites.Contracts.Definition;
 using Xunit;
 
@@ -22,14 +23,14 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
 
     private async Task<T> SendAsync<T>(ICommand<T> _, Func<IServiceProvider, Task<T>> run)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return await run(scope.ServiceProvider);
     }
 
     private async Task<Guid> CreateModuleAsync(string code)
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteModuleCommand, Guid>>()
             .HandleAsync(new CreateSiteModuleCommand(new CreateSiteModuleRequest(code, "M", "م")));
 
@@ -39,8 +40,8 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
 
     private async Task<Guid> CreateItemAsync()
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteItemCommand, Guid>>()
             .HandleAsync(new CreateSiteItemCommand(new CreateSiteItemRequest(
                 Unique("it"), "Width", "العرض", Sites.Contracts.SiteItemDataType.Number, "cm")));
@@ -51,8 +52,8 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
 
     private async Task<SiteModuleSchemaResponse> SchemaAsync(string code)
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<SiteModuleSchemaResponse> result = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSiteModuleSchemaQuery, SiteModuleSchemaResponse>>()
             .HandleAsync(new GetSiteModuleSchemaQuery(code));
 
@@ -63,8 +64,8 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     private async Task RunAsync<TCommand>(TCommand command)
         where TCommand : ICommand
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<TCommand>>()
             .HandleAsync(command);
 
@@ -73,8 +74,8 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
 
     private async Task AttachAsync(Guid moduleId, Guid itemId, int sortOrder = 0, bool required = false)
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>()
             .HandleAsync(new AttachSiteItemCommand(
                 moduleId, new AttachSiteItemRequest(itemId, required, IsVisible: true, sortOrder)));
@@ -85,9 +86,9 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AttachingAField_IsVisibleOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_a");
-        var moduleId = await CreateModuleAsync(code);
-        var itemId = await CreateItemAsync();
+        string code = Unique("cache_a");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid itemId = await CreateItemAsync();
 
         // Warm the cache with the empty form first -- without this the test would pass even if
         // invalidation did nothing, because the first read would be a miss either way.
@@ -101,9 +102,9 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DetachingAField_IsGoneOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_d");
-        var moduleId = await CreateModuleAsync(code);
-        var itemId = await CreateItemAsync();
+        string code = Unique("cache_d");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid itemId = await CreateItemAsync();
         await AttachAsync(moduleId, itemId);
 
         Assert.Single((await SchemaAsync(code)).Fields);
@@ -116,9 +117,9 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ChangingALinksRequiredness_IsVisibleOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_r");
-        var moduleId = await CreateModuleAsync(code);
-        var itemId = await CreateItemAsync();
+        string code = Unique("cache_r");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid itemId = await CreateItemAsync();
         await AttachAsync(moduleId, itemId);
 
         Assert.False((await SchemaAsync(code)).Fields[0].IsRequired);
@@ -132,10 +133,10 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ReorderingLinks_IsVisibleOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_o");
-        var moduleId = await CreateModuleAsync(code);
-        var first = await CreateItemAsync();
-        var second = await CreateItemAsync();
+        string code = Unique("cache_o");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid first = await CreateItemAsync();
+        Guid second = await CreateItemAsync();
         await AttachAsync(moduleId, first, sortOrder: 0);
         await AttachAsync(moduleId, second, sortOrder: 1);
 
@@ -150,9 +151,9 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task RenamingAnItem_IsVisibleOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_i");
-        var moduleId = await CreateModuleAsync(code);
-        var itemId = await CreateItemAsync();
+        string code = Unique("cache_i");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid itemId = await CreateItemAsync();
         await AttachAsync(moduleId, itemId);
 
         Assert.Equal("Width", (await SchemaAsync(code)).Fields[0].NameEn);
@@ -166,9 +167,9 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeactivatingAnItem_RemovesItFromTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_x");
-        var moduleId = await CreateModuleAsync(code);
-        var itemId = await CreateItemAsync();
+        string code = Unique("cache_x");
+        Guid moduleId = await CreateModuleAsync(code);
+        Guid itemId = await CreateItemAsync();
         await AttachAsync(moduleId, itemId);
 
         Assert.Single((await SchemaAsync(code)).Fields);
@@ -181,8 +182,8 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task UpdatingTheModuleItself_IsVisibleOnTheVeryNextSchemaRead()
     {
-        var code = Unique("cache_m");
-        var moduleId = await CreateModuleAsync(code);
+        string code = Unique("cache_m");
+        Guid moduleId = await CreateModuleAsync(code);
 
         Assert.Equal("M", (await SchemaAsync(code)).NameEn);
 
@@ -200,11 +201,11 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task EditingASharedItem_InvalidatesEveryModuleThatLinksIt()
     {
-        var codeA = Unique("shared_a");
-        var codeB = Unique("shared_b");
-        var moduleA = await CreateModuleAsync(codeA);
-        var moduleB = await CreateModuleAsync(codeB);
-        var itemId = await CreateItemAsync();
+        string codeA = Unique("shared_a");
+        string codeB = Unique("shared_b");
+        Guid moduleA = await CreateModuleAsync(codeA);
+        Guid moduleB = await CreateModuleAsync(codeB);
+        Guid itemId = await CreateItemAsync();
 
         await AttachAsync(moduleA, itemId);
         await AttachAsync(moduleB, itemId);
@@ -227,11 +228,11 @@ public sealed class SiteSchemaCacheTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AMissingModule_IsNotCachedSoCreatingItIsImmediatelyVisible()
     {
-        var code = Unique("late");
+        string code = Unique("late");
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var miss = await scope.ServiceProvider
+            Result<SiteModuleSchemaResponse> miss = await scope.ServiceProvider
                 .GetRequiredService<IQueryHandler<GetSiteModuleSchemaQuery, SiteModuleSchemaResponse>>()
                 .HandleAsync(new GetSiteModuleSchemaQuery(code));
 

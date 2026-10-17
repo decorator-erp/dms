@@ -32,7 +32,7 @@ public class SiteScopeCoverageTests
     [Fact]
     public void EveryMessageCarryingASiteId_ImplementsISiteScoped()
     {
-        var offenders = typeof(SitesPermissions).Assembly.GetTypes()
+        string[] offenders = typeof(SitesPermissions).Assembly.GetTypes()
             .Where(t => t is { IsAbstract: false, IsInterface: false })
             .Where(IsMessage)
             .Where(t => t.GetProperty("SiteId")?.PropertyType == typeof(Guid))
@@ -52,7 +52,7 @@ public class SiteScopeCoverageTests
     [Fact]
     public void EveryISiteScopedMessage_ActuallyCarriesASiteId()
     {
-        var offenders = typeof(SitesPermissions).Assembly.GetTypes()
+        string[] offenders = typeof(SitesPermissions).Assembly.GetTypes()
             .Where(t => t is { IsAbstract: false, IsInterface: false })
             .Where(t => typeof(ISiteScoped).IsAssignableFrom(t))
             .Where(t => t.GetProperty("SiteId")?.PropertyType != typeof(Guid))
@@ -70,11 +70,11 @@ public class SiteScopeCoverageTests
     [Fact]
     public void TheGuardActuallyScansMessages()
     {
-        var messages = typeof(SitesPermissions).Assembly.GetTypes()
+        int messages = typeof(SitesPermissions).Assembly.GetTypes()
             .Where(t => t is { IsAbstract: false, IsInterface: false })
             .Count(IsMessage);
 
-        var scoped = typeof(SitesPermissions).Assembly.GetTypes()
+        int scoped = typeof(SitesPermissions).Assembly.GetTypes()
             .Count(t => t is { IsAbstract: false, IsInterface: false } && typeof(ISiteScoped).IsAssignableFrom(t));
 
         // 29 commands + 12 queries in the backend, minus the deferred variance query [D8].

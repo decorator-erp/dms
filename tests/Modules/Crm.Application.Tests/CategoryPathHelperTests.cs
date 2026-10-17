@@ -13,7 +13,7 @@ public class CategoryPathHelperTests
     {
         var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-        var path = CategoryPathHelper.ChildPath(null, id);
+        string path = CategoryPathHelper.ChildPath(null, id);
 
         Assert.Equal($"/{id}/", path);
     }
@@ -23,9 +23,9 @@ public class CategoryPathHelperTests
     {
         var parentId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var childId = Guid.Parse("22222222-2222-2222-2222-222222222222");
-        var parentPath = $"/{parentId}/";
+        string parentPath = $"/{parentId}/";
 
-        var path = CategoryPathHelper.ChildPath(parentPath, childId);
+        string path = CategoryPathHelper.ChildPath(parentPath, childId);
 
         Assert.Equal($"/{parentId}/{childId}/", path);
     }
@@ -35,7 +35,7 @@ public class CategoryPathHelperTests
     {
         var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-        var path = CategoryPathHelper.ChildPath(string.Empty, id);
+        string path = CategoryPathHelper.ChildPath(string.Empty, id);
 
         Assert.Equal($"/{id}/", path);
     }
@@ -43,11 +43,11 @@ public class CategoryPathHelperTests
     [Fact]
     public void Rebase_ReplacesOnlyThePrefix_KeepingTheSuffix()
     {
-        var oldPrefix = "/A/B/";
-        var newPrefix = "/C/";
-        var descendantPath = "/A/B/D/E/";
+        string oldPrefix = "/A/B/";
+        string newPrefix = "/C/";
+        string descendantPath = "/A/B/D/E/";
 
-        var rebased = CategoryPathHelper.Rebase(descendantPath, oldPrefix, newPrefix);
+        string rebased = CategoryPathHelper.Rebase(descendantPath, oldPrefix, newPrefix);
 
         Assert.Equal("/C/D/E/", rebased);
     }
@@ -57,10 +57,10 @@ public class CategoryPathHelperTests
     {
         // The moved node's own path IS the old prefix (no suffix beyond it) - rebasing it should
         // produce exactly the new prefix, no trailing artifact.
-        var oldPrefix = "/A/B/";
-        var newPrefix = "/C/B/";
+        string oldPrefix = "/A/B/";
+        string newPrefix = "/C/B/";
 
-        var rebased = CategoryPathHelper.Rebase(oldPrefix, oldPrefix, newPrefix);
+        string rebased = CategoryPathHelper.Rebase(oldPrefix, oldPrefix, newPrefix);
 
         Assert.Equal(newPrefix, rebased);
     }
@@ -68,11 +68,11 @@ public class CategoryPathHelperTests
     [Fact]
     public void Rebase_ToRoot_ProducesRootPrefixedPath()
     {
-        var oldPrefix = "/A/B/";
-        var newPrefix = "/B/";
-        var descendantPath = "/A/B/D/";
+        string oldPrefix = "/A/B/";
+        string newPrefix = "/B/";
+        string descendantPath = "/A/B/D/";
 
-        var rebased = CategoryPathHelper.Rebase(descendantPath, oldPrefix, newPrefix);
+        string rebased = CategoryPathHelper.Rebase(descendantPath, oldPrefix, newPrefix);
 
         Assert.Equal("/B/D/", rebased);
     }

@@ -29,5 +29,5 @@ public static class BackgroundLoops
     public const string EnabledKey = "BackgroundLoops:Enabled";
 
     public static bool Enabled(IConfiguration configuration) =>
-        !bool.TryParse(configuration[EnabledKey], out var enabled) || enabled;
+        !bool.TryParse(configuration[EnabledKey], out bool enabled) || enabled;
 }

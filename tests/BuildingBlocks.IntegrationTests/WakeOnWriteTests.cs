@@ -92,18 +92,20 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
     /// </summary>
     private async Task<bool> WaitForProcessedAsync(Guid eventId, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow.Add(timeout);
+        DateTime deadline = DateTime.UtcNow.Add(timeout);
         while (DateTime.UtcNow < deadline)
         {
             await using var shared = new SharedDbContext(
                 new DbContextOptionsBuilder<SharedDbContext>().UseNpgsql(fixture.ConnectionString).Options);
-            var processedUtc = await shared.OutboxMessages
+            DateTimeOffset? processedUtc = await shared.OutboxMessages
                 .Where(m => m.Id == eventId)
                 .Select(m => m.ProcessedUtc)
                 .SingleOrDefaultAsync();
 
             if (processedUtc is not null)
+            {
                 return true;
+            }
 
             await Task.Delay(50);
         }
@@ -117,22 +119,22 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
         var counter = new CallCounter();
         // 5 minutes: if delivery happens within the few-second wait below, the fallback poll (which
         // wouldn't fire for another ~300s) cannot be what explains it - only the nudge can.
-        await using var provider = BuildProvider(counter, fallbackSeconds: 300);
+        await using ServiceProvider provider = BuildProvider(counter, fallbackSeconds: 300);
 
-        var processor = provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor processor = provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
         await processor.StartAsync(CancellationToken.None);
         try
         {
             var eventId = Guid.NewGuid();
-            await using (var scope = provider.CreateAsyncScope())
+            await using (AsyncServiceScope scope = provider.CreateAsyncScope())
             {
-                var handler = scope.ServiceProvider
+                ICommandHandler<EnqueueWakeTestEventCommand> handler = scope.ServiceProvider
                     .GetRequiredService<ICommandHandler<EnqueueWakeTestEventCommand>>();
-                var result = await handler.HandleAsync(new EnqueueWakeTestEventCommand(eventId));
+                Result result = await handler.HandleAsync(new EnqueueWakeTestEventCommand(eventId));
                 Assert.True(result.IsSuccess);
             }
 
-            var delivered = await WaitForProcessedAsync(eventId, TimeSpan.FromSeconds(5));
+            bool delivered = await WaitForProcessedAsync(eventId, TimeSpan.FromSeconds(5));
 
             Assert.True(delivered, "Expected the nudge to deliver the event within 5s of a 300s fallback.");
             Assert.Equal(1, counter.Count);
@@ -148,9 +150,9 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
     {
         var counter = new CallCounter();
         // A short fallback the test can wait out without the run taking minutes.
-        await using var provider = BuildProvider(counter, fallbackSeconds: 1);
+        await using ServiceProvider provider = BuildProvider(counter, fallbackSeconds: 1);
 
-        var processor = provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor processor = provider.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
         await processor.StartAsync(CancellationToken.None);
         try
         {
@@ -162,7 +164,7 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
             await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
             {
                 await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
+                await using NpgsqlCommand command = connection.CreateCommand();
                 command.CommandText = """
                     INSERT INTO shared.outbox_messages (id, type, content, occurred_utc, attempts)
                     VALUES (@id, @type, @content::jsonb, @occurred_utc, 0);
@@ -176,7 +178,7 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
                 await command.ExecuteNonQueryAsync();
             }
 
-            var delivered = await WaitForProcessedAsync(@event.EventId, TimeSpan.FromSeconds(5));
+            bool delivered = await WaitForProcessedAsync(@event.EventId, TimeSpan.FromSeconds(5));
 
             Assert.True(delivered, "Expected the 1s fallback poll to still deliver a row with no nudge.");
             Assert.Equal(1, counter.Count);

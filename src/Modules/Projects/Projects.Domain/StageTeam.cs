@@ -22,7 +22,9 @@ internal sealed class StageTeam : Entity, IAuditable
     public static StageTeam CreateProjectDepartmentTeam(Guid projectStageId, Guid departmentId, Guid headId)
     {
         if (headId == Guid.Empty)
+        {
             throw new ArgumentException("A stage team must have a head.", nameof(headId));
+        }
 
         return new StageTeam { ProjectStageId = projectStageId, DepartmentId = departmentId, HeadId = headId };
     }
@@ -30,7 +32,9 @@ internal sealed class StageTeam : Entity, IAuditable
     public static StageTeam CreateProjectStandaloneTeam(Guid projectStageId, Guid headId)
     {
         if (headId == Guid.Empty)
+        {
             throw new ArgumentException("A stage team must have a head.", nameof(headId));
+        }
 
         return new StageTeam { ProjectStageId = projectStageId, HeadId = headId };
     }
@@ -38,7 +42,9 @@ internal sealed class StageTeam : Entity, IAuditable
     public void ChangeHead(Guid headId)
     {
         if (headId == Guid.Empty)
+        {
             throw new ArgumentException("A stage team must have a head.", nameof(headId));
+        }
 
         HeadId = headId;
     }
@@ -46,7 +52,9 @@ internal sealed class StageTeam : Entity, IAuditable
     public Result<StageTeamMember> AddMember(Guid employeeId, StageTeamMemberRole role)
     {
         if (_members.Any(m => m.EmployeeId == employeeId))
+        {
             return TeamErrors.MemberAlreadyExists;
+        }
 
         var member = StageTeamMember.Create(Id, employeeId, role);
         _members.Add(member);

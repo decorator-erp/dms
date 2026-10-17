@@ -17,9 +17,11 @@ internal sealed class GetCrmRequirementPeriodByIdQueryHandler(CrmDbContext db)
 
     public async Task<Result<CrmRequirementPeriodResponse>> HandleAsync(GetCrmRequirementPeriodByIdQuery query, CancellationToken ct = default)
     {
-        var period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == query.PeriodId, ct);
+        CrmRequirementPeriod? period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == query.PeriodId, ct);
         if (period is null)
+        {
             return Result.Failure<CrmRequirementPeriodResponse>(CrmPeriodErrors.NotFound);
+        }
 
         return ToResponse()(period);
     }

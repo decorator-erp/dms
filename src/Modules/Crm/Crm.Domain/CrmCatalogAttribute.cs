@@ -28,10 +28,16 @@ internal sealed class CrmCatalogAttribute : Entity, IAuditable
         Guid categoryId, string code, string nameEn, string nameAr, CatalogAttributeType dataType,
         string? unit = null, bool isRequired = false, int sortOrder = 0)
     {
-        if (categoryId == Guid.Empty) return CrmCatalogErrors.CategoryNotFound;
+        if (categoryId == Guid.Empty)
+        {
+            return CrmCatalogErrors.CategoryNotFound;
+        }
 
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmCatalogAttribute
         {
@@ -50,8 +56,11 @@ internal sealed class CrmCatalogAttribute : Entity, IAuditable
     /// column that type dictates, so changing it would orphan them. Retire and redefine instead.</summary>
     public Result Update(string code, string nameEn, string nameAr, string? unit, bool isRequired)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         Code = code;
         NameEn = nameEn;
@@ -70,7 +79,10 @@ internal sealed class CrmCatalogAttribute : Entity, IAuditable
     private static Result Validate(string code, string nameEn, string nameAr)
     {
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return CrmCatalogErrors.InvalidData;
+        }
+
         return Result.Success();
     }
 }

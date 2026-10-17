@@ -23,17 +23,21 @@ internal sealed class UpdateFileTemplateCommandHandler(DocumentsDbContext db) : 
 {
     public async Task<Result> HandleAsync(UpdateFileTemplateCommand command, CancellationToken ct = default)
     {
-        var template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
+        FileTemplate? template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
         if (template is null)
+        {
             return FileTemplateErrors.NotFound;
+        }
 
-        var nameExists = await db.FileTemplates.AsNoTracking()
+        bool nameExists = await db.FileTemplates.AsNoTracking()
             .AnyAsync(t => t.Id != command.FileTemplateId && t.Name == command.Name, ct);
 
-        var category = Enum.Parse<FileTemplateCategory>(command.Category);
-        var updateResult = template.Update(command.Name, category, command.Description, nameExists);
+        FileTemplateCategory category = Enum.Parse<FileTemplateCategory>(command.Category);
+        Result updateResult = template.Update(command.Name, category, command.Description, nameExists);
         if (updateResult.IsFailure)
+        {
             return updateResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

@@ -21,31 +21,37 @@ internal sealed class SetCrmCatalogItemAttributeValuesCommandHandler(CrmDbContex
 {
     public async Task<Result> HandleAsync(SetCrmCatalogItemAttributeValuesCommand command, CancellationToken ct = default)
     {
-        var itemExists = await db.CrmCatalogItems.AnyAsync(i => i.Id == command.ItemId, ct);
+        bool itemExists = await db.CrmCatalogItems.AnyAsync(i => i.Id == command.ItemId, ct);
         if (!itemExists)
+        {
             return CrmCatalogErrors.ItemNotFound;
+        }
 
         var attributeIds = command.Values.Select(v => v.AttributeId).ToList();
-        var attributes = await db.CrmCatalogAttributes
+        Dictionary<Guid, CrmCatalogAttribute> attributes = await db.CrmCatalogAttributes
             .Where(a => attributeIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, ct);
 
         var created = new List<CrmCatalogItemAttributeValue>();
-        foreach (var value in command.Values)
+        foreach (CatalogAttributeValueData value in command.Values)
         {
-            if (!attributes.TryGetValue(value.AttributeId, out var attribute))
+            if (!attributes.TryGetValue(value.AttributeId, out CrmCatalogAttribute? attribute))
+            {
                 return CrmCatalogErrors.AttributeNotFound;
+            }
 
-            var result = CrmCatalogItemAttributeValue.Create(
+            Result<CrmCatalogItemAttributeValue> result = CrmCatalogItemAttributeValue.Create(
                 command.ItemId, value.AttributeId, attribute.DataType, value.ValueText, value.ValueNumber,
                 value.ValueBool, value.ValueDate, value.OptionId);
             if (result.IsFailure)
+            {
                 return result.Error;
+            }
 
             created.Add(result.Value!);
         }
 
-        var existing = await db.CrmCatalogItemAttributeValues.Where(v => v.ItemId == command.ItemId).ToListAsync(ct);
+        List<CrmCatalogItemAttributeValue> existing = await db.CrmCatalogItemAttributeValues.Where(v => v.ItemId == command.ItemId).ToListAsync(ct);
         db.CrmCatalogItemAttributeValues.RemoveRange(existing);
         db.CrmCatalogItemAttributeValues.AddRange(created);
 

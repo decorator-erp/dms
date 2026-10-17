@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts.Departments;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using SharedKernel;
 
@@ -18,10 +19,15 @@ internal sealed class DeleteDepartmentCommandHandler(HrDbContext db) : ICommandH
 {
     public async Task<Result> HandleAsync(DeleteDepartmentCommand command, CancellationToken ct = default)
     {
-        var department = await db.Departments.FindAsync([command.DepartmentId], ct);
+        Department? department = await db.Departments.FindAsync([command.DepartmentId], ct);
         if (department is null)
+        {
             return DepartmentErrors.NotFound;
-
+        }
+        if (!department.IsActive)
+        {
+            return DepartmentErrors.DepartmentAlreadyDeleted;
+        }
         department.Deactivate();
         await db.SaveChangesAsync(ct);
 

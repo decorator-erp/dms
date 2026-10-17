@@ -28,31 +28,43 @@ internal sealed class AddSiteItemOptionCommandHandler(SitesDbContext db, ISiteSc
     public async Task<Result<Guid>> HandleAsync(
         AddSiteItemOptionCommand command, CancellationToken ct = default)
     {
-        var item = await db.SiteItems.AsNoTracking()
+        SiteItem? item = await db.SiteItems.AsNoTracking()
             .FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
 
-        if (item is null) return SiteErrors.ItemNotFound;
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
         // A rule about the item, so arguably entity-shaped -- but it decides whether a DIFFERENT
         // aggregate may be created, which is a handler's call. Options on a non-Select item would be
         // stored, never rendered, and never selectable.
-        if (item.DataType != Sites.Domain.SiteItemDataType.Select) return SiteErrors.OptionsRequireSelect;
+        if (item.DataType != Sites.Domain.SiteItemDataType.Select)
+        {
+            return SiteErrors.OptionsRequireSelect;
+        }
 
-        var normalized = command.Request.Code.Trim().ToLower();
-        var taken = await db.SiteItemOptions
+        string normalized = command.Request.Code.Trim().ToLower();
+        bool taken = await db.SiteItemOptions
             .AnyAsync(o => o.ItemId == command.ItemId && o.Code.ToLower() == normalized, ct);
 
-        if (taken) return SiteErrors.CodeTaken;
+        if (taken)
+        {
+            return SiteErrors.CodeTaken;
+        }
 
-        var option = SiteItemOption.Create(
+        Result<SiteItemOption> option = SiteItemOption.Create(
             command.ItemId, command.Request.Code, command.Request.NameEn,
             command.Request.NameAr, command.Request.SortOrder);
 
-        if (option.IsFailure) return option.Error;
+        if (option.IsFailure)
+        {
+            return option.Error;
+        }
 
         db.SiteItemOptions.Add(option.Value!);
 
-        var saved = await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
+        Result saved = await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
         return saved.IsFailure ? saved.Error : option.Value!.Id;
     }
 }
@@ -75,13 +87,19 @@ internal sealed class UpdateSiteItemOptionCommandHandler(SitesDbContext db, ISit
     public async Task<Result> HandleAsync(
         UpdateSiteItemOptionCommand command, CancellationToken ct = default)
     {
-        var option = await db.SiteItemOptions.FirstOrDefaultAsync(o => o.Id == command.OptionId, ct);
-        if (option is null) return SiteErrors.OptionNotFound;
+        SiteItemOption? option = await db.SiteItemOptions.FirstOrDefaultAsync(o => o.Id == command.OptionId, ct);
+        if (option is null)
+        {
+            return SiteErrors.OptionNotFound;
+        }
 
-        var updated = option.Update(
+        Result updated = option.Update(
             command.Request.NameEn, command.Request.NameAr, command.Request.SortOrder);
 
-        if (updated.IsFailure) return updated;
+        if (updated.IsFailure)
+        {
+            return updated;
+        }
 
         return await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
     }
@@ -93,11 +111,20 @@ internal sealed class SetSiteItemOptionActiveCommandHandler(SitesDbContext db, I
     public async Task<Result> HandleAsync(
         SetSiteItemOptionActiveCommand command, CancellationToken ct = default)
     {
-        var option = await db.SiteItemOptions.FirstOrDefaultAsync(o => o.Id == command.OptionId, ct);
-        if (option is null) return SiteErrors.OptionNotFound;
+        SiteItemOption? option = await db.SiteItemOptions.FirstOrDefaultAsync(o => o.Id == command.OptionId, ct);
+        if (option is null)
+        {
+            return SiteErrors.OptionNotFound;
+        }
 
-        if (command.IsActive) option.Activate();
-        else option.Deactivate();
+        if (command.IsActive)
+        {
+            option.Activate();
+        }
+        else
+        {
+            option.Deactivate();
+        }
 
         return await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
     }

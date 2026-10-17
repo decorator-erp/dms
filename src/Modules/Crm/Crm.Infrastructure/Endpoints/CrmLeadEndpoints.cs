@@ -7,6 +7,7 @@ using Crm.Contracts.Leads;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -18,19 +19,19 @@ internal sealed class CrmLeadEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var leads = app.MapGroup("/api/crm/leads").WithTags("Crm Leads");
+        RouteGroupBuilder leads = app.MapGroup("/api/crm/leads").WithTags("Crm Leads");
 
         leads.MapPost("/", async (
             CreateCrmLeadCommand command, ICommandHandler<CreateCrmLeadCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Created($"/api/crm/leads/{id}", new { LeadId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Create);
 
         leads.MapPut("/{leadId:guid}", async (
             Guid leadId, UpdateLeadRequest request, ICommandHandler<UpdateCrmLeadCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateCrmLeadCommand(
+            Result result = await handler.HandleAsync(new UpdateCrmLeadCommand(
                 leadId, request.FirstName, request.LastName, request.Source, request.OwnerId,
                 request.Email, request.Phone, request.Notes), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -39,42 +40,42 @@ internal sealed class CrmLeadEndpoints : IEndpoint
         leads.MapPut("/{leadId:guid}/status", async (
             Guid leadId, ChangeStatusRequest request, ICommandHandler<ChangeCrmLeadStatusCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ChangeCrmLeadStatusCommand(leadId, request.Status), ct);
+            Result result = await handler.HandleAsync(new ChangeCrmLeadStatusCommand(leadId, request.Status), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.ChangeStatus);
 
         leads.MapPost("/{leadId:guid}/convert", async (
             Guid leadId, ConvertRequest request, ICommandHandler<ConvertCrmLeadCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ConvertCrmLeadCommand(leadId, request.ExistingClientId), ct);
+            Result<Guid> result = await handler.HandleAsync(new ConvertCrmLeadCommand(leadId, request.ExistingClientId), ct);
             return result.Match(clientId => Results.Ok(new { ClientId = clientId }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Convert);
 
         leads.MapPut("/{leadId:guid}/intake", async (
             Guid leadId, CrmLeadIntakeData data, ICommandHandler<SaveCrmLeadIntakeCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SaveCrmLeadIntakeCommand(leadId, data), ct);
+            Result result = await handler.HandleAsync(new SaveCrmLeadIntakeCommand(leadId, data), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Update);
 
         leads.MapGet("/{leadId:guid}/intake", async (
             Guid leadId, IQueryHandler<GetCrmLeadIntakeQuery, CrmLeadIntakeResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmLeadIntakeQuery(leadId), ct);
+            Result<CrmLeadIntakeResponse> result = await handler.HandleAsync(new GetCrmLeadIntakeQuery(leadId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Read);
 
         leads.MapGet("/{leadId:guid}", async (
             Guid leadId, IQueryHandler<GetCrmLeadByIdQuery, CrmLeadResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmLeadByIdQuery(leadId), ct);
+            Result<CrmLeadResponse> result = await handler.HandleAsync(new GetCrmLeadByIdQuery(leadId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Read);
 
         leads.MapGet("/", async (
             IQueryHandler<GetCrmLeadsQuery, IReadOnlyList<CrmLeadResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmLeadsQuery(), ct);
+            Result<IReadOnlyList<CrmLeadResponse>> result = await handler.HandleAsync(new GetCrmLeadsQuery(), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Read);
     }

@@ -53,7 +53,9 @@ internal sealed class ProjectStage : Entity, IAuditable
     public Result SetCost(decimal? cost)
     {
         if (cost is < 0)
+        {
             return StageErrors.NegativeCost;
+        }
 
         Cost = cost;
         return Result.Success();
@@ -69,7 +71,9 @@ internal sealed class ProjectStage : Entity, IAuditable
     public Result Complete(Guid completedById)
     {
         if (Status != StageStatus.Active)
+        {
             return StageErrors.InvalidStatusTransition;
+        }
 
         Status = StageStatus.Completed;
         CompletedById = completedById;
@@ -81,7 +85,9 @@ internal sealed class ProjectStage : Entity, IAuditable
     public Result Reject(string reason)
     {
         if (Status != StageStatus.Active)
+        {
             return StageErrors.InvalidStatusTransition;
+        }
 
         Status = StageStatus.Rejected;
         Notes = reason;
@@ -97,11 +103,12 @@ internal sealed class ProjectStage : Entity, IAuditable
     public Result Unlock()
     {
         if (Status != StageStatus.Locked)
+        {
             return Result.Success();
+        }
 
         Status = StageStatus.Active;
-        if (ActualStartDate is null)
-            ActualStartDate = DateTime.UtcNow;
+        ActualStartDate ??= DateTime.UtcNow;
 
         return Result.Success();
     }

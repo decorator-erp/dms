@@ -20,10 +20,10 @@ public class MetaSelfEnforcementTests
     [Fact]
     public void EveryModuleProjectInTheSolution_IsReferencedByArchitectureTests()
     {
-        var solutionPath = Path.Combine(SolutionRoot.Path, "DMS.Modular.slnx");
+        string solutionPath = Path.Combine(SolutionRoot.Path, "DMS.Modular.slnx");
         var doc = XDocument.Load(solutionPath);
 
-        var suffixes = new[] { ".Domain", ".Application", ".Infrastructure", ".Contracts" };
+        string[] suffixes = new[] { ".Domain", ".Application", ".Infrastructure", ".Contracts" };
 
         var moduleProjectNames = doc.Descendants("Project")
             .Select(e => e.Attribute("Path")?.Value)

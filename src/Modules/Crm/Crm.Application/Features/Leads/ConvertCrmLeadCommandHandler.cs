@@ -33,22 +33,30 @@ internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHa
 {
     public async Task<Result<Guid>> HandleAsync(ConvertCrmLeadCommand command, CancellationToken ct = default)
     {
-        var lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
         if (lead is null)
+        {
             return Result.Failure<Guid>(CrmLeadErrors.NotFound);
+        }
 
-        var client = await db.Clients.FirstOrDefaultAsync(c => c.Id == command.ExistingClientId, ct);
+        Client? client = await db.Clients.FirstOrDefaultAsync(c => c.Id == command.ExistingClientId, ct);
         if (client is null)
+        {
             return Result.Failure<Guid>(ClientErrors.NotFound);
+        }
 
-        var convertResult = lead.Convert(command.ExistingClientId);
+        Result convertResult = lead.Convert(command.ExistingClientId);
         if (convertResult.IsFailure)
+        {
             return Result.Failure<Guid>(convertResult.Error);
+        }
 
         // Hop 1 — fill blanks on the client from the intake. Never overwrites office-entered data.
-        var intake = await db.CrmLeadIntakes.AsNoTracking().FirstOrDefaultAsync(i => i.LeadId == command.LeadId, ct);
+        CrmLeadIntake? intake = await db.CrmLeadIntakes.AsNoTracking().FirstOrDefaultAsync(i => i.LeadId == command.LeadId, ct);
         if (intake is not null)
+        {
             client.FillBlanksFromIntake(intake.JobTitle, intake.ClientAddress);
+        }
 
         db.Outbox().Enqueue(new LeadConvertedIntegrationEvent(
             Guid.NewGuid(), lead.Id, client.Id, DateTimeOffset.UtcNow));

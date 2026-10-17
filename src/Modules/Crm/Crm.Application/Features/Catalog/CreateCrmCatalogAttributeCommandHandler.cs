@@ -24,17 +24,21 @@ internal sealed class CreateCrmCatalogAttributeCommandHandler(CrmDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmCatalogAttributeCommand command, CancellationToken ct = default)
     {
-        var categoryExists = await db.CrmCatalogCategories.AnyAsync(c => c.Id == command.CategoryId, ct);
+        bool categoryExists = await db.CrmCatalogCategories.AnyAsync(c => c.Id == command.CategoryId, ct);
         if (!categoryExists)
+        {
             return Result.Failure<Guid>(CrmCatalogErrors.CategoryNotFound);
+        }
 
-        var result = CrmCatalogAttribute.Create(
+        Result<CrmCatalogAttribute> result = CrmCatalogAttribute.Create(
             command.CategoryId, command.Code, command.NameEn, command.NameAr,
             CrmEnumMapping.ToDomain(command.DataType), command.Unit, command.IsRequired, command.SortOrder);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var attribute = result.Value!;
+        CrmCatalogAttribute attribute = result.Value!;
         db.CrmCatalogAttributes.Add(attribute);
         await db.SaveChangesAsync(ct);
 

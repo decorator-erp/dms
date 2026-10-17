@@ -22,13 +22,17 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
     public async Task<Result> EnsureProjectAccessAsync(Guid projectId, string userId, CancellationToken ct)
     {
         if (currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
+        {
             return Result.Success();
+        }
 
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(userId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(userId, ct);
         if (employeeId is null)
+        {
             return Domain.ProjectErrors.AccessDenied;
+        }
 
-        var isMember = await MembershipQuery(employeeId.Value).AnyAsync(s => s.ProjectId == projectId, ct);
+        bool isMember = await MembershipQuery(employeeId.Value).AnyAsync(s => s.ProjectId == projectId, ct);
 
         return isMember ? Result.Success() : Domain.ProjectErrors.AccessDenied;
     }
@@ -39,14 +43,20 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
         IReadOnlyCollection<Guid> projectIds, string userId, CancellationToken ct)
     {
         if (projectIds.Count == 0)
+        {
             return [];
+        }
 
         if (currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
+        {
             return [.. projectIds];
+        }
 
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(userId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(userId, ct);
         if (employeeId is null)
+        {
             return [];
+        }
 
         return await MembershipQuery(employeeId.Value)
             .Where(s => projectIds.Contains(s.ProjectId))

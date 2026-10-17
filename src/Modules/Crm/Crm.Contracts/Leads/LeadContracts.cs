@@ -38,7 +38,12 @@ public sealed record ChangeCrmLeadStatusCommand(Guid LeadId, LeadStatus Status) 
 /// there too, so this port doesn't invent it). Publishes <c>LeadConvertedIntegrationEvent</c> +
 /// <c>ClientCreatedIntegrationEvent</c> is NOT implied here — conversion only fires
 /// <c>LeadConvertedIntegrationEvent</c>; <c>ClientCreatedIntegrationEvent</c> fires only when the
-/// client row is actually created (see <c>ConvertLeadCommandHandler</c>'s remarks in Application).</summary>
+/// client row is actually created, which is <c>CreateClientCommand</c> alone.
+///
+/// <para>Worth stating for whoever builds v2: creating a client now also provisions its portal login,
+/// so "accept a CreateClientRequest on convert" means provisioning an account inside the conversion
+/// transaction — go through <c>CreateClientCommand</c>'s handler rather than reimplementing the
+/// ordering it documents.</para></summary>
 public sealed record ConvertCrmLeadCommand(Guid LeadId, Guid ExistingClientId) : ICommand<Guid>;
 
 public sealed record SaveCrmLeadIntakeCommand(Guid LeadId, CrmLeadIntakeData Data) : ICommand;

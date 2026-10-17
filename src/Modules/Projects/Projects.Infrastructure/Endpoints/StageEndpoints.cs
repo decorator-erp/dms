@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Projects.Contracts;
 using Projects.Contracts.Stages;
+using SharedKernel;
 
 namespace Projects.Infrastructure.Endpoints;
 
@@ -18,13 +19,13 @@ internal sealed class StageEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/projects/{projectId:guid}/stages").WithTags("ProjectStages");
+        RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/stages").WithTags("ProjectStages");
 
         group.MapGet("/", async (
             Guid projectId, ICurrentUser currentUser,
             IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectStagesByProjectQuery(projectId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<ProjectStageResponse>> result = await handler.HandleAsync(new GetProjectStagesByProjectQuery(projectId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
@@ -32,7 +33,7 @@ internal sealed class StageEndpoints : IEndpoint
             Guid projectId, Guid stageId, ICurrentUser currentUser,
             IQueryHandler<GetProjectStageQuery, ProjectStageResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectStageQuery(projectId, stageId, currentUser.UserId!), ct);
+            Result<ProjectStageResponse> result = await handler.HandleAsync(new GetProjectStageQuery(projectId, stageId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
@@ -40,7 +41,7 @@ internal sealed class StageEndpoints : IEndpoint
             Guid projectId, Guid stageId, ICurrentUser currentUser,
             ICommandHandler<CompleteProjectStageCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CompleteProjectStageCommand(projectId, stageId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new CompleteProjectStageCommand(projectId, stageId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Complete);
 
@@ -48,7 +49,7 @@ internal sealed class StageEndpoints : IEndpoint
             Guid projectId, Guid stageId, RejectStageRequest request, ICurrentUser currentUser,
             ICommandHandler<RejectProjectStageCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new RejectProjectStageCommand(projectId, stageId, currentUser.UserId!, request.Reason), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Reject);

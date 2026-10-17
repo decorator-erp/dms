@@ -1,4 +1,5 @@
 using Projects.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.UnitTests;
@@ -11,7 +12,7 @@ public class ProjectTaskTests
     [Fact]
     public void Create_StageWorkflow_WithoutStageId_IsRejected()
     {
-        var result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.Stage, projectStageId: null);
+        Result<ProjectTask> result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.Stage, projectStageId: null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(TaskErrors.StageRequired, result.Error);
@@ -20,7 +21,7 @@ public class ProjectTaskTests
     [Fact]
     public void Create_FreeStyleWorkflow_WithStageId_IsRejected()
     {
-        var result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.FreeStyle, projectStageId: Guid.NewGuid());
+        Result<ProjectTask> result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.FreeStyle, projectStageId: Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(TaskErrors.StageNotAllowed, result.Error);
@@ -29,7 +30,7 @@ public class ProjectTaskTests
     [Fact]
     public void Create_FreeStyleWorkflow_WithoutStageId_Succeeds()
     {
-        var result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.FreeStyle);
+        Result<ProjectTask> result = ProjectTask.Create(Guid.NewGuid(), "Task", 1, WorkflowType.FreeStyle);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectTaskStatus.Open, result.Value!.Status);
@@ -38,7 +39,7 @@ public class ProjectTaskTests
     [Fact]
     public void FullLifecycle_Assign_Start_Complete_RaisesAllThreeDomainEvents()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         var employeeId = Guid.NewGuid();
 
         Assert.True(task.Assign(employeeId).IsSuccess);
@@ -62,10 +63,10 @@ public class ProjectTaskTests
     [Fact]
     public void Start_WithoutOpenStatus_IsRejected()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Start();
 
-        var result = task.Start();
+        Result result = task.Start();
 
         Assert.True(result.IsFailure);
         Assert.Equal(TaskErrors.InvalidStatusTransition, result.Error);
@@ -74,11 +75,11 @@ public class ProjectTaskTests
     [Fact]
     public void Complete_WithIncompleteRequiredSubTasks_IsRejected()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Start();
         task.RecalculateSubTaskProgress(completedSubTasks: 1, totalSubTasks: 2);
 
-        var result = task.Complete();
+        Result result = task.Complete();
 
         Assert.True(result.IsFailure);
         Assert.Equal(TaskErrors.SubTasksIncomplete, result.Error);
@@ -87,10 +88,10 @@ public class ProjectTaskTests
     [Fact]
     public void Reject_FromInProgress_Succeeds()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Start();
 
-        var result = task.Reject("bad workmanship");
+        Result result = task.Reject("bad workmanship");
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectTaskStatus.Rejected, task.Status);
@@ -99,9 +100,9 @@ public class ProjectTaskTests
     [Fact]
     public void Cancel_FromOpen_Succeeds()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
 
-        var result = task.Cancel();
+        Result result = task.Cancel();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectTaskStatus.Cancelled, task.Status);
@@ -110,11 +111,11 @@ public class ProjectTaskTests
     [Fact]
     public void Cancel_AnAlreadyCompletedTask_IsRejected()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Start();
         task.Complete();
 
-        var result = task.Cancel();
+        Result result = task.Cancel();
 
         Assert.True(result.IsFailure);
     }
@@ -122,10 +123,10 @@ public class ProjectTaskTests
     [Fact]
     public void Reopen_ACancelledTask_ReturnsToOpen()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Cancel();
 
-        var result = task.Reopen();
+        Result result = task.Reopen();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectTaskStatus.Open, task.Status);
@@ -134,9 +135,9 @@ public class ProjectTaskTests
     [Fact]
     public void Reopen_AnOpenTask_IsRejected()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
 
-        var result = task.Reopen();
+        Result result = task.Reopen();
 
         Assert.True(result.IsFailure);
     }
@@ -144,11 +145,11 @@ public class ProjectTaskTests
     [Fact]
     public void Lock_ThenUnlock_RestoresOpen()
     {
-        var task = CreateOpenTask();
+        ProjectTask task = CreateOpenTask();
         task.Lock();
         Assert.Equal(ProjectTaskStatus.Locked, task.Status);
 
-        var result = task.Unlock();
+        Result result = task.Unlock();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectTaskStatus.Open, task.Status);

@@ -19,14 +19,16 @@ internal sealed class EventBus(IServiceProvider serviceProvider) : IEventBus
 {
     public async Task PublishAsync(IIntegrationEvent @event, CancellationToken ct)
     {
-        var eventType = @event.GetType();
-        var handlerType = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
-        var handleMethod = handlerType.GetMethod(nameof(IIntegrationEventHandler<IIntegrationEvent>.HandleAsync))!;
+        Type eventType = @event.GetType();
+        Type handlerType = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
+        MethodInfo handleMethod = handlerType.GetMethod(nameof(IIntegrationEventHandler<IIntegrationEvent>.HandleAsync))!;
 
-        foreach (var handler in serviceProvider.GetServices(handlerType))
+        foreach (object? handler in serviceProvider.GetServices(handlerType))
         {
             if (handler is null)
+            {
                 continue;
+            }
 
             try
             {

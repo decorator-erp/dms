@@ -7,6 +7,7 @@ using Finance.Contracts.Financial;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -23,14 +24,14 @@ internal sealed class ProjectStageFinancialEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/project-stages").WithTags("ProjectStageFinancial");
+        RouteGroupBuilder group = app.MapGroup("/api/project-stages").WithTags("ProjectStageFinancial");
 
         group.MapGet("/{id:guid}/financial/movements", async (
             Guid id, DateOnly? fromDate, DateOnly? toDate, LedgerEntryType? type,
             IQueryHandler<GetStageFinancialMovementsQuery, IReadOnlyList<LedgerMovementResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<IReadOnlyList<LedgerMovementResponse>> result = await handler.HandleAsync(
                 new GetStageFinancialMovementsQuery(id, fromDate, toDate, type), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -41,7 +42,7 @@ internal sealed class ProjectStageFinancialEndpoints : IEndpoint
             IQueryHandler<GetStageInvoicesQuery, IReadOnlyList<InvoiceListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageInvoicesQuery(id, status, type), ct);
+            Result<IReadOnlyList<InvoiceListItemResponse>> result = await handler.HandleAsync(new GetStageInvoicesQuery(id, status, type), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -51,7 +52,7 @@ internal sealed class ProjectStageFinancialEndpoints : IEndpoint
             IQueryHandler<GetStageVariationsQuery, IReadOnlyList<VariationListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageVariationsQuery(id, status), ct);
+            Result<IReadOnlyList<VariationListItemResponse>> result = await handler.HandleAsync(new GetStageVariationsQuery(id, status), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -61,7 +62,7 @@ internal sealed class ProjectStageFinancialEndpoints : IEndpoint
             IQueryHandler<GetStageBoqSnapshotsQuery, IReadOnlyList<BoqSnapshotSummaryResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageBoqSnapshotsQuery(id, type), ct);
+            Result<IReadOnlyList<BoqSnapshotSummaryResponse>> result = await handler.HandleAsync(new GetStageBoqSnapshotsQuery(id, type), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);

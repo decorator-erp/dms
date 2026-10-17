@@ -26,9 +26,11 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmRequirementItemByClientCommand command, CancellationToken ct = default)
     {
-        var periodExists = await db.CrmRequirementPeriods.AnyAsync(p => p.Id == command.PeriodId, ct);
+        bool periodExists = await db.CrmRequirementPeriods.AnyAsync(p => p.Id == command.PeriodId, ct);
         if (!periodExists)
+        {
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
+        }
 
         var item = CrmRequirementItem.CreateByClient(
             command.ProjectId, command.PeriodId, command.ContactId, CrmEnumMapping.ToDomain(command.Category),

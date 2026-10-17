@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts.Templates;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -21,14 +22,18 @@ internal sealed class AddStageDepartmentCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(AddStageDepartmentCommand command, CancellationToken ct = default)
     {
-        var stageExists = await db.Stages.AsNoTracking().AnyAsync(s => s.Id == command.StageId, ct);
+        bool stageExists = await db.Stages.AsNoTracking().AnyAsync(s => s.Id == command.StageId, ct);
         if (!stageExists)
+        {
             return Domain.TemplateEntityErrors.StageNotFound;
+        }
 
-        var alreadyExists = await db.StageDepartments.AsNoTracking()
+        bool alreadyExists = await db.StageDepartments.AsNoTracking()
             .AnyAsync(sd => sd.StageId == command.StageId && sd.DepartmentId == command.DepartmentId, ct);
         if (alreadyExists)
+        {
             return Result.Success();
+        }
 
         db.StageDepartments.Add(Domain.StageDepartment.Create(command.StageId, command.DepartmentId));
         await db.SaveChangesAsync(ct);
@@ -40,10 +45,12 @@ internal sealed class RemoveStageDepartmentCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(RemoveStageDepartmentCommand command, CancellationToken ct = default)
     {
-        var stageDepartment = await db.StageDepartments
+        StageDepartment? stageDepartment = await db.StageDepartments
             .FirstOrDefaultAsync(sd => sd.StageId == command.StageId && sd.DepartmentId == command.DepartmentId, ct);
         if (stageDepartment is null)
+        {
             return Result.Success();
+        }
 
         stageDepartment.Remove();
         await db.SaveChangesAsync(ct);

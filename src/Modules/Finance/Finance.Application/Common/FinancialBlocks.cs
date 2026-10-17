@@ -63,9 +63,11 @@ internal static class FinancialBlocks
     {
         var result = new Dictionary<Guid, TaskBlock>();
         if (taskIds.Count == 0)
+        {
             return result;
+        }
 
-        var ids = taskIds.Distinct().ToArray();
+        Guid[] ids = taskIds.Distinct().ToArray();
 
         var budgetLines = await db.BudgetLines
             .AsNoTracking()
@@ -74,7 +76,7 @@ internal static class FinancialBlocks
             .ToListAsync(ct);
 
         var budgetLineToTask = budgetLines.ToDictionary(b => b.Id, b => b.TaskId);
-        var budgetLineIds = budgetLineToTask.Keys.ToArray();
+        Guid[] budgetLineIds = budgetLineToTask.Keys.ToArray();
 
         var allocatedByTask = budgetLines
             .GroupBy(b => b.TaskId)
@@ -88,8 +90,8 @@ internal static class FinancialBlocks
             .AsNoTracking()
             .Where(e => e.IsActive
                         && (e.Type == LedgerEntryType.Commitment || e.Type == LedgerEntryType.ActualCost)
-                        && ((e.ProjectTaskId != null && ids.Contains(e.ProjectTaskId.Value))
-                            || (e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value))))
+                        && (e.ProjectTaskId != null && ids.Contains(e.ProjectTaskId.Value)
+                            || e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value)))
             .Select(e => new { e.ProjectTaskId, e.BudgetLineId, e.Type, e.Direction, e.Amount })
             .ToListAsync(ct);
 
@@ -99,28 +101,34 @@ internal static class FinancialBlocks
         foreach (var row in ledgerRows)
         {
             Guid? owner = row.ProjectTaskId
-                ?? (row.BudgetLineId is Guid lineId && budgetLineToTask.TryGetValue(lineId, out var viaLine)
+                ?? (row.BudgetLineId is Guid lineId && budgetLineToTask.TryGetValue(lineId, out Guid viaLine)
                     ? viaLine
                     : null);
 
             if (owner is not Guid taskId)
+            {
                 continue;
+            }
 
-            var signed = Signed(row.Direction, row.Amount);
+            decimal signed = Signed(row.Direction, row.Amount);
 
             if (row.Type == LedgerEntryType.Commitment)
+            {
                 committedSigned[taskId] = committedSigned.GetValueOrDefault(taskId) + signed;
+            }
             else
+            {
                 actualSigned[taskId] = actualSigned.GetValueOrDefault(taskId) + signed;
+            }
         }
 
-        foreach (var id in ids)
+        foreach (Guid id in ids)
         {
-            var actual = actualSigned.GetValueOrDefault(id);
-            var committed = committedSigned.GetValueOrDefault(id) - actual;
-            var allocated = allocatedByTask.GetValueOrDefault(id);
-            var adjustment = adjustmentByTask.GetValueOrDefault(id);
-            var effective = allocated + adjustment;
+            decimal actual = actualSigned.GetValueOrDefault(id);
+            decimal committed = committedSigned.GetValueOrDefault(id) - actual;
+            decimal allocated = allocatedByTask.GetValueOrDefault(id);
+            decimal adjustment = adjustmentByTask.GetValueOrDefault(id);
+            decimal effective = allocated + adjustment;
 
             result[id] = new TaskBlock(
                 allocated, adjustment, effective, committed, actual, effective - committed - actual);
@@ -149,20 +157,20 @@ internal static class FinancialBlocks
             })
             .FirstOrDefaultAsync(ct);
 
-        var allocated = budget?.Allocated ?? 0m;
-        var adjustment = budget?.Adjustment ?? 0m;
-        var effective = allocated + adjustment;
+        decimal allocated = budget?.Allocated ?? 0m;
+        decimal adjustment = budget?.Adjustment ?? 0m;
+        decimal effective = allocated + adjustment;
 
-        var (committed, actual) = await LedgerSums.ComputeAsync(scopes.ForProject(projectId), ct);
+        (decimal committed, decimal actual) = await LedgerSums.ComputeAsync(scopes.ForProject(projectId), ct);
 
-        var clientPaid = await db.LedgerEntries
+        decimal clientPaid = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.IsActive && e.ProjectId == projectId
                         && e.Type == LedgerEntryType.ClientPayment
                         && e.Direction == LedgerDirection.In)
             .SumAsync(e => (decimal?)e.Amount, ct) ?? 0m;
 
-        var vendorPaid = await db.LedgerEntries
+        decimal vendorPaid = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.IsActive && e.ProjectId == projectId
                         && e.Type == LedgerEntryType.ActualCost
@@ -215,12 +223,12 @@ internal static class FinancialBlocks
             .Select(e => new { e.ProjectStageId, e.ProjectTaskId, e.BudgetLineId, e.Type, e.Direction, e.Amount })
             .ToListAsync(ct);
 
-        var taskIds = budgetLines.Where(b => b.ProjectTaskId != null).Select(b => b.ProjectTaskId!.Value)
+        Guid[] taskIds = budgetLines.Where(b => b.ProjectTaskId != null).Select(b => b.ProjectTaskId!.Value)
             .Concat(ledgerRows.Where(e => e.ProjectTaskId != null).Select(e => e.ProjectTaskId!.Value))
             .Distinct()
             .ToArray();
 
-        var taskStage = taskIds.Length == 0
+        Dictionary<Guid, Guid> taskStage = taskIds.Length == 0
             ? []
             : (await projects.GetTasksAsync(taskIds, ct))
                 .Where(t => t.ProjectStageId != null)
@@ -228,7 +236,7 @@ internal static class FinancialBlocks
 
         Guid? EffectiveStage(Guid? directStage, Guid? taskId) =>
             directStage
-            ?? (taskId is Guid id && taskStage.TryGetValue(id, out var viaTask) ? viaTask : null);
+            ?? (taskId is Guid id && taskStage.TryGetValue(id, out Guid viaTask) ? viaTask : null);
 
         var budgetLineStage = budgetLines.ToDictionary(
             b => b.Id, b => EffectiveStage(b.ProjectStageId, b.ProjectTaskId));
@@ -239,7 +247,9 @@ internal static class FinancialBlocks
         foreach (var line in budgetLines)
         {
             if (budgetLineStage[line.Id] is not Guid stageId)
+            {
                 continue;
+            }
 
             allocatedByStage[stageId] = allocatedByStage.GetValueOrDefault(stageId) + line.AllocatedAmount;
             adjustmentByStage[stageId] = adjustmentByStage.GetValueOrDefault(stageId) + line.AdjustmentAllocation;
@@ -250,23 +260,29 @@ internal static class FinancialBlocks
 
         foreach (var row in ledgerRows)
         {
-            var stageId = EffectiveStage(row.ProjectStageId, row.ProjectTaskId)
-                ?? (row.BudgetLineId is Guid lineId && budgetLineStage.TryGetValue(lineId, out var viaLine)
+            Guid? stageId = EffectiveStage(row.ProjectStageId, row.ProjectTaskId)
+                ?? (row.BudgetLineId is Guid lineId && budgetLineStage.TryGetValue(lineId, out Guid? viaLine)
                     ? viaLine
                     : null);
 
             if (stageId is not Guid sid)
+            {
                 continue;
+            }
 
-            var signed = LedgerSums.Signed(row.Direction, row.Amount);
+            decimal signed = LedgerSums.Signed(row.Direction, row.Amount);
 
             if (row.Type == LedgerEntryType.Commitment)
+            {
                 committedSigned[sid] = committedSigned.GetValueOrDefault(sid) + signed;
+            }
             else
+            {
                 actualSigned[sid] = actualSigned.GetValueOrDefault(sid) + signed;
+            }
         }
 
-        var invoicesByStage = await db.Invoices
+        Dictionary<Guid, decimal> invoicesByStage = await db.Invoices
             .AsNoTracking()
             .Where(i => i.ProjectId == projectId && i.IsActive
                         && i.Type == InvoiceType.ClientInvoice && i.ProjectStageId != null)
@@ -274,7 +290,7 @@ internal static class FinancialBlocks
             .Select(g => new { StageId = g.Key, Sum = g.Sum(i => i.TotalAmount) })
             .ToDictionaryAsync(x => x.StageId, x => x.Sum, ct);
 
-        var paymentsByStage = await db.LedgerEntries
+        Dictionary<Guid, decimal> paymentsByStage = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.ProjectId == projectId && e.IsActive
                         && e.Type == LedgerEntryType.ClientPayment && e.ProjectStageId != null)
@@ -286,7 +302,7 @@ internal static class FinancialBlocks
             })
             .ToDictionaryAsync(x => x.StageId, x => x.Sum, ct);
 
-        var stageIds = allocatedByStage.Keys
+        Guid[] stageIds = allocatedByStage.Keys
             .Concat(committedSigned.Keys)
             .Concat(actualSigned.Keys)
             .Concat(invoicesByStage.Keys)
@@ -295,25 +311,27 @@ internal static class FinancialBlocks
             .ToArray();
 
         if (stageIds.Length == 0)
+        {
             return [];
+        }
 
         var stages = (await projects.GetStagesAsync(stageIds, ct)).ToDictionary(s => s.Id);
 
         return [.. stageIds
             .Select(id =>
             {
-                var actual = actualSigned.GetValueOrDefault(id);
-                var committed = committedSigned.GetValueOrDefault(id) - actual;
-                var allocated = allocatedByStage.GetValueOrDefault(id);
-                var adjustment = adjustmentByStage.GetValueOrDefault(id);
-                var effective = allocated + adjustment;
+                decimal actual = actualSigned.GetValueOrDefault(id);
+                decimal committed = committedSigned.GetValueOrDefault(id) - actual;
+                decimal allocated = allocatedByStage.GetValueOrDefault(id);
+                decimal adjustment = adjustmentByStage.GetValueOrDefault(id);
+                decimal effective = allocated + adjustment;
 
                 // Order is not published by StageSummary, so every row reports 0 rather than a
                 // fabricated sequence. Rows are ordered by NAME below, which is the property a caller
                 // can actually rely on here.
                 return new StageBudgetRow(
                     id,
-                    stages.TryGetValue(id, out var stage) ? stage.Name : string.Empty,
+                    stages.TryGetValue(id, out StageSummary? stage) ? stage.Name : string.Empty,
                     0,
                     allocated,
                     adjustment,

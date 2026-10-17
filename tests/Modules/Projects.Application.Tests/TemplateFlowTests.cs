@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Templates;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.Application.Tests;
@@ -14,47 +15,47 @@ public sealed class TemplateFlowTests(ProjectsApplicationFixture fixture)
     [Fact]
     public async Task CreateTemplate_then_addStage_addStageTask_addStageSubTask_roundtrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var templateResult = await createTemplate.HandleAsync(
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        Result<Guid> templateResult = await createTemplate.HandleAsync(
             new CreateStageTemplateCommand("Residential Build", StageTemplateType.Custom, IsDefault: true));
         Assert.True(templateResult.IsSuccess);
-        var templateId = templateResult.Value;
+        Guid templateId = templateResult.Value;
 
-        var createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
-        var stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 25m));
+        ICommandHandler<CreateStageCommand, Guid> createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+        Result<Guid> stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 25m));
         Assert.True(stageResult.IsSuccess);
-        var stageId = stageResult.Value;
+        Guid stageId = stageResult.Value;
 
-        var createTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
-        var taskResult = await createTask.HandleAsync(new CreateStageTaskCommand(stageId, "Draft floor plan", 1));
+        ICommandHandler<CreateStageTaskCommand, Guid> createTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
+        Result<Guid> taskResult = await createTask.HandleAsync(new CreateStageTaskCommand(stageId, "Draft floor plan", 1));
         Assert.True(taskResult.IsSuccess);
-        var stageTaskId = taskResult.Value;
+        Guid stageTaskId = taskResult.Value;
 
-        var createSubTask = sp.GetRequiredService<ICommandHandler<CreateStageSubTaskCommand, Guid>>();
-        var subTaskResult = await createSubTask.HandleAsync(new CreateStageSubTaskCommand(stageTaskId, "Client sign-off", 1));
+        ICommandHandler<CreateStageSubTaskCommand, Guid> createSubTask = sp.GetRequiredService<ICommandHandler<CreateStageSubTaskCommand, Guid>>();
+        Result<Guid> subTaskResult = await createSubTask.HandleAsync(new CreateStageSubTaskCommand(stageTaskId, "Client sign-off", 1));
         Assert.True(subTaskResult.IsSuccess);
 
-        var getTemplate = sp.GetRequiredService<IQueryHandler<GetStageTemplateQuery, StageTemplateResponse>>();
-        var template = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
+        IQueryHandler<GetStageTemplateQuery, StageTemplateResponse> getTemplate = sp.GetRequiredService<IQueryHandler<GetStageTemplateQuery, StageTemplateResponse>>();
+        Result<StageTemplateResponse> template = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
         Assert.True(template.IsSuccess);
         Assert.Equal("Residential Build", template.Value!.Name);
 
-        var getStages = sp.GetRequiredService<IQueryHandler<GetStagesByTemplateQuery, IReadOnlyList<StageResponse>>>();
-        var stages = await getStages.HandleAsync(new GetStagesByTemplateQuery(templateId));
+        IQueryHandler<GetStagesByTemplateQuery, IReadOnlyList<StageResponse>> getStages = sp.GetRequiredService<IQueryHandler<GetStagesByTemplateQuery, IReadOnlyList<StageResponse>>>();
+        Result<IReadOnlyList<StageResponse>> stages = await getStages.HandleAsync(new GetStagesByTemplateQuery(templateId));
         Assert.True(stages.IsSuccess);
         Assert.Single(stages.Value!);
         Assert.Equal("Design", stages.Value![0].Name);
 
-        var getTasks = sp.GetRequiredService<IQueryHandler<GetStageTasksByStageQuery, IReadOnlyList<StageTaskResponse>>>();
-        var tasks = await getTasks.HandleAsync(new GetStageTasksByStageQuery(stageId));
+        IQueryHandler<GetStageTasksByStageQuery, IReadOnlyList<StageTaskResponse>> getTasks = sp.GetRequiredService<IQueryHandler<GetStageTasksByStageQuery, IReadOnlyList<StageTaskResponse>>>();
+        Result<IReadOnlyList<StageTaskResponse>> tasks = await getTasks.HandleAsync(new GetStageTasksByStageQuery(stageId));
         Assert.True(tasks.IsSuccess);
         Assert.Single(tasks.Value!);
 
-        var getSubTasks = sp.GetRequiredService<IQueryHandler<GetStageSubTasksByStageTaskQuery, IReadOnlyList<StageSubTaskResponse>>>();
-        var subTasks = await getSubTasks.HandleAsync(new GetStageSubTasksByStageTaskQuery(stageTaskId));
+        IQueryHandler<GetStageSubTasksByStageTaskQuery, IReadOnlyList<StageSubTaskResponse>> getSubTasks = sp.GetRequiredService<IQueryHandler<GetStageSubTasksByStageTaskQuery, IReadOnlyList<StageSubTaskResponse>>>();
+        Result<IReadOnlyList<StageSubTaskResponse>> subTasks = await getSubTasks.HandleAsync(new GetStageSubTasksByStageTaskQuery(stageTaskId));
         Assert.True(subTasks.IsSuccess);
         Assert.Single(subTasks.Value!);
     }
@@ -62,16 +63,16 @@ public sealed class TemplateFlowTests(ProjectsApplicationFixture fixture)
     [Fact]
     public async Task GetStageTemplatesQuery_ListsAllTemplates()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var name = $"Template-{Guid.NewGuid():N}";
-        var result = await createTemplate.HandleAsync(new CreateStageTemplateCommand(name, StageTemplateType.Custom));
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        string name = $"Template-{Guid.NewGuid():N}";
+        Result<Guid> result = await createTemplate.HandleAsync(new CreateStageTemplateCommand(name, StageTemplateType.Custom));
         Assert.True(result.IsSuccess);
 
-        var getList = sp.GetRequiredService<IQueryHandler<GetStageTemplatesQuery, IReadOnlyList<StageTemplateResponse>>>();
-        var list = await getList.HandleAsync(new GetStageTemplatesQuery());
+        IQueryHandler<GetStageTemplatesQuery, IReadOnlyList<StageTemplateResponse>> getList = sp.GetRequiredService<IQueryHandler<GetStageTemplatesQuery, IReadOnlyList<StageTemplateResponse>>>();
+        Result<IReadOnlyList<StageTemplateResponse>> list = await getList.HandleAsync(new GetStageTemplatesQuery());
 
         Assert.True(list.IsSuccess);
         Assert.Contains(list.Value!, t => t.Name == name);
@@ -80,26 +81,26 @@ public sealed class TemplateFlowTests(ProjectsApplicationFixture fixture)
     [Fact]
     public async Task UpdateThenDeleteStageTemplate_RemovesIt()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var templateId = (await createTemplate.HandleAsync(
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        Guid templateId = (await createTemplate.HandleAsync(
             new CreateStageTemplateCommand("Temp", StageTemplateType.Custom))).Value;
 
-        var update = sp.GetRequiredService<ICommandHandler<UpdateStageTemplateCommand>>();
-        var updateResult = await update.HandleAsync(new UpdateStageTemplateCommand(templateId, Name: "Renamed"));
+        ICommandHandler<UpdateStageTemplateCommand> update = sp.GetRequiredService<ICommandHandler<UpdateStageTemplateCommand>>();
+        Result updateResult = await update.HandleAsync(new UpdateStageTemplateCommand(templateId, Name: "Renamed"));
         Assert.True(updateResult.IsSuccess);
 
-        var getTemplate = sp.GetRequiredService<IQueryHandler<GetStageTemplateQuery, StageTemplateResponse>>();
-        var afterUpdate = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
+        IQueryHandler<GetStageTemplateQuery, StageTemplateResponse> getTemplate = sp.GetRequiredService<IQueryHandler<GetStageTemplateQuery, StageTemplateResponse>>();
+        Result<StageTemplateResponse> afterUpdate = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
         Assert.Equal("Renamed", afterUpdate.Value!.Name);
 
-        var delete = sp.GetRequiredService<ICommandHandler<DeleteStageTemplateCommand>>();
-        var deleteResult = await delete.HandleAsync(new DeleteStageTemplateCommand(templateId));
+        ICommandHandler<DeleteStageTemplateCommand> delete = sp.GetRequiredService<ICommandHandler<DeleteStageTemplateCommand>>();
+        Result deleteResult = await delete.HandleAsync(new DeleteStageTemplateCommand(templateId));
         Assert.True(deleteResult.IsSuccess);
 
-        var afterDelete = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
+        Result<StageTemplateResponse> afterDelete = await getTemplate.HandleAsync(new GetStageTemplateQuery(templateId));
         Assert.True(afterDelete.IsFailure);
     }
 }

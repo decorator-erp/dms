@@ -24,7 +24,7 @@ internal sealed class RevokePermissionOverrideCommandHandler(IdentityModuleDbCon
 {
     public async Task<Result> HandleAsync(RevokePermissionOverrideCommand command, CancellationToken ct = default)
     {
-        var rowsDeleted = await db.UserPermissionOverrides
+        int rowsDeleted = await db.UserPermissionOverrides
             .Where(o => o.UserId == command.TargetUserId && o.Permission == command.Permission)
             .ExecuteDeleteAsync(ct);
 

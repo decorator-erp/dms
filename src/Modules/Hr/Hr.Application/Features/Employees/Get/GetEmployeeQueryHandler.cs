@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using Hr.Contracts.Employees;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -11,7 +12,7 @@ internal sealed class GetEmployeeQueryHandler(HrDbContext db) : IQueryHandler<Ge
 {
     public async Task<Result<EmployeeResponse>> HandleAsync(GetEmployeeQuery query, CancellationToken ct = default)
     {
-        var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == query.EmployeeId, ct);
+        Employee? employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == query.EmployeeId, ct);
 
         return employee is null ? EmployeeErrors.NotFound : ResponseMapping.ToResponse(employee);
     }
@@ -24,5 +25,5 @@ internal static class ResponseMapping
 {
     public static EmployeeResponse ToResponse(Employee e) =>
         new(e.Id, e.AppUserId, e.JobTitle, e.HireDate, e.EndDate, e.Notes, e.ContractType.ToString(),
-            e.PhoneNumber, e.EmergencyContactName, e.EmergencyContactPhone, e.IsActive);
+            e.PhoneNumber, e.EmergencyContactPhone, e.IsActive);
 }

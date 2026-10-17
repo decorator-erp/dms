@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts.Templates;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -21,9 +22,11 @@ internal sealed class CreateStageTaskCommandHandler(ProjectsDbContext db) : ICom
 {
     public async Task<Result<Guid>> HandleAsync(CreateStageTaskCommand command, CancellationToken ct = default)
     {
-        var stageExists = await db.Stages.AsNoTracking().AnyAsync(s => s.Id == command.StageId, ct);
+        bool stageExists = await db.Stages.AsNoTracking().AnyAsync(s => s.Id == command.StageId, ct);
         if (!stageExists)
+        {
             return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageNotFound);
+        }
 
         var task = Domain.StageTask.Create(
             command.StageId, command.Name, command.Order, command.Weight, command.Description, command.DepartmentId);
@@ -37,9 +40,11 @@ internal sealed class UpdateStageTaskCommandHandler(ProjectsDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(UpdateStageTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.StageTasks.FindAsync([command.StageTaskId], ct);
+        StageTask? task = await db.StageTasks.FindAsync([command.StageTaskId], ct);
         if (task is null)
+        {
             return Domain.TemplateEntityErrors.StageTaskNotFound;
+        }
 
         task.Update(command.Name, command.Order, command.Weight, command.Description, command.DepartmentId);
         await db.SaveChangesAsync(ct);
@@ -51,9 +56,11 @@ internal sealed class DeleteStageTaskCommandHandler(ProjectsDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(DeleteStageTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.StageTasks.FindAsync([command.StageTaskId], ct);
+        StageTask? task = await db.StageTasks.FindAsync([command.StageTaskId], ct);
         if (task is null)
+        {
             return Domain.TemplateEntityErrors.StageTaskNotFound;
+        }
 
         db.StageTasks.Remove(task);
         await db.SaveChangesAsync(ct);

@@ -16,13 +16,17 @@ internal sealed class UpdateCrmBriefHeadCommandHandler(CrmDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(UpdateCrmBriefHeadCommand command, CancellationToken ct = default)
     {
-        var brief = await db.CrmDesignBriefs.FindAsync([command.BriefId], ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.FindAsync([command.BriefId], ct);
         if (brief is null)
+        {
             return CrmBriefErrors.NotFound;
+        }
 
-        var result = brief.UpdateHead(BriefMapping.ToDomain(command.Data), command.LastMeetingId);
+        Result result = brief.UpdateHead(BriefMapping.ToDomain(command.Data), command.LastMeetingId);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

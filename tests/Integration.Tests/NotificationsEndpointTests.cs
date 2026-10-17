@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Notifications.Contracts;
 using Xunit;
@@ -32,9 +31,9 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
     [InlineData("/api/audit/user/someone-else")]
     public async Task AuditViewOwn_CannotReachAnyRouteThatReturnsAnotherUsersRows(string route)
     {
-        var client = AuthenticatedClient(Guid.NewGuid().ToString(), NotificationsPermissions.AuditViewOwn);
+        HttpClient client = AuthenticatedClient(Guid.NewGuid().ToString(), NotificationsPermissions.AuditViewOwn);
 
-        var response = await client.GetAsync(route);
+        HttpResponseMessage response = await client.GetAsync(route);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -49,9 +48,9 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
     [InlineData("/api/audit/user/someone-else")]
     public async Task AuditRead_ReachesEveryAdminAuditRoute(string route)
     {
-        var client = AuthenticatedClient(Guid.NewGuid().ToString(), NotificationsPermissions.AuditRead);
+        HttpClient client = AuthenticatedClient(Guid.NewGuid().ToString(), NotificationsPermissions.AuditRead);
 
-        var response = await client.GetAsync(route);
+        HttpResponseMessage response = await client.GetAsync(route);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -68,36 +67,36 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
     [Fact]
     public async Task MyActivity_ReturnsOnlyTheCallersOwnRows_AndIgnoresAUserIdParameter()
     {
-        var mine = await RegisterAndAuditAsync();
-        var theirs = await RegisterAndAuditAsync();
+        string mine = await RegisterAndAuditAsync();
+        string theirs = await RegisterAndAuditAsync();
 
-        var client = AuthenticatedClient(mine, NotificationsPermissions.AuditViewOwn);
+        HttpClient client = AuthenticatedClient(mine, NotificationsPermissions.AuditViewOwn);
 
-        var own = await ReadUserIdsAsync(client, "/api/audit/my-activity?pageSize=100");
+        List<string> own = await ReadUserIdsAsync(client, "/api/audit/my-activity?pageSize=100");
         Assert.NotEmpty(own);
         Assert.All(own, userId => Assert.Equal(mine, userId));
 
         // The obvious attempt to widen it. The parameter is not bound by the route at all, so it must
         // change nothing rather than be honoured.
-        var spoofed = await ReadUserIdsAsync(client, $"/api/audit/my-activity?userId={theirs}&pageSize=100");
+        List<string> spoofed = await ReadUserIdsAsync(client, $"/api/audit/my-activity?userId={theirs}&pageSize=100");
         Assert.All(spoofed, userId => Assert.Equal(mine, userId));
     }
 
     [Fact]
     public async Task NotificationRoutes_AreScopedToTheCaller_AndRequireTheOwnPermission()
     {
-        var recipient = await RegisterUserAsync();
-        var stranger = await RegisterUserAsync();
+        string recipient = await RegisterUserAsync();
+        string stranger = await RegisterUserAsync();
         await NotifyAsync(recipient);
 
-        var recipientClient = AuthenticatedClient(recipient, NotificationsPermissions.ViewOwn);
-        var strangerClient = AuthenticatedClient(stranger, NotificationsPermissions.ViewOwn);
+        HttpClient recipientClient = AuthenticatedClient(recipient, NotificationsPermissions.ViewOwn);
+        HttpClient strangerClient = AuthenticatedClient(stranger, NotificationsPermissions.ViewOwn);
 
         Assert.Equal(1, await ReadUnreadCountAsync(recipientClient));
         Assert.Equal(0, await ReadUnreadCountAsync(strangerClient));
 
         // Without the permission the surface is closed, even to the rightful owner.
-        var unpermitted = AuthenticatedClient(recipient);
+        HttpClient unpermitted = AuthenticatedClient(recipient);
         Assert.Equal(HttpStatusCode.Forbidden, (await unpermitted.GetAsync("/api/notifications")).StatusCode);
     }
 
@@ -109,15 +108,15 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
     [Fact]
     public async Task MarkRead_IsScopedToTheOwner_AndAStrangerGetsNotFoundRatherThanForbidden()
     {
-        var recipient = await RegisterUserAsync();
-        var stranger = await RegisterUserAsync();
+        string recipient = await RegisterUserAsync();
+        string stranger = await RegisterUserAsync();
         await NotifyAsync(recipient);
 
-        var recipientClient = AuthenticatedClient(recipient, NotificationsPermissions.ViewOwn);
-        var notificationId = (await ReadFirstNotificationAsync(recipientClient)).GetProperty("id").GetGuid();
+        HttpClient recipientClient = AuthenticatedClient(recipient, NotificationsPermissions.ViewOwn);
+        Guid notificationId = (await ReadFirstNotificationAsync(recipientClient)).GetProperty("id").GetGuid();
 
-        var strangerClient = AuthenticatedClient(stranger, NotificationsPermissions.ViewOwn);
-        var strangerAttempt = await strangerClient.PutAsync($"/api/notifications/{notificationId}/read", null);
+        HttpClient strangerClient = AuthenticatedClient(stranger, NotificationsPermissions.ViewOwn);
+        HttpResponseMessage strangerAttempt = await strangerClient.PutAsync($"/api/notifications/{notificationId}/read", null);
         Assert.Equal(HttpStatusCode.NotFound, strangerAttempt.StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent,
@@ -130,10 +129,10 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
     [Fact]
     public async Task OpenApiDocument_ListsEveryNotificationsRoute()
     {
-        var document = await fixture.CreateClient().GetFromJsonAsync<JsonElement>("/openapi/v1.json");
-        var paths = document.GetProperty("paths");
+        JsonElement document = await fixture.CreateClient().GetFromJsonAsync<JsonElement>("/openapi/v1.json");
+        JsonElement paths = document.GetProperty("paths");
 
-        foreach (var route in new[]
+        foreach (string? route in new[]
         {
             "/api/notifications",
             "/api/notifications/unread-count",
@@ -152,53 +151,52 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
 
     private HttpClient AuthenticatedClient(string userId, params string[] permissions)
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", fixture.IssueTestToken(userId, permissions));
         return client;
     }
 
-    private async Task<string> RegisterUserAsync()
-    {
-        var response = await fixture.CreateClient().PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"endpoint-{Guid.NewGuid():N}@example.com", "P@ssw0rd123!", "Endpoint", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    private Task<string> RegisterUserAsync() =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"endpoint-{Guid.NewGuid():N}@example.com", firstName: "Endpoint");
 
-        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("userId").GetString()!;
-    }
-
-    /// <summary>Registers a user and makes an audited write attributed to them, so
-    /// <c>/my-activity</c> has something of theirs to return.</summary>
+    /// <summary>Makes an audited write attributed to a user, so <c>/my-activity</c> has something of
+    /// theirs to return. The write is a hire, and the actor is the person doing the hiring — not the
+    /// person hired, who does not act at all here.</summary>
     private async Task<string> RegisterAndAuditAsync()
     {
-        var userId = await RegisterUserAsync();
-        var client = AuthenticatedClient(userId, Hr.Contracts.HrPermissions.EmployeesCreate);
+        string userId = await RegisterUserAsync();
+        HttpClient client = AuthenticatedClient(userId, Hr.Contracts.HrPermissions.EmployeesCreate);
 
-        var response = await client.PostAsJsonAsync("/api/employees", new
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/employees", new
         {
-            AppUserId = userId,
+            Email = $"audited-{Guid.NewGuid():N}@example.com",
+            password = IdentityTestSeeding.Password,
+            FirstName = "Audited",
+            LastName = "Hire",
             JobTitle = "Auditor",
             HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
             ContractType = "FullTime",
         });
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
         return userId;
     }
 
     private async Task NotifyAsync(string recipientUserId)
     {
-        await using var scope = fixture.Services.CreateAsyncScope();
+        await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<INotificationService>().NotifyAsync(
             recipientUserId, NotificationType.TaskAssigned, "Endpoint test", ct: CancellationToken.None);
     }
 
     private static async Task<List<string>> ReadUserIdsAsync(HttpClient client, string route)
     {
-        var response = await client.GetAsync(route);
+        HttpResponseMessage response = await client.GetAsync(route);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var page = await response.Content.ReadFromJsonAsync<JsonElement>();
+        JsonElement page = await response.Content.ReadFromJsonAsync<JsonElement>();
         return [.. page.GetProperty("items").EnumerateArray()
             .Select(item => item.GetProperty("userId").GetString())
             .Where(id => id is not null)
@@ -207,14 +205,14 @@ public sealed class NotificationsEndpointTests(ApiFixture fixture)
 
     private static async Task<int> ReadUnreadCountAsync(HttpClient client)
     {
-        var response = await client.GetAsync("/api/notifications/unread-count");
+        HttpResponseMessage response = await client.GetAsync("/api/notifications/unread-count");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadFromJsonAsync<int>();
     }
 
     private static async Task<JsonElement> ReadFirstNotificationAsync(HttpClient client)
     {
-        var page = await client.GetFromJsonAsync<JsonElement>("/api/notifications");
+        JsonElement page = await client.GetFromJsonAsync<JsonElement>("/api/notifications");
         return page.GetProperty("items").EnumerateArray().First();
     }
 }

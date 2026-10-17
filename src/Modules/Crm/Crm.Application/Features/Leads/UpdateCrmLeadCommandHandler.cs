@@ -22,15 +22,19 @@ internal sealed class UpdateCrmLeadCommandHandler(CrmDbContext db) : ICommandHan
 {
     public async Task<Result> HandleAsync(UpdateCrmLeadCommand command, CancellationToken ct = default)
     {
-        var lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
         if (lead is null)
+        {
             return CrmLeadErrors.NotFound;
+        }
 
-        var result = lead.Update(
+        Result result = lead.Update(
             command.FirstName, command.LastName, CrmEnumMapping.ToDomain(command.Source), command.OwnerId,
             command.Email, command.Phone, command.Notes);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

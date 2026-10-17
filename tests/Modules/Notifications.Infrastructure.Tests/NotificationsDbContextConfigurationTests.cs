@@ -30,7 +30,7 @@ public class NotificationsDbContextConfigurationTests
     [Fact]
     public void NotificationsDbContext_HasExactlyTwoDbSetProperties()
     {
-        var dbSets = typeof(NotificationsDbContext)
+        int dbSets = typeof(NotificationsDbContext)
             .GetProperties()
             .Count(p => p.PropertyType.IsGenericType
                         && p.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
@@ -41,7 +41,7 @@ public class NotificationsDbContextConfigurationTests
     [Fact]
     public void Assembly_HasExactlyTwoEntityTypeConfigurations()
     {
-        var configurations = typeof(NotificationsDbContext).Assembly
+        int configurations = typeof(NotificationsDbContext).Assembly
             .GetTypes()
             .Count(t => !t.IsAbstract && t.GetInterfaces().Any(i =>
                 i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)));
@@ -57,7 +57,7 @@ public class NotificationsDbContextConfigurationTests
     [Fact]
     public void Model_ContainsTheTwoNotifyEntities_PlusTheThreeMappedSharedTables()
     {
-        using var context = CreateContext();
+        using NotificationsDbContext context = CreateContext();
 
         var entityNames = context.Model.GetEntityTypes()
             .Select(e => e.ClrType.Name)
@@ -83,7 +83,7 @@ public class NotificationsDbContextConfigurationTests
     [Fact]
     public void OwnedTablesLiveInNotify_AndTheBorrowedOnesStayInShared()
     {
-        using var context = CreateContext();
+        using NotificationsDbContext context = CreateContext();
 
         var schemas = context.Model.GetEntityTypes()
             .ToDictionary(e => e.ClrType.Name, e => e.GetSchema());
@@ -105,15 +105,15 @@ public class NotificationsDbContextConfigurationTests
     [Fact]
     public void TheThreeSharedTables_AreExcludedFromThisModulesMigration()
     {
-        using var context = CreateContext();
+        using NotificationsDbContext context = CreateContext();
 
         // The design-time model, not context.Model: ExcludeFromMigrations is a migration-time concern
         // and EF strips it from the runtime read-optimized model, which throws if asked.
-        var model = context.GetService<IDesignTimeModel>().Model;
+        IModel model = context.GetService<IDesignTimeModel>().Model;
 
-        foreach (var name in new[] { nameof(AuditLog), nameof(OutboxMessage), nameof(InboxMessage) })
+        foreach (string? name in new[] { nameof(AuditLog), nameof(OutboxMessage), nameof(InboxMessage) })
         {
-            var entity = model.GetEntityTypes().Single(e => e.ClrType.Name == name);
+            IEntityType entity = model.GetEntityTypes().Single(e => e.ClrType.Name == name);
             Assert.True(entity.IsTableExcludedFromMigrations(),
                 $"{name} must be excluded from the notify migration - shared owns it.");
         }

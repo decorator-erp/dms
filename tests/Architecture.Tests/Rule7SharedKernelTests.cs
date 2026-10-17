@@ -15,7 +15,7 @@ public class Rule7SharedKernelTests
     [Fact]
     public void SharedKernel_HasZeroProjectReferences()
     {
-        var csprojPath = Path.Combine(SolutionRoot.Path, "src", "SharedKernel", "SharedKernel.csproj");
+        string csprojPath = Path.Combine(SolutionRoot.Path, "src", "SharedKernel", "SharedKernel.csproj");
         var doc = XDocument.Load(csprojPath);
 
         var projectReferences = doc.Descendants("ProjectReference").ToList();

@@ -2,6 +2,7 @@ using Approvals.Contracts;
 using BuildingBlocks.Events;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 
 namespace Projects.Infrastructure.IntegrationEvents;
@@ -21,13 +22,17 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(ProjectsDbContext d
     public async Task HandleAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
         if (@event.SubjectType != ApprovalSubjectType.GateCondition)
+        {
             return;
+        }
 
-        var gate = await db.GateConditions.FirstOrDefaultAsync(g => g.Id == @event.SubjectId, ct);
+        GateCondition? gate = await db.GateConditions.FirstOrDefaultAsync(g => g.Id == @event.SubjectId, ct);
         if (gate is null)
+        {
             return;
+        }
 
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(@event.DecidedByUserId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(@event.DecidedByUserId, ct);
 
         switch (@event.Decision)
         {

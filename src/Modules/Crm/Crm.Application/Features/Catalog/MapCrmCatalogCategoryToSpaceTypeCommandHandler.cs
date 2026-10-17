@@ -24,14 +24,18 @@ internal sealed class MapCrmCatalogCategoryToSpaceTypeCommandHandler(CrmDbContex
 {
     public async Task<Result> HandleAsync(MapCrmCatalogCategoryToSpaceTypeCommand command, CancellationToken ct = default)
     {
-        var alreadyMapped = await db.CrmCatalogCategorySpaceTypes.AnyAsync(
+        bool alreadyMapped = await db.CrmCatalogCategorySpaceTypes.AnyAsync(
             m => m.CategoryId == command.CategoryId && m.SpaceTypeId == command.SpaceTypeId, ct);
         if (alreadyMapped)
+        {
             return CrmCatalogErrors.DuplicateMapping;
+        }
 
-        var result = CrmCatalogCategorySpaceType.Create(command.CategoryId, command.SpaceTypeId);
+        Result<CrmCatalogCategorySpaceType> result = CrmCatalogCategorySpaceType.Create(command.CategoryId, command.SpaceTypeId);
         if (result.IsFailure)
+        {
             return result.Error;
+        }
 
         db.CrmCatalogCategorySpaceTypes.Add(result.Value!);
         await db.SaveChangesAsync(ct);

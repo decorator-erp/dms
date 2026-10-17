@@ -27,9 +27,11 @@ internal sealed class DeleteFileTemplateCommandHandler(DocumentsDbContext db, IF
 {
     public async Task<Result> HandleAsync(DeleteFileTemplateCommand command, CancellationToken ct = default)
     {
-        var template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
+        FileTemplate? template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
         if (template is null)
+        {
             return FileTemplateErrors.NotFound;
+        }
 
         template.Deactivate();
         await db.SaveChangesAsync(ct);

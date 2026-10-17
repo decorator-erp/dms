@@ -3,6 +3,7 @@ using SharedKernel;
 using Sites.Application.Features.Surveys;
 using Sites.Contracts.Records;
 using Sites.Domain;
+using Sites.Domain.Definition;
 using Sites.Infrastructure.Persistence;
 
 namespace Sites.Application.Features.Records;
@@ -18,12 +19,22 @@ internal static class SiteRecordWrites
     public static async Task<Result<(Site Site, SiteRecord Record)>> LoadEditableAsync(
         SitesDbContext db, Guid siteId, Guid recordId, CancellationToken ct)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, siteId, ct);
-        if (site is null) return SiteErrors.NotFound;
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, siteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var record = await SiteWrites.LoadRecordForWriteAsync(db, siteId, recordId, ct);
-        if (record.IsFailure) return record.Error;
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
+
+        Result<SiteRecord> record = await SiteWrites.LoadRecordForWriteAsync(db, siteId, recordId, ct);
+        if (record.IsFailure)
+        {
+            return record.Error;
+        }
 
         return (site, record.Value!);
     }
@@ -36,9 +47,9 @@ internal static class SiteRecordWrites
         SitesDbContext db, Guid siteId, Guid moduleId, string label, Guid? excludingRecordId,
         CancellationToken ct)
     {
-        var normalized = label.Trim().ToLower();
+        string normalized = label.Trim().ToLower();
 
-        var taken = await db.SiteRecords
+        bool taken = await db.SiteRecords
             .AnyAsync(
                 r => r.SiteId == siteId
                      && r.ModuleId == moduleId
@@ -53,8 +64,11 @@ internal static class SiteRecordWrites
     public static async Task<Result> ReplaceValuesAsync(
         SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
     {
-        var staged = await StageValuesAsync(db, record, values, ct);
-        if (staged.IsFailure) return staged;
+        Result staged = await StageValuesAsync(db, record, values, ct);
+        if (staged.IsFailure)
+        {
+            return staged;
+        }
 
         return await SiteWrites.SaveAsync(db, ct);
     }
@@ -72,18 +86,21 @@ internal static class SiteRecordWrites
     public static async Task<Result> StageValuesAsync(
         SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
     {
-        var existing = await db.SiteRecordValues
+        List<SiteRecordValue> existing = await db.SiteRecordValues
             .Where(v => v.RecordId == record.Id)
             .ToListAsync(ct);
 
         db.SiteRecordValues.RemoveRange(existing);
 
-        if (values.Count == 0) return Result.Success();
+        if (values.Count == 0)
+        {
+            return Result.Success();
+        }
 
         // Only items actually linked to this record's module may carry a value. The validator says the
         // same thing with a nicer message; this is the structural guard, and it is what stops a value
         // being written against a field the module does not have.
-        var allowed = await (
+        Dictionary<Guid, SiteItem> allowed = await (
             from link in db.SiteModuleItems.AsNoTracking()
             join item in db.SiteItems.AsNoTracking() on link.ItemId equals item.Id
             where link.ModuleId == record.ModuleId && link.IsActive && item.IsActive
@@ -96,7 +113,7 @@ internal static class SiteRecordWrites
             .Distinct()
             .ToList();
 
-        var optionsByItem = optionItemIds.Count == 0
+        Dictionary<Guid, HashSet<Guid>> optionsByItem = optionItemIds.Count == 0
             ? []
             : (await db.SiteItemOptions.AsNoTracking()
                     .Where(o => optionItemIds.Contains(o.ItemId) && o.IsActive)
@@ -105,24 +122,33 @@ internal static class SiteRecordWrites
                 .GroupBy(o => o.ItemId)
                 .ToDictionary(g => g.Key, g => g.Select(o => o.Id).ToHashSet());
 
-        foreach (var value in values)
+        foreach (SiteValueRequest value in values)
         {
-            if (!allowed.TryGetValue(value.ItemId, out var item)) return SiteErrors.LinkNotFound;
+            if (!allowed.TryGetValue(value.ItemId, out SiteItem? item))
+            {
+                return SiteErrors.LinkNotFound;
+            }
 
-            var created = SiteRecordValue.Create(
+            Result<SiteRecordValue> created = SiteRecordValue.Create(
                 record.Id, value.ItemId, item.DataType, value.ValueNumber, value.ValueText,
                 value.ValueBool, value.ValueDate, value.OptionId);
 
-            if (created.IsFailure) return created.Error;
+            if (created.IsFailure)
+            {
+                return created.Error;
+            }
 
             // The item's own bounds, length, pattern and option membership -- the pure rule that moved
             // onto the entity at S1-03. The item comes from the batch loaded above, never a per-value
             // query: this loop runs once per cell of a grid.
-            var validated = item.ValidateValue(
+            Result validated = item.ValidateValue(
                 value.ValueNumber, value.ValueText, value.OptionId,
-                optionsByItem.TryGetValue(value.ItemId, out var options) ? options : null);
+                optionsByItem.TryGetValue(value.ItemId, out HashSet<Guid>? options) ? options : null);
 
-            if (validated.IsFailure) return validated;
+            if (validated.IsFailure)
+            {
+                return validated;
+            }
 
             db.SiteRecordValues.Add(created.Value!);
         }

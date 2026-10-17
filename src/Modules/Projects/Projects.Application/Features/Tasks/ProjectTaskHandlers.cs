@@ -5,6 +5,7 @@ using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using Projects.Contracts.Tasks;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -23,18 +24,24 @@ internal sealed class AssignProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 {
     public async Task<Result> HandleAsync(AssignProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var employee = await hrDirectory.GetAsync(command.EmployeeId, ct);
+        EmployeeSummary? employee = await hrDirectory.GetAsync(command.EmployeeId, ct);
         if (employee is null || !employee.IsActive)
+        {
             return Domain.ProjectErrors.AccessDenied;
+        }
 
-        var result = task.Assign(command.EmployeeId);
+        Result result = task.Assign(command.EmployeeId);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskAssignedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, command.EmployeeId, DateTimeOffset.UtcNow));
@@ -48,14 +55,18 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(StartProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var result = task.Start();
+        Result result = task.Start();
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskStartedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -72,19 +83,25 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
 {
     public async Task<Result> HandleAsync(CompleteProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
+        bool hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
             g => g.ProjectTaskId == task.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
         if (hasUnsatisfiedGates)
+        {
             return Domain.TaskErrors.GatesNotSatisfied;
+        }
 
-        var result = task.Complete();
+        Result result = task.Complete();
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskCompletedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -98,14 +115,18 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(RejectProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var result = task.Reject(command.Reason);
+        Result result = task.Reject(command.Reason);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskRejectedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -119,14 +140,18 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(CancelProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var result = task.Cancel();
+        Result result = task.Cancel();
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskCancelledIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -140,14 +165,18 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(ReopenProjectTaskCommand command, CancellationToken ct = default)
     {
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var result = task.Reopen();
+        Result result = task.Reopen();
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectTaskReopenedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -161,7 +190,7 @@ internal sealed class GetProjectTaskQueryHandler(ProjectsDbContext db) : IQueryH
 {
     public async Task<Result<ProjectTaskResponse>> HandleAsync(GetProjectTaskQuery query, CancellationToken ct = default)
     {
-        var response = await db.ProjectTasks.AsNoTracking()
+        ProjectTaskResponse? response = await db.ProjectTasks.AsNoTracking()
             .Where(t => t.Id == query.TaskId && t.ProjectId == query.ProjectId)
             .Select(ToResponse())
             .FirstOrDefaultAsync(ct);

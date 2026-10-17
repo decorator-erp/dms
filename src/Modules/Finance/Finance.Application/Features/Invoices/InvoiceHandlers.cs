@@ -61,33 +61,41 @@ internal sealed class CreateInvoiceCommandHandler(FinanceDbContext db, IProjectD
 {
     public async Task<Result<Guid>> HandleAsync(CreateInvoiceCommand command, CancellationToken ct = default)
     {
-        var r = command.Request;
+        CreateInvoiceRequest r = command.Request;
 
         if (await db.Invoices.AnyAsync(i => i.Number == r.Number, ct))
+        {
             return InvoiceErrors.DuplicatedNumber;
+        }
 
         if (await projects.GetProjectAsync(r.ProjectId, ct) is null)
+        {
             return InvoiceErrors.ProjectNotFound;
+        }
 
-        var created = Invoice.Create(
+        Result<Invoice> created = Invoice.Create(
             r.Number, r.ProjectId, FinanceEnumMapping.ToDomain(r.Type), r.IssuedOn,
             r.ProjectStageId, r.DueOn, r.ClientId, r.VendorName, r.Note);
 
         if (created.IsFailure)
-            return created.Error;
-
-        var invoice = created.Value!;
-        var lines = new List<InvoiceLine>();
-        var total = 0m;
-
-        foreach (var dto in r.Lines)
         {
-            var line = InvoiceLine.Create(
+            return created.Error;
+        }
+
+        Invoice invoice = created.Value!;
+        var lines = new List<InvoiceLine>();
+        decimal total = 0m;
+
+        foreach (InvoiceLineDto dto in r.Lines)
+        {
+            Result<InvoiceLine> line = InvoiceLine.Create(
                 invoice.Id, dto.Description, dto.Quantity, dto.UnitPrice,
                 dto.Unit, dto.ProjectTaskId, dto.BudgetLineId);
 
             if (line.IsFailure)
+            {
                 return line.Error;
+            }
 
             lines.Add(line.Value!);
             total += line.Value!.LineTotal;
@@ -140,24 +148,30 @@ internal sealed class AddInvoiceLineCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(AddInvoiceLineCommand command, CancellationToken ct = default)
     {
-        var invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.InvoiceId && i.IsActive, ct);
+        Invoice? invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.InvoiceId && i.IsActive, ct);
         if (invoice is null)
+        {
             return InvoiceErrors.NotFound;
+        }
 
         if (!invoice.IsPayable)
+        {
             return InvoiceErrors.InvalidStatusTransition;
+        }
 
-        var line = InvoiceLine.Create(
+        Result<InvoiceLine> line = InvoiceLine.Create(
             command.InvoiceId, command.Line.Description, command.Line.Quantity, command.Line.UnitPrice,
             command.Line.Unit, command.Line.ProjectTaskId, command.Line.BudgetLineId);
 
         if (line.IsFailure)
+        {
             return line.Error;
+        }
 
         db.InvoiceLines.Add(line.Value!);
         await db.SaveChangesAsync(ct);
 
-        var total = await db.InvoiceLines
+        decimal total = await db.InvoiceLines
             .Where(l => l.InvoiceId == command.InvoiceId)
             .SumAsync(l => (decimal?)l.LineTotal, ct) ?? 0m;
 
@@ -174,13 +188,17 @@ internal sealed class CancelInvoiceCommandHandler(FinanceDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(CancelInvoiceCommand command, CancellationToken ct = default)
     {
-        var invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.Id && i.IsActive, ct);
+        Invoice? invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.Id && i.IsActive, ct);
         if (invoice is null)
+        {
             return InvoiceErrors.NotFound;
+        }
 
-        var cancelled = invoice.Cancel();
+        Result cancelled = invoice.Cancel();
         if (cancelled.IsFailure)
+        {
             return cancelled.Error;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -216,9 +234,11 @@ internal sealed class GetInvoiceByIdQueryHandler(FinanceDbContext db)
             .FirstOrDefaultAsync(ct);
 
         if (header is null)
+        {
             return InvoiceErrors.NotFound;
+        }
 
-        var lines = await db.InvoiceLines
+        List<InvoiceLineResponse> lines = await db.InvoiceLines
             .Where(l => l.InvoiceId == query.Id)
             .OrderBy(l => l.CreatedAtUtc)
             .Select(l => new InvoiceLineResponse(
@@ -250,17 +270,17 @@ internal sealed class GetInvoicesByProjectQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<InvoiceListItemResponse>>> HandleAsync(
         GetInvoicesByProjectQuery query, CancellationToken ct = default)
     {
-        var q = db.Invoices.Where(i => i.ProjectId == query.ProjectId && i.IsActive);
+        IQueryable<Invoice> q = db.Invoices.Where(i => i.ProjectId == query.ProjectId && i.IsActive);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            InvoiceStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(i => i.Status == value);
         }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<InvoiceListItemResponse> items = await q
             .OrderByDescending(i => i.IssuedOn)
             .ThenByDescending(i => i.CreatedAtUtc)
             .Skip(query.Skip)
@@ -290,7 +310,7 @@ internal sealed class GetOutstandingInvoicesQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<InvoiceListItemResponse>>> HandleAsync(
         GetOutstandingInvoicesQuery query, CancellationToken ct = default)
     {
-        var items = await db.Invoices
+        List<InvoiceListItemResponse> items = await db.Invoices
             .Where(i => i.ProjectId == query.ProjectId
                         && i.IsActive
                         && i.Status == InvoiceStatus.Open

@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -11,7 +12,7 @@ public class ClientChildTests
     [InlineData('M', (short)15)]
     public void Create_WithValidData_Succeeds(char gender, short age)
     {
-        var result = ClientChild.Create(gender, age);
+        Result<ClientChild> result = ClientChild.Create(gender, age);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(gender, result.Value!.Gender);
@@ -25,7 +26,7 @@ public class ClientChildTests
     [InlineData('Z')]
     public void Create_WithInvalidGender_Fails(char gender)
     {
-        var result = ClientChild.Create(gender, 10);
+        Result<ClientChild> result = ClientChild.Create(gender, 10);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientChildErrors.InvalidGender, result.Error);
@@ -36,7 +37,7 @@ public class ClientChildTests
     [InlineData((short)121)]
     public void Create_WithInvalidAge_Fails(short age)
     {
-        var result = ClientChild.Create('M', age);
+        Result<ClientChild> result = ClientChild.Create('M', age);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientChildErrors.InvalidAge, result.Error);
@@ -45,9 +46,9 @@ public class ClientChildTests
     [Fact]
     public void Update_WithValidData_Succeeds()
     {
-        var child = ClientChild.Create('M', 10).Value!;
+        ClientChild child = ClientChild.Create('M', 10).Value!;
 
-        var result = child.Update('F', 12);
+        Result result = child.Update('F', 12);
 
         Assert.True(result.IsSuccess);
         Assert.Equal('F', child.Gender);
@@ -57,9 +58,9 @@ public class ClientChildTests
     [Fact]
     public void Update_WithInvalidData_FailsAndLeavesStateUnchanged()
     {
-        var child = ClientChild.Create('M', 10).Value!;
+        ClientChild child = ClientChild.Create('M', 10).Value!;
 
-        var result = child.Update('X', 200);
+        Result result = child.Update('X', 200);
 
         Assert.True(result.IsFailure);
         Assert.Equal('M', child.Gender);

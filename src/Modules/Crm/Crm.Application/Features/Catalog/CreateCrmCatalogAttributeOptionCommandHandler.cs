@@ -24,16 +24,20 @@ internal sealed class CreateCrmCatalogAttributeOptionCommandHandler(CrmDbContext
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmCatalogAttributeOptionCommand command, CancellationToken ct = default)
     {
-        var attributeExists = await db.CrmCatalogAttributes.AnyAsync(a => a.Id == command.AttributeId, ct);
+        bool attributeExists = await db.CrmCatalogAttributes.AnyAsync(a => a.Id == command.AttributeId, ct);
         if (!attributeExists)
+        {
             return Result.Failure<Guid>(CrmCatalogErrors.AttributeNotFound);
+        }
 
-        var result = CrmCatalogAttributeOption.Create(
+        Result<CrmCatalogAttributeOption> result = CrmCatalogAttributeOption.Create(
             command.AttributeId, command.Code, command.NameEn, command.NameAr, command.ImageUri, command.SortOrder);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var option = result.Value!;
+        CrmCatalogAttributeOption option = result.Value!;
         db.CrmCatalogAttributeOptions.Add(option);
         await db.SaveChangesAsync(ct);
 

@@ -34,12 +34,14 @@ internal sealed class GetProjectFinancialSummaryQueryHandler(
         GetProjectFinancialSummaryQuery query, CancellationToken ct = default)
     {
         if (await projects.GetProjectAsync(query.ProjectId, ct) is null)
+        {
             return FinanceDashboardErrors.ProjectNotFound;
+        }
 
         var scopes = new LedgerScopes(db, projects);
 
-        var totals = await FinancialBlocks.BuildProjectBlockAsync(db, scopes, query.ProjectId, ct);
-        var stages = await FinancialBlocks.BuildStageBudgetRowsAsync(db, projects, query.ProjectId, ct);
+        ProjectFinancialBlock totals = await FinancialBlocks.BuildProjectBlockAsync(db, scopes, query.ProjectId, ct);
+        List<StageBudgetRow> stages = await FinancialBlocks.BuildStageBudgetRowsAsync(db, projects, query.ProjectId, ct);
 
         return new ProjectFinancialSummaryResponse(totals, stages);
     }
@@ -72,47 +74,59 @@ internal sealed class GetProjectFinancialMovementsQueryHandler(
         GetProjectFinancialMovementsQuery query, CancellationToken ct = default)
     {
         var scopes = new LedgerScopes(db, projects);
-        var scoped = scopes.ForProject(query.ProjectId);
+        IQueryable<LedgerEntry> scoped = scopes.ForProject(query.ProjectId);
 
         if (query.FromDate is { } from)
+        {
             scoped = scoped.Where(e => e.OccurredOn >= from);
+        }
 
         if (query.ToDate is { } to)
+        {
             scoped = scoped.Where(e => e.OccurredOn <= to);
+        }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            LedgerEntryType value = FinanceEnumMapping.ToDomain(type);
             scoped = scoped.Where(e => e.Type == value);
         }
 
         if (query.Direction is { } direction)
         {
-            var value = FinanceEnumMapping.ToDomain(direction);
+            LedgerDirection value = FinanceEnumMapping.ToDomain(direction);
             scoped = scoped.Where(e => e.Direction == value);
         }
 
         if (query.ProjectStageId is { } stageId)
+        {
             scoped = scoped.Where(e => e.ProjectStageId == stageId);
+        }
 
         if (query.ProjectTaskId is { } taskId)
+        {
             scoped = scoped.Where(e => e.ProjectTaskId == taskId);
+        }
 
         if (query.BudgetLineId is { } budgetLineId)
+        {
             scoped = scoped.Where(e => e.BudgetLineId == budgetLineId);
+        }
 
         if (query.VariationId is { } variationId)
+        {
             scoped = scoped.Where(e => e.VariationId == variationId);
+        }
 
-        var total = await scoped.CountAsync(ct);
+        int total = await scoped.CountAsync(ct);
 
-        var page = scoped
+        IQueryable<LedgerEntry> page = scoped
             .OrderByDescending(e => e.OccurredOn)
             .ThenByDescending(e => e.CreatedAtUtc)
             .Skip(query.Skip)
             .Take(query.Take);
 
-        var items = await LedgerMovementProjection.Project(db, page).ToListAsync(ct);
+        List<LedgerMovementResponse> items = await LedgerMovementProjection.Project(db, page).ToListAsync(ct);
 
         return new PagedResult<LedgerMovementResponse>(
             items, query.Skip / Math.Max(query.Take, 1), query.Take, total);
@@ -160,7 +174,9 @@ internal sealed class GetProjectCostCategoryBreakdownQueryHandler(FinanceDbConte
             .ToListAsync(ct);
 
         if (budgetLines.Count == 0)
+        {
             return Array.Empty<CostCategoryRow>();
+        }
 
         static Guid Key(Guid? categoryId) => categoryId ?? Uncategorized;
 
@@ -187,22 +203,28 @@ internal sealed class GetProjectCostCategoryBreakdownQueryHandler(FinanceDbConte
         foreach (var row in ledgerRows)
         {
             if (row.BudgetLineId is not Guid lineId
-                || !budgetLineCategory.TryGetValue(lineId, out var categoryId))
+                || !budgetLineCategory.TryGetValue(lineId, out Guid categoryId))
+            {
                 continue;
+            }
 
-            var signed = LedgerSums.Signed(row.Direction, row.Amount);
+            decimal signed = LedgerSums.Signed(row.Direction, row.Amount);
 
             if (row.Type == LedgerEntryType.Commitment)
+            {
                 committedSigned[categoryId] = committedSigned.GetValueOrDefault(categoryId) + signed;
+            }
             else
+            {
                 actualSigned[categoryId] = actualSigned.GetValueOrDefault(categoryId) + signed;
+            }
         }
 
         List<CostCategoryRow> rows = [.. allocatedByCategory.Keys
             .Select(categoryId =>
             {
-                var actual = actualSigned.GetValueOrDefault(categoryId);
-                var committed = committedSigned.GetValueOrDefault(categoryId) - actual;
+                decimal actual = actualSigned.GetValueOrDefault(categoryId);
+                decimal committed = committedSigned.GetValueOrDefault(categoryId) - actual;
 
                 return new CostCategoryRow(
                     categoryId == Uncategorized ? null : categoryId,
@@ -247,10 +269,10 @@ internal sealed class GetProjectCashflowQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<MonthlyCashRow>>> HandleAsync(
         GetProjectCashflowQuery query, CancellationToken ct = default)
     {
-        var toDate = query.ToDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var fromDate = query.FromDate ?? toDate.AddMonths(-12);
+        DateOnly toDate = query.ToDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly fromDate = query.FromDate ?? toDate.AddMonths(-12);
 
-        var rows = await db.LedgerEntries
+        List<MonthlyCashRow> rows = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.IsActive && e.ProjectId == query.ProjectId
                         && e.OccurredOn >= fromDate && e.OccurredOn <= toDate)
@@ -284,26 +306,28 @@ internal sealed class GetProjectInvoicesQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<InvoiceListItemResponse>>> HandleAsync(
         GetProjectInvoicesQuery query, CancellationToken ct = default)
     {
-        var q = db.Invoices.AsNoTracking().Where(i => i.IsActive && i.ProjectId == query.ProjectId);
+        IQueryable<Invoice> q = db.Invoices.AsNoTracking().Where(i => i.IsActive && i.ProjectId == query.ProjectId);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            InvoiceStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(i => i.Status == value);
         }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            InvoiceType value = FinanceEnumMapping.ToDomain(type);
             q = q.Where(i => i.Type == value);
         }
 
         if (query.ProjectStageId is { } stageId)
+        {
             q = q.Where(i => i.ProjectStageId == stageId);
+        }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<InvoiceListItemResponse> items = await q
             .OrderByDescending(i => i.IssuedOn)
             .ThenByDescending(i => i.CreatedAtUtc)
             .Skip(query.Skip)
@@ -332,29 +356,33 @@ internal sealed class GetProjectVariationsQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<VariationListItemResponse>>> HandleAsync(
         GetProjectVariationsQuery query, CancellationToken ct = default)
     {
-        var q = db.Variations.AsNoTracking().Where(v => v.IsActive && v.ProjectId == query.ProjectId);
+        IQueryable<Variation> q = db.Variations.AsNoTracking().Where(v => v.IsActive && v.ProjectId == query.ProjectId);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            VariationStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(v => v.Status == value);
         }
 
         if (query.Kind is { } kind)
         {
-            var value = FinanceEnumMapping.ToDomain(kind);
+            VariationKind value = FinanceEnumMapping.ToDomain(kind);
             q = q.Where(v => v.Kind == value);
         }
 
         if (query.ProjectStageId is { } stageId)
+        {
             q = q.Where(v => v.ProjectStageId == stageId);
+        }
 
         if (query.ProjectTaskId is { } taskId)
+        {
             q = q.Where(v => v.ProjectTaskId == taskId);
+        }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<VariationListItemResponse> items = await q
             .OrderByDescending(v => v.CreatedAtUtc)
             .Skip(query.Skip)
             .Take(query.Take)
@@ -381,19 +409,21 @@ internal sealed class GetProjectBoqSnapshotsQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<BoqSnapshotSummaryResponse>>> HandleAsync(
         GetProjectBoqSnapshotsQuery query, CancellationToken ct = default)
     {
-        var q = db.BoqSnapshots.AsNoTracking()
+        IQueryable<BoqSnapshot> q = db.BoqSnapshots.AsNoTracking()
             .Where(s => s.IsActive && s.ProjectId == query.ProjectId);
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            BoqSnapshotType value = FinanceEnumMapping.ToDomain(type);
             q = q.Where(s => s.Type == value);
         }
 
         if (query.Version is { } version)
+        {
             q = q.Where(s => s.Version == version);
+        }
 
-        var items = await q
+        List<BoqSnapshotSummaryResponse> items = await q
             .OrderByDescending(s => s.Version)
             .ThenByDescending(s => s.GeneratedAt)
             .Select(FinancialProjections.BoqSnapshotRow(db))

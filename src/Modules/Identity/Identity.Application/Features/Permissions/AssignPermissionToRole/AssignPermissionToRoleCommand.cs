@@ -7,9 +7,6 @@ using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.AssignPermissionToRole;
 
-/// <summary>Validates <see cref="AssignPermissionToRoleCommand.Permission"/> against
-/// <see cref="IPermissionCatalog"/>'s union of every module's registered strings — never a hard-coded
-/// permission list, per the plan's explicit instruction for this task.</summary>
 internal sealed class AssignPermissionToRoleCommandValidator : AbstractValidator<AssignPermissionToRoleCommand>
 {
     public AssignPermissionToRoleCommandValidator(IPermissionCatalog catalog)

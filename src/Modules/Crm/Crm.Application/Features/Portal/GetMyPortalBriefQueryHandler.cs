@@ -33,19 +33,28 @@ internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGu
 {
     public async Task<Result<PortalBriefResponse>> HandleAsync(GetMyPortalBriefQuery query, CancellationToken ct = default)
     {
-        var actor = await guard.ResolveActorAsync(query.AppUserId, ct);
+        Result<CrmActor> actor = await guard.ResolveActorAsync(query.AppUserId, ct);
         if (actor.IsFailure)
+        {
             return Result.Failure<PortalBriefResponse>(actor.Error);
+        }
+
         if (actor.Value!.Kind != CrmActorKind.Client)
+        {
             return Result.Failure<PortalBriefResponse>(CrmPortalErrors.NotAClient);
+        }
 
-        var project = await projectDirectory.GetProjectAsync(query.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(query.ProjectId, ct);
         if (project is null || project.ClientId != actor.Value.ClientId)
+        {
             return Result.Failure<PortalBriefResponse>(CrmPortalErrors.NotFound);
+        }
 
-        var brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
         if (brief is null)
+        {
             return Result.Failure<PortalBriefResponse>(CrmPortalErrors.NotFound);
+        }
 
         return new PortalBriefResponse(brief.Id, brief.ProjectId, CrmEnumMapping.ToContracts(brief.Status));
     }

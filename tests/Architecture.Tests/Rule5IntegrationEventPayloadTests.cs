@@ -1,3 +1,4 @@
+using System.Reflection;
 using BuildingBlocks.Events;
 using Xunit;
 
@@ -9,8 +10,9 @@ namespace Architecture.Tests;
 /// safe to serialize across a module (and, eventually, process) boundary with no risk of leaking a rich
 /// domain object.
 ///
-/// Vacuous today — no integration event beyond the interface itself exists. Becomes non-vacuous at
-/// G1-01 (<c>UserRegisteredIntegrationEvent</c>, <c>UserDeactivatedIntegrationEvent</c>).
+/// Was vacuous when written — no integration event beyond the interface itself existed yet. The two
+/// Identity events that first made it non-vacuous have since been deleted along with self-registration;
+/// the <c>Assert.NotEmpty</c> below is what keeps that from silently returning it to vacuity.
 /// </summary>
 public class Rule5IntegrationEventPayloadTests
 {
@@ -28,9 +30,9 @@ public class Rule5IntegrationEventPayloadTests
         // 1/4/6/8a this one was never fault-injected, so nothing had ever shown it capable of failing.
         Assert.NotEmpty(eventTypes);
 
-        foreach (var type in eventTypes)
+        foreach (Type? type in eventTypes)
         {
-            foreach (var property in type.GetProperties())
+            foreach (PropertyInfo property in type.GetProperties())
             {
                 Assert.True(IsAllowedPayloadType(property.PropertyType),
                     $"{type.FullName}.{property.Name} ({property.PropertyType}) is not an allowed " +
@@ -42,21 +44,27 @@ public class Rule5IntegrationEventPayloadTests
 
     private static bool IsAllowedPayloadType(Type type)
     {
-        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        Type underlying = Nullable.GetUnderlyingType(type) ?? type;
 
         if (underlying.IsEnum || underlying.IsPrimitive)
+        {
             return true;
+        }
 
         if (underlying == typeof(string) || underlying == typeof(Guid) || underlying == typeof(DateTimeOffset)
             || underlying == typeof(DateTime) || underlying == typeof(decimal))
+        {
             return true;
+        }
 
         if (underlying.IsArray)
+        {
             return IsAllowedPayloadType(underlying.GetElementType()!);
+        }
 
         if (underlying.IsGenericType)
         {
-            var definition = underlying.GetGenericTypeDefinition();
+            Type definition = underlying.GetGenericTypeDefinition();
             if (definition == typeof(IReadOnlyList<>) || definition == typeof(IReadOnlyCollection<>)
                 || definition == typeof(IEnumerable<>) || definition == typeof(List<>))
             {

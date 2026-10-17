@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Sites.Infrastructure.Persistence;
@@ -77,7 +77,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     {
         await _postgres.StartAsync();
 
-        var options = new DbContextOptionsBuilder<SitesDbContext>()
+        DbContextOptions<SitesDbContext> options = new DbContextOptionsBuilder<SitesDbContext>()
             .UseNpgsql(_postgres.GetConnectionString())
             .Options;
 
@@ -110,7 +110,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task SiteCodeSequence_ExistsInTheSitesSchema()
     {
-        var found = await ScalarAsync("""
+        long found = await ScalarAsync("""
             SELECT count(*) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind = 'S' AND n.nspname = 'sites' AND c.relname = 'site_code_seq';
@@ -123,10 +123,10 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task SiteCodeSequence_AllocatesAValueTheCodeConstraintAccepts()
     {
-        var next = await ScalarAsync("SELECT nextval('sites.site_code_seq');");
+        long next = await ScalarAsync("SELECT nextval('sites.site_code_seq');");
 
-        var code = $"SITE-{next:D5}";
-        var matches = await ScalarAsync($"SELECT CASE WHEN '{code}' ~ '^SITE-[0-9]{{5,}}$' THEN 1 ELSE 0 END;");
+        string code = $"SITE-{next:D5}";
+        long matches = await ScalarAsync($"SELECT CASE WHEN '{code}' ~ '^SITE-[0-9]{{5,}}$' THEN 1 ELSE 0 END;");
 
         Assert.Equal(1, matches);
     }
@@ -134,14 +134,14 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedCheckConstraint_Exists()
     {
-        var actual = await ListAsync("""
+        string[] actual = await ListAsync("""
             SELECT con.conname FROM pg_constraint con
             JOIN pg_namespace n ON n.oid = con.connamespace
             WHERE n.nspname = 'sites' AND con.contype = 'c'
             ORDER BY con.conname;
             """);
 
-        var missing = ExpectedCheckConstraints.Except(actual).ToArray();
+        string[] missing = ExpectedCheckConstraints.Except(actual).ToArray();
 
         Assert.Empty(missing);
     }
@@ -150,7 +150,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NoUnexpectedSitesConstraints()
     {
-        var actual = await ListAsync("""
+        string[] actual = await ListAsync("""
             SELECT con.conname FROM pg_constraint con
             JOIN pg_namespace n ON n.oid = con.connamespace
             WHERE n.nspname = 'sites' AND con.contype = 'c'
@@ -164,7 +164,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
         // database all read as "no unexpected constraints".
         Assert.NotEmpty(actual);
 
-        var unexpected = actual.Except(ExpectedCheckConstraints).ToArray();
+        string[] unexpected = actual.Except(ExpectedCheckConstraints).ToArray();
 
         Assert.Empty(unexpected);
     }
@@ -172,11 +172,11 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryFunctionalOrPartialIndex_Exists()
     {
-        var actual = await ListAsync("""
+        string[] actual = await ListAsync("""
             SELECT indexname FROM pg_indexes WHERE schemaname = 'sites' ORDER BY indexname;
             """);
 
-        var missing = ExpectedRawSqlIndexes.Except(actual).ToArray();
+        string[] missing = ExpectedRawSqlIndexes.Except(actual).ToArray();
 
         Assert.Empty(missing);
     }
@@ -190,11 +190,11 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheFunctionalIndexes_AreActuallyFunctionalAndPartial()
     {
-        var siteCode = await TextAsync(
+        string siteCode = await TextAsync(
             "SELECT indexdef FROM pg_indexes WHERE schemaname='sites' AND indexname='ux_sites_code';");
         Assert.Contains("lower", siteCode, StringComparison.OrdinalIgnoreCase);
 
-        var label = await TextAsync(
+        string label = await TextAsync(
             "SELECT indexdef FROM pg_indexes WHERE schemaname='sites' AND indexname='ux_site_records_label';");
         Assert.Contains("lower", label, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("WHERE", label, StringComparison.OrdinalIgnoreCase);
@@ -208,7 +208,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheCompositeOptionForeignKeyAndItsTargetKey_Exist()
     {
-        var unique = await ScalarAsync("""
+        long unique = await ScalarAsync("""
             SELECT count(*) FROM pg_constraint con
             JOIN pg_namespace n ON n.oid = con.connamespace
             WHERE n.nspname = 'sites' AND con.contype = 'u'
@@ -216,7 +216,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
             """);
         Assert.Equal(1, unique);
 
-        var fk = await ScalarAsync("""
+        long fk = await ScalarAsync("""
             SELECT count(*) FROM pg_constraint con
             JOIN pg_namespace n ON n.oid = con.connamespace
             WHERE n.nspname = 'sites' AND con.contype = 'f'
@@ -232,7 +232,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheItemRangeConstraint_ActuallyRejectsABoundOnANonNumberItem()
     {
-        var ex = await Assert.ThrowsAsync<PostgresException>(async () =>
+        PostgresException ex = await Assert.ThrowsAsync<PostgresException>(async () =>
             await ExecuteAsync("""
                 INSERT INTO sites.site_items
                     ("Id","Code","NameEn","NameAr","DataType","Tolerance","MinValue","IsSystem","IsActive","CreatedAtUtc")
@@ -245,7 +245,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheBlankCodeConstraint_ActuallyRejectsWhitespace()
     {
-        var ex = await Assert.ThrowsAsync<PostgresException>(async () =>
+        PostgresException ex = await Assert.ThrowsAsync<PostgresException>(async () =>
             await ExecuteAsync("""
                 INSERT INTO sites.site_modules
                     ("Id","Code","NameEn","NameAr","IsSystem","SortOrder","IsActive","CreatedAtUtc")
@@ -276,10 +276,14 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     private async Task<string[]> ListAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection);
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
 
         var results = new List<string>();
-        while (await reader.ReadAsync()) results.Add(reader.GetString(0));
+        while (await reader.ReadAsync())
+        {
+            results.Add(reader.GetString(0));
+        }
+
         return [.. results];
     }
 }

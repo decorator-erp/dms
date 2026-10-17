@@ -29,14 +29,14 @@ internal sealed class SiteSchemaCache(IMemoryCache cache) : ISiteSchemaCache
         Func<CancellationToken, Task<SiteModuleSchemaResponse?>> factory,
         CancellationToken ct = default)
     {
-        var key = $"site-schema:{moduleCode.Trim().ToLowerInvariant()}:{Interlocked.Read(ref _version)}";
+        string key = $"site-schema:{moduleCode.Trim().ToLowerInvariant()}:{Interlocked.Read(ref _version)}";
 
         // A Lazy<Task<T>>, not the response. On a miss every concurrent caller would otherwise run the
         // factory -- a shift starting together, or the first form open after any definition write bumps
         // the version, puts one identical schema query per request onto the database. GetOrCreate is not
         // atomic, but the losers discard an UNSTARTED Lazy rather than an in-flight query, and every
         // caller awaits whichever Lazy won.
-        var lazy = cache.GetOrCreate(key, entry =>
+        Lazy<Task<SiteModuleSchemaResponse?>> lazy = cache.GetOrCreate(key, entry =>
         {
             // Absolute, never sliding. This entry is read on every form open, so a sliding window would
             // never expire -- and the TTL exists precisely to bound how long another instance can serve
@@ -64,7 +64,10 @@ internal sealed class SiteSchemaCache(IMemoryCache cache) : ISiteSchemaCache
 
         // A missing module is not cached: it is usually a typo in a URL, and caching it would keep
         // answering 404 for 45 seconds after someone creates the module they just mistyped.
-        if (schema is null) cache.Remove(key);
+        if (schema is null)
+        {
+            cache.Remove(key);
+        }
 
         return schema;
     }

@@ -7,6 +7,7 @@ using Crm.Contracts.Contacts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -15,12 +16,12 @@ internal sealed class CrmContactEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var contacts = app.MapGroup("/api/crm/clients/{clientId:guid}/contacts").WithTags("Crm Contacts");
+        RouteGroupBuilder contacts = app.MapGroup("/api/crm/clients/{clientId:guid}/contacts").WithTags("Crm Contacts");
 
         contacts.MapPost("/", async (
             Guid clientId, CreateContactRequest request, ICommandHandler<CreateCrmContactCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateCrmContactCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateCrmContactCommand(
                 clientId, request.FirstName, request.LastName, request.Role, request.IsPrimary,
                 request.Email, request.Phone, request.Mobile, request.Notes), ct);
             return result.Match(
@@ -30,7 +31,7 @@ internal sealed class CrmContactEndpoints : IEndpoint
         contacts.MapPut("/{contactId:guid}", async (
             Guid contactId, UpdateContactRequest request, ICommandHandler<UpdateCrmContactCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateCrmContactCommand(
+            Result result = await handler.HandleAsync(new UpdateCrmContactCommand(
                 contactId, request.FirstName, request.LastName, request.Role,
                 request.Email, request.Phone, request.Mobile, request.Notes), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -39,14 +40,14 @@ internal sealed class CrmContactEndpoints : IEndpoint
         contacts.MapPut("/{contactId:guid}/primary", async (
             Guid clientId, Guid contactId, ICommandHandler<SetPrimaryCrmContactCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SetPrimaryCrmContactCommand(clientId, contactId), ct);
+            Result result = await handler.HandleAsync(new SetPrimaryCrmContactCommand(clientId, contactId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Contacts.SetPrimary);
 
         contacts.MapGet("/", async (
             Guid clientId, IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmContactsByClientQuery(clientId), ct);
+            Result<IReadOnlyList<CrmContactResponse>> result = await handler.HandleAsync(new GetCrmContactsByClientQuery(clientId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Contacts.Read);
     }

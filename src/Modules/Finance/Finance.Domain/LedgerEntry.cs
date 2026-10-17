@@ -79,7 +79,9 @@ internal sealed class LedgerEntry : Entity, IAuditable
         // Always positive. A reversal carries the same magnitude and flips Direction instead of
         // negating Amount, so no consumer ever has to decide whether a number is already signed.
         if (amount <= 0)
+        {
             return LedgerEntryErrors.AmountMustBePositive;
+        }
 
         var entry = new LedgerEntry
         {
@@ -102,10 +104,14 @@ internal sealed class LedgerEntry : Entity, IAuditable
         };
 
         if (ValidateDirection(entry) is { IsFailure: true } direction_)
+        {
             return direction_.Error;
+        }
 
         if (ValidateParty(entry) is { IsFailure: true } party)
+        {
             return party.Error;
+        }
 
         return entry;
     }
@@ -155,9 +161,11 @@ internal sealed class LedgerEntry : Entity, IAuditable
     private static Result ValidateDirection(LedgerEntry entry)
     {
         if (entry.ReversalOfId.HasValue)
+        {
             return Result.Success();
+        }
 
-        var valid = entry.Type switch
+        bool valid = entry.Type switch
         {
             LedgerEntryType.ClientPayment => entry.Direction == LedgerDirection.In,
             _ => entry.Direction == LedgerDirection.Out,
@@ -169,9 +177,11 @@ internal sealed class LedgerEntry : Entity, IAuditable
     private static Result ValidateParty(LedgerEntry entry)
     {
         if (entry.ReversalOfId.HasValue)
+        {
             return Result.Success();
+        }
 
-        var valid = entry.Type switch
+        bool valid = entry.Type switch
         {
             LedgerEntryType.ClientPayment => entry.ClientId.HasValue,
             _ => true,

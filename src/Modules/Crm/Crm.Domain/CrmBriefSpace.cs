@@ -27,9 +27,7 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
 
     public static Result<CrmBriefSpace> Create(
         Guid briefId, Guid? spaceId, Guid createdById, int? countOrPieces = null,
-        string? requirements = null, Guid? meetingId = null, Guid? projectTaskId = null)
-    {
-        return new CrmBriefSpace
+        string? requirements = null, Guid? meetingId = null, Guid? projectTaskId = null) => new CrmBriefSpace
         {
             BriefId = briefId,
             SpaceId = spaceId,
@@ -40,7 +38,6 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
             ProjectTaskId = projectTaskId,
             ApprovalStatus = ApprovalState.Draft,
         };
-    }
 
     /// <summary>Ledger rule: only a locked (Approved) entry can be superseded.</summary>
     public static Result<CrmBriefSpace> CreateSuperseding(
@@ -48,10 +45,15 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         string? requirements = null, Guid? meetingId = null, Guid? projectTaskId = null)
     {
         if (original.ApprovalStatus != ApprovalState.Approved)
+        {
             return CrmBriefErrors.OnlyLockedSuperseded;
+        }
 
-        var created = Create(original.BriefId, spaceId, createdById, countOrPieces, requirements, meetingId, projectTaskId);
-        if (created.IsFailure) return created.Error;
+        Result<CrmBriefSpace> created = Create(original.BriefId, spaceId, createdById, countOrPieces, requirements, meetingId, projectTaskId);
+        if (created.IsFailure)
+        {
+            return created.Error;
+        }
 
         created.Value!.SupersedesSpaceId = original.Id;
         return created;
@@ -60,9 +62,14 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     public Result Update(Guid? spaceId, int? countOrPieces, string? requirements, Guid? meetingId, Guid? projectTaskId)
     {
         if (ApprovalStatus == ApprovalState.Approved)
+        {
             return CrmBriefErrors.EntryLocked;
+        }
+
         if (ApprovalStatus == ApprovalState.PendingApproval)
+        {
             return CrmBriefErrors.EntryPending;
+        }
 
         SpaceId = spaceId;
         CountOrPieces = countOrPieces;
@@ -75,7 +82,9 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     public Result Send()
     {
         if (ApprovalStatus is not (ApprovalState.Draft or ApprovalState.Rejected))
+        {
             return ApprovalStatus == ApprovalState.Approved ? CrmBriefErrors.EntryLocked : CrmBriefErrors.EntryPending;
+        }
 
         ApprovalStatus = ApprovalState.PendingApproval;
         return Result.Success();
@@ -84,7 +93,9 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     internal Result MarkApproved()
     {
         if (ApprovalStatus != ApprovalState.PendingApproval)
+        {
             return CrmBriefErrors.NotPending;
+        }
 
         ApprovalStatus = ApprovalState.Approved;
         return Result.Success();
@@ -93,7 +104,9 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     internal Result MarkRejected()
     {
         if (ApprovalStatus != ApprovalState.PendingApproval)
+        {
             return CrmBriefErrors.NotPending;
+        }
 
         ApprovalStatus = ApprovalState.Rejected;
         return Result.Success();

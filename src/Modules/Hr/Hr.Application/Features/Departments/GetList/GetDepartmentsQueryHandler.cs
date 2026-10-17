@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using FluentValidation;
 using Hr.Contracts.Departments;
+using Hr.Domain;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -23,13 +24,15 @@ internal sealed class GetDepartmentsQueryHandler(HrDbContext db)
     public async Task<Result<PagedResult<DepartmentResponse>>> HandleAsync(
         GetDepartmentsQuery query, CancellationToken ct = default)
     {
-        var baseQuery = db.Departments.AsNoTracking();
+        IQueryable<Department> baseQuery = db.Departments.Where(d => d.IsActive).AsNoTracking();
         if (!string.IsNullOrWhiteSpace(query.NameFilter))
+        {
             baseQuery = baseQuery.Where(d => EF.Functions.ILike(d.Name, $"%{query.NameFilter}%"));
+        }
 
-        var totalCount = await baseQuery.CountAsync(ct);
+        int totalCount = await baseQuery.CountAsync(ct);
 
-        var items = await baseQuery
+        List<DepartmentResponse> items = await baseQuery
             .OrderBy(d => d.Name)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)

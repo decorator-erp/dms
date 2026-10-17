@@ -37,12 +37,16 @@ internal sealed class GrantPermissionOverrideCommandHandler(IdentityModuleDbCont
     public async Task<Result> HandleAsync(GrantPermissionOverrideCommand command, CancellationToken ct = default)
     {
         if (currentUser.UserId is null)
+        {
             return AuthErrors.UnAuthorization;
+        }
 
-        var alreadyExists = await db.UserPermissionOverrides.AnyAsync(
+        bool alreadyExists = await db.UserPermissionOverrides.AnyAsync(
             o => o.UserId == command.TargetUserId && o.Permission == command.Permission, ct);
         if (alreadyExists)
+        {
             return PermissionErrors.PermissionOverrideAlreadyExists(command.Permission);
+        }
 
         db.UserPermissionOverrides.Add(UserPermissionOverride.Grant(
             command.TargetUserId, command.Permission, currentUser.UserId, command.Reason, command.ExpiresAtUtc));

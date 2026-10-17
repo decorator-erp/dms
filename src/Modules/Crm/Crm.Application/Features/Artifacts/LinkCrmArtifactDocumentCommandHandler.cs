@@ -24,17 +24,21 @@ internal sealed class LinkCrmArtifactDocumentCommandHandler(CrmDbContext db, IDo
 {
     public async Task<Result<Guid>> HandleAsync(LinkCrmArtifactDocumentCommand command, CancellationToken ct = default)
     {
-        var document = await documentQueries.GetAsync(command.DocumentId, ct);
+        DocumentSummary? document = await documentQueries.GetAsync(command.DocumentId, ct);
         if (document is null)
+        {
             return Result.Failure<Guid>(CrmArtifactErrors.DocumentNotFound);
+        }
 
-        var result = CrmArtifactDocument.Create(
+        Result<CrmArtifactDocument> result = CrmArtifactDocument.Create(
             command.DocumentId, command.BriefId, command.SpaceId, command.RequirementItemId, command.MeetingId,
             command.AddedByEmployeeId, command.AddedByContactId);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var artifact = result.Value!;
+        CrmArtifactDocument artifact = result.Value!;
         db.CrmArtifactDocuments.Add(artifact);
         await db.SaveChangesAsync(ct);
 

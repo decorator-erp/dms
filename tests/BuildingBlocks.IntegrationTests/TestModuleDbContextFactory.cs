@@ -9,7 +9,7 @@ internal sealed class TestModuleDbContextFactory : IDesignTimeDbContextFactory<T
 {
     public TestModuleDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<TestModuleDbContext>()
+        DbContextOptionsBuilder<TestModuleDbContext> builder = new DbContextOptionsBuilder<TestModuleDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new TestModuleDbContext(builder.Options);

@@ -23,16 +23,20 @@ internal sealed class CreateCrmCatalogItemCommandHandler(CrmDbContext db) : ICom
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmCatalogItemCommand command, CancellationToken ct = default)
     {
-        var categoryExists = await db.CrmCatalogCategories.AnyAsync(c => c.Id == command.CategoryId, ct);
+        bool categoryExists = await db.CrmCatalogCategories.AnyAsync(c => c.Id == command.CategoryId, ct);
         if (!categoryExists)
+        {
             return Result.Failure<Guid>(CrmCatalogErrors.CategoryNotFound);
+        }
 
-        var result = CrmCatalogItem.Create(
+        Result<CrmCatalogItem> result = CrmCatalogItem.Create(
             command.CategoryId, command.Code, command.NameEn, command.NameAr, command.IsPurchasable, command.SortOrder);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var item = result.Value!;
+        CrmCatalogItem item = result.Value!;
         db.CrmCatalogItems.Add(item);
         await db.SaveChangesAsync(ct);
 

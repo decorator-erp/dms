@@ -2,7 +2,6 @@ using BuildingBlocks.Messaging;
 using Crm.Contracts.Clients;
 using Crm.Contracts.Spaces;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
@@ -40,9 +39,9 @@ internal static class SiteTestData
         var moduleId = Guid.CreateVersion7();
         var siteId = Guid.CreateVersion7();
         var recordId = Guid.CreateVersion7();
-        var owners = await SharedOwnersAsync(fixture);
-        var (projectId, employeeId) = (owners.ProjectId, owners.EmployeeId);
-        var suffix = Guid.NewGuid().ToString("N")[..8];
+        Owners owners = await SharedOwnersAsync(fixture);
+        (Guid projectId, Guid employeeId) = (owners.ProjectId, owners.EmployeeId);
+        string suffix = Guid.NewGuid().ToString("N")[..8];
 
         await ExecuteAsync(fixture, $"""
             INSERT INTO sites.site_modules
@@ -82,7 +81,7 @@ internal static class SiteTestData
     }
 
     // One shared project + employee per fixture, created on first use through the REAL commands of the
-    // modules that own those rows -- Identity's RegisterCommand, Hr's CreateEmployeeCommand, Crm's
+    // modules that own those rows -- Identity's IUserProvisioning, Hr's CreateEmployeeCommand, Crm's
     // CreateClientCommand, Projects' CreateProjectCommand -- exactly as Crm.Application.Tests does.
     //
     // Not raw SQL: seeding a site reaches four schemas deep (sites.sites -> projects.projects, whose
@@ -102,30 +101,24 @@ internal static class SiteTestData
         await Gate.WaitAsync();
         try
         {
-            if (_owners is { } existing) return existing;
+            if (_owners is { } existing)
+            {
+                return existing;
+            }
 
-            await using var scope = fixture.CreateScope();
-            var sp = scope.ServiceProvider;
-            var suffix = Guid.NewGuid().ToString("N");
+            await using AsyncServiceScope scope = fixture.CreateScope();
+            IServiceProvider sp = scope.ServiceProvider;
+            string suffix = Guid.NewGuid().ToString("N");
 
-            var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
+            (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+                sp, $"site-client-{suffix}@example.com");
 
-            var clientUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
-                $"site-client-{suffix}@example.com", "P@ssw0rd123!", "Test", "Client", null, "employee")))).Value!;
-
-            var clientId = (await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
-                .HandleAsync(new CreateClientCommand(clientUserId, "1 Test Way"))).Value;
-
-            var ownerUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
-                $"site-owner-{suffix}@example.com", "P@ssw0rd123!", "Owner", "Test", null, "employee")))).Value!;
-
-            var employeeId = (await sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>()
-                .HandleAsync(new CreateEmployeeCommand(
-                    ownerUserId, "Surveyor", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"))).Value;
+            (Guid employeeId, string ownerUserId) = await HrTestSeeding.HireEmployeeAsync(
+                sp, $"site-owner-{suffix}@example.com", jobTitle: "Surveyor", firstName: "Owner");
 
             sp.GetRequiredService<TestCurrentUser>().UserId = ownerUserId;
 
-            var projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
+            Guid projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
                 .HandleAsync(new CreateProjectCommand(
                     $"P-{suffix}"[..12], "Test Project", "12 Nasr Road", WorkflowType.Stage, clientId))).Value;
 
@@ -155,17 +148,17 @@ internal static class SiteTestData
     /// </summary>
     public static async Task<Guid> CreateSpaceInAnotherProjectAsync(SitesApplicationFixture fixture)
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var suffix = Guid.NewGuid().ToString("N");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var otherProjectId = await CreateAnotherProjectAsync(sp, suffix);
+        Guid otherProjectId = await CreateAnotherProjectAsync(sp, suffix);
 
-        var spaceTypeId = (await sp
+        Guid spaceTypeId = (await sp
             .GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
             .HandleAsync(new CreateCrmSpaceTypeCommand($"st{suffix[..6]}", "Bedroom", "غرفة"))).Value;
 
-        var spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
+        Guid spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
             .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom"))).Value;
 
         return spaceId;
@@ -182,8 +175,8 @@ internal static class SiteTestData
     private static async Task<Guid> CreateDocumentAsync(
         SitesApplicationFixture fixture, bool sameProject)
     {
-        var owners = await SharedOwnersAsync(fixture);
-        var suffix = Guid.NewGuid().ToString("N");
+        Owners owners = await SharedOwnersAsync(fixture);
+        string suffix = Guid.NewGuid().ToString("N");
 
         Guid projectId;
         if (sameProject)
@@ -192,7 +185,7 @@ internal static class SiteTestData
         }
         else
         {
-            await using var scope = fixture.CreateScope();
+            await using AsyncServiceScope scope = fixture.CreateScope();
             projectId = await CreateAnotherProjectAsync(scope.ServiceProvider, suffix);
         }
 
@@ -220,13 +213,8 @@ internal static class SiteTestData
         // employee -- the shared owner is the one this fixture has.
         sp.GetRequiredService<TestCurrentUser>().UserId = OwnerUserId;
 
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-
-        var clientUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
-            $"other-client-{suffix}@example.com", "P@ssw0rd123!", "Other", "Client", null, "employee")))).Value!;
-
-        var clientId = (await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
-            .HandleAsync(new CreateClientCommand(clientUserId, "2 Other Way"))).Value;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"other-client-{suffix}@example.com", address: "2 Other Way", firstName: "Other");
 
         return (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
             .HandleAsync(new CreateProjectCommand(

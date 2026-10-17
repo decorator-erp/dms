@@ -30,23 +30,29 @@ internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(RequestCrmMeetingByClientCommand command, CancellationToken ct = default)
     {
-        var periodCheck = await MeetingSupport.ValidatePeriodAsync(db, command.ProjectId, command.PeriodId, ct);
+        Result periodCheck = await MeetingSupport.ValidatePeriodAsync(db, command.ProjectId, command.PeriodId, ct);
         if (periodCheck.IsFailure)
+        {
             return Result.Failure<Guid>(periodCheck.Error);
+        }
 
-        var meetingResult = CrmMeeting.Create(
+        Result<CrmMeeting> meetingResult = CrmMeeting.Create(
             command.ProjectId, command.PeriodId, command.Title, CrmEnumMapping.ToDomain(command.Type),
             requestedByEmployeeId: null, requestedByContactId: command.RequestedByContactId,
             location: command.Location);
         if (meetingResult.IsFailure)
+        {
             return Result.Failure<Guid>(meetingResult.Error);
+        }
 
-        var meeting = meetingResult.Value!;
-        var slotResult = CrmMeetingSlot.Create(
+        CrmMeeting meeting = meetingResult.Value!;
+        Result<CrmMeetingSlot> slotResult = CrmMeetingSlot.Create(
             meeting.Id, command.StartsAtUtc, command.EndsAtUtc,
             proposedByEmployeeId: null, proposedByContactId: command.RequestedByContactId, nowUtc: DateTime.UtcNow);
         if (slotResult.IsFailure)
+        {
             return Result.Failure<Guid>(slotResult.Error);
+        }
 
         db.CrmMeetings.Add(meeting);
         db.CrmMeetingSlots.Add(slotResult.Value!);

@@ -30,23 +30,29 @@ internal sealed class LoginCommandHandler(
 {
     public async Task<Result<AuthResponse>> HandleAsync(LoginCommand command, CancellationToken ct = default)
     {
-        var request = command.Request;
+        LoginRequest request = command.Request;
 
-        var user = await userManager.FindByEmailAsync(request.Email);
+        ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
         if (user is null)
+        {
             return AuthErrors.InvalidCredentials;
+        }
+       
+        if (!await userManager.CheckPasswordAsync(user, request.Password))
+        {
+            return AuthErrors.InvalidCredentials;
+        }
 
         if (!user.IsActive)
+        {
             return AuthErrors.UserNotActive;
+        }
 
-        if (!await userManager.CheckPasswordAsync(user, request.Password))
-            return AuthErrors.InvalidCredentials;
+        IList<string> roles = await userManager.GetRolesAsync(user);
+        (string? token, int expireMinutes) = await jwtProvider.GenerateTokenAsync(user, roles, ct);
 
-        var roles = await userManager.GetRolesAsync(user);
-        var (token, expireMinutes) = await jwtProvider.GenerateTokenAsync(user, roles, ct);
-
-        var utcNow = DateTime.UtcNow;
-        var refreshToken = user.IssueRefreshToken(
+        DateTime utcNow = DateTime.UtcNow;
+        Domain.RefreshToken refreshToken = user.IssueRefreshToken(
             GenerateRefreshTokenValue(), utcNow, TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
         user.UpdateLastLogin();
 

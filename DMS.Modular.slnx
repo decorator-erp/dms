@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Api/Api.csproj" />
     <Project Path="src/BuildingBlocks.Web/BuildingBlocks.Web.csproj" />
@@ -13,10 +18,10 @@
     <Project Path="src/Modules/Approvals/Approvals.Infrastructure/Approvals.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Projects/">
+    <Project Path="src/Modules/Projects/Projects.Application/Projects.Application.csproj" />
     <Project Path="src/Modules/Projects/Projects.Contracts/Projects.Contracts.csproj" />
     <Project Path="src/Modules/Projects/Projects.Domain/Projects.Domain.csproj" />
     <Project Path="src/Modules/Projects/Projects.Infrastructure/Projects.Infrastructure.csproj" />
-    <Project Path="src/Modules/Projects/Projects.Application/Projects.Application.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Hr/">
     <Project Path="src/Modules/Hr/Hr.Application/Hr.Application.csproj" />
@@ -31,34 +36,34 @@
     <Project Path="src/Modules/Identity/Identity.Infrastructure/Identity.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Documents/">
+    <Project Path="src/Modules/Documents/Documents.Application/Documents.Application.csproj" />
     <Project Path="src/Modules/Documents/Documents.Contracts/Documents.Contracts.csproj" />
     <Project Path="src/Modules/Documents/Documents.Domain/Documents.Domain.csproj" />
     <Project Path="src/Modules/Documents/Documents.Infrastructure/Documents.Infrastructure.csproj" />
-    <Project Path="src/Modules/Documents/Documents.Application/Documents.Application.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Crm/">
+    <Project Path="src/Modules/Crm/Crm.Application/Crm.Application.csproj" />
     <Project Path="src/Modules/Crm/Crm.Contracts/Crm.Contracts.csproj" />
     <Project Path="src/Modules/Crm/Crm.Domain/Crm.Domain.csproj" />
     <Project Path="src/Modules/Crm/Crm.Infrastructure/Crm.Infrastructure.csproj" />
-    <Project Path="src/Modules/Crm/Crm.Application/Crm.Application.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Sites/">
+    <Project Path="src/Modules/Sites/Sites.Application/Sites.Application.csproj" />
     <Project Path="src/Modules/Sites/Sites.Contracts/Sites.Contracts.csproj" />
     <Project Path="src/Modules/Sites/Sites.Domain/Sites.Domain.csproj" />
     <Project Path="src/Modules/Sites/Sites.Infrastructure/Sites.Infrastructure.csproj" />
-    <Project Path="src/Modules/Sites/Sites.Application/Sites.Application.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Notifications/">
+    <Project Path="src/Modules/Notifications/Notifications.Application/Notifications.Application.csproj" />
     <Project Path="src/Modules/Notifications/Notifications.Contracts/Notifications.Contracts.csproj" />
     <Project Path="src/Modules/Notifications/Notifications.Domain/Notifications.Domain.csproj" />
     <Project Path="src/Modules/Notifications/Notifications.Infrastructure/Notifications.Infrastructure.csproj" />
-    <Project Path="src/Modules/Notifications/Notifications.Application/Notifications.Application.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Finance/">
+    <Project Path="src/Modules/Finance/Finance.Application/Finance.Application.csproj" />
     <Project Path="src/Modules/Finance/Finance.Contracts/Finance.Contracts.csproj" />
     <Project Path="src/Modules/Finance/Finance.Domain/Finance.Domain.csproj" />
     <Project Path="src/Modules/Finance/Finance.Infrastructure/Finance.Infrastructure.csproj" />
-    <Project Path="src/Modules/Finance/Finance.Application/Finance.Application.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
@@ -69,28 +74,28 @@
   <Folder Name="/tests/Modules/">
     <Project Path="tests/Modules/Approvals.Application.Tests/Approvals.Application.Tests.csproj" />
     <Project Path="tests/Modules/Approvals.UnitTests/Approvals.UnitTests.csproj" />
-    <Project Path="tests/Modules/Projects.Application.Tests/Projects.Application.Tests.csproj" />
-    <Project Path="tests/Modules/Projects.Infrastructure.Tests/Projects.Infrastructure.Tests.csproj" />
-    <Project Path="tests/Modules/Projects.UnitTests/Projects.UnitTests.csproj" />
+    <Project Path="tests/Modules/Crm.Application.Tests/Crm.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Crm.Infrastructure.Tests/Crm.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Crm.UnitTests/Crm.UnitTests.csproj" />
+    <Project Path="tests/Modules/Documents.Application.Tests/Documents.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Documents.Infrastructure.Tests/Documents.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Documents.UnitTests/Documents.UnitTests.csproj" />
+    <Project Path="tests/Modules/Finance.Application.Tests/Finance.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Finance.Infrastructure.Tests/Finance.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Finance.UnitTests/Finance.UnitTests.csproj" />
     <Project Path="tests/Modules/Hr.Application.Tests/Hr.Application.Tests.csproj" />
     <Project Path="tests/Modules/Hr.Infrastructure.Tests/Hr.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Hr.UnitTests/Hr.UnitTests.csproj" />
     <Project Path="tests/Modules/Identity.Application.Tests/Identity.Application.Tests.csproj" />
     <Project Path="tests/Modules/Identity.Infrastructure.Tests/Identity.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Identity.UnitTests/Identity.UnitTests.csproj" />
-    <Project Path="tests/Modules/Documents.UnitTests/Documents.UnitTests.csproj" />
-    <Project Path="tests/Modules/Documents.Infrastructure.Tests/Documents.Infrastructure.Tests.csproj" />
-    <Project Path="tests/Modules/Documents.Application.Tests/Documents.Application.Tests.csproj" />
-    <Project Path="tests/Modules/Crm.UnitTests/Crm.UnitTests.csproj" />
-    <Project Path="tests/Modules/Crm.Infrastructure.Tests/Crm.Infrastructure.Tests.csproj" />
-    <Project Path="tests/Modules/Crm.Application.Tests/Crm.Application.Tests.csproj" />
-    <Project Path="tests/Modules/Finance.UnitTests/Finance.UnitTests.csproj" />
-    <Project Path="tests/Modules/Finance.Infrastructure.Tests/Finance.Infrastructure.Tests.csproj" />
-    <Project Path="tests/Modules/Finance.Application.Tests/Finance.Application.Tests.csproj" />
-    <Project Path="tests/Modules/Sites.UnitTests/Sites.UnitTests.csproj" />
-    <Project Path="tests/Modules/Sites.Infrastructure.Tests/Sites.Infrastructure.Tests.csproj" />
-    <Project Path="tests/Modules/Sites.Application.Tests/Sites.Application.Tests.csproj" />
-    <Project Path="tests/Modules/Notifications.UnitTests/Notifications.UnitTests.csproj" />
     <Project Path="tests/Modules/Notifications.Infrastructure.Tests/Notifications.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Notifications.UnitTests/Notifications.UnitTests.csproj" />
+    <Project Path="tests/Modules/Projects.Application.Tests/Projects.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Projects.Infrastructure.Tests/Projects.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Projects.UnitTests/Projects.UnitTests.csproj" />
+    <Project Path="tests/Modules/Sites.Application.Tests/Sites.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Sites.Infrastructure.Tests/Sites.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Modules/Sites.UnitTests/Sites.UnitTests.csproj" />
   </Folder>
 </Solution>

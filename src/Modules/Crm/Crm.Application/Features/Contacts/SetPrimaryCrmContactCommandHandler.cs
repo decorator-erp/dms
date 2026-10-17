@@ -24,13 +24,17 @@ internal sealed class SetPrimaryCrmContactCommandHandler(CrmDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(SetPrimaryCrmContactCommand command, CancellationToken ct = default)
     {
-        var contacts = await db.CrmContacts.Where(c => c.ClientId == command.ClientId).ToListAsync(ct);
-        var target = contacts.FirstOrDefault(c => c.Id == command.ContactId);
+        List<CrmContact> contacts = await db.CrmContacts.Where(c => c.ClientId == command.ClientId).ToListAsync(ct);
+        CrmContact? target = contacts.FirstOrDefault(c => c.Id == command.ContactId);
         if (target is null)
+        {
             return CrmContactErrors.NotFound;
+        }
 
-        foreach (var contact in contacts.Where(c => c.IsPrimary && c.Id != command.ContactId))
+        foreach (CrmContact? contact in contacts.Where(c => c.IsPrimary && c.Id != command.ContactId))
+        {
             contact.ClearPrimary();
+        }
 
         target.MarkPrimary();
         await db.SaveChangesAsync(ct);

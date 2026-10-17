@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Documents.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Domain = Projects.Domain;
 
@@ -47,14 +48,16 @@ internal sealed class DocumentUploadedIntegrationEventHandler(ProjectsDbContext 
                 .FirstOrDefaultAsync(ct);
         }
 
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.ConditionType == Domain.ConditionType.Attachment && g.Status == Domain.GateStatus.Pending)
             .Where(g =>
-                (@event.ProjectTaskId != null && g.ProjectTaskId == @event.ProjectTaskId) ||
-                (owningStageId != null && g.ProjectStageId == owningStageId))
+                @event.ProjectTaskId != null && g.ProjectTaskId == @event.ProjectTaskId ||
+                owningStageId != null && g.ProjectStageId == owningStageId)
             .ToListAsync(ct);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(null);
+        }
     }
 }

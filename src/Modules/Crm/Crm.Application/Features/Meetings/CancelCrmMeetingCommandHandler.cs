@@ -29,28 +29,36 @@ internal sealed class CancelCrmMeetingCommandHandler(CrmDbContext db, IProjectDi
 {
     public async Task<Result> HandleAsync(CancelCrmMeetingCommand command, CancellationToken ct = default)
     {
-        var meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
         if (meeting is null)
+        {
             return CrmMeetingErrors.NotFound;
+        }
 
-        var scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
+        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
             db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
         if (scoped.IsFailure)
+        {
             return scoped.Error;
+        }
 
-        var now = DateTime.UtcNow;
-        var canceled = meeting.Cancel(command.Reason, now);
+        DateTime now = DateTime.UtcNow;
+        Result canceled = meeting.Cancel(command.Reason, now);
         if (canceled.IsFailure)
+        {
             return canceled.Error;
+        }
 
-        var proposed = await db.CrmMeetingSlots
+        List<CrmMeetingSlot> proposed = await db.CrmMeetingSlots
             .Where(s => s.MeetingId == command.MeetingId && s.Status == MeetingSlotStatus.Proposed)
             .ToListAsync(ct);
-        foreach (var slot in proposed)
+        foreach (CrmMeetingSlot? slot in proposed)
         {
-            var declined = slot.Decline();
+            Result declined = slot.Decline();
             if (declined.IsFailure)
+            {
                 return declined.Error;
+            }
         }
 
         await db.SaveChangesAsync(ct);

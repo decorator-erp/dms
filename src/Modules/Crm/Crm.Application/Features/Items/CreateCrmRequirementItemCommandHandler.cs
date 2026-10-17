@@ -24,19 +24,23 @@ internal sealed class CreateCrmRequirementItemCommandHandler(CrmDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmRequirementItemCommand command, CancellationToken ct = default)
     {
-        var periodExists = await db.CrmRequirementPeriods.AnyAsync(p => p.Id == command.PeriodId, ct);
+        bool periodExists = await db.CrmRequirementPeriods.AnyAsync(p => p.Id == command.PeriodId, ct);
         if (!periodExists)
+        {
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
+        }
 
-        var result = CrmRequirementItem.CreateByEmployee(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateByEmployee(
             command.ProjectId, command.PeriodId, command.EmployeeId, CrmEnumMapping.ToDomain(command.Category),
             command.Title, CrmEnumMapping.ToDomain(command.Priority), command.SpaceTypeId, command.Room,
             command.Description, command.SourceType is { } st ? CrmEnumMapping.ToDomain(st) : null,
             command.MeetingId, command.BriefId, command.NoteId, command.ProjectTaskId);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var item = result.Value!;
+        CrmRequirementItem item = result.Value!;
         db.CrmRequirementItems.Add(item);
         await db.SaveChangesAsync(ct);
 

@@ -5,8 +5,9 @@ using Crm.Contracts.Contacts;
 using Crm.Contracts.Leads;
 using Crm.Contracts.Notes;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
+using Identity.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.Application.Tests;
@@ -20,39 +21,61 @@ namespace Crm.Application.Tests;
 [Collection(CrmApplicationCollection.Name)]
 public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
 {
+    /// <summary>
+    /// Replaces <c>CreateClient_WithUnknownAppUserId_IsRejected</c>, whose subject is gone: the command
+    /// no longer takes an <c>AppUserId</c>, so there is no unknown one to pass. What is worth asserting
+    /// in its place is the portal-login gate — the client's account exists but cannot be used until
+    /// <c>ClientCreatedIntegrationEvent</c> is delivered.
+    /// </summary>
     [Fact]
-    public async Task CreateClient_WithUnknownAppUserId_IsRejected()
+    public async Task CreateClient_provisions_an_inactive_portal_login_until_the_outbox_delivers()
     {
-        await using var scope = fixture.CreateScope();
-        var create = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var result = await create.HandleAsync(new CreateClientCommand("no-such-user", "123 Main St"));
+        Result<Guid> created = await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
+            .HandleAsync(new CreateClientCommand(
+                $"portal-{Guid.NewGuid():N}@example.com", IdentityTestSeeding.Password,
+                "Portal", "Client", "123 Main St"));
+        Assert.True(created.IsSuccess, created.IsFailure ? created.Error.ToString() : null);
 
-        Assert.True(result.IsFailure);
+        ClientSummary client = (await sp.GetRequiredService<IClientDirectory>()
+            .GetAsync(created.Value, CancellationToken.None))!;
+
+        IUserDirectory userDirectory = sp.GetRequiredService<IUserDirectory>();
+
+        UserSummary beforeDrain = (await userDirectory.GetAsync(client.AppUserId, CancellationToken.None))!;
+        Assert.False(
+            beforeDrain.IsActive,
+            "A new client's portal login was already active before ClientCreatedIntegrationEvent was "
+            + "delivered. CreateClientCommandHandler must not activate inline.");
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.True(
+            (await userDirectory.GetAsync(client.AppUserId, CancellationToken.None))!.IsActive,
+            "The client-created event was delivered but the portal login was never activated.");
     }
 
     [Fact]
     public async Task CreateClient_AddChild_UpdateProfile_RoundTrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var appUserId = await RegisterIdentityUserAsync(sp, "client-owner");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var create = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var createResult = await create.HandleAsync(new CreateClientCommand(appUserId, "123 Main St", "some notes"));
-        Assert.True(createResult.IsSuccess);
-        var clientId = createResult.Value;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"client-owner-{Guid.NewGuid():N}@example.com", address: "123 Main St");
 
-        var addChild = sp.GetRequiredService<ICommandHandler<AddClientChildCommand, Guid>>();
-        var addChildResult = await addChild.HandleAsync(new AddClientChildCommand(clientId, 'M', 8));
+        ICommandHandler<AddClientChildCommand, Guid> addChild = sp.GetRequiredService<ICommandHandler<AddClientChildCommand, Guid>>();
+        Result<Guid> addChildResult = await addChild.HandleAsync(new AddClientChildCommand(clientId, 'M', 8));
         Assert.True(addChildResult.IsSuccess);
 
-        var updateProfile = sp.GetRequiredService<ICommandHandler<UpdateClientProfileCommand>>();
+        ICommandHandler<UpdateClientProfileCommand> updateProfile = sp.GetRequiredService<ICommandHandler<UpdateClientProfileCommand>>();
         Assert.True((await updateProfile.HandleAsync(
             new UpdateClientProfileCommand(clientId, JobTitle: "Architect"))).IsSuccess);
 
-        var getById = sp.GetRequiredService<IQueryHandler<GetClientByIdQuery, ClientResponse>>();
-        var response = await getById.HandleAsync(new GetClientByIdQuery(clientId));
+        IQueryHandler<GetClientByIdQuery, ClientResponse> getById = sp.GetRequiredService<IQueryHandler<GetClientByIdQuery, ClientResponse>>();
+        Result<ClientResponse> response = await getById.HandleAsync(new GetClientByIdQuery(clientId));
 
         Assert.True(response.IsSuccess);
         Assert.Equal("Architect", response.Value!.JobTitle);
@@ -62,30 +85,29 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task LeadLifecycle_CreateChangeStatusConvert_PublishesLeadConverted()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var ownerId = await SeedEmployeeAsync(sp, "lead-owner");
-        var clientAppUserId = await RegisterIdentityUserAsync(sp, "convert-target");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid ownerId = await SeedEmployeeAsync(sp, "lead-owner");
 
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var clientId = (await createClient.HandleAsync(new CreateClientCommand(clientAppUserId, "999 Oak Ave"))).Value;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"convert-target-{Guid.NewGuid():N}@example.com", address: "999 Oak Ave");
 
-        var createLead = sp.GetRequiredService<ICommandHandler<CreateCrmLeadCommand, Guid>>();
-        var leadResult = await createLead.HandleAsync(
+        ICommandHandler<CreateCrmLeadCommand, Guid> createLead = sp.GetRequiredService<ICommandHandler<CreateCrmLeadCommand, Guid>>();
+        Result<Guid> leadResult = await createLead.HandleAsync(
             new CreateCrmLeadCommand("Jane", "Prospect", LeadSource.Website, ownerId));
         Assert.True(leadResult.IsSuccess);
-        var leadId = leadResult.Value;
+        Guid leadId = leadResult.Value;
 
-        var changeStatus = sp.GetRequiredService<ICommandHandler<ChangeCrmLeadStatusCommand>>();
+        ICommandHandler<ChangeCrmLeadStatusCommand> changeStatus = sp.GetRequiredService<ICommandHandler<ChangeCrmLeadStatusCommand>>();
         Assert.True((await changeStatus.HandleAsync(new ChangeCrmLeadStatusCommand(leadId, LeadStatus.Qualified))).IsSuccess);
 
-        var convert = sp.GetRequiredService<ICommandHandler<ConvertCrmLeadCommand, Guid>>();
-        var convertResult = await convert.HandleAsync(new ConvertCrmLeadCommand(leadId, clientId));
+        ICommandHandler<ConvertCrmLeadCommand, Guid> convert = sp.GetRequiredService<ICommandHandler<ConvertCrmLeadCommand, Guid>>();
+        Result<Guid> convertResult = await convert.HandleAsync(new ConvertCrmLeadCommand(leadId, clientId));
         Assert.True(convertResult.IsSuccess);
         Assert.Equal(clientId, convertResult.Value);
 
-        var getLead = sp.GetRequiredService<IQueryHandler<GetCrmLeadByIdQuery, CrmLeadResponse>>();
-        var lead = await getLead.HandleAsync(new GetCrmLeadByIdQuery(leadId));
+        IQueryHandler<GetCrmLeadByIdQuery, CrmLeadResponse> getLead = sp.GetRequiredService<IQueryHandler<GetCrmLeadByIdQuery, CrmLeadResponse>>();
+        Result<CrmLeadResponse> lead = await getLead.HandleAsync(new GetCrmLeadByIdQuery(leadId));
         Assert.Equal(LeadStatus.Converted, lead.Value!.Status);
         Assert.Equal(clientId, lead.Value.ConvertedClientId);
     }
@@ -93,19 +115,19 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task LeadIntake_SaveThenRead_RoundTrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var ownerId = await SeedEmployeeAsync(sp, "intake-owner");
-        var createLead = sp.GetRequiredService<ICommandHandler<CreateCrmLeadCommand, Guid>>();
-        var leadId = (await createLead.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid ownerId = await SeedEmployeeAsync(sp, "intake-owner");
+        ICommandHandler<CreateCrmLeadCommand, Guid> createLead = sp.GetRequiredService<ICommandHandler<CreateCrmLeadCommand, Guid>>();
+        Guid leadId = (await createLead.HandleAsync(
             new CreateCrmLeadCommand("Sam", "Intake", LeadSource.Referral, ownerId))).Value;
 
-        var saveIntake = sp.GetRequiredService<ICommandHandler<SaveCrmLeadIntakeCommand>>();
+        ICommandHandler<SaveCrmLeadIntakeCommand> saveIntake = sp.GetRequiredService<ICommandHandler<SaveCrmLeadIntakeCommand>>();
         var intakeData = new CrmLeadIntakeData(JobTitle: "Manager", Sector: ProjectSector.Residential);
         Assert.True((await saveIntake.HandleAsync(new SaveCrmLeadIntakeCommand(leadId, intakeData))).IsSuccess);
 
-        var getIntake = sp.GetRequiredService<IQueryHandler<GetCrmLeadIntakeQuery, CrmLeadIntakeResponse>>();
-        var intake = await getIntake.HandleAsync(new GetCrmLeadIntakeQuery(leadId));
+        IQueryHandler<GetCrmLeadIntakeQuery, CrmLeadIntakeResponse> getIntake = sp.GetRequiredService<IQueryHandler<GetCrmLeadIntakeQuery, CrmLeadIntakeResponse>>();
+        Result<CrmLeadIntakeResponse> intake = await getIntake.HandleAsync(new GetCrmLeadIntakeQuery(leadId));
 
         Assert.True(intake.IsSuccess);
         Assert.Equal("Manager", intake.Value!.Data.JobTitle);
@@ -115,26 +137,25 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task ContactLifecycle_CreateTwoContacts_SetPrimary_DemotesThePrevious()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var appUserId = await RegisterIdentityUserAsync(sp, "contact-owner");
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var clientId = (await createClient.HandleAsync(new CreateClientCommand(appUserId, "1 Elm St"))).Value;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"contact-owner-{Guid.NewGuid():N}@example.com", address: "1 Elm St");
 
-        var createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
-        var firstResult = await createContact.HandleAsync(
+        ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
+        Result<Guid> firstResult = await createContact.HandleAsync(
             new CreateCrmContactCommand(clientId, "Alice", "Owner", ContactRole.Owner, IsPrimary: true));
-        var secondResult = await createContact.HandleAsync(
+        Result<Guid> secondResult = await createContact.HandleAsync(
             new CreateCrmContactCommand(clientId, "Bob", "Spouse", ContactRole.Spouse, IsPrimary: false));
         Assert.True(firstResult.IsSuccess);
         Assert.True(secondResult.IsSuccess);
 
-        var setPrimary = sp.GetRequiredService<ICommandHandler<SetPrimaryCrmContactCommand>>();
+        ICommandHandler<SetPrimaryCrmContactCommand> setPrimary = sp.GetRequiredService<ICommandHandler<SetPrimaryCrmContactCommand>>();
         Assert.True((await setPrimary.HandleAsync(
             new SetPrimaryCrmContactCommand(clientId, secondResult.Value))).IsSuccess);
 
-        var getContacts = sp.GetRequiredService<IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>>>();
-        var contacts = (await getContacts.HandleAsync(new GetCrmContactsByClientQuery(clientId))).Value!;
+        IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>> getContacts = sp.GetRequiredService<IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>>>();
+        IReadOnlyList<CrmContactResponse> contacts = (await getContacts.HandleAsync(new GetCrmContactsByClientQuery(clientId))).Value!;
 
         Assert.True(contacts.Single(c => c.Id == secondResult.Value).IsPrimary);
         Assert.False(contacts.Single(c => c.Id == firstResult.Value).IsPrimary);
@@ -143,27 +164,26 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task ClientNote_CreateUpdateDelete_RoundTrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var appUserId = await RegisterIdentityUserAsync(sp, "note-owner");
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var clientId = (await createClient.HandleAsync(new CreateClientCommand(appUserId, "2 Elm St"))).Value;
-        var writtenById = await SeedEmployeeAsync(sp, "note-writer");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"note-owner-{Guid.NewGuid():N}@example.com", address: "2 Elm St");
+        Guid writtenById = await SeedEmployeeAsync(sp, "note-writer");
 
-        var createNote = sp.GetRequiredService<ICommandHandler<CreateCrmClientNoteCommand, Guid>>();
-        var noteResult = await createNote.HandleAsync(
+        ICommandHandler<CreateCrmClientNoteCommand, Guid> createNote = sp.GetRequiredService<ICommandHandler<CreateCrmClientNoteCommand, Guid>>();
+        Result<Guid> noteResult = await createNote.HandleAsync(
             new CreateCrmClientNoteCommand(clientId, null, "first note", writtenById));
         Assert.True(noteResult.IsSuccess);
 
-        var updateNote = sp.GetRequiredService<ICommandHandler<UpdateCrmClientNoteCommand>>();
+        ICommandHandler<UpdateCrmClientNoteCommand> updateNote = sp.GetRequiredService<ICommandHandler<UpdateCrmClientNoteCommand>>();
         Assert.True((await updateNote.HandleAsync(
             new UpdateCrmClientNoteCommand(noteResult.Value, "revised note"))).IsSuccess);
 
-        var getNotes = sp.GetRequiredService<IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>>>();
-        var notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
+        IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>> getNotes = sp.GetRequiredService<IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>>>();
+        IReadOnlyList<CrmClientNoteResponse> notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
         Assert.Equal("revised note", notes.Single().Content);
 
-        var deleteNote = sp.GetRequiredService<ICommandHandler<DeleteCrmClientNoteCommand>>();
+        ICommandHandler<DeleteCrmClientNoteCommand> deleteNote = sp.GetRequiredService<ICommandHandler<DeleteCrmClientNoteCommand>>();
         Assert.True((await deleteNote.HandleAsync(new DeleteCrmClientNoteCommand(noteResult.Value))).IsSuccess);
 
         notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
@@ -176,12 +196,10 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     /// own <c>CrmTestSeeding</c> for the <c>ClientId</c> FK ripple.</summary>
     private static async Task<Guid> SeedEmployeeAsync(IServiceProvider sp, string label)
     {
-        var appUserId = await RegisterIdentityUserAsync(sp, label);
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var result = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Staff", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(result.IsSuccess);
-        return result.Value;
+        (Guid employeeId, _) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"{label}-{Guid.NewGuid():N}@example.com", jobTitle: "Staff", lastName: label);
+
+        return employeeId;
     }
 
     /// <summary>
@@ -196,11 +214,8 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
     /// </summary>
     private static async Task<string> RegisterIdentityUserAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var result = await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")));
-        Assert.True(result.IsSuccess);
-        return result.Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        return await IdentityTestSeeding.ProvisionActiveUserAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
     }
 }

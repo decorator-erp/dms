@@ -38,9 +38,9 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
     [Fact]
     public async Task Seeding_twice_produces_the_same_rows()
     {
-        var module = ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -68,14 +68,14 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
-        await using (var migrateServices = BuildProvider(module, configuration))
+        await using (ServiceProvider migrateServices = BuildProvider(module, configuration))
         {
-            using var scope = migrateServices.CreateScope();
+            using IServiceScope scope = migrateServices.CreateScope();
             await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
         }
 
-        var (roles1, claims1, users1) = await SeedOnceAsync(module, configuration);
-        var (roles2, claims2, users2) = await SeedOnceAsync(module, configuration);
+        (int roles1, int claims1, int users1) = await SeedOnceAsync(module, configuration);
+        (int roles2, int claims2, int users2) = await SeedOnceAsync(module, configuration);
 
         Assert.Equal(roles1, roles2);
         Assert.Equal(claims1, claims2);
@@ -92,12 +92,12 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
     private static async Task<(int Roles, int RoleClaims, int Users)> SeedOnceAsync(
         IModule module, IConfiguration configuration)
     {
-        await using var services = BuildProvider(module, configuration);
-        using var scope = services.CreateScope();
+        await using ServiceProvider services = BuildProvider(module, configuration);
+        using IServiceScope scope = services.CreateScope();
 
         await module.SeedAsync(scope.ServiceProvider);
 
-        var db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
         return (await db.Roles.CountAsync(), await db.RoleClaims.CountAsync(), await db.Users.CountAsync());
     }
 

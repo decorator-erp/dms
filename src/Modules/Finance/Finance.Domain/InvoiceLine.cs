@@ -50,17 +50,23 @@ internal sealed class InvoiceLine : Entity, IAuditable
         Guid? budgetLineId = null)
     {
         if (string.IsNullOrWhiteSpace(description))
+        {
             return InvoiceLineErrors.DescriptionRequired;
+        }
 
         if (quantity <= 0)
+        {
             return InvoiceLineErrors.InvalidQuantity;
+        }
 
         // DIVERGENCE (backend defect). The backend guards quantity but not unit price, so a negative
         // price produces a negative LineTotal, silently reducing the invoice header total and, through
         // the BOQ purchase total, the project's reported spend. Zero stays legal - a no-charge line is
         // a real thing.
         if (unitPrice < 0)
+        {
             return InvoiceLineErrors.InvalidUnitPrice;
+        }
 
         return new InvoiceLine
         {

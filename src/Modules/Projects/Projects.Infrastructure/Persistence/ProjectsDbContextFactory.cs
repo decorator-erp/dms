@@ -10,7 +10,7 @@ internal sealed class ProjectsDbContextFactory : IDesignTimeDbContextFactory<Pro
 {
     public ProjectsDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<ProjectsDbContext>()
+        DbContextOptionsBuilder<ProjectsDbContext> builder = new DbContextOptionsBuilder<ProjectsDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new ProjectsDbContext(builder.Options);

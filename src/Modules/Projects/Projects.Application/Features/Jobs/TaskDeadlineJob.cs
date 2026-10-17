@@ -23,9 +23,9 @@ internal sealed class TaskDeadlineJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-        var windowStart = now.AddDays(-30); // bound the overdue scan; dedupe already stops repeats.
-        var windowEnd = now.AddDays(3);     // earliest tier is -3d.
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime windowStart = now.AddDays(-30); // bound the overdue scan; dedupe already stops repeats.
+        DateTime windowEnd = now.AddDays(3);     // earliest tier is -3d.
 
         var tasks = await db.ProjectTasks
             .AsNoTracking()
@@ -39,7 +39,9 @@ internal sealed class TaskDeadlineJob(
         foreach (var task in tasks)
         {
             if (DeadlineTiers.MostRelevant(now, task.Due, Tiers) is not { } tier)
+            {
                 continue;
+            }
 
             Guid? stageHeadId = null;
             if (task.ProjectStageId is { } stageId)
@@ -55,15 +57,19 @@ internal sealed class TaskDeadlineJob(
             Guid[] employeeIds =
                 [.. new[] { task.AssignedToId, stageHeadId }.Where(id => id is not null).Select(id => id!.Value).Distinct()];
             if (employeeIds.Length == 0)
+            {
                 continue;
+            }
 
-            var employees = await hrDirectory.GetManyAsync(employeeIds, ct);
+            IReadOnlyList<EmployeeSummary> employees = await hrDirectory.GetManyAsync(employeeIds, ct);
             var targets = employees.Select(e => e.AppUserId)
                 .Where(id => !string.IsNullOrEmpty(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (targets.Count == 0)
+            {
                 continue;
+            }
 
             await notifications.NotifyManyAsync(
                 targets,

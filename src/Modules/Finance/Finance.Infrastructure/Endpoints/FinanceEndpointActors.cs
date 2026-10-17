@@ -27,9 +27,11 @@ internal static class FinanceEndpointActors
         IHrDirectory directory, ICurrentUser currentUser, CancellationToken ct)
     {
         if (currentUser.UserId is not { } appUserId)
+        {
             return FinanceActorErrors.InvalidActor;
+        }
 
-        var employeeId = await directory.ResolveEmployeeIdAsync(appUserId, ct);
+        Guid? employeeId = await directory.ResolveEmployeeIdAsync(appUserId, ct);
 
         return employeeId is { } id ? id : FinanceActorErrors.InvalidActor;
     }

@@ -28,14 +28,18 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmDesignBriefCommand command, CancellationToken ct = default)
     {
-        var project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
         if (project is null)
+        {
             return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+        }
 
-        var alreadyExists = await db.CrmDesignBriefs.AnyAsync(
+        bool alreadyExists = await db.CrmDesignBriefs.AnyAsync(
             b => b.ProjectId == command.ProjectId && b.ProjectStageId == command.ProjectStageId, ct);
         if (alreadyExists)
+        {
             return Result.Failure<Guid>(CrmBriefErrors.NotDraft);
+        }
 
         var brief = CrmDesignBrief.Create(
             command.ProjectId, command.CreatedById, command.ProjectStageId, BriefMapping.ToDomain(command.Data));

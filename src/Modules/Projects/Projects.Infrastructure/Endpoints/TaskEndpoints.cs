@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Projects.Contracts;
 using Projects.Contracts.Tasks;
+using SharedKernel;
 
 namespace Projects.Infrastructure.Endpoints;
 
@@ -17,13 +18,13 @@ internal sealed class TaskEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
+        RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
 
         group.MapGet("/", async (
             Guid projectId, ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -31,7 +32,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             IQueryHandler<GetProjectTaskQuery, ProjectTaskResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectTaskQuery(projectId, taskId, currentUser.UserId!), ct);
+            Result<ProjectTaskResponse> result = await handler.HandleAsync(new GetProjectTaskQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -39,7 +40,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, AssignTaskRequest request, ICurrentUser currentUser,
             ICommandHandler<AssignProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new AssignProjectTaskCommand(projectId, taskId, currentUser.UserId!, request.EmployeeId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Assign);
@@ -48,7 +49,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             ICommandHandler<StartProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new StartProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new StartProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
 
@@ -56,7 +57,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             ICommandHandler<CompleteProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CompleteProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new CompleteProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Complete);
 
@@ -64,7 +65,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, RejectTaskRequest request, ICurrentUser currentUser,
             ICommandHandler<RejectProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new RejectProjectTaskCommand(projectId, taskId, currentUser.UserId!, request.Reason), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
@@ -73,7 +74,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             ICommandHandler<CancelProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CancelProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new CancelProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
 
@@ -81,7 +82,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             ICommandHandler<ReopenProjectTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ReopenProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new ReopenProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
 
@@ -89,7 +90,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             IQueryHandler<GetProjectSubTasksByTaskQuery, IReadOnlyList<ProjectSubTaskResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectSubTasksByTaskQuery(projectId, taskId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<ProjectSubTaskResponse>> result = await handler.HandleAsync(new GetProjectSubTasksByTaskQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -97,7 +98,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid subTaskId, ICurrentUser currentUser,
             ICommandHandler<CompleteProjectSubTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CompleteProjectSubTaskCommand(projectId, subTaskId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new CompleteProjectSubTaskCommand(projectId, subTaskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Complete);
 
@@ -105,7 +106,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             IQueryHandler<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -113,7 +114,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, AddCommentRequest request, ICurrentUser currentUser,
             ICommandHandler<AddTaskCommentCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new AddTaskCommentCommand(projectId, taskId, currentUser.UserId!, request.Content), ct);
             return result.Match(commentId => Results.Ok(new { CommentId = commentId }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);

@@ -60,10 +60,15 @@ internal sealed class SiteItem : Entity, IAuditable
         if (string.IsNullOrWhiteSpace(code)
             || string.IsNullOrWhiteSpace(nameEn)
             || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
+        }
 
-        var limits = ValidateLimits(dataType, minValue, maxValue, tolerance, maxLength, regexPattern);
-        if (limits.IsFailure) return limits.Error;
+        Result limits = ValidateLimits(dataType, minValue, maxValue, tolerance, maxLength, regexPattern);
+        if (limits.IsFailure)
+        {
+            return limits.Error;
+        }
 
         return new SiteItem
         {
@@ -92,11 +97,16 @@ internal sealed class SiteItem : Entity, IAuditable
         decimal? minValue, decimal? maxValue, int? maxLength, string? regexPattern)
     {
         if (string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
+        }
 
         // Re-validated against the CURRENT DataType/Tolerance -- this method cannot change either.
-        var limits = ValidateLimits(DataType, minValue, maxValue, Tolerance, maxLength, regexPattern);
-        if (limits.IsFailure) return limits.Error;
+        Result limits = ValidateLimits(DataType, minValue, maxValue, Tolerance, maxLength, regexPattern);
+        if (limits.IsFailure)
+        {
+            return limits.Error;
+        }
 
         NameEn = nameEn.Trim();
         NameAr = nameAr.Trim();
@@ -119,10 +129,16 @@ internal sealed class SiteItem : Entity, IAuditable
     public Result ChangeCapturedShape(
         string code, SiteItemDataType dataType, string? unit, decimal tolerance)
     {
-        if (string.IsNullOrWhiteSpace(code)) return SiteErrors.InvalidData;
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return SiteErrors.InvalidData;
+        }
 
-        var limits = ValidateLimits(dataType, MinValue, MaxValue, tolerance, MaxLength, RegexPattern);
-        if (limits.IsFailure) return limits.Error;
+        Result limits = ValidateLimits(dataType, MinValue, MaxValue, tolerance, MaxLength, RegexPattern);
+        if (limits.IsFailure)
+        {
+            return limits.Error;
+        }
 
         Code = code.Trim();
         DataType = dataType;
@@ -175,18 +191,30 @@ internal sealed class SiteItem : Entity, IAuditable
     {
         if (valueNumber is { } number)
         {
-            if (MinValue is { } min && number < min) return SiteErrors.InvalidData;
-            if (MaxValue is { } max && number > max) return SiteErrors.InvalidData;
+            if (MinValue is { } min && number < min)
+            {
+                return SiteErrors.InvalidData;
+            }
+
+            if (MaxValue is { } max && number > max)
+            {
+                return SiteErrors.InvalidData;
+            }
         }
 
         if (valueText is { } text)
         {
-            var trimmed = text.Trim();
+            string trimmed = text.Trim();
 
-            if (MaxLength is { } maxLength && trimmed.Length > maxLength) return SiteErrors.InvalidData;
+            if (MaxLength is { } maxLength && trimmed.Length > maxLength)
+            {
+                return SiteErrors.InvalidData;
+            }
 
             if (RegexPattern is { } pattern && !SafeIsMatch(trimmed, pattern))
+            {
                 return SiteErrors.InvalidData;
+            }
         }
 
         if (optionId is { } chosen)
@@ -194,7 +222,9 @@ internal sealed class SiteItem : Entity, IAuditable
             // Also structurally guaranteed by the composite (item_id, option_id) foreign key; checked
             // here so the caller gets a 400 naming the item rather than a constraint violation.
             if (optionIdsForThisItem is null || !optionIdsForThisItem.Contains(chosen))
+            {
                 return SiteErrors.OptionNotOfItem;
+            }
         }
 
         return Result.Success();
@@ -211,21 +241,33 @@ internal sealed class SiteItem : Entity, IAuditable
         decimal tolerance, int? maxLength, string? regexPattern)
     {
         if (minValue.HasValue && maxValue.HasValue && minValue > maxValue)
+        {
             return SiteErrors.InvalidData;
+        }
 
         // Null matches neither pattern, so an absent bound passes. 1024 is the value_text column's own
         // ceiling -- a larger promise would be broken by the column, as a 500, rather than here as a 400.
-        if (maxLength is < 1 or > 1024) return SiteErrors.InvalidData;
+        if (maxLength is < 1 or > 1024)
+        {
+            return SiteErrors.InvalidData;
+        }
 
-        if (tolerance < 0) return SiteErrors.InvalidData;
+        if (tolerance < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         if (dataType != SiteItemDataType.Number
             && (minValue.HasValue || maxValue.HasValue || tolerance != 0))
+        {
             return SiteErrors.LimitNotLegalForType;
+        }
 
         if (dataType != SiteItemDataType.Text
             && (maxLength.HasValue || !string.IsNullOrWhiteSpace(regexPattern)))
+        {
             return SiteErrors.LimitNotLegalForType;
+        }
 
         return Result.Success();
     }
@@ -255,7 +297,7 @@ internal sealed class SiteItem : Entity, IAuditable
 
     private static string? Normalize(string? value)
     {
-        var trimmed = value?.Trim();
+        string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

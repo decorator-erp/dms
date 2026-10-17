@@ -24,25 +24,31 @@ internal sealed class CreateDocumentFolderCommandHandler(DocumentsDbContext db)
     {
         if (command.ParentFolderId is { } parentFolderId)
         {
-            var parentExists = await db.DocumentFolders.AsNoTracking()
+            bool parentExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == parentFolderId && f.ProjectId == command.ProjectId, ct);
             if (!parentExists)
+            {
                 return DocumentFolderErrors.NotFound;
+            }
         }
 
-        var nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
+        bool nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
             f => f.ProjectId == command.ProjectId && f.ParentFolderId == command.ParentFolderId
                 && f.Name == command.Name, ct);
         if (nameTaken)
+        {
             return DocumentFolderErrors.NameCollision;
+        }
 
-        var folderResult = DocumentFolder.Create(
+        Result<DocumentFolder> folderResult = DocumentFolder.Create(
             command.ProjectId, command.Name, command.ParentFolderId,
             command.ProjectStageId, command.ProjectTaskId);
         if (folderResult.IsFailure)
+        {
             return Result.Failure<Guid>(folderResult.Error);
+        }
 
-        var folder = folderResult.Value!;
+        DocumentFolder folder = folderResult.Value!;
         db.DocumentFolders.Add(folder);
         await db.SaveChangesAsync(ct);
 

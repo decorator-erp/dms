@@ -29,11 +29,16 @@ internal sealed class SiteItemOption : Entity, IAuditable
             || string.IsNullOrWhiteSpace(code)
             || string.IsNullOrWhiteSpace(nameEn)
             || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
+        }
 
         // See SiteModule.Create -- the backend omits this check here and on SiteModule while enforcing it
         // on SiteRecord and SiteModuleItem. Made consistent rather than ported.
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         return new SiteItemOption
         {
@@ -52,8 +57,14 @@ internal sealed class SiteItemOption : Entity, IAuditable
     public Result Update(string nameEn, string nameAr, int sortOrder)
     {
         if (string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        }
+
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         NameEn = nameEn.Trim();
         NameAr = nameAr.Trim();

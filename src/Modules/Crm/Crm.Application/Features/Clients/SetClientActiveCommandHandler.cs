@@ -16,11 +16,21 @@ internal sealed class SetClientActiveCommandHandler(CrmDbContext db) : ICommandH
 {
     public async Task<Result> HandleAsync(SetClientActiveCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
-        if (command.IsActive) client.Activate(); else client.Deactivate();
+        if (command.IsActive)
+        {
+            client.Activate();
+        }
+        else
+        {
+            client.Deactivate();
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Result.Success();

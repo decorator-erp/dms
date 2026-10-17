@@ -15,7 +15,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Result<Guid>> CreateAsync(CreateInvoiceRequest request)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
             .HandleAsync(new CreateInvoiceCommand(request));
@@ -23,8 +23,8 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<InvoiceResponse> ReadAsync(Guid id)
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<InvoiceResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
             .HandleAsync(new GetInvoiceByIdQuery(id));
 
@@ -39,9 +39,9 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_ComputesTheHeaderTotalFromTheLines()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [
                 new InvoiceLineDto("Ply sheets", 3m, 12.5m),
@@ -51,7 +51,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
 
         Assert.True(created.IsSuccess, created.IsFailure ? created.Error.ToString() : null);
 
-        var invoice = await ReadAsync(created.Value);
+        InvoiceResponse invoice = await ReadAsync(created.Value);
 
         Assert.Equal(37.5m, invoice.Lines.Single(l => l.Description == "Ply sheets").LineTotal);
         Assert.Equal(22.5006m, invoice.Lines.Single(l => l.Description == "Fixings").LineTotal);
@@ -63,15 +63,15 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_WithADuplicateNumber_FailsWithDuplicatedNumber()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var number = Number();
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        string number = Number();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         Assert.True((await CreateAsync(new CreateInvoiceRequest(
             number, scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Work", 1m, 10m)], ClientId: scope.ClientId))).IsSuccess);
 
-        var second = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> second = await CreateAsync(new CreateInvoiceRequest(
             number, scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Work", 1m, 10m)], ClientId: scope.ClientId));
 
@@ -82,9 +82,9 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_AClientInvoiceWithoutAClient_FailsWithClientRequired()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 10m)]));
 
@@ -95,9 +95,9 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_AVendorInvoiceWithoutAVendor_FailsWithVendorRequired()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.VendorInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 10m)]));
 
@@ -110,7 +110,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_ForAnUnknownProject_FailsWithProjectNotFound()
     {
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             Number(), Guid.NewGuid(), InvoiceType.VendorInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 10m)], VendorName: "Acme"));
 
@@ -133,10 +133,10 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_WithAnInvalidLine_FailsAndPersistsNothing()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var number = Number();
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        string number = Number();
 
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             number, scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [
                 new InvoiceLineDto("Good", 1m, 10m),
@@ -148,7 +148,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
 
         // The number is free again -- proof the first attempt left no row behind. This is the assertion
         // that would fail if the invoice header were persisted before its lines were validated.
-        var retry = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> retry = await CreateAsync(new CreateInvoiceRequest(
             number, scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Good", 1m, 10m)], ClientId: scope.ClientId));
 
@@ -162,7 +162,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public void InvoiceLineCreate_StillRefusesANegativeUnitPrice_IndependentlyOfTheValidator()
     {
-        var line = Domain.InvoiceLine.Create(Guid.NewGuid(), "Direct", 1m, -0.0001m);
+        Result<Domain.InvoiceLine> line = Domain.InvoiceLine.Create(Guid.NewGuid(), "Direct", 1m, -0.0001m);
 
         Assert.True(line.IsFailure);
         Assert.Equal("invoice_lines.InvalidUnitPrice", line.Error.Code);
@@ -174,10 +174,10 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Create_WithADueDateBeforeIssue_IsRejected()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
         var issued = new DateOnly(2026, 6, 1);
 
-        var created = await CreateAsync(new CreateInvoiceRequest(
+        Result<Guid> created = await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, issued,
             [new InvoiceLineDto("Work", 1m, 10m)],
             DueOn: issued.AddDays(-1), ClientId: scope.ClientId));
@@ -188,22 +188,22 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AddLine_RederivesTheHeaderFromAllLines()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var id = (await CreateAsync(new CreateInvoiceRequest(
+        Guid id = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("First", 1m, 100m)], ClientId: scope.ClientId))).Value;
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
-            var added = await dbScope.ServiceProvider
+            Result added = await dbScope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AddInvoiceLineCommand>>()
                 .HandleAsync(new AddInvoiceLineCommand(id, new InvoiceLineDto("Second", 2m, 25m)));
 
             Assert.True(added.IsSuccess, added.IsFailure ? added.Error.ToString() : null);
         }
 
-        var invoice = await ReadAsync(id);
+        InvoiceResponse invoice = await ReadAsync(id);
 
         Assert.Equal(2, invoice.Lines.Count);
         Assert.Equal(150m, invoice.TotalAmount);
@@ -218,16 +218,16 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AddLine_ToAPaidInvoice_FailsWithInvalidStatusTransition()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var invoiceId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid invoiceId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 40m)], ClientId: scope.ClientId))).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
-        var paymentId = (await sp.GetRequiredService<ICommandHandler<Contracts.LedgerEntries.PostLedgerEntryCommand, Guid>>()
+        Guid paymentId = (await sp.GetRequiredService<ICommandHandler<Contracts.LedgerEntries.PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new Contracts.LedgerEntries.PostLedgerEntryCommand(
                 new Contracts.LedgerEntries.PostLedgerEntryRequest(
                     scope.ProjectId, 40m, LedgerDirection.In, LedgerEntryType.ClientPayment,
@@ -240,14 +240,14 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
 
         Assert.Equal("Paid", (await ReadAsync(invoiceId)).Status);
 
-        var added = await sp.GetRequiredService<ICommandHandler<AddInvoiceLineCommand>>()
+        Result added = await sp.GetRequiredService<ICommandHandler<AddInvoiceLineCommand>>()
             .HandleAsync(new AddInvoiceLineCommand(invoiceId, new InvoiceLineDto("Extra", 1m, 5m)));
 
         Assert.True(added.IsFailure);
         Assert.Equal("invoices.InvalidStatusTransition", added.Error.Code);
 
         // And the header is untouched, which is the property the refusal exists to protect.
-        var invoice = await ReadAsync(invoiceId);
+        InvoiceResponse invoice = await ReadAsync(invoiceId);
         Assert.Equal(40m, invoice.TotalAmount);
         Assert.Equal(0m, invoice.Balance);
     }
@@ -255,25 +255,25 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Cancel_AnUntouchedInvoice_Succeeds_AndItLeavesTheOutstandingList()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var id = (await CreateAsync(new CreateInvoiceRequest(
+        Guid id = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 10m)], ClientId: owner.ClientId))).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var outstanding = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        IQueryHandler<GetOutstandingInvoicesQuery, IReadOnlyList<InvoiceListItemResponse>> outstanding = sp.GetRequiredService<
             IQueryHandler<GetOutstandingInvoicesQuery, IReadOnlyList<InvoiceListItemResponse>>>();
 
-        var before = await outstanding.HandleAsync(new GetOutstandingInvoicesQuery(scope.ProjectId));
+        Result<IReadOnlyList<InvoiceListItemResponse>> before = await outstanding.HandleAsync(new GetOutstandingInvoicesQuery(scope.ProjectId));
         Assert.Contains(before.Value!, i => i.Id == id);
 
         Assert.True((await sp.GetRequiredService<ICommandHandler<CancelInvoiceCommand>>()
             .HandleAsync(new CancelInvoiceCommand(id))).IsSuccess);
 
-        var after = await outstanding.HandleAsync(new GetOutstandingInvoicesQuery(scope.ProjectId));
+        Result<IReadOnlyList<InvoiceListItemResponse>> after = await outstanding.HandleAsync(new GetOutstandingInvoicesQuery(scope.ProjectId));
         Assert.DoesNotContain(after.Value!, i => i.Id == id);
 
         Assert.Equal("Cancelled", (await ReadAsync(id)).Status);
@@ -284,16 +284,16 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Cancel_APartPaidInvoice_FailsWithInvalidStatusTransition()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var invoiceId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid invoiceId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, DateOnly.FromDateTime(DateTime.UtcNow),
             [new InvoiceLineDto("Work", 1m, 100m)], ClientId: scope.ClientId))).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
-        var paymentId = (await sp.GetRequiredService<ICommandHandler<Contracts.LedgerEntries.PostLedgerEntryCommand, Guid>>()
+        Guid paymentId = (await sp.GetRequiredService<ICommandHandler<Contracts.LedgerEntries.PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new Contracts.LedgerEntries.PostLedgerEntryCommand(
                 new Contracts.LedgerEntries.PostLedgerEntryRequest(
                     scope.ProjectId, 10m, LedgerDirection.In, LedgerEntryType.ClientPayment,
@@ -304,7 +304,7 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
             .HandleAsync(new Contracts.LedgerEntries.AllocateLedgerEntryCommand(
                 paymentId, invoiceId, 10m, scope.EmployeeId));
 
-        var cancelled = await sp.GetRequiredService<ICommandHandler<CancelInvoiceCommand>>()
+        Result cancelled = await sp.GetRequiredService<ICommandHandler<CancelInvoiceCommand>>()
             .HandleAsync(new CancelInvoiceCommand(invoiceId));
 
         Assert.True(cancelled.IsFailure);
@@ -314,31 +314,31 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetByProject_PagesAndFiltersByStatus()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var openId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid openId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Work", 1m, 10m)], ClientId: owner.ClientId))).Value;
 
-        var cancelledId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid cancelledId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Work", 1m, 20m)], ClientId: owner.ClientId))).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
         await sp.GetRequiredService<ICommandHandler<CancelInvoiceCommand>>()
             .HandleAsync(new CancelInvoiceCommand(cancelledId));
 
-        var list = sp.GetRequiredService<
+        IQueryHandler<GetInvoicesByProjectQuery, PagedResult<InvoiceListItemResponse>> list = sp.GetRequiredService<
             IQueryHandler<GetInvoicesByProjectQuery, PagedResult<InvoiceListItemResponse>>>();
 
-        var all = await list.HandleAsync(new GetInvoicesByProjectQuery(scope.ProjectId));
+        Result<PagedResult<InvoiceListItemResponse>> all = await list.HandleAsync(new GetInvoicesByProjectQuery(scope.ProjectId));
         Assert.Equal(2, all.Value!.TotalCount);
 
-        var open = await list.HandleAsync(
+        Result<PagedResult<InvoiceListItemResponse>> open = await list.HandleAsync(
             new GetInvoicesByProjectQuery(scope.ProjectId, Status: InvoiceStatus.Open));
 
         Assert.Contains(open.Value!.Items, i => i.Id == openId);
@@ -350,20 +350,20 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetOutstanding_ExcludesAZeroTotalOpenInvoice()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var zeroId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid zeroId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Free sample", 1m, 0m)], ClientId: owner.ClientId))).Value;
 
-        var realId = (await CreateAsync(new CreateInvoiceRequest(
+        Guid realId = (await CreateAsync(new CreateInvoiceRequest(
             Number(), scope.ProjectId, InvoiceType.ClientInvoice, today,
             [new InvoiceLineDto("Work", 1m, 15m)], ClientId: owner.ClientId))).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var outstanding = await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<IReadOnlyList<InvoiceListItemResponse>> outstanding = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetOutstandingInvoicesQuery, IReadOnlyList<InvoiceListItemResponse>>>()
             .HandleAsync(new GetOutstandingInvoicesQuery(scope.ProjectId));
 
@@ -375,8 +375,8 @@ public sealed class InvoiceFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetById_ForAnUnknownInvoice_FailsWithNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<InvoiceResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
             .HandleAsync(new GetInvoiceByIdQuery(Guid.NewGuid()));
 

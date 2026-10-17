@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 
 namespace Architecture.Tests;
@@ -19,9 +20,9 @@ public class Rule8BuildingBlocksWebTests
         // PC-03 liveness: an empty scope runs the loop zero times and reports compliance.
         Assert.True(scoped.Count >= 18, $"Discovered only {scoped.Count} Application/Domain assemblies, expected at least 18.");
 
-        foreach (var assembly in scoped)
+        foreach (Assembly? assembly in scoped)
         {
-            var referencesWeb = assembly.GetReferencedAssemblies().Any(a => a.Name == "BuildingBlocks.Web");
+            bool referencesWeb = assembly.GetReferencedAssemblies().Any(a => a.Name == "BuildingBlocks.Web");
 
             Assert.False(referencesWeb, $"{assembly.GetName().Name} references BuildingBlocks.Web");
         }
@@ -30,8 +31,8 @@ public class Rule8BuildingBlocksWebTests
     [Fact]
     public void BuildingBlocks_MustNotReferenceAspNetCore()
     {
-        var csprojPath = Path.Combine(SolutionRoot.Path, "src", "BuildingBlocks", "BuildingBlocks.csproj");
-        var content = File.ReadAllText(csprojPath);
+        string csprojPath = Path.Combine(SolutionRoot.Path, "src", "BuildingBlocks", "BuildingBlocks.csproj");
+        string content = File.ReadAllText(csprojPath);
 
         // PC-03 liveness: prove the file was actually read and is the project file we mean. An empty or
         // wrong-path read makes "contains no AspNetCore" true for the wrong reason.

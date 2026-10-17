@@ -23,12 +23,23 @@ internal sealed class StageSubTask : Entity, IAuditable
     public void Update(string? title = null, int? order = null, bool? isRequired = null, string? description = null)
     {
         if (title is not null)
+        {
             Title = title;
+        }
+
         if (order is not null)
+        {
             Order = order.Value;
+        }
+
         if (isRequired is not null)
+        {
             IsRequired = isRequired.Value;
+        }
+
         if (description is not null)
+        {
             Description = description;
+        }
     }
 }

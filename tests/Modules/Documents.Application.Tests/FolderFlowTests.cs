@@ -1,10 +1,10 @@
 using BuildingBlocks.Messaging;
 using Documents.Application.Features.Documents;
 using Documents.Contracts.Folders;
+using Documents.Domain;
 using Documents.Infrastructure.Persistence;
 using Hr.Contracts.Departments;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
@@ -12,6 +12,7 @@ using Projects.Contracts.Projects;
 using Projects.Contracts.Stages;
 using Projects.Contracts.Tasks;
 using Projects.Contracts.Templates;
+using SharedKernel;
 using Xunit;
 
 namespace Documents.Application.Tests;
@@ -28,69 +29,69 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     [Fact]
     public async Task CreateRenameMoveDelete_FolderTree_RoundTrips()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, _, _) = await CreateProjectWithStageAndTaskAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid _, Guid _) = await CreateProjectWithStageAndTaskAsync(sp);
 
-        var createRoot = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
-        var rootResult = await createRoot.HandleAsync(new CreateDocumentFolderCommand(projectId, "Drawings"));
+        ICommandHandler<CreateDocumentFolderCommand, Guid> createRoot = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
+        Result<Guid> rootResult = await createRoot.HandleAsync(new CreateDocumentFolderCommand(projectId, "Drawings"));
         Assert.True(rootResult.IsSuccess);
-        var rootId = rootResult.Value;
+        Guid rootId = rootResult.Value;
 
-        var createChild = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
-        var childResult = await createChild.HandleAsync(
+        ICommandHandler<CreateDocumentFolderCommand, Guid> createChild = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
+        Result<Guid> childResult = await createChild.HandleAsync(
             new CreateDocumentFolderCommand(projectId, "Structural", ParentFolderId: rootId));
         Assert.True(childResult.IsSuccess);
-        var childId = childResult.Value;
+        Guid childId = childResult.Value;
 
-        var getChildren = sp.GetRequiredService<IQueryHandler<GetDocumentFolderChildrenQuery, IReadOnlyList<DocumentFolderResponse>>>();
-        var children = await getChildren.HandleAsync(new GetDocumentFolderChildrenQuery(rootId));
+        IQueryHandler<GetDocumentFolderChildrenQuery, IReadOnlyList<DocumentFolderResponse>> getChildren = sp.GetRequiredService<IQueryHandler<GetDocumentFolderChildrenQuery, IReadOnlyList<DocumentFolderResponse>>>();
+        Result<IReadOnlyList<DocumentFolderResponse>> children = await getChildren.HandleAsync(new GetDocumentFolderChildrenQuery(rootId));
         Assert.True(children.IsSuccess);
         Assert.Single(children.Value!, f => f.Id == childId);
 
-        var rename = sp.GetRequiredService<ICommandHandler<RenameDocumentFolderCommand>>();
-        var renameResult = await rename.HandleAsync(new RenameDocumentFolderCommand(childId, "Structural Drawings"));
+        ICommandHandler<RenameDocumentFolderCommand> rename = sp.GetRequiredService<ICommandHandler<RenameDocumentFolderCommand>>();
+        Result renameResult = await rename.HandleAsync(new RenameDocumentFolderCommand(childId, "Structural Drawings"));
         Assert.True(renameResult.IsSuccess);
 
-        var getByProject = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByProjectQuery, IReadOnlyList<DocumentFolderResponse>>>();
-        var allFolders = await getByProject.HandleAsync(new GetDocumentFoldersByProjectQuery(projectId));
+        IQueryHandler<GetDocumentFoldersByProjectQuery, IReadOnlyList<DocumentFolderResponse>> getByProject = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByProjectQuery, IReadOnlyList<DocumentFolderResponse>>>();
+        Result<IReadOnlyList<DocumentFolderResponse>> allFolders = await getByProject.HandleAsync(new GetDocumentFoldersByProjectQuery(projectId));
         Assert.True(allFolders.IsSuccess);
         Assert.Contains(allFolders.Value!, f => f.Id == childId && f.Name == "Structural Drawings");
 
-        var createSecondRoot = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
-        var secondRootResult = await createSecondRoot.HandleAsync(new CreateDocumentFolderCommand(projectId, "Archive"));
+        ICommandHandler<CreateDocumentFolderCommand, Guid> createSecondRoot = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
+        Result<Guid> secondRootResult = await createSecondRoot.HandleAsync(new CreateDocumentFolderCommand(projectId, "Archive"));
         Assert.True(secondRootResult.IsSuccess);
-        var secondRootId = secondRootResult.Value;
+        Guid secondRootId = secondRootResult.Value;
 
-        var move = sp.GetRequiredService<ICommandHandler<MoveDocumentFolderCommand>>();
-        var moveResult = await move.HandleAsync(new MoveDocumentFolderCommand(childId, secondRootId));
+        ICommandHandler<MoveDocumentFolderCommand> move = sp.GetRequiredService<ICommandHandler<MoveDocumentFolderCommand>>();
+        Result moveResult = await move.HandleAsync(new MoveDocumentFolderCommand(childId, secondRootId));
         Assert.True(moveResult.IsSuccess);
 
-        var childrenOfSecondRoot = await getChildren.HandleAsync(new GetDocumentFolderChildrenQuery(secondRootId));
+        Result<IReadOnlyList<DocumentFolderResponse>> childrenOfSecondRoot = await getChildren.HandleAsync(new GetDocumentFolderChildrenQuery(secondRootId));
         Assert.Single(childrenOfSecondRoot.Value!, f => f.Id == childId);
 
-        var delete = sp.GetRequiredService<ICommandHandler<DeleteDocumentFolderCommand>>();
-        var deleteResult = await delete.HandleAsync(new DeleteDocumentFolderCommand(childId));
+        ICommandHandler<DeleteDocumentFolderCommand> delete = sp.GetRequiredService<ICommandHandler<DeleteDocumentFolderCommand>>();
+        Result deleteResult = await delete.HandleAsync(new DeleteDocumentFolderCommand(childId));
         Assert.True(deleteResult.IsSuccess);
 
-        var db = sp.GetRequiredService<DocumentsDbContext>();
-        var deletedFolder = await db.DocumentFolders.AsNoTracking().SingleAsync(f => f.Id == childId);
+        DocumentsDbContext db = sp.GetRequiredService<DocumentsDbContext>();
+        DocumentFolder deletedFolder = await db.DocumentFolders.AsNoTracking().SingleAsync(f => f.Id == childId);
         Assert.False(deletedFolder.IsActive);
     }
 
     [Fact]
     public async Task MoveFolder_UnderItsOwnDescendant_IsRejected_ThroughTheRealCommandPath()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, _, _) = await CreateProjectWithStageAndTaskAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid _, Guid _) = await CreateProjectWithStageAndTaskAsync(sp);
 
-        var create = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
-        var aId = (await create.HandleAsync(new CreateDocumentFolderCommand(projectId, "A"))).Value;
-        var bId = (await create.HandleAsync(new CreateDocumentFolderCommand(projectId, "B", ParentFolderId: aId))).Value;
+        ICommandHandler<CreateDocumentFolderCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateDocumentFolderCommand, Guid>>();
+        Guid aId = (await create.HandleAsync(new CreateDocumentFolderCommand(projectId, "A"))).Value;
+        Guid bId = (await create.HandleAsync(new CreateDocumentFolderCommand(projectId, "B", ParentFolderId: aId))).Value;
 
-        var move = sp.GetRequiredService<ICommandHandler<MoveDocumentFolderCommand>>();
-        var result = await move.HandleAsync(new MoveDocumentFolderCommand(aId, bId));
+        ICommandHandler<MoveDocumentFolderCommand> move = sp.GetRequiredService<ICommandHandler<MoveDocumentFolderCommand>>();
+        Result result = await move.HandleAsync(new MoveDocumentFolderCommand(aId, bId));
 
         Assert.True(result.IsFailure);
         Assert.Equal("document_folders.CyclicMove", result.Error.Code);
@@ -99,43 +100,43 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     [Fact]
     public async Task CreateStageFolder_ForARealStage_Succeeds_AndCreateTaskFolder_ForARealTask_Succeeds()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, stageId, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid _, Guid stageId, Guid taskId) = await CreateProjectWithStageAndTaskAsync(sp);
 
-        var createStageFolder = sp.GetRequiredService<ICommandHandler<CreateStageFolderCommand, Guid>>();
-        var stageFolderResult = await createStageFolder.HandleAsync(new CreateStageFolderCommand(stageId, "Stage Docs"));
+        ICommandHandler<CreateStageFolderCommand, Guid> createStageFolder = sp.GetRequiredService<ICommandHandler<CreateStageFolderCommand, Guid>>();
+        Result<Guid> stageFolderResult = await createStageFolder.HandleAsync(new CreateStageFolderCommand(stageId, "Stage Docs"));
         Assert.True(stageFolderResult.IsSuccess);
 
-        var createTaskFolder = sp.GetRequiredService<ICommandHandler<CreateTaskFolderCommand, Guid>>();
-        var taskFolderResult = await createTaskFolder.HandleAsync(new CreateTaskFolderCommand(taskId, "Task Docs"));
+        ICommandHandler<CreateTaskFolderCommand, Guid> createTaskFolder = sp.GetRequiredService<ICommandHandler<CreateTaskFolderCommand, Guid>>();
+        Result<Guid> taskFolderResult = await createTaskFolder.HandleAsync(new CreateTaskFolderCommand(taskId, "Task Docs"));
         Assert.True(taskFolderResult.IsSuccess);
 
-        var getByStage = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByStageQuery, IReadOnlyList<DocumentFolderResponse>>>();
-        var stageFolders = await getByStage.HandleAsync(new GetDocumentFoldersByStageQuery(stageId));
+        IQueryHandler<GetDocumentFoldersByStageQuery, IReadOnlyList<DocumentFolderResponse>> getByStage = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByStageQuery, IReadOnlyList<DocumentFolderResponse>>>();
+        Result<IReadOnlyList<DocumentFolderResponse>> stageFolders = await getByStage.HandleAsync(new GetDocumentFoldersByStageQuery(stageId));
         Assert.Single(stageFolders.Value!, f => f.Id == stageFolderResult.Value);
 
-        var getByTask = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByTaskQuery, IReadOnlyList<DocumentFolderResponse>>>();
-        var taskFolders = await getByTask.HandleAsync(new GetDocumentFoldersByTaskQuery(taskId));
+        IQueryHandler<GetDocumentFoldersByTaskQuery, IReadOnlyList<DocumentFolderResponse>> getByTask = sp.GetRequiredService<IQueryHandler<GetDocumentFoldersByTaskQuery, IReadOnlyList<DocumentFolderResponse>>>();
+        Result<IReadOnlyList<DocumentFolderResponse>> taskFolders = await getByTask.HandleAsync(new GetDocumentFoldersByTaskQuery(taskId));
         Assert.Single(taskFolders.Value!, f => f.Id == taskFolderResult.Value);
     }
 
     [Fact]
     public async Task DefaultFolderResolver_ForAStage_CreatesOnce_AndReturnsTheSameFolderOnASecondCall()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, stageId, _) = await CreateProjectWithStageAndTaskAsync(sp);
-        var db = sp.GetRequiredService<DocumentsDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid stageId, Guid _) = await CreateProjectWithStageAndTaskAsync(sp);
+        DocumentsDbContext db = sp.GetRequiredService<DocumentsDbContext>();
 
-        var firstId = await DefaultFolderResolver.EnsureForStageAsync(db, projectId, stageId, "Design", CancellationToken.None);
+        Guid firstId = await DefaultFolderResolver.EnsureForStageAsync(db, projectId, stageId, "Design", CancellationToken.None);
         await db.SaveChangesAsync();
 
-        var secondId = await DefaultFolderResolver.EnsureForStageAsync(db, projectId, stageId, "Design", CancellationToken.None);
+        Guid secondId = await DefaultFolderResolver.EnsureForStageAsync(db, projectId, stageId, "Design", CancellationToken.None);
 
         Assert.Equal(firstId, secondId);
 
-        var folder = await db.DocumentFolders.AsNoTracking().SingleAsync(f => f.Id == firstId);
+        DocumentFolder folder = await db.DocumentFolders.AsNoTracking().SingleAsync(f => f.Id == firstId);
         Assert.True(folder.IsDefault);
         Assert.Equal(stageId, folder.ProjectStageId);
     }
@@ -143,15 +144,15 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     [Fact]
     public async Task DefaultFolderResolver_ForATask_CreatesOnce_AndReturnsTheSameFolderOnASecondCall()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, _, taskId) = await CreateProjectWithStageAndTaskAsync(sp);
-        var db = sp.GetRequiredService<DocumentsDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid _, Guid taskId) = await CreateProjectWithStageAndTaskAsync(sp);
+        DocumentsDbContext db = sp.GetRequiredService<DocumentsDbContext>();
 
-        var firstId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
+        Guid firstId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
         await db.SaveChangesAsync();
 
-        var secondId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
+        Guid secondId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
 
         Assert.Equal(firstId, secondId);
     }
@@ -165,17 +166,17 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     [Fact]
     public async Task DefaultFolderResolver_TwoDifferentTasksWithTheSameDisplayName_ProduceDistinctFolders()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (projectId, taskId, otherTaskId) = await CreateProjectWithTwoIdenticallyNamedTasksAsync(sp);
-        var db = sp.GetRequiredService<DocumentsDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid taskId, Guid otherTaskId) = await CreateProjectWithTwoIdenticallyNamedTasksAsync(sp);
+        DocumentsDbContext db = sp.GetRequiredService<DocumentsDbContext>();
 
-        var firstId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
-        var secondId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, otherTaskId, "Draft plan", CancellationToken.None);
+        Guid firstId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, taskId, "Draft plan", CancellationToken.None);
+        Guid secondId = await DefaultFolderResolver.EnsureForTaskAsync(db, projectId, otherTaskId, "Draft plan", CancellationToken.None);
         await db.SaveChangesAsync();
 
         Assert.NotEqual(firstId, secondId);
-        var names = await db.DocumentFolders.AsNoTracking()
+        List<string> names = await db.DocumentFolders.AsNoTracking()
             .Where(f => f.Id == firstId || f.Id == secondId)
             .Select(f => f.Name)
             .ToListAsync();
@@ -188,38 +189,38 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     private static async Task<(Guid ProjectId, Guid TaskId, Guid OtherTaskId)> CreateProjectWithTwoIdenticallyNamedTasksAsync(
         IServiceProvider sp)
     {
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
-        var (ownerUserId, _) = await RegisterEmployeeAsync(sp, "dup-owner");
-        var (_, headEmployeeId) = await RegisterEmployeeAsync(sp, "dup-head");
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
+        (string? ownerUserId, Guid _) = await RegisterEmployeeAsync(sp, "dup-owner");
+        (string _, Guid headEmployeeId) = await RegisterEmployeeAsync(sp, "dup-head");
         currentUser.UserId = ownerUserId;
         currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
-        var departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
+        Guid departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
 
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var templateId = (await createTemplate.HandleAsync(
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        Guid templateId = (await createTemplate.HandleAsync(
             new CreateStageTemplateCommand($"Build-{Guid.NewGuid():N}", StageTemplateType.Custom))).Value;
 
-        var createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
-        var templateStageId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m))).Value;
+        ICommandHandler<CreateStageCommand, Guid> createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+        Guid templateStageId = (await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m))).Value;
 
-        var createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
+        ICommandHandler<CreateStageTaskCommand, Guid> createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
         Assert.True((await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 1))).IsSuccess);
         Assert.True((await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 2))).IsSuccess);
 
-        var addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
+        ICommandHandler<AddStageDepartmentCommand> addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
         Assert.True((await addStageDepartment.HandleAsync(new AddStageDepartmentCommand(templateStageId, departmentId))).IsSuccess);
 
-        var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
-        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-        var projectResult = await createProject.HandleAsync(new CreateProjectCommand(
+        Guid clientId = await CrmTestSeeding.SeedClientAsync(sp);
+        ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        Result<Guid> projectResult = await createProject.HandleAsync(new CreateProjectCommand(
             $"P-{Guid.NewGuid():N}", "New Build", "123 Main St", WorkflowType.Stage, clientId,
             StageTemplateId: templateId));
         Assert.True(projectResult.IsSuccess);
-        var projectId = projectResult.Value;
+        Guid projectId = projectResult.Value;
 
-        var getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
-        var tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
+        IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
+        Result<IReadOnlyList<ProjectTaskResponse>> tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
         Assert.True(tasks.IsSuccess);
         Assert.Equal(2, tasks.Value!.Count);
 
@@ -228,60 +229,52 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
 
     internal static async Task<(Guid ProjectId, Guid StageId, Guid TaskId)> CreateProjectWithStageAndTaskAsync(IServiceProvider sp)
     {
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
 
-        var (ownerUserId, _) = await RegisterEmployeeAsync(sp, "doc-owner");
-        var (_, headEmployeeId) = await RegisterEmployeeAsync(sp, "doc-head");
+        (string? ownerUserId, Guid _) = await RegisterEmployeeAsync(sp, "doc-owner");
+        (string _, Guid headEmployeeId) = await RegisterEmployeeAsync(sp, "doc-head");
 
         currentUser.UserId = ownerUserId;
         currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
-        var departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
-        var templateId = await CreateTemplateAsync(sp, departmentId);
-        var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
+        Guid departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
+        Guid templateId = await CreateTemplateAsync(sp, departmentId);
+        Guid clientId = await CrmTestSeeding.SeedClientAsync(sp);
 
-        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-        var projectResult = await createProject.HandleAsync(new CreateProjectCommand(
+        ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        Result<Guid> projectResult = await createProject.HandleAsync(new CreateProjectCommand(
             $"P-{Guid.NewGuid():N}", "New Build", "123 Main St", WorkflowType.Stage, clientId,
             StageTemplateId: templateId));
         Assert.True(projectResult.IsSuccess);
-        var projectId = projectResult.Value;
+        Guid projectId = projectResult.Value;
 
-        var getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
-        var stages = await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId));
-        var stageId = Assert.Single(stages.Value!).Id;
+        IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>> getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
+        Result<IReadOnlyList<ProjectStageResponse>> stages = await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId));
+        Guid stageId = Assert.Single(stages.Value!).Id;
 
-        var getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
-        var tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
-        var taskId = Assert.Single(tasks.Value!).Id;
+        IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
+        Result<IReadOnlyList<ProjectTaskResponse>> tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
+        Guid taskId = Assert.Single(tasks.Value!).Id;
 
         return (projectId, stageId, taskId);
     }
 
     private static async Task<(string UserId, Guid EmployeeId)> RegisterEmployeeAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var registerResult = await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")));
-        Assert.True(registerResult.IsSuccess);
-        var appUserId = registerResult.Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
 
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var createResult = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Engineer", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(createResult.IsSuccess);
-
-        return (appUserId, createResult.Value);
+        return (appUserId, employeeId);
     }
 
     private static async Task<Guid> CreateDepartmentWithHeadAsync(IServiceProvider sp, Guid headEmployeeId)
     {
-        var createDepartment = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
-        var departmentId = (await createDepartment.HandleAsync(new CreateDepartmentCommand($"Dept-{Guid.NewGuid():N}"))).Value;
+        ICommandHandler<CreateDepartmentCommand, Guid> createDepartment = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
+        Guid departmentId = (await createDepartment.HandleAsync(new CreateDepartmentCommand($"Dept-{Guid.NewGuid():N}"))).Value;
 
-        var assignHead = sp.GetRequiredService<ICommandHandler<AssignDepartmentHeadCommand>>();
-        var assignResult = await assignHead.HandleAsync(new AssignDepartmentHeadCommand(departmentId, headEmployeeId));
+        ICommandHandler<AssignDepartmentHeadCommand> assignHead = sp.GetRequiredService<ICommandHandler<AssignDepartmentHeadCommand>>();
+        Result assignResult = await assignHead.HandleAsync(new AssignDepartmentHeadCommand(departmentId, headEmployeeId));
         Assert.True(assignResult.IsSuccess);
 
         return departmentId;
@@ -292,20 +285,20 @@ public sealed class FolderFlowTests(DocumentsApplicationFixture fixture)
     /// doesn't need.</summary>
     private static async Task<Guid> CreateTemplateAsync(IServiceProvider sp, Guid departmentId)
     {
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var templateId = (await createTemplate.HandleAsync(
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        Guid templateId = (await createTemplate.HandleAsync(
             new CreateStageTemplateCommand($"Build-{Guid.NewGuid():N}", StageTemplateType.Custom))).Value;
 
-        var createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
-        var stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m));
+        ICommandHandler<CreateStageCommand, Guid> createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+        Result<Guid> stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m));
         Assert.True(stageResult.IsSuccess);
-        var templateStageId = stageResult.Value;
+        Guid templateStageId = stageResult.Value;
 
-        var createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
-        var stageTaskResult = await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 1));
+        ICommandHandler<CreateStageTaskCommand, Guid> createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
+        Result<Guid> stageTaskResult = await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 1));
         Assert.True(stageTaskResult.IsSuccess);
 
-        var addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
+        ICommandHandler<AddStageDepartmentCommand> addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
         Assert.True((await addStageDepartment.HandleAsync(new AddStageDepartmentCommand(templateStageId, departmentId))).IsSuccess);
 
         return templateId;

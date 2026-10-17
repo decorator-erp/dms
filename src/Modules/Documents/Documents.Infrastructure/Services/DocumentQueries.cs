@@ -22,7 +22,9 @@ internal sealed class DocumentQueries(DocumentsDbContext db) : IDocumentQueries
     public async Task<IReadOnlyList<DocumentSummary>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await db.ProjectDocuments.AsNoTracking()
             .Where(d => ids.Contains(d.Id) && d.IsActive)

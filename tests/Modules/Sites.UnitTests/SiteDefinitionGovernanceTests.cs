@@ -1,3 +1,4 @@
+using SharedKernel;
 using Sites.Domain;
 using Sites.Domain.Definition;
 using Xunit;
@@ -64,9 +65,9 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCode_OnASystemModule_SaysRenameNotDelete()
     {
-        var module = Module(isSystem: true);
+        SiteModule module = Module(isSystem: true);
 
-        var result = module.ChangeCode("openings_v2");
+        Result result = module.ChangeCode("openings_v2");
 
         Assert.Equal(SiteErrors.SystemDefinitionNotRenameable, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -76,7 +77,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCode_OnANormalModule_Renames()
     {
-        var module = Module();
+        SiteModule module = Module();
 
         Assert.True(module.ChangeCode("  openings_v2 ").IsSuccess);
         Assert.Equal("openings_v2", module.Code);
@@ -85,7 +86,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCode_ToABlank_IsRefused()
     {
-        var module = Module();
+        SiteModule module = Module();
 
         Assert.Equal(SiteErrors.InvalidData, module.ChangeCode("   ").Error);
         Assert.Equal("openings", module.Code);
@@ -96,7 +97,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCapturedShape_ChangesAllFourFrozenFields()
     {
-        var item = UnconstrainedItem();
+        SiteItem item = UnconstrainedItem();
 
         Assert.True(item.ChangeCapturedShape("width_mm", SiteItemDataType.Number, "mm", 1m).IsSuccess);
 
@@ -115,11 +116,11 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCapturedShape_ToATypeItsExistingBoundsAreIllegalFor_IsRefused()
     {
-        var bounded = SiteItem
+        SiteItem bounded = SiteItem
             .Create("width_cm", "Width", "العرض", SiteItemDataType.Number, "cm", minValue: 1m, maxValue: 500m)
             .Value!;
 
-        var result = bounded.ChangeCapturedShape("width_txt", SiteItemDataType.Text, null, 0m);
+        Result result = bounded.ChangeCapturedShape("width_txt", SiteItemDataType.Text, null, 0m);
 
         Assert.Equal(SiteErrors.LimitNotLegalForType, result.Error);
         Assert.Equal(400, result.Error.Status);
@@ -130,7 +131,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ChangeCapturedShape_WithANegativeTolerance_IsRefused()
     {
-        var item = UnconstrainedItem();
+        SiteItem item = UnconstrainedItem();
 
         Assert.Equal(
             SiteErrors.InvalidData,
@@ -141,7 +142,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void CodeEquals_IgnoresCaseAndSurroundingSpace()
     {
-        var item = MeasuredItem();
+        SiteItem item = MeasuredItem();
 
         Assert.True(item.CodeEquals("width_cm"));
         Assert.True(item.CodeEquals("  WIDTH_CM  "));
@@ -154,7 +155,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Item_WithMinAboveMax_IsRefused()
     {
-        var result = SiteItem.Create(
+        Result<SiteItem> result = SiteItem.Create(
             "width_cm", "W", "ع", SiteItemDataType.Number, "cm", minValue: 500m, maxValue: 1m);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
@@ -165,7 +166,7 @@ public class SiteDefinitionGovernanceTests
     [InlineData(1025)]
     public void Item_WithAMaxLengthOutsideTheColumnsCeiling_IsRefused(int maxLength)
     {
-        var result = SiteItem.Create(
+        Result<SiteItem> result = SiteItem.Create(
             "note", "N", "م", SiteItemDataType.Text, maxLength: maxLength);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
@@ -176,7 +177,7 @@ public class SiteDefinitionGovernanceTests
     [InlineData(1024)]
     public void Item_AcceptsTheBoundaryMaxLengths(int maxLength)
     {
-        var result = SiteItem.Create("note", "N", "م", SiteItemDataType.Text, maxLength: maxLength);
+        Result<SiteItem> result = SiteItem.Create("note", "N", "م", SiteItemDataType.Text, maxLength: maxLength);
 
         Assert.True(result.IsSuccess);
     }
@@ -193,9 +194,9 @@ public class SiteDefinitionGovernanceTests
     [InlineData((int)SiteItemDataType.Date)]
     public void Item_WithNumericLimitsOnANonNumberType_IsRefused(int dataType)
     {
-        var withMin = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, minValue: 1m);
-        var withMax = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, maxValue: 9m);
-        var withTolerance = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, tolerance: 0.5m);
+        Result<SiteItem> withMin = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, minValue: 1m);
+        Result<SiteItem> withMax = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, maxValue: 9m);
+        Result<SiteItem> withTolerance = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, tolerance: 0.5m);
 
         Assert.Equal(SiteErrors.LimitNotLegalForType, withMin.Error);
         Assert.Equal(SiteErrors.LimitNotLegalForType, withMax.Error);
@@ -209,8 +210,8 @@ public class SiteDefinitionGovernanceTests
     [InlineData((int)SiteItemDataType.Date)]
     public void Item_WithTextLimitsOnANonTextType_IsRefused(int dataType)
     {
-        var withLength = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, maxLength: 10);
-        var withPattern = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, regexPattern: "^a$");
+        Result<SiteItem> withLength = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, maxLength: 10);
+        Result<SiteItem> withPattern = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, regexPattern: "^a$");
 
         Assert.Equal(SiteErrors.LimitNotLegalForType, withLength.Error);
         Assert.Equal(SiteErrors.LimitNotLegalForType, withPattern.Error);
@@ -225,7 +226,7 @@ public class SiteDefinitionGovernanceTests
     [InlineData((int)SiteItemDataType.Date)]
     public void Item_WithZeroToleranceOnANonNumberType_IsAllowed(int dataType)
     {
-        var result = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, tolerance: 0m);
+        Result<SiteItem> result = SiteItem.Create("x", "X", "س", (SiteItemDataType)dataType, tolerance: 0m);
 
         Assert.True(result.IsSuccess);
     }
@@ -233,7 +234,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Item_Update_ReValidatesAgainstTheCurrentType()
     {
-        var text = SiteItem.Create("note", "N", "م", SiteItemDataType.Text).Value!;
+        SiteItem text = SiteItem.Create("note", "N", "م", SiteItemDataType.Text).Value!;
 
         // A numeric bound is still illegal for Text on the update path.
         Assert.Equal(
@@ -250,7 +251,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_EnforcesNumericBounds()
     {
-        var item = SiteItem
+        SiteItem item = SiteItem
             .Create("width_cm", "W", "ع", SiteItemDataType.Number, "cm", minValue: 10m, maxValue: 500m)
             .Value!;
 
@@ -263,7 +264,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_EnforcesMaxLengthAgainstTheTrimmedText()
     {
-        var item = SiteItem.Create("note", "N", "م", SiteItemDataType.Text, maxLength: 5).Value!;
+        SiteItem item = SiteItem.Create("note", "N", "م", SiteItemDataType.Text, maxLength: 5).Value!;
 
         Assert.Equal(SiteErrors.InvalidData, item.ValidateValue(null, "abcdef", null, null).Error);
 
@@ -274,7 +275,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_EnforcesTheRegexPattern()
     {
-        var item = SiteItem
+        SiteItem item = SiteItem
             .Create("code", "C", "ك", SiteItemDataType.Text, regexPattern: "^[A-Z]{2}$").Value!;
 
         Assert.True(item.ValidateValue(null, "AB", null, null).IsSuccess);
@@ -290,7 +291,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_WithAMalformedPattern_PassesRatherThanBlockingCapture()
     {
-        var item = SiteItem.Create("code", "C", "ك", SiteItemDataType.Text, regexPattern: "([").Value!;
+        SiteItem item = SiteItem.Create("code", "C", "ك", SiteItemDataType.Text, regexPattern: "([").Value!;
 
         Assert.True(item.ValidateValue(null, "anything", null, null).IsSuccess);
     }
@@ -298,7 +299,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_EnforcesOptionMembership()
     {
-        var item = SiteItem.Create("leaf", "Leaf", "درفة", SiteItemDataType.Select).Value!;
+        SiteItem item = SiteItem.Create("leaf", "Leaf", "درفة", SiteItemDataType.Select).Value!;
         var mine = Guid.NewGuid();
         var someoneElses = Guid.NewGuid();
 
@@ -315,7 +316,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void ValidateValue_WithNoLimits_AcceptsAnything()
     {
-        var item = UnconstrainedItem();
+        SiteItem item = UnconstrainedItem();
 
         Assert.True(item.ValidateValue(-999m, null, null, null).IsSuccess);
     }
@@ -327,7 +328,7 @@ public class SiteDefinitionGovernanceTests
     {
         var itemId = Guid.NewGuid();
 
-        var option = SiteItemOption.Create(itemId, "  single ", " Single ", " مفردة ", 2).Value!;
+        SiteItemOption option = SiteItemOption.Create(itemId, "  single ", " Single ", " مفردة ", 2).Value!;
 
         Assert.Equal("single", option.Code);
         Assert.Equal("Single", option.NameEn);
@@ -343,7 +344,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Option_Update_LeavesTheCodeAlone()
     {
-        var option = SiteItemOption.Create(Guid.NewGuid(), "single", "Single", "مفردة").Value!;
+        SiteItemOption option = SiteItemOption.Create(Guid.NewGuid(), "single", "Single", "مفردة").Value!;
 
         Assert.True(option.Update("Single leaf", "درفة مفردة", 5).IsSuccess);
 
@@ -378,7 +379,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Link_CarriesTheContextualFlagsNotTheItem()
     {
-        var link = SiteModuleItem
+        SiteModuleItem link = SiteModuleItem
             .Create(Guid.NewGuid(), Guid.NewGuid(), isRequired: true, isVisible: false, sortOrder: 3).Value!;
 
         Assert.True(link.IsRequired);
@@ -392,7 +393,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Link_Deactivate_LeavesTheFlagsIntactSoReattachingRestoresThem()
     {
-        var link = SiteModuleItem
+        SiteModuleItem link = SiteModuleItem
             .Create(Guid.NewGuid(), Guid.NewGuid(), isRequired: true, sortOrder: 4).Value!;
 
         link.Deactivate();
@@ -409,10 +410,10 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Reorder_AppliesEveryEntry()
     {
-        var a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
-        var b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
+        SiteModuleItem a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
+        SiteModuleItem b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
 
-        var result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 5), (b.ItemId, 2)]);
+        Result result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 5), (b.ItemId, 2)]);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(5, a.SortOrder);
@@ -427,10 +428,10 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Reorder_WithAnUnknownItemLater_LeavesEveryEarlierLinkUntouched()
     {
-        var a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
-        var b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
+        SiteModuleItem a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
+        SiteModuleItem b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
 
-        var result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 9), (Guid.NewGuid(), 3)]);
+        Result result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 9), (Guid.NewGuid(), 3)]);
 
         Assert.Equal(SiteErrors.LinkNotFound, result.Error);
         Assert.Equal(0, a.SortOrder);
@@ -440,10 +441,10 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Reorder_WithANegativeOrderLater_LeavesEveryEarlierLinkUntouched()
     {
-        var a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
-        var b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
+        SiteModuleItem a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
+        SiteModuleItem b = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 1).Value!;
 
-        var result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 9), (b.ItemId, -1)]);
+        Result result = SiteModuleForm.Reorder([a, b], [(a.ItemId, 9), (b.ItemId, -1)]);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
         Assert.Equal(0, a.SortOrder);
@@ -453,7 +454,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Reorder_CanPositionADetachedLinkSoReattachingLandsItThere()
     {
-        var detached = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
+        SiteModuleItem detached = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 0).Value!;
         detached.Deactivate();
 
         Assert.True(SiteModuleForm.Reorder([detached], [(detached.ItemId, 7)]).IsSuccess);
@@ -465,7 +466,7 @@ public class SiteDefinitionGovernanceTests
     [Fact]
     public void Reorder_WithAnEmptyRequest_ChangesNothing()
     {
-        var a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 4).Value!;
+        SiteModuleItem a = SiteModuleItem.Create(Guid.NewGuid(), Guid.NewGuid(), sortOrder: 4).Value!;
 
         Assert.True(SiteModuleForm.Reorder([a], []).IsSuccess);
         Assert.Equal(4, a.SortOrder);

@@ -18,13 +18,17 @@ internal sealed class DeleteProjectDocumentCommandHandler(DocumentsDbContext db)
 {
     public async Task<Result> HandleAsync(DeleteProjectDocumentCommand command, CancellationToken ct = default)
     {
-        var document = await db.ProjectDocuments.FindAsync([command.DocumentId], ct);
+        ProjectDocument? document = await db.ProjectDocuments.FindAsync([command.DocumentId], ct);
         if (document is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var deactivateResult = document.Deactivate();
+        Result deactivateResult = document.Deactivate();
         if (deactivateResult.IsFailure)
+        {
             return deactivateResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

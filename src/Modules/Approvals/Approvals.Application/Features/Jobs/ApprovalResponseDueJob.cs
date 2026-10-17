@@ -31,7 +31,7 @@ internal sealed class ApprovalResponseDueJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow();
+        DateTimeOffset now = timeProvider.GetUtcNow();
 
         var overdue = await db.Approvals
             .AsNoTracking()
@@ -48,7 +48,9 @@ internal sealed class ApprovalResponseDueJob(
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (targets.Count == 0)
+            {
                 continue;
+            }
 
             await notifications.NotifyManyAsync(
                 targets,

@@ -5,6 +5,7 @@ using Finance.Contracts.Invoices;
 using Microsoft.Extensions.DependencyInjection;
 using Notifications.Contracts;
 using Npgsql;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.Application.Tests;
@@ -23,8 +24,8 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
         Guid projectId, Guid? clientId, DateOnly issued, DateOnly due, decimal amount,
         InvoiceType type = InvoiceType.ClientInvoice)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
             .HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
                 $"DJ-{Guid.NewGuid().ToString("N")[..10]}", projectId, type, issued,
@@ -39,9 +40,9 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
 
     private async Task RunJobAsync()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
 
-        var job = scope.ServiceProvider.GetServices<IPeriodicJob>()
+        IPeriodicJob job = scope.ServiceProvider.GetServices<IPeriodicJob>()
             .Single(j => j.Name == "InvoiceDueJob");
 
         await job.RunAsync(CancellationToken.None);
@@ -60,11 +61,13 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
              WHERE "EntityId" = '{invoiceId}' ORDER BY "DedupeKey", "RecipientUserId";
              """, connection);
 
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
 
         var rows = new List<(string, int, string)>();
         while (await reader.ReadAsync())
+        {
             rows.Add((reader.GetString(0), reader.GetInt32(1), reader.IsDBNull(2) ? "" : reader.GetString(2)));
+        }
 
         return rows;
     }
@@ -78,16 +81,16 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AnInvoiceDueToday_NotifiesDueSoon_NotOverdue()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-10), today, 500m);
 
         await RunJobAsync();
 
-        var notifications = await NotificationsAsync(invoiceId);
+        List<(string Recipient, int Type, string DedupeKey)> notifications = await NotificationsAsync(invoiceId);
 
         Assert.NotEmpty(notifications);
         Assert.All(notifications, n => Assert.Equal((int)NotificationType.InvoiceDueSoon, n.Type));
@@ -99,17 +102,17 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AnOverdueInvoice_NotifiesOverdue_AtTheLargestCrossedTier()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         // Nine days late: tiers -5, -1, 0, 1 and 7 are all crossed; only the largest (7) is emitted.
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-30), today.AddDays(-9), 500m);
 
         await RunJobAsync();
 
-        var notifications = await NotificationsAsync(invoiceId);
+        List<(string Recipient, int Type, string DedupeKey)> notifications = await NotificationsAsync(invoiceId);
 
         Assert.NotEmpty(notifications);
         Assert.All(notifications, n => Assert.Equal((int)NotificationType.InvoiceOverdue, n.Type));
@@ -124,18 +127,18 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task RunningTwice_ProducesOneNotificationPerRecipient()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-10), today.AddDays(-1), 500m);
 
         await RunJobAsync();
-        var afterFirst = await NotificationsAsync(invoiceId);
+        List<(string Recipient, int Type, string DedupeKey)> afterFirst = await NotificationsAsync(invoiceId);
 
         await RunJobAsync();
-        var afterSecond = await NotificationsAsync(invoiceId);
+        List<(string Recipient, int Type, string DedupeKey)> afterSecond = await NotificationsAsync(invoiceId);
 
         Assert.NotEmpty(afterFirst);
         Assert.Equal(afterFirst.Count, afterSecond.Count);
@@ -152,11 +155,11 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AClientInvoice_NotifiesBothTheProjectOwnerAndTheClient()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-10), today.AddDays(-1), 500m);
 
         await RunJobAsync();
@@ -178,11 +181,11 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AVendorInvoice_NotifiesTheProjectOwnerOnly()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, null, today.AddDays(-10), today.AddDays(-1), 500m,
             InvoiceType.VendorInvoice);
 
@@ -205,16 +208,16 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AnInvoiceOutsideTheScanWindow_IsNotNotified()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         // 200 days overdue -- past the -60d lower bound.
-        var stale = await InvoiceAsync(
+        Guid stale = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-260), today.AddDays(-200), 500m);
 
         // And one inside it, so "nothing for the stale one" cannot pass because the job did nothing.
-        var current = await InvoiceAsync(
+        Guid current = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-10), today.AddDays(-1), 500m);
 
         await RunJobAsync();
@@ -229,14 +232,14 @@ public sealed class InvoiceDueJobTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ACancelledInvoice_IsNotNotified()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var invoiceId = await InvoiceAsync(
+        Guid invoiceId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, today.AddDays(-10), today.AddDays(-1), 500m);
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
             await dbScope.ServiceProvider.GetRequiredService<ICommandHandler<CancelInvoiceCommand>>()
                 .HandleAsync(new CancelInvoiceCommand(invoiceId));

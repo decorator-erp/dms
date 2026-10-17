@@ -10,7 +10,7 @@ internal sealed class FinanceDbContextFactory : IDesignTimeDbContextFactory<Fina
 {
     public FinanceDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<FinanceDbContext>()
+        DbContextOptionsBuilder<FinanceDbContext> builder = new DbContextOptionsBuilder<FinanceDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new FinanceDbContext(builder.Options);

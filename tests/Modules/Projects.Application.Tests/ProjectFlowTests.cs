@@ -2,7 +2,6 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Hr.Contracts.Departments;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
@@ -12,6 +11,7 @@ using Projects.Contracts.Tasks;
 using Projects.Contracts.Teams;
 using Projects.Contracts.Templates;
 using Projects.Infrastructure.Persistence;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.Application.Tests;
@@ -35,10 +35,10 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
         string ownerUserId, headUserId;
         Guid headEmployeeId;
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var sp = scope.ServiceProvider;
-            var currentUser = sp.GetRequiredService<TestCurrentUser>();
+            IServiceProvider sp = scope.ServiceProvider;
+            TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
 
             (ownerUserId, _) = await RegisterEmployeeAsync(sp, "flow-owner");
             (headUserId, headEmployeeId) = await RegisterEmployeeAsync(sp, "flow-head");
@@ -46,72 +46,72 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
             currentUser.UserId = ownerUserId;
             currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
-            var departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
-            var (templateId, _) = await CreateTemplateAsync(sp, departmentId);
-            var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
+            Guid departmentId = await CreateDepartmentWithHeadAsync(sp, headEmployeeId);
+            (Guid templateId, Guid _) = await CreateTemplateAsync(sp, departmentId);
+            Guid clientId = await CrmTestSeeding.SeedClientAsync(sp);
 
-            var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-            var projectResult = await createProject.HandleAsync(new CreateProjectCommand(
+            ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+            Result<Guid> projectResult = await createProject.HandleAsync(new CreateProjectCommand(
                 $"P-{Guid.NewGuid():N}", "New Build", "123 Main St", WorkflowType.Stage, clientId,
                 StageTemplateId: templateId));
             Assert.True(projectResult.IsSuccess);
             projectId = projectResult.Value;
 
-            var getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
-            var stages = await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId));
+            IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>> getStages = sp.GetRequiredService<IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>>();
+            Result<IReadOnlyList<ProjectStageResponse>> stages = await getStages.HandleAsync(new GetProjectStagesByProjectQuery(projectId, ownerUserId));
             Assert.True(stages.IsSuccess);
-            var projectStage = Assert.Single(stages.Value!);
+            ProjectStageResponse projectStage = Assert.Single(stages.Value!);
             stageId = projectStage.Id;
             Assert.Equal(1, projectStage.TotalTasks);
 
-            var getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
-            var tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
-            var projectTask = Assert.Single(tasks.Value!);
+            IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> getTasks = sp.GetRequiredService<IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>>();
+            Result<IReadOnlyList<ProjectTaskResponse>> tasks = await getTasks.HandleAsync(new GetProjectTasksByProjectQuery(projectId, ownerUserId));
+            ProjectTaskResponse projectTask = Assert.Single(tasks.Value!);
             taskId = projectTask.Id;
             Assert.Equal(ProjectTaskStatus.Open, projectTask.Status);
             Assert.Equal(TaskPriority.Medium, projectTask.Priority);
 
-            var getSubTasks = sp.GetRequiredService<IQueryHandler<GetProjectSubTasksByTaskQuery, IReadOnlyList<ProjectSubTaskResponse>>>();
-            var subTasks = await getSubTasks.HandleAsync(new GetProjectSubTasksByTaskQuery(projectId, taskId, ownerUserId));
+            IQueryHandler<GetProjectSubTasksByTaskQuery, IReadOnlyList<ProjectSubTaskResponse>> getSubTasks = sp.GetRequiredService<IQueryHandler<GetProjectSubTasksByTaskQuery, IReadOnlyList<ProjectSubTaskResponse>>>();
+            Result<IReadOnlyList<ProjectSubTaskResponse>> subTasks = await getSubTasks.HandleAsync(new GetProjectSubTasksByTaskQuery(projectId, taskId, ownerUserId));
             subTaskId = Assert.Single(subTasks.Value!).Id;
 
-            var db = sp.GetRequiredService<ProjectsDbContext>();
-            var stageTeam = await db.StageTeams.AsNoTracking().SingleAsync(t => t.ProjectStageId == stageId);
+            ProjectsDbContext db = sp.GetRequiredService<ProjectsDbContext>();
+            Domain.StageTeam stageTeam = await db.StageTeams.AsNoTracking().SingleAsync(t => t.ProjectStageId == stageId);
             stageTeamId = stageTeam.Id;
             Assert.Equal(headEmployeeId, stageTeam.HeadId);
             Assert.Equal(departmentId, stageTeam.DepartmentId);
 
-            var addMember = sp.GetRequiredService<ICommandHandler<AddStageTeamMemberCommand, Guid>>();
-            var addMemberResult = await addMember.HandleAsync(new AddStageTeamMemberCommand(
+            ICommandHandler<AddStageTeamMemberCommand, Guid> addMember = sp.GetRequiredService<ICommandHandler<AddStageTeamMemberCommand, Guid>>();
+            Result<Guid> addMemberResult = await addMember.HandleAsync(new AddStageTeamMemberCommand(
                 projectId, stageTeamId, ownerUserId, headEmployeeId, StageTeamMemberRole.Responsible));
             Assert.True(addMemberResult.IsSuccess);
         }
 
         // Fresh scope, as the now-team-member head - proves the task lifecycle runs under the head's
         // OWN access, not the setup-time ReadAll bypass.
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var sp = scope.ServiceProvider;
-            var currentUser = sp.GetRequiredService<TestCurrentUser>();
+            IServiceProvider sp = scope.ServiceProvider;
+            TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
             currentUser.UserId = headUserId;
 
-            var assign = sp.GetRequiredService<ICommandHandler<AssignProjectTaskCommand>>();
+            ICommandHandler<AssignProjectTaskCommand> assign = sp.GetRequiredService<ICommandHandler<AssignProjectTaskCommand>>();
             Assert.True((await assign.HandleAsync(new AssignProjectTaskCommand(projectId, taskId, headUserId, headEmployeeId))).IsSuccess);
 
-            var start = sp.GetRequiredService<ICommandHandler<StartProjectTaskCommand>>();
+            ICommandHandler<StartProjectTaskCommand> start = sp.GetRequiredService<ICommandHandler<StartProjectTaskCommand>>();
             Assert.True((await start.HandleAsync(new StartProjectTaskCommand(projectId, taskId, headUserId))).IsSuccess);
 
-            var completeSubTask = sp.GetRequiredService<ICommandHandler<CompleteProjectSubTaskCommand>>();
+            ICommandHandler<CompleteProjectSubTaskCommand> completeSubTask = sp.GetRequiredService<ICommandHandler<CompleteProjectSubTaskCommand>>();
             Assert.True((await completeSubTask.HandleAsync(new CompleteProjectSubTaskCommand(projectId, subTaskId, headUserId))).IsSuccess);
 
-            var completeTask = sp.GetRequiredService<ICommandHandler<CompleteProjectTaskCommand>>();
+            ICommandHandler<CompleteProjectTaskCommand> completeTask = sp.GetRequiredService<ICommandHandler<CompleteProjectTaskCommand>>();
             Assert.True((await completeTask.HandleAsync(new CompleteProjectTaskCommand(projectId, taskId, headUserId))).IsSuccess);
 
-            var completeStage = sp.GetRequiredService<ICommandHandler<CompleteProjectStageCommand>>();
+            ICommandHandler<CompleteProjectStageCommand> completeStage = sp.GetRequiredService<ICommandHandler<CompleteProjectStageCommand>>();
             Assert.True((await completeStage.HandleAsync(new CompleteProjectStageCommand(projectId, stageId, headUserId))).IsSuccess);
 
-            var db = sp.GetRequiredService<ProjectsDbContext>();
-            var outboxTypes = await db.Set<OutboxMessage>().AsNoTracking()
+            ProjectsDbContext db = sp.GetRequiredService<ProjectsDbContext>();
+            List<string> outboxTypes = await db.Set<OutboxMessage>().AsNoTracking()
                 .Select(m => m.Type)
                 .ToListAsync();
 
@@ -128,60 +128,60 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
         Guid projectId;
         string memberUserId, outsiderUserId;
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var sp = scope.ServiceProvider;
-            var currentUser = sp.GetRequiredService<TestCurrentUser>();
+            IServiceProvider sp = scope.ServiceProvider;
+            TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
 
-            var (ownerUserId, _) = await RegisterEmployeeAsync(sp, "scope-owner");
-            (memberUserId, var memberEmployeeId) = await RegisterEmployeeAsync(sp, "scope-member");
+            (string? ownerUserId, Guid _) = await RegisterEmployeeAsync(sp, "scope-owner");
+            (memberUserId, Guid memberEmployeeId) = await RegisterEmployeeAsync(sp, "scope-member");
             (outsiderUserId, _) = await RegisterEmployeeAsync(sp, "scope-outsider");
 
             currentUser.UserId = ownerUserId;
             currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
-            var departmentId = await CreateDepartmentWithHeadAsync(sp, memberEmployeeId);
-            var (templateId, _) = await CreateTemplateAsync(sp, departmentId);
-            var clientId = await CrmTestSeeding.SeedClientAsync(sp, ownerUserId);
+            Guid departmentId = await CreateDepartmentWithHeadAsync(sp, memberEmployeeId);
+            (Guid templateId, Guid _) = await CreateTemplateAsync(sp, departmentId);
+            Guid clientId = await CrmTestSeeding.SeedClientAsync(sp);
 
-            var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-            var projectId2 = (await createProject.HandleAsync(new CreateProjectCommand(
+            ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+            Guid projectId2 = (await createProject.HandleAsync(new CreateProjectCommand(
                 $"P-{Guid.NewGuid():N}", "Scope Test", "1 Test Rd", WorkflowType.Stage, clientId,
                 StageTemplateId: templateId))).Value;
             projectId = projectId2;
 
-            var db = sp.GetRequiredService<ProjectsDbContext>();
-            var stageTeam = await db.StageTeams.AsNoTracking()
+            ProjectsDbContext db = sp.GetRequiredService<ProjectsDbContext>();
+            Domain.StageTeam stageTeam = await db.StageTeams.AsNoTracking()
                 .Join(db.ProjectStages.AsNoTracking().Where(s => s.ProjectId == projectId), t => t.ProjectStageId, s => s.Id, (t, _) => t)
                 .SingleAsync();
 
-            var addMember = sp.GetRequiredService<ICommandHandler<AddStageTeamMemberCommand, Guid>>();
-            var addMemberResult = await addMember.HandleAsync(new AddStageTeamMemberCommand(
+            ICommandHandler<AddStageTeamMemberCommand, Guid> addMember = sp.GetRequiredService<ICommandHandler<AddStageTeamMemberCommand, Guid>>();
+            Result<Guid> addMemberResult = await addMember.HandleAsync(new AddStageTeamMemberCommand(
                 projectId, stageTeam.Id, ownerUserId, memberEmployeeId, StageTeamMemberRole.Responsible));
             Assert.True(addMemberResult.IsSuccess);
         }
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var sp = scope.ServiceProvider;
-            var currentUser = sp.GetRequiredService<TestCurrentUser>();
+            IServiceProvider sp = scope.ServiceProvider;
+            TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
             currentUser.UserId = outsiderUserId;
 
-            var getProject = sp.GetRequiredService<IQueryHandler<GetProjectQuery, ProjectResponse>>();
-            var result = await getProject.HandleAsync(new GetProjectQuery(projectId, outsiderUserId));
+            IQueryHandler<GetProjectQuery, ProjectResponse> getProject = sp.GetRequiredService<IQueryHandler<GetProjectQuery, ProjectResponse>>();
+            Result<ProjectResponse> result = await getProject.HandleAsync(new GetProjectQuery(projectId, outsiderUserId));
 
             Assert.True(result.IsFailure);
             Assert.Equal("projects.NotFound", result.Error.Code);
         }
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var sp = scope.ServiceProvider;
-            var currentUser = sp.GetRequiredService<TestCurrentUser>();
+            IServiceProvider sp = scope.ServiceProvider;
+            TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
             currentUser.UserId = memberUserId;
 
-            var getProject = sp.GetRequiredService<IQueryHandler<GetProjectQuery, ProjectResponse>>();
-            var result = await getProject.HandleAsync(new GetProjectQuery(projectId, memberUserId));
+            IQueryHandler<GetProjectQuery, ProjectResponse> getProject = sp.GetRequiredService<IQueryHandler<GetProjectQuery, ProjectResponse>>();
+            Result<ProjectResponse> result = await getProject.HandleAsync(new GetProjectQuery(projectId, memberUserId));
 
             Assert.True(result.IsSuccess);
             Assert.Equal(projectId, result.Value!.Id);
@@ -190,28 +190,20 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
 
     private static async Task<(string UserId, Guid EmployeeId)> RegisterEmployeeAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var registerResult = await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")));
-        Assert.True(registerResult.IsSuccess);
-        var appUserId = registerResult.Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
 
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var createResult = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Engineer", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(createResult.IsSuccess);
-
-        return (appUserId, createResult.Value);
+        return (appUserId, employeeId);
     }
 
     private static async Task<Guid> CreateDepartmentWithHeadAsync(IServiceProvider sp, Guid headEmployeeId)
     {
-        var createDepartment = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
-        var departmentId = (await createDepartment.HandleAsync(new CreateDepartmentCommand($"Dept-{Guid.NewGuid():N}"))).Value;
+        ICommandHandler<CreateDepartmentCommand, Guid> createDepartment = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
+        Guid departmentId = (await createDepartment.HandleAsync(new CreateDepartmentCommand($"Dept-{Guid.NewGuid():N}"))).Value;
 
-        var assignHead = sp.GetRequiredService<ICommandHandler<AssignDepartmentHeadCommand>>();
-        var assignResult = await assignHead.HandleAsync(new AssignDepartmentHeadCommand(departmentId, headEmployeeId));
+        ICommandHandler<AssignDepartmentHeadCommand> assignHead = sp.GetRequiredService<ICommandHandler<AssignDepartmentHeadCommand>>();
+        Result assignResult = await assignHead.HandleAsync(new AssignDepartmentHeadCommand(departmentId, headEmployeeId));
         Assert.True(assignResult.IsSuccess);
 
         return departmentId;
@@ -222,22 +214,22 @@ public sealed class ProjectFlowTests(ProjectsApplicationFixture fixture)
     /// entity type once.</summary>
     private static async Task<(Guid TemplateId, Guid StageId)> CreateTemplateAsync(IServiceProvider sp, Guid departmentId)
     {
-        var createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
-        var templateId = (await createTemplate.HandleAsync(
+        ICommandHandler<CreateStageTemplateCommand, Guid> createTemplate = sp.GetRequiredService<ICommandHandler<CreateStageTemplateCommand, Guid>>();
+        Guid templateId = (await createTemplate.HandleAsync(
             new CreateStageTemplateCommand($"Build-{Guid.NewGuid():N}", StageTemplateType.Custom))).Value;
 
-        var createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
-        var stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m));
+        ICommandHandler<CreateStageCommand, Guid> createStage = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+        Result<Guid> stageResult = await createStage.HandleAsync(new CreateStageCommand(templateId, "Design", 1, 100m));
         Assert.True(stageResult.IsSuccess);
-        var templateStageId = stageResult.Value;
+        Guid templateStageId = stageResult.Value;
 
-        var createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
-        var stageTaskId = (await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 1))).Value;
+        ICommandHandler<CreateStageTaskCommand, Guid> createStageTask = sp.GetRequiredService<ICommandHandler<CreateStageTaskCommand, Guid>>();
+        Guid stageTaskId = (await createStageTask.HandleAsync(new CreateStageTaskCommand(templateStageId, "Draft plan", 1))).Value;
 
-        var createStageSubTask = sp.GetRequiredService<ICommandHandler<CreateStageSubTaskCommand, Guid>>();
+        ICommandHandler<CreateStageSubTaskCommand, Guid> createStageSubTask = sp.GetRequiredService<ICommandHandler<CreateStageSubTaskCommand, Guid>>();
         Assert.True((await createStageSubTask.HandleAsync(new CreateStageSubTaskCommand(stageTaskId, "Sign-off", 1))).IsSuccess);
 
-        var addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
+        ICommandHandler<AddStageDepartmentCommand> addStageDepartment = sp.GetRequiredService<ICommandHandler<AddStageDepartmentCommand>>();
         Assert.True((await addStageDepartment.HandleAsync(new AddStageDepartmentCommand(templateStageId, departmentId))).IsSuccess);
 
         return (templateId, templateStageId);

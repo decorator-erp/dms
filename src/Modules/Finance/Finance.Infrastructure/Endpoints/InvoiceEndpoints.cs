@@ -8,6 +8,7 @@ using Finance.Contracts.Invoices;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -23,13 +24,13 @@ internal sealed class InvoiceEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/invoices").WithTags("Invoices");
+        RouteGroupBuilder group = app.MapGroup("/api/invoices").WithTags("Invoices");
 
         group.MapPost("/", async (
             CreateInvoiceRequest request,
             ICommandHandler<CreateInvoiceCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateInvoiceCommand(request), ct);
+            Result<Guid> result = await handler.HandleAsync(new CreateInvoiceCommand(request), ct);
 
             return result.Match(
                 id => Results.Created($"/api/invoices/{id}", new { InvoiceId = id }),
@@ -40,7 +41,7 @@ internal sealed class InvoiceEndpoints : IEndpoint
             Guid id, AddInvoiceLineRequest request,
             ICommandHandler<AddInvoiceLineCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new AddInvoiceLineCommand(id, request.Line), ct);
+            Result result = await handler.HandleAsync(new AddInvoiceLineCommand(id, request.Line), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageInvoice);
@@ -48,7 +49,7 @@ internal sealed class InvoiceEndpoints : IEndpoint
         group.MapPut("/{id:guid}/cancel", async (
             Guid id, ICommandHandler<CancelInvoiceCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CancelInvoiceCommand(id), ct);
+            Result result = await handler.HandleAsync(new CancelInvoiceCommand(id), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.CancelInvoice);
@@ -56,7 +57,7 @@ internal sealed class InvoiceEndpoints : IEndpoint
         group.MapGet("/{id:guid}", async (
             Guid id, IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetInvoiceByIdQuery(id), ct);
+            Result<InvoiceResponse> result = await handler.HandleAsync(new GetInvoiceByIdQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -66,7 +67,7 @@ internal sealed class InvoiceEndpoints : IEndpoint
             IQueryHandler<GetInvoicesByProjectQuery, PagedResult<InvoiceListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<InvoiceListItemResponse>> result = await handler.HandleAsync(
                 new GetInvoicesByProjectQuery(projectId, status, skip ?? 0, take ?? 50), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -77,7 +78,7 @@ internal sealed class InvoiceEndpoints : IEndpoint
             IQueryHandler<GetOutstandingInvoicesQuery, IReadOnlyList<InvoiceListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetOutstandingInvoicesQuery(projectId), ct);
+            Result<IReadOnlyList<InvoiceListItemResponse>> result = await handler.HandleAsync(new GetOutstandingInvoicesQuery(projectId), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);

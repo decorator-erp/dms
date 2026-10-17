@@ -41,23 +41,29 @@ internal sealed class GetStageFinancialMovementsQueryHandler(
     public async Task<Result<IReadOnlyList<LedgerMovementResponse>>> HandleAsync(
         GetStageFinancialMovementsQuery query, CancellationToken ct = default)
     {
-        var scoped = await new LedgerScopes(db, projects).ForStageAsync(query.ProjectStageId, ct);
+        IQueryable<LedgerEntry>? scoped = await new LedgerScopes(db, projects).ForStageAsync(query.ProjectStageId, ct);
         if (scoped is null)
+        {
             return FinancialScopeErrors.StageNotFound;
+        }
 
         if (query.FromDate is { } from)
+        {
             scoped = scoped.Where(e => e.OccurredOn >= from);
+        }
 
         if (query.ToDate is { } to)
+        {
             scoped = scoped.Where(e => e.OccurredOn <= to);
+        }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            LedgerEntryType value = FinanceEnumMapping.ToDomain(type);
             scoped = scoped.Where(e => e.Type == value);
         }
 
-        var ordered = scoped
+        IOrderedQueryable<LedgerEntry> ordered = scoped
             .OrderByDescending(e => e.OccurredOn)
             .ThenByDescending(e => e.CreatedAtUtc);
 
@@ -78,22 +84,22 @@ internal sealed class GetStageInvoicesQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<InvoiceListItemResponse>>> HandleAsync(
         GetStageInvoicesQuery query, CancellationToken ct = default)
     {
-        var q = db.Invoices.AsNoTracking()
+        IQueryable<Invoice> q = db.Invoices.AsNoTracking()
             .Where(i => i.IsActive && i.ProjectStageId == query.ProjectStageId);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            InvoiceStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(i => i.Status == value);
         }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            InvoiceType value = FinanceEnumMapping.ToDomain(type);
             q = q.Where(i => i.Type == value);
         }
 
-        var items = await q
+        List<InvoiceListItemResponse> items = await q
             .OrderByDescending(i => i.IssuedOn)
             .ThenByDescending(i => i.CreatedAtUtc)
             .Select(FinancialProjections.InvoiceRow(db))
@@ -114,16 +120,16 @@ internal sealed class GetStageVariationsQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<VariationListItemResponse>>> HandleAsync(
         GetStageVariationsQuery query, CancellationToken ct = default)
     {
-        var q = db.Variations.AsNoTracking()
+        IQueryable<Variation> q = db.Variations.AsNoTracking()
             .Where(v => v.IsActive && v.ProjectStageId == query.ProjectStageId);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            VariationStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(v => v.Status == value);
         }
 
-        var items = await q
+        List<VariationListItemResponse> items = await q
             .OrderByDescending(v => v.CreatedAtUtc)
             .Select(FinancialProjections.VariationRow())
             .ToListAsync(ct);
@@ -143,16 +149,16 @@ internal sealed class GetStageBoqSnapshotsQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<BoqSnapshotSummaryResponse>>> HandleAsync(
         GetStageBoqSnapshotsQuery query, CancellationToken ct = default)
     {
-        var q = db.BoqSnapshots.AsNoTracking()
+        IQueryable<BoqSnapshot> q = db.BoqSnapshots.AsNoTracking()
             .Where(s => s.IsActive && s.ProjectStageId == query.ProjectStageId);
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            BoqSnapshotType value = FinanceEnumMapping.ToDomain(type);
             q = q.Where(s => s.Type == value);
         }
 
-        var items = await q
+        List<BoqSnapshotSummaryResponse> items = await q
             .OrderByDescending(s => s.Version)
             .ThenByDescending(s => s.GeneratedAt)
             .Select(FinancialProjections.BoqSnapshotRow(db))

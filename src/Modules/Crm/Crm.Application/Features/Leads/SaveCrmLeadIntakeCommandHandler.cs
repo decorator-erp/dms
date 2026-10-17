@@ -24,9 +24,11 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct = default)
     {
-        var leadExists = await db.CrmLeads.AnyAsync(l => l.Id == command.LeadId, ct);
+        bool leadExists = await db.CrmLeads.AnyAsync(l => l.Id == command.LeadId, ct);
         if (!leadExists)
+        {
             return CrmLeadErrors.NotFound;
+        }
 
         var data = new DomainIntakeData(
             command.Data.JobTitle, command.Data.ClientAddress,
@@ -39,7 +41,7 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         // means EF has no navigation to traverse there (it's configured from the child's own side,
         // parent-configures-nothing, per that configuration's own remarks); Include on an ignored
         // property throws "does not represent a property access", not a silent no-op.
-        var intake = await db.CrmLeadIntakes
+        CrmLeadIntake? intake = await db.CrmLeadIntakes
             .FirstOrDefaultAsync(i => i.LeadId == command.LeadId, ct);
 
         Result result;
@@ -55,7 +57,9 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         }
 
         if (result.IsFailure)
+        {
             return result;
+        }
 
         // Sector switch: detach a stale residential child that no longer matches. Re-attaching a fresh
         // one for the new sector is the caller's own follow-up request against the residential-specific
@@ -64,7 +68,7 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         // LeadIntakeId, same reason Include can't be used above.
         if (data.Sector != ProjectSector.Residential)
         {
-            var residential = await db.CrmLeadIntakeResidentials
+            CrmLeadIntakeResidential? residential = await db.CrmLeadIntakeResidentials
                 .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
             if (residential is not null)
             {

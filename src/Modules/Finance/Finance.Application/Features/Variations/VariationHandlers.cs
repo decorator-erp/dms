@@ -70,28 +70,34 @@ internal sealed class RaiseVariationCommandHandler(FinanceDbContext db, IProject
 {
     public async Task<Result<Guid>> HandleAsync(RaiseVariationCommand command, CancellationToken ct = default)
     {
-        var r = command.Request;
+        RaiseVariationRequest r = command.Request;
 
         if (await projects.GetProjectAsync(r.ProjectId, ct) is null)
+        {
             return VariationErrors.ProjectNotFound;
+        }
 
         if (r.BudgetLineId is Guid budgetLineId
             && !await db.BudgetLines.AnyAsync(b => b.Id == budgetLineId && b.IsActive, ct))
+        {
             return BudgetLineErrors.NotFound;
+        }
 
-        var created = Variation.Create(
+        Result<Variation> created = Variation.Create(
             FinanceEnumMapping.ToDomain(r.Kind), r.ProjectId, r.Reason, command.RequestedById,
             r.ProjectTaskId, r.BudgetLineId, r.BudgetedAmount, r.ChosenAmount, r.Amount,
             r.Description, r.ProjectStageId);
 
         if (created.IsFailure)
+        {
             return created.Error;
+        }
 
-        var variation = created.Value!;
+        Variation variation = created.Value!;
         db.Variations.Add(variation);
 
         // Task wins over stage, matching the backend's `stageScope = projectTaskId is null ? stageId : null`.
-        var stageScope = variation.ProjectTaskId is null ? variation.ProjectStageId : null;
+        Guid? stageScope = variation.ProjectTaskId is null ? variation.ProjectStageId : null;
 
         if (variation.ProjectTaskId is not null || stageScope is not null)
         {
@@ -117,13 +123,17 @@ internal sealed class SubmitVariationCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(SubmitVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
-        var submitted = variation.Submit();
+        Result submitted = variation.Submit();
         if (submitted.IsFailure)
+        {
             return submitted.Error;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -157,15 +167,19 @@ internal sealed class ApproveVariationCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(ApproveVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
-        var approved = variation.Approve(
+        Result approved = variation.Approve(
             command.ApprovedById, command.SignedByClientId, command.SignedDocumentPath);
 
         if (approved.IsFailure)
+        {
             return approved.Error;
+        }
 
         db.Outbox().Enqueue(new Finance.Contracts.VariationApprovedIntegrationEvent(
             Guid.NewGuid(), variation.Id, variation.ProjectId, command.ApprovedById, DateTimeOffset.UtcNow));
@@ -204,15 +218,19 @@ internal sealed class SignVariationCommandHandler(FinanceDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(SignVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
-        var approved = variation.Approve(
+        Result approved = variation.Approve(
             command.ApprovedById, command.SignedByClientId, command.SignedDocumentPath);
 
         if (approved.IsFailure)
+        {
             return approved.Error;
+        }
 
         db.Outbox().Enqueue(new Finance.Contracts.VariationApprovedIntegrationEvent(
             Guid.NewGuid(), variation.Id, variation.ProjectId, command.ApprovedById, DateTimeOffset.UtcNow));
@@ -253,25 +271,33 @@ internal sealed class ApplyVariationCommandHandler(FinanceDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(ApplyVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
         if (variation.Status != VariationStatus.Approved)
+        {
             return VariationErrors.NotApproved;
+        }
 
         if (variation.Kind == VariationKind.InternalChange && variation.BudgetLineId is Guid budgetLineId)
         {
-            var line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == budgetLineId && b.IsActive, ct);
+            BudgetLine? line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == budgetLineId && b.IsActive, ct);
             if (line is null)
+            {
                 return BudgetLineErrors.NotFound;
+            }
 
             line.ApplyAdjustment(variation.Amount);
         }
 
-        var applied = variation.MarkApplied();
+        Result applied = variation.MarkApplied();
         if (applied.IsFailure)
+        {
             return applied.Error;
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -299,13 +325,17 @@ internal sealed class RejectVariationCommandHandler(FinanceDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(RejectVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
-        var rejected = variation.Reject(command.RejectedById, command.Note);
+        Result rejected = variation.Reject(command.RejectedById, command.Note);
         if (rejected.IsFailure)
+        {
             return rejected.Error;
+        }
 
         db.Outbox().Enqueue(new Finance.Contracts.VariationClosedIntegrationEvent(
             Guid.NewGuid(), variation.Id, variation.ProjectId, Cancelled: false, DateTimeOffset.UtcNow));
@@ -330,13 +360,17 @@ internal sealed class CancelVariationCommandHandler(FinanceDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(CancelVariationCommand command, CancellationToken ct = default)
     {
-        var variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
         if (variation is null)
+        {
             return VariationErrors.NotFound;
+        }
 
-        var cancelled = variation.Cancel(command.Note);
+        Result cancelled = variation.Cancel(command.Note);
         if (cancelled.IsFailure)
+        {
             return cancelled.Error;
+        }
 
         db.Outbox().Enqueue(new Finance.Contracts.VariationClosedIntegrationEvent(
             Guid.NewGuid(), variation.Id, variation.ProjectId, Cancelled: true, DateTimeOffset.UtcNow));
@@ -354,7 +388,7 @@ internal sealed class GetVariationByIdQueryHandler(FinanceDbContext db)
     public async Task<Result<VariationResponse>> HandleAsync(
         GetVariationByIdQuery query, CancellationToken ct = default)
     {
-        var response = await db.Variations
+        VariationResponse? response = await db.Variations
             .AsNoTracking()
             .Where(v => v.Id == query.Id && v.IsActive)
             .Select(v => new VariationResponse(
@@ -384,23 +418,23 @@ internal sealed class GetVariationsByProjectQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<VariationListItemResponse>>> HandleAsync(
         GetVariationsByProjectQuery query, CancellationToken ct = default)
     {
-        var q = db.Variations.AsNoTracking().Where(v => v.ProjectId == query.ProjectId && v.IsActive);
+        IQueryable<Variation> q = db.Variations.AsNoTracking().Where(v => v.ProjectId == query.ProjectId && v.IsActive);
 
         if (query.Kind is { } kind)
         {
-            var value = FinanceEnumMapping.ToDomain(kind);
+            VariationKind value = FinanceEnumMapping.ToDomain(kind);
             q = q.Where(v => v.Kind == value);
         }
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            VariationStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(v => v.Status == value);
         }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<VariationListItemResponse> items = await q
             .OrderByDescending(v => v.CreatedAtUtc)
             .Skip(query.Skip)
             .Take(query.Take)
@@ -423,7 +457,7 @@ internal sealed class GetVariationsByStageQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<VariationListItemResponse>>> HandleAsync(
         GetVariationsByStageQuery query, CancellationToken ct = default)
     {
-        var items = await db.Variations
+        List<VariationListItemResponse> items = await db.Variations
             .AsNoTracking()
             .Where(v => v.ProjectStageId == query.StageId && v.IsActive)
             .OrderByDescending(v => v.CreatedAtUtc)
@@ -445,7 +479,7 @@ internal sealed class GetVariationsByTaskQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<VariationListItemResponse>>> HandleAsync(
         GetVariationsByTaskQuery query, CancellationToken ct = default)
     {
-        var items = await db.Variations
+        List<VariationListItemResponse> items = await db.Variations
             .AsNoTracking()
             .Where(v => v.ProjectTaskId == query.TaskId && v.IsActive)
             .OrderByDescending(v => v.CreatedAtUtc)

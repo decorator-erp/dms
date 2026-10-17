@@ -22,27 +22,35 @@ internal static class RoleClaimSeeder
         IPermissionCatalog catalog,
         CancellationToken ct = default)
     {
-        var allPermissions = catalog.All().SelectMany(m => m.Permissions).Distinct().ToArray();
+        string[] allPermissions = catalog.All().SelectMany(m => m.Permissions).Distinct().ToArray();
         if (allPermissions.Length == 0)
-            return;
-
-        foreach (var roleName in DefaultRoles.FullAccessRoles)
         {
-            var role = await roleManager.FindByNameAsync(roleName);
-            if (role is null)
-                continue;
+            return;
+        }
 
-            var existing = await db.RoleClaims
+        foreach (string roleName in DefaultRoles.FullAccessRoles)
+        {
+            ApplicationRole? role = await roleManager.FindByNameAsync(roleName);
+            if (role is null)
+            {
+                continue;
+            }
+
+            List<string> existing = await db.RoleClaims
                 .Where(rc => rc.RoleId == role.Id && rc.ClaimType == PermissionClaim.Type)
                 .Select(rc => rc.ClaimValue!)
                 .ToListAsync(ct);
 
-            var missing = allPermissions.Except(existing).ToArray();
+            string[] missing = allPermissions.Except(existing).ToArray();
             if (missing.Length == 0)
+            {
                 continue;
+            }
 
-            foreach (var permission in missing)
+            foreach (string? permission in missing)
+            {
                 db.RoleClaims.Add(ApplicationRoleClaim.Create(role.Id, PermissionClaim.Type, permission));
+            }
 
             await db.SaveChangesAsync(ct);
         }

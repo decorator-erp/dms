@@ -10,6 +10,7 @@ using Hr.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -31,16 +32,19 @@ internal sealed class VariationEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/variations").WithTags("Variations");
+        RouteGroupBuilder group = app.MapGroup("/api/variations").WithTags("Variations");
 
         group.MapPost("/", async (
             RaiseVariationRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<RaiseVariationCommand, Guid> handler, CancellationToken ct) =>
         {
-            var requestedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (requestedById.IsFailure) return requestedById.ToProblem();
+            Result<Guid> requestedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (requestedById.IsFailure)
+            {
+                return requestedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new RaiseVariationCommand(request, requestedById.Value), ct);
 
             return result.Match(
@@ -51,7 +55,7 @@ internal sealed class VariationEndpoints : IEndpoint
         group.MapPut("/{id:guid}/submit", async (
             Guid id, ICommandHandler<SubmitVariationCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SubmitVariationCommand(id), ct);
+            Result result = await handler.HandleAsync(new SubmitVariationCommand(id), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageVariation);
@@ -60,10 +64,13 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, ApproveVariationRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<ApproveVariationCommand> handler, CancellationToken ct) =>
         {
-            var approvedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (approvedById.IsFailure) return approvedById.ToProblem();
+            Result<Guid> approvedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (approvedById.IsFailure)
+            {
+                return approvedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new ApproveVariationCommand(
                     id, approvedById.Value, request.SignedByClientId, request.SignedDocumentPath),
                 ct);
@@ -75,10 +82,13 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, SignVariationRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<SignVariationCommand> handler, CancellationToken ct) =>
         {
-            var approvedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (approvedById.IsFailure) return approvedById.ToProblem();
+            Result<Guid> approvedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (approvedById.IsFailure)
+            {
+                return approvedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new SignVariationCommand(
                     id, approvedById.Value, request.SignedByClientId, request.SignedDocumentPath),
                 ct);
@@ -90,10 +100,13 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<ApplyVariationCommand> handler, CancellationToken ct) =>
         {
-            var recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (recordedById.IsFailure) return recordedById.ToProblem();
+            Result<Guid> recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (recordedById.IsFailure)
+            {
+                return recordedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new ApplyVariationCommand(id, recordedById.Value), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -103,10 +116,13 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, RejectVariationRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<RejectVariationCommand> handler, CancellationToken ct) =>
         {
-            var rejectedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (rejectedById.IsFailure) return rejectedById.ToProblem();
+            Result<Guid> rejectedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (rejectedById.IsFailure)
+            {
+                return rejectedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new RejectVariationCommand(id, rejectedById.Value, request.Note), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -116,7 +132,7 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, CancelVariationRequest request,
             ICommandHandler<CancelVariationCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CancelVariationCommand(id, request.Note), ct);
+            Result result = await handler.HandleAsync(new CancelVariationCommand(id, request.Note), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageVariation);
@@ -125,7 +141,7 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, IQueryHandler<GetVariationByIdQuery, VariationResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetVariationByIdQuery(id), ct);
+            Result<VariationResponse> result = await handler.HandleAsync(new GetVariationByIdQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -135,7 +151,7 @@ internal sealed class VariationEndpoints : IEndpoint
             IQueryHandler<GetVariationsByProjectQuery, PagedResult<VariationListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<VariationListItemResponse>> result = await handler.HandleAsync(
                 new GetVariationsByProjectQuery(projectId, kind, status, skip ?? 0, take ?? 50), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -146,7 +162,7 @@ internal sealed class VariationEndpoints : IEndpoint
             IQueryHandler<GetVariationsByStageQuery, IReadOnlyList<VariationListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetVariationsByStageQuery(stageId), ct);
+            Result<IReadOnlyList<VariationListItemResponse>> result = await handler.HandleAsync(new GetVariationsByStageQuery(stageId), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -156,7 +172,7 @@ internal sealed class VariationEndpoints : IEndpoint
             IQueryHandler<GetVariationsByTaskQuery, IReadOnlyList<VariationListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetVariationsByTaskQuery(taskId), ct);
+            Result<IReadOnlyList<VariationListItemResponse>> result = await handler.HandleAsync(new GetVariationsByTaskQuery(taskId), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);

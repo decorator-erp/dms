@@ -18,7 +18,10 @@ internal sealed class ClientDirectory(CrmDbContext db) : IClientDirectory
 
     public async Task<IReadOnlyList<ClientSummary>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
-        if (ids.Count == 0) return [];
+        if (ids.Count == 0)
+        {
+            return [];
+        }
 
         return await db.Clients.AsNoTracking()
             .Where(c => ids.Contains(c.Id))
@@ -28,7 +31,10 @@ internal sealed class ClientDirectory(CrmDbContext db) : IClientDirectory
 
     public async Task<IReadOnlyList<Guid>> ExistAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
-        if (ids.Count == 0) return [];
+        if (ids.Count == 0)
+        {
+            return [];
+        }
 
         return await db.Clients.AsNoTracking()
             .Where(c => ids.Contains(c.Id))

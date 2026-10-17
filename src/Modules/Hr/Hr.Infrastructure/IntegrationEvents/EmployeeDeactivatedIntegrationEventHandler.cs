@@ -1,8 +1,10 @@
 using BuildingBlocks.Events;
 using Hr.Contracts;
+using Hr.Domain;
 using Hr.Infrastructure.Persistence;
 using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 
 namespace Hr.Infrastructure.IntegrationEvents;
 
@@ -20,13 +22,17 @@ internal sealed class EmployeeDeactivatedIntegrationEventHandler(
 {
     public async Task HandleAsync(EmployeeDeactivatedIntegrationEvent @event, CancellationToken ct)
     {
-        var employee = await db.Employees.FirstOrDefaultAsync(e => e.Id == @event.EmployeeId, ct);
+        Employee? employee = await db.Employees.FirstOrDefaultAsync(e => e.Id == @event.EmployeeId, ct);
         if (employee is null)
+        {
             return;
+        }
 
-        var result = await userAdministration.DeactivateAsync(employee.AppUserId, ct);
+        Result result = await userAdministration.DeactivateAsync(employee.AppUserId, ct);
         if (result.IsFailure)
+        {
             throw new InvalidOperationException(
                 $"Failed to deactivate login for employee '{@event.EmployeeId}': {result.Error.Description}");
+        }
     }
 }

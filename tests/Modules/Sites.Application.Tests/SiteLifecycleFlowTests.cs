@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using BuildingBlocks.Pagination;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -8,10 +9,10 @@ using SharedKernel;
 using Sites.Contracts;
 using Sites.Contracts.Surveys;
 using Sites.Domain;
+using Xunit;
 // The eight enum pairs are duplicated between Contracts and Domain by construction (see
 // SiteEnumMapping); these tests speak Contracts, while SiteErrors comes from Domain.
 using SiteStatus = Sites.Contracts.SiteStatus;
-using Xunit;
 
 namespace Sites.Application.Tests;
 
@@ -29,13 +30,13 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
 {
     private async Task<Guid> CreateSiteAsync(string? address = "12 Nasr Road")
     {
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
             .Grant(ProjectsPermissions.Projects.ReadAll);
 
-        var result = await scope.ServiceProvider
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteCommand, Guid>>()
             .HandleAsync(new CreateSiteCommand(
                 new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(Address: address)),
@@ -48,7 +49,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     private async Task<Result> SendAsync<TCommand>(TCommand command)
         where TCommand : ICommand
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
             .Grant(ProjectsPermissions.Projects.ReadAll);
 
@@ -67,7 +68,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
             $"""SELECT "Status","Address","SubmittedAtUtc","IsActive" FROM sites.sites WHERE "Id"='{siteId}';""",
             connection);
 
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
 
         return (
@@ -83,8 +84,8 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task CreateSite_DrawsItsCodeFromTheSequence()
     {
-        var first = await CreateSiteAsync();
-        var second = await CreateSiteAsync();
+        Guid first = await CreateSiteAsync();
+        Guid second = await CreateSiteAsync();
 
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
@@ -93,9 +94,12 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
             $"""SELECT "Code" FROM sites.sites WHERE "Id" IN ('{first}','{second}') ORDER BY "Code";""",
             connection);
 
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
         var codes = new List<string>();
-        while (await reader.ReadAsync()) codes.Add(reader.GetString(0));
+        while (await reader.ReadAsync())
+        {
+            codes.Add(reader.GetString(0));
+        }
 
         Assert.Equal(2, codes.Count);
         Assert.All(codes, c => Assert.Matches("^SITE-[0-9]{5,}$", c));
@@ -110,11 +114,11 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task CreateSite_OnANonexistentProject_IsProjectNotFoundRatherThanAWriteFailure()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
             .Grant(ProjectsPermissions.Projects.ReadAll);
 
-        var result = await scope.ServiceProvider
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteCommand, Guid>>()
             .HandleAsync(new CreateSiteCommand(
                 new CreateSiteRequest(Guid.NewGuid(), new SiteUnitDataRequest(Address: "Nowhere")),
@@ -129,11 +133,11 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Submit_PersistsTheStatusAndTheStamp()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var row = await ReadRowAsync(siteId);
+        (int Status, string? Address, DateTime? SubmittedAt, bool IsActive) row = await ReadRowAsync(siteId);
         Assert.Equal(2, row.Status);
         Assert.NotNull(row.SubmittedAt);
     }
@@ -141,13 +145,13 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Submit_WithoutAnAddress_IsRefusedAndPersistsNothing()
     {
-        var siteId = await CreateSiteAsync(address: null);
+        Guid siteId = await CreateSiteAsync(address: null);
 
-        var result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Result result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
 
         Assert.Equal(SiteErrors.AddressRequiredToSubmit, result.Error);
 
-        var row = await ReadRowAsync(siteId);
+        (int Status, string? Address, DateTime? SubmittedAt, bool IsActive) row = await ReadRowAsync(siteId);
         Assert.Equal(1, row.Status);
         Assert.Null(row.SubmittedAt);
     }
@@ -155,8 +159,8 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Approve_PersistsTheDecisionAndLocksTheSurvey()
     {
-        var siteId = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
@@ -166,7 +170,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(3, (await ReadRowAsync(siteId)).Status);
 
         // And the lock is real: a header edit is now refused.
-        var update = await SendAsync(new UpdateSiteCommand(
+        Result update = await SendAsync(new UpdateSiteCommand(
             siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Somewhere else")),
             SiteTestData.OwnerUserId));
 
@@ -186,12 +190,12 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Submit_LocksTheSurvey_AndReopeningAfterARejectionUnlocksIt()
     {
-        var siteId = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var blocked = await SendAsync(new UpdateSiteCommand(
+        Result blocked = await SendAsync(new UpdateSiteCommand(
             siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Changed after review")),
             SiteTestData.OwnerUserId));
 
@@ -215,8 +219,8 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task RejectThenReopen_ReturnsToDraftAndClearsTheStampsInTheDatabase()
     {
-        var siteId = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
@@ -227,7 +231,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
 
         Assert.True((await SendAsync(new ReopenSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var row = await ReadRowAsync(siteId);
+        (int Status, string? Address, DateTime? SubmittedAt, bool IsActive) row = await ReadRowAsync(siteId);
         Assert.Equal(1, row.Status);
 
         // All four stamps cleared -- the row would violate ck_sites_status_stamps otherwise, so this
@@ -238,7 +242,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Update_PersistsTheChange()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
         Assert.True((await SendAsync(new UpdateSiteCommand(
             siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "9 Tahrir St")),
@@ -256,14 +260,14 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Delete_OnAnApprovedSurvey_IsRefusedAndTheRowSurvives()
     {
-        var siteId = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
         await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
-        var result = await SendAsync(new DeleteSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Result result = await SendAsync(new DeleteSiteCommand(siteId, SiteTestData.OwnerUserId));
 
         Assert.Equal(SiteErrors.SiteLocked, result.Error);
         Assert.True((await ReadRowAsync(siteId)).IsActive);
@@ -272,7 +276,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Delete_OnADraftSurvey_SoftDeletesIt()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
         Assert.True((await SendAsync(new DeleteSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
@@ -291,17 +295,17 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task SubmitAndApprove_EachEnqueueAnOutboxMessage()
     {
-        var siteId = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
         await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
-        await using var scope = fixture.CreateScope();
-        var shared = scope.ServiceProvider.GetRequiredService<SharedDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        SharedDbContext shared = scope.ServiceProvider.GetRequiredService<SharedDbContext>();
 
-        var types = await shared.OutboxMessages
+        List<string> types = await shared.OutboxMessages
             .AsNoTracking()
             .Where(m => m.Type.Contains("Site"))
             .Select(m => m.Type)
@@ -316,18 +320,18 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task GetSites_ClampsThePageSizeAndFiltersByStatus()
     {
-        var owners = await SiteTestData.OwnersAsync(fixture);
-        var siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
         await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
 
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
             .Grant(ProjectsPermissions.Projects.ReadAll);
 
-        var handler = scope.ServiceProvider
+        IQueryHandler<GetSitesQuery, PagedResult<SiteListItemResponse>> handler = scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSitesQuery, BuildingBlocks.Pagination.PagedResult<SiteListItemResponse>>>();
 
-        var submitted = await handler.HandleAsync(new GetSitesQuery(
+        Result<PagedResult<SiteListItemResponse>> submitted = await handler.HandleAsync(new GetSitesQuery(
             owners.ProjectId, SiteStatus.Submitted, SiteTestData.OwnerUserId, PageIndex: 0, PageSize: 9999));
 
         Assert.True(submitted.IsSuccess);

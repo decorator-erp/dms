@@ -27,12 +27,9 @@ public class AuditMechanismTests
     /// passed by a caller — which is the API this design removes.
     /// </summary>
     [Fact]
-    public void AuditAction_HasExactlyTheThreeMembersTheInterceptorCanProduce()
-    {
-        Assert.Equal(
+    public void AuditAction_HasExactlyTheThreeMembersTheInterceptorCanProduce() => Assert.Equal(
             ["Create", "Delete", "Update"],
             Enum.GetNames<AuditAction>().Order(StringComparer.Ordinal));
-    }
 
     /// <summary>
     /// No caller outside BuildingBlocks can construct an audit row: the factory is <c>internal</c> and

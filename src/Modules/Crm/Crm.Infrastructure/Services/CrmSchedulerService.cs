@@ -25,34 +25,40 @@ internal sealed class CrmSchedulerService(IOptions<OfficeHoursOptions> options) 
     public Task<IReadOnlyList<CrmFreeSlot>> GetFreeSlotsAsync(DateTime fromUtc, DateTime toUtc, CancellationToken ct)
     {
         if (toUtc <= fromUtc)
+        {
             return Task.FromResult<IReadOnlyList<CrmFreeSlot>>([]);
+        }
 
-        var o = options.Value;
+        OfficeHoursOptions o = options.Value;
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(o.TimezoneId);
         var slotSpan = TimeSpan.FromMinutes(o.SlotMinutes);
         var dayStart = TimeSpan.Parse(o.DayStartLocal);
         var dayEnd = TimeSpan.Parse(o.DayEndLocal);
 
-        var fromLocal = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, timeZone);
-        var toLocal = TimeZoneInfo.ConvertTimeFromUtc(toUtc, timeZone);
+        DateTime fromLocal = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, timeZone);
+        DateTime toLocal = TimeZoneInfo.ConvertTimeFromUtc(toUtc, timeZone);
 
         var slots = new List<CrmFreeSlot>();
-        for (var day = fromLocal.Date; day <= toLocal.Date; day = day.AddDays(1))
+        for (DateTime day = fromLocal.Date; day <= toLocal.Date; day = day.AddDays(1))
         {
             if (!o.WorkingDays.Contains((int)day.DayOfWeek))
+            {
                 continue;
+            }
 
-            var slotStart = day + dayStart;
-            var dayEndLocal = day + dayEnd;
+            DateTime slotStart = day + dayStart;
+            DateTime dayEndLocal = day + dayEnd;
 
             while (slotStart + slotSpan <= dayEndLocal)
             {
-                var slotEnd = slotStart + slotSpan;
-                var slotStartUtc = TimeZoneInfo.ConvertTimeToUtc(slotStart, timeZone);
-                var slotEndUtc = TimeZoneInfo.ConvertTimeToUtc(slotEnd, timeZone);
+                DateTime slotEnd = slotStart + slotSpan;
+                DateTime slotStartUtc = TimeZoneInfo.ConvertTimeToUtc(slotStart, timeZone);
+                DateTime slotEndUtc = TimeZoneInfo.ConvertTimeToUtc(slotEnd, timeZone);
 
                 if (slotStartUtc >= fromUtc && slotEndUtc <= toUtc)
+                {
                     slots.Add(new CrmFreeSlot(slotStartUtc, slotEndUtc));
+                }
 
                 slotStart = slotEnd;
             }

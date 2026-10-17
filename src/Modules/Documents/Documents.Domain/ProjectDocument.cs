@@ -62,10 +62,14 @@ internal sealed class ProjectDocument : Entity, IAuditable
         string? description = null)
     {
         if (string.IsNullOrWhiteSpace(fileName))
+        {
             return ProjectDocumentErrors.FileNameRequired;
+        }
 
         if (fileSizeBytes <= 0)
+        {
             return ProjectDocumentErrors.InvalidFileSize;
+        }
 
         var document = new ProjectDocument
         {
@@ -99,13 +103,19 @@ internal sealed class ProjectDocument : Entity, IAuditable
         Guid uploadedById, string? description = null)
     {
         if (previous.IsLocked)
+        {
             return ProjectDocumentErrors.Locked;
+        }
 
         if (string.IsNullOrWhiteSpace(fileName))
+        {
             return ProjectDocumentErrors.FileNameRequired;
+        }
 
         if (fileSizeBytes <= 0)
+        {
             return ProjectDocumentErrors.InvalidFileSize;
+        }
 
         var revision = new ProjectDocument
         {
@@ -133,7 +143,9 @@ internal sealed class ProjectDocument : Entity, IAuditable
     public Result MoveToFolder(Guid? folderId)
     {
         if (IsLocked)
+        {
             return ProjectDocumentErrors.Locked;
+        }
 
         FolderId = folderId;
         return Result.Success();
@@ -142,7 +154,9 @@ internal sealed class ProjectDocument : Entity, IAuditable
     public Result UpdateDescription(string? description)
     {
         if (IsLocked)
+        {
             return ProjectDocumentErrors.Locked;
+        }
 
         Description = description;
         return Result.Success();
@@ -153,7 +167,9 @@ internal sealed class ProjectDocument : Entity, IAuditable
     public Result Lock()
     {
         if (IsLocked)
+        {
             return ProjectDocumentErrors.AlreadyLocked;
+        }
 
         IsLocked = true;
         return Result.Success();
@@ -166,7 +182,9 @@ internal sealed class ProjectDocument : Entity, IAuditable
     public Result Deactivate()
     {
         if (IsLocked)
+        {
             return ProjectDocumentErrors.Locked;
+        }
 
         SetActive(false);
         return Result.Success();

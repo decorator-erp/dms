@@ -35,7 +35,7 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -60,7 +60,7 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
         services.AddDbContext<SharedDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
         services.AddOutbox();
 
-        var modules = ModuleDiscovery.DiscoverModules(
+        IReadOnlyList<IModule> modules = ModuleDiscovery.DiscoverModules(
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
             System.Reflection.Assembly.Load("Hr.Infrastructure"),
             System.Reflection.Assembly.Load("Approvals.Infrastructure"),
@@ -73,8 +73,10 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
             // the handler the moment an event is delivered.
             System.Reflection.Assembly.Load("Notifications.Infrastructure"));
 
-        foreach (var module in modules)
+        foreach (IModule module in modules)
+        {
             module.Register(services, configuration);
+        }
 
         _provider = services.BuildServiceProvider();
 
@@ -96,8 +98,8 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
         // nothing points into it.
         await MigrateAsync("Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure");
 
-        var identityModule = modules.Single(m => m.Name == "Identity");
-        await using (var scope = _provider.CreateAsyncScope())
+        IModule identityModule = modules.Single(m => m.Name == "Identity");
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             await identityModule.SeedAsync(scope.ServiceProvider);
         }
@@ -107,10 +109,10 @@ public sealed class DocumentsApplicationFixture : IAsyncLifetime
 
     private async Task MigrateAsync(string assemblyQualifiedContextTypeName)
     {
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        await using var scope = _provider.CreateAsyncScope();
+        await using AsyncServiceScope scope = _provider.CreateAsyncScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

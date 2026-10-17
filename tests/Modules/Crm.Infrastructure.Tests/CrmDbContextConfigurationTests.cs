@@ -18,7 +18,7 @@ public class CrmDbContextConfigurationTests
     {
         // A syntactically valid but never-connected-to connection string - building the EF model
         // (Model, EntityTypes) never opens a connection; only executing a query would.
-        var options = new DbContextOptionsBuilder<CrmDbContext>()
+        DbContextOptions<CrmDbContext> options = new DbContextOptionsBuilder<CrmDbContext>()
             .UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused")
             .Options;
         return new CrmDbContext(options);
@@ -27,7 +27,7 @@ public class CrmDbContextConfigurationTests
     [Fact]
     public void CrmDbContext_HasExactly24DbSetProperties()
     {
-        var dbSetPropertyCount = typeof(CrmDbContext)
+        int dbSetPropertyCount = typeof(CrmDbContext)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Count(p => p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
 
@@ -37,7 +37,7 @@ public class CrmDbContextConfigurationTests
     [Fact]
     public void Assembly_HasExactly24EntityTypeConfigurations()
     {
-        var configurationCount = typeof(CrmDbContext).Assembly.GetTypes()
+        int configurationCount = typeof(CrmDbContext).Assembly.GetTypes()
             .Count(t => t.GetInterfaces().Any(i =>
                 i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)));
 
@@ -68,7 +68,7 @@ public class CrmDbContextConfigurationTests
     [Fact]
     public void Model_UsesCrmSchema()
     {
-        using var context = CreateContext();
+        using CrmDbContext context = CreateContext();
 
         var entityTypes = context.Model.GetEntityTypes().ToList();
 

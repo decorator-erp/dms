@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Documents.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Domain = Projects.Domain;
 
@@ -20,14 +21,16 @@ internal sealed class DocumentApprovedIntegrationEventHandler(ProjectsDbContext 
 {
     public async Task HandleAsync(DocumentApprovedIntegrationEvent @event, CancellationToken ct)
     {
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g =>
                 g.ConditionType == Domain.ConditionType.DocumentApproved &&
                 g.Status == Domain.GateStatus.Pending &&
                 g.ReferencedDocumentId == @event.RootDocumentId)
             .ToListAsync(ct);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(null);
+        }
     }
 }

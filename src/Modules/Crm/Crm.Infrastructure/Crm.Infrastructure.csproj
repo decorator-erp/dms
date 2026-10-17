@@ -34,6 +34,11 @@
     <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
     <!-- N1-06: MeetingScheduledNotificationHandler calls INotificationService. -->
     <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
+    <!-- Cross-module write, CRM -> Identity: ClientCreatedIntegrationEventHandler activates the portal
+         login CreateClientCommand provisioned, via Identity.Contracts.IUserAdministration. Identity is a
+         sink and cannot subscribe to Crm.Contracts, so the subscriber lives on this side - the same
+         direction and the same reasoning as Hr.Infrastructure's own Identity.Contracts reference. -->
+    <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -15,10 +15,12 @@ internal sealed class GetClientDesignProfileQueryHandler(CrmDbContext db)
     public async Task<Result<ClientDesignProfileResponse>> HandleAsync(
         GetClientDesignProfileQuery query, CancellationToken ct = default)
     {
-        var brief = await db.CrmDesignBriefs.AsNoTracking()
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking()
             .FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
         if (brief is null)
+        {
             return Result.Failure<ClientDesignProfileResponse>(CrmBriefErrors.NotFound);
+        }
 
         return new ClientDesignProfileResponse(
             brief.ProjectId, brief.PreferredStyle, brief.PreferredColors,

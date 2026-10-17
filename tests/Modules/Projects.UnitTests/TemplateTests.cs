@@ -1,4 +1,5 @@
 using Projects.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.UnitTests;
@@ -20,10 +21,7 @@ public class StageTemplateTests
 public class StageDepartmentTests
 {
     [Fact]
-    public void Create_WithEmptyStageId_Throws()
-    {
-        Assert.Throws<ArgumentException>(() => StageDepartment.Create(Guid.Empty, Guid.NewGuid()));
-    }
+    public void Create_WithEmptyStageId_Throws() => Assert.Throws<ArgumentException>(() => StageDepartment.Create(Guid.Empty, Guid.NewGuid()));
 
     [Fact]
     public void Remove_SetsIsActiveFalse()
@@ -41,7 +39,7 @@ public class GateConditionTests
     [Fact]
     public void Create_WithBothOwnersSet_IsRejected()
     {
-        var result = GateCondition.Create(Guid.NewGuid(), Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label");
+        Result<GateCondition> result = GateCondition.Create(Guid.NewGuid(), Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label");
 
         Assert.True(result.IsFailure);
         Assert.Equal(GateConditionErrors.InvalidScope, result.Error);
@@ -50,7 +48,7 @@ public class GateConditionTests
     [Fact]
     public void Create_WithNeitherOwnerSet_IsRejected()
     {
-        var result = GateCondition.Create(null, null, ConditionType.ManualCheck, GateTrigger.Complete, "label");
+        Result<GateCondition> result = GateCondition.Create(null, null, ConditionType.ManualCheck, GateTrigger.Complete, "label");
 
         Assert.True(result.IsFailure);
         Assert.Equal(GateConditionErrors.InvalidScope, result.Error);
@@ -59,7 +57,7 @@ public class GateConditionTests
     [Fact]
     public void Create_StageOwned_SetsScopeToStage()
     {
-        var gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
+        GateCondition gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
 
         Assert.Equal(GateOwnerKind.Stage, gate.Scope);
         Assert.True(gate.IsPending);
@@ -68,7 +66,7 @@ public class GateConditionTests
     [Fact]
     public void Create_TaskOwned_SetsScopeToTask()
     {
-        var gate = GateCondition.Create(null, Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
+        GateCondition gate = GateCondition.Create(null, Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
 
         Assert.Equal(GateOwnerKind.Task, gate.Scope);
     }
@@ -76,15 +74,15 @@ public class GateConditionTests
     [Fact]
     public void MarkSatisfied_Succeeds_AndRaisesDomainEvent()
     {
-        var gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
+        GateCondition gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
         var satisfiedById = Guid.NewGuid();
 
-        var result = gate.MarkSatisfied(satisfiedById, "looks good");
+        Result result = gate.MarkSatisfied(satisfiedById, "looks good");
 
         Assert.True(result.IsSuccess);
         Assert.True(gate.IsSatisfied);
         Assert.Equal(satisfiedById, gate.ResolvedById);
-        var raised = Assert.IsType<GateConditionSatisfiedDomainEvent>(Assert.Single(gate.DomainEvents));
+        GateConditionSatisfiedDomainEvent raised = Assert.IsType<GateConditionSatisfiedDomainEvent>(Assert.Single(gate.DomainEvents));
         Assert.Equal(gate.Id, raised.GateConditionId);
         Assert.Equal(GateOwnerKind.Stage, raised.OwnerKind);
     }
@@ -92,10 +90,10 @@ public class GateConditionTests
     [Fact]
     public void MarkSatisfied_Twice_IsIdempotent_DoesNotRaiseASecondEvent()
     {
-        var gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
+        GateCondition gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
         gate.MarkSatisfied(Guid.NewGuid());
 
-        var result = gate.MarkSatisfied(Guid.NewGuid());
+        Result result = gate.MarkSatisfied(Guid.NewGuid());
 
         Assert.True(result.IsSuccess);
         Assert.Single(gate.DomainEvents);
@@ -104,9 +102,9 @@ public class GateConditionTests
     [Fact]
     public void MarkRejected_SetsStatusAndResolutionFields()
     {
-        var gate = GateCondition.Create(null, Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
+        GateCondition gate = GateCondition.Create(null, Guid.NewGuid(), ConditionType.ManualCheck, GateTrigger.Complete, "label").Value!;
 
-        var result = gate.MarkRejected(Guid.NewGuid(), "missing sign-off");
+        Result result = gate.MarkRejected(Guid.NewGuid(), "missing sign-off");
 
         Assert.True(result.IsSuccess);
         Assert.True(gate.IsRejected);
@@ -116,10 +114,10 @@ public class GateConditionTests
     [Fact]
     public void MarkPending_AfterSatisfied_ResetsResolutionFields()
     {
-        var gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
+        GateCondition gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.ManualCheck, GateTrigger.Unlock, "label").Value!;
         gate.MarkSatisfied(Guid.NewGuid());
 
-        var result = gate.MarkPending("reopened for review");
+        Result result = gate.MarkPending("reopened for review");
 
         Assert.True(result.IsSuccess);
         Assert.True(gate.IsPending);
@@ -130,7 +128,7 @@ public class GateConditionTests
     [Fact]
     public void LinkApproval_SetsApprovalId()
     {
-        var gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.Approval, GateTrigger.Complete, "manager approval",
+        GateCondition gate = GateCondition.Create(Guid.NewGuid(), null, ConditionType.Approval, GateTrigger.Complete, "manager approval",
             approvalType: ApprovalType.ManagerApproval).Value!;
         var approvalId = Guid.NewGuid();
 

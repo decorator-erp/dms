@@ -20,9 +20,11 @@ internal sealed class DeleteDocumentFolderCommandHandler(DocumentsDbContext db) 
 {
     public async Task<Result> HandleAsync(DeleteDocumentFolderCommand command, CancellationToken ct = default)
     {
-        var folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
+        DocumentFolder? folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
         if (folder is null)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
         folder.Deactivate();
         await db.SaveChangesAsync(ct);

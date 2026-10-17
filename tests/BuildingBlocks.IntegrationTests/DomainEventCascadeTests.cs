@@ -55,10 +55,10 @@ public sealed class DomainEventCascadeTests(OutboxFixture fixture)
     public async Task TwoLevelCascade_HandlerWriteAndBothCascadeStepsCommitTogether()
     {
         var counter = new CallCounter();
-        await using var provider = BuildProvider(counter, new FailureController());
+        await using ServiceProvider provider = BuildProvider(counter, new FailureController());
         var @event = new CascadeTestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IEventBus>()
                 .PublishAsync(@event, CancellationToken.None);
@@ -68,14 +68,14 @@ public sealed class DomainEventCascadeTests(OutboxFixture fixture)
         // Level2 event only exists because Level1's handler enqueued it via IDomainEventQueue).
         Assert.Equal(2, counter.Count);
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(1, await verify.CascadingEntities.CountAsync(x => x.Id == @event.EventId));
         Assert.Equal(1, await verify.SideEffects.CountAsync(
             x => x.EventId == @event.EventId && x.HandlerName == nameof(Level1DomainEventHandler)));
         Assert.Equal(1, await verify.SideEffects.CountAsync(
             x => x.EventId == @event.EventId && x.HandlerName == nameof(Level2DomainEventHandler)));
 
-        await using var sharedVerify = OpenShared();
+        await using SharedDbContext sharedVerify = OpenShared();
         Assert.True(await sharedVerify.Set<InboxMessage>()
             .AnyAsync(m => m.EventId == @event.EventId && m.HandlerName == typeof(CascadeIntegrationEventHandler).FullName));
     }
@@ -91,33 +91,33 @@ public sealed class DomainEventCascadeTests(OutboxFixture fixture)
     {
         var counter = new CallCounter();
         var failure = new FailureController { FailNextCall = true };
-        await using var provider = BuildProvider(counter, failure);
+        await using ServiceProvider provider = BuildProvider(counter, failure);
         var @event = new CascadeTestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 scope.ServiceProvider.GetRequiredService<IEventBus>().PublishAsync(@event, CancellationToken.None));
         }
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(0, await verify.CascadingEntities.CountAsync(x => x.Id == @event.EventId));
         Assert.Equal(0, await verify.SideEffects.CountAsync(
             x => x.EventId == @event.EventId && x.HandlerName == nameof(Level1DomainEventHandler)));
         Assert.Equal(0, await verify.SideEffects.CountAsync(
             x => x.EventId == @event.EventId && x.HandlerName == nameof(Level2DomainEventHandler)));
 
-        await using var sharedVerify = OpenShared();
+        await using SharedDbContext sharedVerify = OpenShared();
         Assert.False(await sharedVerify.Set<InboxMessage>().AnyAsync(m => m.EventId == @event.EventId));
 
         // A clean retry (failure already consumed) reruns the whole chain from zero, not a partial resume -
         // exactly R1's guarantee, now proven for the cascade too.
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IEventBus>().PublishAsync(@event, CancellationToken.None);
         }
 
-        await using var afterRetry = OpenModule();
+        await using TestModuleDbContext afterRetry = OpenModule();
         Assert.Equal(1, await afterRetry.CascadingEntities.CountAsync(x => x.Id == @event.EventId));
         Assert.Equal(1, await afterRetry.SideEffects.CountAsync(
             x => x.EventId == @event.EventId && x.HandlerName == nameof(Level1DomainEventHandler)));

@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -13,7 +14,7 @@ public class CrmContactTests
     [Fact]
     public void Create_WithValidData_Succeeds()
     {
-        var result = CrmContact.Create(ClientId, "Jane", "Doe", (ContactRole)1, isPrimary: true);
+        Result<CrmContact> result = CrmContact.Create(ClientId, "Jane", "Doe", (ContactRole)1, isPrimary: true);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ClientId, result.Value!.ClientId);
@@ -29,7 +30,7 @@ public class CrmContactTests
     [InlineData(null, "Doe")]
     public void Create_WithoutRequiredNames_Fails(string? firstName, string lastName)
     {
-        var result = CrmContact.Create(ClientId, firstName!, lastName, (ContactRole)1, false);
+        Result<CrmContact> result = CrmContact.Create(ClientId, firstName!, lastName, (ContactRole)1, false);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmContactErrors.NameRequired, result.Error);
@@ -38,9 +39,9 @@ public class CrmContactTests
     [Fact]
     public void Update_WithValidData_Succeeds()
     {
-        var contact = CreateContact();
+        CrmContact contact = CreateContact();
 
-        var result = contact.Update("John", "Smith", (ContactRole)2, "a@b.com", "123", "456", "note");
+        Result result = contact.Update("John", "Smith", (ContactRole)2, "a@b.com", "123", "456", "note");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("John", contact.FirstName);
@@ -51,9 +52,9 @@ public class CrmContactTests
     [Fact]
     public void Update_WithoutRequiredNames_Fails()
     {
-        var contact = CreateContact();
+        CrmContact contact = CreateContact();
 
-        var result = contact.Update("", "Smith", (ContactRole)2, null, null, null, null);
+        Result result = contact.Update("", "Smith", (ContactRole)2, null, null, null, null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmContactErrors.NameRequired, result.Error);
@@ -64,7 +65,7 @@ public class CrmContactTests
     [Fact]
     public void MarkPrimary_Then_ClearPrimary_TogglesIsPrimary()
     {
-        var contact = CreateContact(isPrimary: false);
+        CrmContact contact = CreateContact(isPrimary: false);
 
         contact.MarkPrimary();
         Assert.True(contact.IsPrimary);

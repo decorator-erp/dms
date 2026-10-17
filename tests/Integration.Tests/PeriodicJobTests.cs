@@ -3,10 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Approvals.Contracts;
 using BuildingBlocks.Jobs;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using SharedKernel;
 using Xunit;
 
 namespace Integration.Tests;
@@ -36,14 +36,23 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     /// <c>Program.cs</c> — not with the job's own code at F1-08, which this fixture could not see,
     /// since it resolves from the real Api host.</para>
     ///
-    /// <para><b>Eight is also the ceiling this design was built for.</b> Nine deadline loops in the
-    /// backend collapse into one timer here; <c>docs/low-resource-hosting.md</c> §3 is the reasoning,
-    /// and F2-01 updates its count.</para>
+    /// <para><b>Nine now, and the ninth is not owned by a module at all.</b>
+    /// <c>UnlinkedUserReaperJob</c> is registered by <c>Api.DI</c> itself, because deciding whether a
+    /// provisioned login was ever claimed means reading Identity, HR and CRM contracts together and
+    /// Identity is a sink that cannot see the other two. The worker resolves <c>IPeriodicJob</c> from
+    /// the container without caring which assembly registered it, so it appears here beside the eight
+    /// module-owned jobs — which is exactly why this assertion is a SET of names rather than a per-module
+    /// count.</para>
+    ///
+    /// <para><b>The design was built for a ceiling of eight loops.</b> Nine deadline loops in the
+    /// backend collapse into one timer here; <c>docs/low-resource-hosting.md</c> §3 is the reasoning.
+    /// The reaper does not raise that ceiling — one timer still drives every job — but the count in that
+    /// document is now nine.</para>
     /// </summary>
     [Fact]
-    public void EveryEightPeriodicJobs_AreRegistered_AcrossTheirOwningModules()
+    public void EveryPeriodicJob_IsRegistered_AcrossTheirOwningModulesAndTheApi()
     {
-        using var scope = fixture.Services.CreateScope();
+        using IServiceScope scope = fixture.Services.CreateScope();
 
         var jobNames = scope.ServiceProvider.GetServices<IPeriodicJob>()
             .Select(job => job.Name)
@@ -60,6 +69,7 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
                 "ProjectDeadlineJob",            // Projects
                 "StageDeadlineJob",              // Projects
                 "TaskDeadlineJob",               // Projects
+                "UnlinkedUserReaperJob",         // Api - deliberately not a module's
             ],
             jobNames);
     }
@@ -72,7 +82,7 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     [Fact]
     public async Task PeriodicJobWorker_ExecutesEveryJob_InOneTick()
     {
-        var worker = fixture.Services.GetServices<IHostedService>().OfType<PeriodicJobWorker>().Single();
+        PeriodicJobWorker worker = fixture.Services.GetServices<IHostedService>().OfType<PeriodicJobWorker>().Single();
 
         await worker.RunAllJobsAsync(CancellationToken.None);
     }
@@ -92,17 +102,17 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     [Fact]
     public async Task AnOverdueApproval_NotifiesEveryApproverOnce_AndNotAgainOnASecondTick()
     {
-        var firstApprover = await RegisterUserAsync();
-        var secondApprover = await RegisterUserAsync();
-        var (approvalId, requesterId) = await RequestOverdueApprovalAsync(firstApprover, secondApprover);
+        string firstApprover = await RegisterUserAsync();
+        string secondApprover = await RegisterUserAsync();
+        (Guid approvalId, string? requesterId) = await RequestOverdueApprovalAsync(firstApprover, secondApprover);
 
-        var worker = fixture.Services.GetServices<IHostedService>().OfType<PeriodicJobWorker>().Single();
-
-        await worker.RunAllJobsAsync(CancellationToken.None);
-        var afterFirstTick = await ReadDedupeKeysAsync(approvalId);
+        PeriodicJobWorker worker = fixture.Services.GetServices<IHostedService>().OfType<PeriodicJobWorker>().Single();
 
         await worker.RunAllJobsAsync(CancellationToken.None);
-        var afterSecondTick = await ReadDedupeKeysAsync(approvalId);
+        List<string> afterFirstTick = await ReadDedupeKeysAsync(approvalId);
+
+        await worker.RunAllJobsAsync(CancellationToken.None);
+        List<string> afterSecondTick = await ReadDedupeKeysAsync(approvalId);
 
         // Thirty days overdue exercises BOTH Approvals jobs from one seeded row: the SLA nudge to each
         // eligible approver, and the escalation to the requester past the two-day grace window. Their
@@ -137,11 +147,13 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     {
         await RequestOverdueApprovalAsync(await RegisterUserAsync());
 
-        var approvalsJobs = ResolveJobs("ApprovalResponseDueJob", "ApprovalOverdueEscalationJob");
+        List<IPeriodicJob> approvalsJobs = ResolveJobs("ApprovalResponseDueJob", "ApprovalOverdueEscalationJob");
 
         fixture.ClearCapturedSql();
-        foreach (var job in approvalsJobs)
+        foreach (IPeriodicJob job in approvalsJobs)
+        {
             await job.RunAsync(CancellationToken.None);
+        }
 
         AssertNoSqlTouching(["identity.", "hr.", "crm.", "projects.", "documents.", "sites."]);
     }
@@ -159,20 +171,22 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     [Fact]
     public async Task ProjectsAndCrmJobs_NeverTouchTheDocumentsOrSitesSchemas()
     {
-        var jobs = ResolveJobs(
+        List<IPeriodicJob> jobs = ResolveJobs(
             "ProjectDeadlineJob", "StageDeadlineJob", "TaskDeadlineJob",
             "CrmMeetingReminderJob", "CrmPeriodCloseJob");
 
         fixture.ClearCapturedSql();
-        foreach (var job in jobs)
+        foreach (IPeriodicJob job in jobs)
+        {
             await job.RunAsync(CancellationToken.None);
+        }
 
         AssertNoSqlTouching(["documents.", "sites."]);
     }
 
     private List<IPeriodicJob> ResolveJobs(params string[] names)
     {
-        var scope = fixture.Services.CreateScope();
+        IServiceScope scope = fixture.Services.CreateScope();
         var jobs = scope.ServiceProvider.GetServices<IPeriodicJob>()
             .Where(job => names.Contains(job.Name, StringComparer.Ordinal))
             .ToList();
@@ -205,26 +219,20 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     /// <c>RecipientUserId</c>, both to <c>identity.users</c>, so a synthetic Guid fails the insert.
     /// Those constraints working is itself part of what N1-03 shipped.
     /// </summary>
-    private async Task<string> RegisterUserAsync()
-    {
-        var client = fixture.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"job-{Guid.NewGuid():N}@example.com", "P@ssw0rd123!", "Job", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("userId").GetString()!;
-    }
+    private Task<string> RegisterUserAsync() =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"job-{Guid.NewGuid():N}@example.com", firstName: "Job");
 
     /// <summary>Creates an approval already past its response deadline, through the public
     /// <see cref="IApprovalRequester"/> contract — the same way Projects creates one.</summary>
     private async Task<(Guid ApprovalId, string RequesterId)> RequestOverdueApprovalAsync(params string[] approverUserIds)
     {
-        var requestedByUserId = await RegisterUserAsync();
+        string requestedByUserId = await RegisterUserAsync();
 
-        await using var scope = fixture.Services.CreateAsyncScope();
-        var requester = scope.ServiceProvider.GetRequiredService<IApprovalRequester>();
+        await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
+        IApprovalRequester requester = scope.ServiceProvider.GetRequiredService<IApprovalRequester>();
 
-        var result = await requester.RequestAsync(
+        Result<Guid> result = await requester.RequestAsync(
             new ApprovalRequest(
                 ApprovalSubjectType.GateCondition,
                 Guid.NewGuid(),
@@ -253,9 +261,11 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
         command.Parameters.AddWithValue("id", approvalId);
 
         var keys = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
+        {
             keys.Add(reader.GetString(0));
+        }
 
         return keys;
     }

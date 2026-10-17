@@ -24,9 +24,12 @@ internal static class SiteEndpointActors
     public static async Task<Result<Guid>> ResolveEmployeeIdAsync(
         IHrDirectory directory, ICurrentUser currentUser, CancellationToken ct)
     {
-        if (currentUser.UserId is not { } appUserId) return SiteErrors.InvalidData;
+        if (currentUser.UserId is not { } appUserId)
+        {
+            return SiteErrors.InvalidData;
+        }
 
-        var employeeId = await directory.ResolveEmployeeIdAsync(appUserId, ct);
+        Guid? employeeId = await directory.ResolveEmployeeIdAsync(appUserId, ct);
 
         return employeeId is { } id ? id : SiteErrors.InvalidData;
     }

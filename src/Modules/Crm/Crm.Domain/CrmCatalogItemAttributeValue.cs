@@ -30,11 +30,21 @@ internal sealed class CrmCatalogItemAttributeValue : Entity, IAuditable
         DateOnly? valueDate = null,
         Guid? optionId = null)
     {
-        if (itemId == Guid.Empty) return CrmCatalogErrors.ItemNotFound;
-        if (attributeId == Guid.Empty) return CrmCatalogErrors.AttributeNotFound;
+        if (itemId == Guid.Empty)
+        {
+            return CrmCatalogErrors.ItemNotFound;
+        }
 
-        var validation = CatalogAttributeValueRules.Validate(dataType, valueText, valueNumber, valueBool, valueDate, optionId);
-        if (validation.IsFailure) return validation.Error;
+        if (attributeId == Guid.Empty)
+        {
+            return CrmCatalogErrors.AttributeNotFound;
+        }
+
+        Result validation = CatalogAttributeValueRules.Validate(dataType, valueText, valueNumber, valueBool, valueDate, optionId);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmCatalogItemAttributeValue
         {

@@ -72,27 +72,29 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
 {
     public async Task<Result<Guid>> HandleAsync(GenerateBoqSnapshotCommand command, CancellationToken ct = default)
     {
-        var r = command.Request;
+        GenerateBoqSnapshotRequest r = command.Request;
 
         // DIVERGENCE, same shape as CreateBudgetLineCommandHandler's: the backend never checks the
         // project, so an unknown id becomes a foreign-key violation rather than a 404.
         if (await projects.GetProjectAsync(r.ProjectId, ct) is null)
+        {
             return BoqSnapshotErrors.ProjectNotFound;
+        }
 
-        var version = 1 + await db.BoqSnapshots
+        int version = 1 + await db.BoqSnapshots
             .Where(b => b.ProjectId == r.ProjectId)
             .Select(b => (int?)b.Version)
             .MaxAsync(ct) ?? 1;
 
-        var taskBudgets = await TaskBudgetsAsync(r.ProjectId, r.ProjectStageId, ct);
-        var taskActuals = await TaskActualsAsync([.. taskBudgets.Keys], ct);
+        Dictionary<Guid, decimal> taskBudgets = await TaskBudgetsAsync(r.ProjectId, r.ProjectStageId, ct);
+        Dictionary<Guid, decimal> taskActuals = await TaskActualsAsync([.. taskBudgets.Keys], ct);
 
-        var taskNames = taskBudgets.Count == 0
+        Dictionary<Guid, string> taskNames = taskBudgets.Count == 0
             ? []
             : (await projects.GetTasksAsync([.. taskBudgets.Keys], ct)).ToDictionary(t => t.Id, t => t.Name);
 
-        var vendorLines = await VendorInvoiceLinesAsync(r.ProjectId, r.ProjectStageId, ct);
-        var signedDifferences = await SignedDifferencesAsync(r.ProjectId, ct);
+        List<InvoiceLine> vendorLines = await VendorInvoiceLinesAsync(r.ProjectId, r.ProjectStageId, ct);
+        List<Variation> signedDifferences = await SignedDifferencesAsync(r.ProjectId, ct);
 
         var budgetItems = taskBudgets
             .Select(kv => new
@@ -127,6 +129,7 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
         var lines = new List<BoqSnapshotLine>();
 
         foreach (var item in budgetItems)
+        {
             lines.Add(BoqSnapshotLine.Create(
                 snapshot.Id,
                 description: taskNames.GetValueOrDefault(item.TaskId) ?? string.Empty,
@@ -134,8 +137,10 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
                 actualAmount: item.Actual,
                 differenceAmount: item.Difference,
                 projectTaskId: item.TaskId));
+        }
 
-        foreach (var line in vendorLines)
+        foreach (InvoiceLine line in vendorLines)
+        {
             lines.Add(BoqSnapshotLine.Create(
                 snapshot.Id,
                 description: line.Description,
@@ -146,8 +151,10 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
                 unit: line.Unit,
                 projectTaskId: line.ProjectTaskId,
                 invoiceLineId: line.Id));
+        }
 
-        foreach (var difference in signedDifferences)
+        foreach (Variation difference in signedDifferences)
+        {
             lines.Add(BoqSnapshotLine.Create(
                 snapshot.Id,
                 description: difference.Reason,
@@ -156,6 +163,7 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
                 differenceAmount: difference.Amount,
                 projectTaskId: difference.ProjectTaskId,
                 variationId: difference.Id));
+        }
 
         db.BoqSnapshots.Add(snapshot);
         db.BoqSnapshotLines.AddRange(lines);
@@ -172,10 +180,12 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
     private async Task<Dictionary<Guid, decimal>> TaskBudgetsAsync(
         Guid projectId, Guid? projectStageId, CancellationToken ct)
     {
-        var q = db.BudgetLines.Where(b => b.ProjectId == projectId && b.IsActive && b.ProjectTaskId != null);
+        IQueryable<BudgetLine> q = db.BudgetLines.Where(b => b.ProjectId == projectId && b.IsActive && b.ProjectTaskId != null);
 
         if (projectStageId is Guid stageId)
+        {
             q = q.Where(b => b.ProjectStageId == stageId);
+        }
 
         var grouped = await q
             .GroupBy(b => b.ProjectTaskId!.Value)
@@ -195,7 +205,9 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
     private async Task<Dictionary<Guid, decimal>> TaskActualsAsync(Guid[] taskIds, CancellationToken ct)
     {
         if (taskIds.Length == 0)
+        {
             return [];
+        }
 
         var grouped = await db.LedgerEntries
             .Where(e => e.ProjectTaskId != null
@@ -218,14 +230,16 @@ internal sealed class GenerateBoqSnapshotCommandHandler(FinanceDbContext db, IPr
     private async Task<List<InvoiceLine>> VendorInvoiceLinesAsync(
         Guid projectId, Guid? projectStageId, CancellationToken ct)
     {
-        var invoices = db.Invoices.Where(i =>
+        IQueryable<Invoice> invoices = db.Invoices.Where(i =>
             i.ProjectId == projectId
             && i.Type == InvoiceType.VendorInvoice
             && i.Status != InvoiceStatus.Cancelled
             && i.IsActive);
 
         if (projectStageId is Guid stageId)
+        {
             invoices = invoices.Where(i => i.ProjectStageId == stageId);
+        }
 
         return await db.InvoiceLines
             .Where(l => invoices.Select(i => i.Id).Contains(l.InvoiceId))
@@ -253,7 +267,7 @@ internal sealed class GetBoqSnapshotByIdQueryHandler(FinanceDbContext db)
     public async Task<Result<BoqSnapshotResponse>> HandleAsync(
         GetBoqSnapshotByIdQuery query, CancellationToken ct = default)
     {
-        var response = await BoqSnapshotReads.ByIdAsync(db, query.Id, ct);
+        BoqSnapshotResponse? response = await BoqSnapshotReads.ByIdAsync(db, query.Id, ct);
         return response is null ? BoqSnapshotErrors.NotFound : response;
     }
 }
@@ -269,7 +283,7 @@ internal sealed class GetLatestBoqSnapshotQueryHandler(FinanceDbContext db)
     public async Task<Result<BoqSnapshotResponse>> HandleAsync(
         GetLatestBoqSnapshotQuery query, CancellationToken ct = default)
     {
-        var latestId = await db.BoqSnapshots
+        Guid? latestId = await db.BoqSnapshots
             .Where(b => b.ProjectId == query.ProjectId
                         && b.IsActive
                         && (query.ProjectStageId == null || b.ProjectStageId == query.ProjectStageId))
@@ -278,9 +292,11 @@ internal sealed class GetLatestBoqSnapshotQueryHandler(FinanceDbContext db)
             .FirstOrDefaultAsync(ct);
 
         if (latestId is null)
+        {
             return BoqSnapshotErrors.NotFound;
+        }
 
-        var response = await BoqSnapshotReads.ByIdAsync(db, latestId.Value, ct);
+        BoqSnapshotResponse? response = await BoqSnapshotReads.ByIdAsync(db, latestId.Value, ct);
         return response is null ? BoqSnapshotErrors.NotFound : response;
     }
 }
@@ -301,17 +317,17 @@ internal sealed class GetBoqSnapshotsByProjectQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<BoqSnapshotListItemResponse>>> HandleAsync(
         GetBoqSnapshotsByProjectQuery query, CancellationToken ct = default)
     {
-        var q = db.BoqSnapshots.Where(b => b.ProjectId == query.ProjectId && b.IsActive);
+        IQueryable<BoqSnapshot> q = db.BoqSnapshots.Where(b => b.ProjectId == query.ProjectId && b.IsActive);
 
         if (query.Type.HasValue)
         {
-            var type = FinanceEnumMapping.ToDomain(query.Type.Value);
+            BoqSnapshotType type = FinanceEnumMapping.ToDomain(query.Type.Value);
             q = q.Where(b => b.Type == type);
         }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<BoqSnapshotListItemResponse> items = await q
             .OrderByDescending(b => b.Version)
             .Skip(query.Skip)
             .Take(query.Take)
@@ -355,9 +371,11 @@ internal static class BoqSnapshotReads
             .FirstOrDefaultAsync(ct);
 
         if (header is null)
+        {
             return null;
+        }
 
-        var lines = await db.BoqSnapshotLines
+        List<BoqSnapshotLineResponse> lines = await db.BoqSnapshotLines
             .Where(l => l.BoqSnapshotId == id)
             .OrderBy(l => l.CreatedAtUtc)
             .Select(l => new BoqSnapshotLineResponse(

@@ -36,20 +36,24 @@ internal sealed class MeetingScheduledNotificationHandler(
             .FirstOrDefaultAsync(ct);
 
         if (meeting is null)
+        {
             return;
+        }
 
-        var employee = meeting.RequestedByEmployeeId is { } employeeId
+        EmployeeSummary? employee = meeting.RequestedByEmployeeId is { } employeeId
             ? await hrDirectory.GetAsync(employeeId, ct)
             : null;
 
-        var project = await projectDirectory.GetProjectAsync(@event.ProjectId, ct);
-        var client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(@event.ProjectId, ct);
+        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
 
         string?[] candidates = [employee?.AppUserId, client?.AppUserId];
         var targets = candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!)
             .Distinct(StringComparer.Ordinal).ToList();
         if (targets.Count == 0)
+        {
             return;
+        }
 
         await notifications.NotifyManyAsync(
             targets,

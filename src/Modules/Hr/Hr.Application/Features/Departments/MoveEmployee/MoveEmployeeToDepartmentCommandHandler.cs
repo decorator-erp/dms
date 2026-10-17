@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts.Departments;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -31,16 +32,22 @@ internal sealed class MoveEmployeeToDepartmentCommandHandler(HrDbContext db)
     public async Task<Result> HandleAsync(MoveEmployeeToDepartmentCommand command, CancellationToken ct = default)
     {
         if (!await db.Employees.AnyAsync(e => e.Id == command.EmployeeId, ct))
+        {
             return EmployeeErrors.NotFound;
+        }
 
         if (!await db.Departments.AnyAsync(d => d.Id == command.NewDepartmentId, ct))
+        {
             return DepartmentErrors.NotFound;
+        }
 
         if (await db.EmployeeDepartments.AnyAsync(
             ed => ed.EmployeeId == command.EmployeeId && ed.DepartmentId == command.NewDepartmentId, ct))
+        {
             return DepartmentErrors.AlreadyInDepartment;
+        }
 
-        var membership = await db.EmployeeDepartments
+        EmployeeDepartment? membership = await db.EmployeeDepartments
             .Where(ed => ed.EmployeeId == command.EmployeeId && ed.IsActive)
             .OrderByDescending(ed => ed.CreatedAtUtc)
             .FirstOrDefaultAsync(ct);

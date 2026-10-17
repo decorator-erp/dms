@@ -68,16 +68,22 @@ internal sealed class BudgetLine : Entity, IAuditable
         string? description = null)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return BudgetLineErrors.NameRequired;
+        }
 
         if (allocatedAmount < 0)
+        {
             return BudgetLineErrors.NegativeAllocation;
+        }
 
         // A task-scoped line must also name its stage. That the task actually belongs to that stage and
         // project is a cross-module fact this entity cannot see; the handler checks it via
         // IProjectDirectory and returns the same error.
         if (projectTaskId.HasValue && !projectStageId.HasValue)
+        {
             return BudgetLineErrors.TaskStageMismatch;
+        }
 
         return new BudgetLine
         {
@@ -106,7 +112,9 @@ internal sealed class BudgetLine : Entity, IAuditable
     public void ApplyAdjustment(decimal delta)
     {
         if (delta == 0)
+        {
             return;
+        }
 
         AdjustmentAllocation += delta;
     }
@@ -119,7 +127,9 @@ internal sealed class BudgetLine : Entity, IAuditable
     public void ApplyCommitment(decimal delta)
     {
         if (delta == 0)
+        {
             return;
+        }
 
         CommittedAmount += delta;
     }
@@ -136,7 +146,9 @@ internal sealed class BudgetLine : Entity, IAuditable
     public void ApplyActualCost(decimal delta)
     {
         if (delta == 0)
+        {
             return;
+        }
 
         ActualAmount += delta;
         CommittedAmount -= delta;
@@ -145,7 +157,9 @@ internal sealed class BudgetLine : Entity, IAuditable
     public Result UpdateAllocation(decimal allocatedAmount)
     {
         if (allocatedAmount < 0)
+        {
             return BudgetLineErrors.NegativeAllocation;
+        }
 
         AllocatedAmount = allocatedAmount;
         return Result.Success();

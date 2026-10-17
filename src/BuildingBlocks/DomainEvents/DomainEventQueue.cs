@@ -12,7 +12,9 @@ internal sealed class DomainEventQueue : IDomainEventQueue
     public IReadOnlyList<IDomainEvent> DrainAll()
     {
         if (_events.Count == 0)
+        {
             return [];
+        }
 
         var drained = _events.ToList();
         _events.Clear();

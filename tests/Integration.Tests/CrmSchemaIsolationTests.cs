@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using Identity.Contracts.Auth;
 using Xunit;
 
 namespace Integration.Tests;
@@ -21,29 +20,27 @@ public sealed class CrmSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task GetClientById_IssuesNoSqlTouchingIdentityHrApprovalsOrProjectsSchemas()
     {
-        var client = fixture.CreateClient();
-        var suffix = Guid.NewGuid().ToString("N");
+        HttpClient client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"crm-schema-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-        var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+        string appUserId = await IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"crm-schema-{suffix}@example.com");
 
-        var token = fixture.IssueTestToken(appUserId, "clients.create", "clients.read");
+        string token = fixture.IssueTestToken(appUserId, "clients.create", "clients.read");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // clients.AppUserId -> identity.users is a real cross-schema FK (G9-08) - a fabricated app user
         // id would fail the insert outright, so a real one (the caller's own) is needed here even
         // though this test's own assertion only cares about the GET afterward.
-        var createResponse = await client.PostAsJsonAsync("/api/clients", new { AppUserId = appUserId, Address = "1 Client Rd" });
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/clients", ClientRequests.NewClientBody("client"));
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
-        var clientId = (await createResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
+        Guid clientId = (await createResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
 
         // Only the query under test is observed - registration and client creation legitimately touch
         // identity./crm. and would make the assertion meaningless if included.
         fixture.ClearCapturedSql();
 
-        var getResponse = await client.GetAsync($"/api/clients/{clientId}");
+        HttpResponseMessage getResponse = await client.GetAsync($"/api/clients/{clientId}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
 
         // PC-02 liveness. N1-08 found CapturedSql had never captured anything, and this assertion was
@@ -63,6 +60,5 @@ public sealed class CrmSchemaIsolationTests(ApiFixture fixture)
             $"GET /api/clients/{{id}} issued SQL touching identity/hr/approvals/projects: {string.Join(" | ", touchedOtherSchemas)}");
     }
 
-    private sealed record RegisterResponseBody(string UserId);
     private sealed record ClientIdBody(Guid ClientId);
 }

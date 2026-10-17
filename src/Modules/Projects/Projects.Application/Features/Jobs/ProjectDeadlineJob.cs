@@ -38,9 +38,9 @@ internal sealed class ProjectDeadlineJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-        var windowStart = now.AddDays(-30); // bound the overdue scan; dedupe already stops repeats.
-        var windowEnd = now.AddDays(14);    // earliest tier is -14d.
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime windowStart = now.AddDays(-30); // bound the overdue scan; dedupe already stops repeats.
+        DateTime windowEnd = now.AddDays(14);    // earliest tier is -14d.
 
         var projects = await db.Projects
             .AsNoTracking()
@@ -54,16 +54,20 @@ internal sealed class ProjectDeadlineJob(
         foreach (var project in projects)
         {
             if (DeadlineTiers.MostRelevant(now, project.Due, Tiers) is not { } tier)
+            {
                 continue;
+            }
 
-            var owner = await hrDirectory.GetAsync(project.OwnerId, ct);
-            var client = await clientDirectory.GetAsync(project.ClientId, ct);
+            EmployeeSummary? owner = await hrDirectory.GetAsync(project.OwnerId, ct);
+            ClientSummary? client = await clientDirectory.GetAsync(project.ClientId, ct);
 
             string?[] candidates = [owner?.AppUserId, client?.AppUserId];
             var targets = candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!)
                 .Distinct(StringComparer.Ordinal).ToList();
             if (targets.Count == 0)
+            {
                 continue;
+            }
 
             await notifications.NotifyManyAsync(
                 targets,

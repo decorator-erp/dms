@@ -23,13 +23,17 @@ internal sealed class CloseCrmRequirementPeriodCommandHandler(CrmDbContext db) :
 {
     public async Task<Result> HandleAsync(CloseCrmRequirementPeriodCommand command, CancellationToken ct = default)
     {
-        var period = await db.CrmRequirementPeriods.FindAsync([command.PeriodId], ct);
+        CrmRequirementPeriod? period = await db.CrmRequirementPeriods.FindAsync([command.PeriodId], ct);
         if (period is null)
+        {
             return CrmPeriodErrors.NotFound;
+        }
 
-        var result = period.Close(DateTime.UtcNow);
+        Result result = period.Close(DateTime.UtcNow);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         if (period.ProjectStageId is { } stageId)
         {

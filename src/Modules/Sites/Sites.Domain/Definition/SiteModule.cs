@@ -49,12 +49,17 @@ internal sealed class SiteModule : Entity, IAuditable
         if (string.IsNullOrWhiteSpace(code)
             || string.IsNullOrWhiteSpace(nameEn)
             || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
+        }
 
         // Divergence from the backend, which range-checks sortOrder on SiteRecord and SiteModuleItem but
         // not here or on SiteItemOption. A negative tab order is as meaningless as a negative field
         // order; the asymmetry was an oversight, not a rule. See this task's PROGRESS.md entry.
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         return new SiteModule
         {
@@ -77,8 +82,14 @@ internal sealed class SiteModule : Entity, IAuditable
         string nameEn, string nameAr, string? descriptionEn, string? descriptionAr, int sortOrder)
     {
         if (string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return SiteErrors.InvalidData;
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        }
+
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         NameEn = nameEn.Trim();
         NameAr = nameAr.Trim();
@@ -99,8 +110,15 @@ internal sealed class SiteModule : Entity, IAuditable
     /// </summary>
     public Result ChangeCode(string code)
     {
-        if (IsSystem) return SiteErrors.SystemDefinitionNotRenameable;
-        if (string.IsNullOrWhiteSpace(code)) return SiteErrors.InvalidData;
+        if (IsSystem)
+        {
+            return SiteErrors.SystemDefinitionNotRenameable;
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return SiteErrors.InvalidData;
+        }
 
         Code = code.Trim();
         return Result.Success();
@@ -121,7 +139,7 @@ internal sealed class SiteModule : Entity, IAuditable
 
     private static string? Normalize(string? value)
     {
-        var trimmed = value?.Trim();
+        string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

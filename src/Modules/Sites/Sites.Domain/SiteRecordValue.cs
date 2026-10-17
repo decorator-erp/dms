@@ -42,21 +42,27 @@ internal sealed class SiteRecordValue
         decimal? valueNumber = null, string? valueText = null, bool? valueBool = null,
         DateOnly? valueDate = null, Guid? optionId = null)
     {
-        if (recordId == Guid.Empty || itemId == Guid.Empty) return SiteErrors.InvalidData;
+        if (recordId == Guid.Empty || itemId == Guid.Empty)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         // Whitespace-only text is not a value. Normalizing BEFORE counting is what makes "   " count as
         // unpopulated rather than as a populated Text value that later reads as blank.
-        var text = string.IsNullOrWhiteSpace(valueText) ? null : valueText.Trim();
+        string? text = string.IsNullOrWhiteSpace(valueText) ? null : valueText.Trim();
 
-        var populated = (valueNumber.HasValue ? 1 : 0)
+        int populated = (valueNumber.HasValue ? 1 : 0)
                       + (text is not null ? 1 : 0)
                       + (valueBool.HasValue ? 1 : 0)
                       + (valueDate.HasValue ? 1 : 0)
                       + (optionId.HasValue ? 1 : 0);
 
-        if (populated != 1) return SiteErrors.InvalidData;
+        if (populated != 1)
+        {
+            return SiteErrors.InvalidData;
+        }
 
-        var matches = dataType switch
+        bool matches = dataType switch
         {
             SiteItemDataType.Number => valueNumber.HasValue,
             SiteItemDataType.Text => text is not null,
@@ -65,7 +71,10 @@ internal sealed class SiteRecordValue
             SiteItemDataType.Date => valueDate.HasValue,
             _ => false,
         };
-        if (!matches) return SiteErrors.ValueTypeMismatch;
+        if (!matches)
+        {
+            return SiteErrors.ValueTypeMismatch;
+        }
 
         return new SiteRecordValue
         {

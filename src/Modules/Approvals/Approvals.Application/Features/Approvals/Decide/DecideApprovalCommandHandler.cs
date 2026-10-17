@@ -42,18 +42,24 @@ internal sealed class DecideApprovalCommandHandler(ApprovalsDbContext db, ICurre
     public async Task<Result> HandleAsync(DecideApprovalCommand command, CancellationToken ct = default)
     {
         if (currentUser.UserId is null)
+        {
             return Domain.ApprovalErrors.Unauthenticated;
+        }
 
-        var approval = await db.Approvals.FirstOrDefaultAsync(a => a.Id == command.ApprovalId, ct);
+        Domain.Approval? approval = await db.Approvals.FirstOrDefaultAsync(a => a.Id == command.ApprovalId, ct);
         if (approval is null)
+        {
             return Domain.ApprovalErrors.NotFound;
+        }
 
-        var isOverride = currentUser.HasPermission(ApprovalsPermissions.DecideAny);
-        var decision = ApprovalEnumMapping.ToDomain(command.Decision);
+        bool isOverride = currentUser.HasPermission(ApprovalsPermissions.DecideAny);
+        Domain.ApprovalDecision decision = ApprovalEnumMapping.ToDomain(command.Decision);
 
-        var result = approval.Decide(currentUser.UserId, decision, command.Comment, isOverride);
+        Result result = approval.Decide(currentUser.UserId, decision, command.Comment, isOverride);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ApprovalDecidedIntegrationEvent(
             Guid.NewGuid(), approval.Id, ApprovalEnumMapping.ToContracts(approval.SubjectType), approval.SubjectId,

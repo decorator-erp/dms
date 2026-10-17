@@ -3,6 +3,7 @@ using BuildingBlocks.Web;
 using Hr.Domain;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -42,7 +43,7 @@ public sealed class HrSchemaTests : IAsyncLifetime
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
 
-        await using var fkCommand = connection.CreateCommand();
+        await using NpgsqlCommand fkCommand = connection.CreateCommand();
         fkCommand.CommandText = """
             SELECT con.conname, con.confdeltype
             FROM pg_constraint con
@@ -51,13 +52,13 @@ public sealed class HrSchemaTests : IAsyncLifetime
             WHERE con.contype = 'f' AND src_ns.nspname = 'hr' AND src.relname = 'employees';
             """;
 
-        await using var fkReader = await fkCommand.ExecuteReaderAsync();
+        await using NpgsqlDataReader fkReader = await fkCommand.ExecuteReaderAsync();
         Assert.True(await fkReader.ReadAsync(), "Expected a foreign key on hr.employees.");
         Assert.Equal("fk_employees_app_user", fkReader.GetString(0));
         Assert.Equal('r', fkReader.GetChar(1)); // 'r' = RESTRICT, never CASCADE across a module boundary.
         await fkReader.CloseAsync();
 
-        await using var indexCommand = connection.CreateCommand();
+        await using NpgsqlCommand indexCommand = connection.CreateCommand();
         indexCommand.CommandText = """
             SELECT ix.indisunique
             FROM pg_index ix
@@ -67,7 +68,7 @@ public sealed class HrSchemaTests : IAsyncLifetime
             WHERE ns.nspname = 'hr' AND tbl.relname = 'employees' AND idx.relname = 'IX_employees_AppUserId';
             """;
 
-        await using var indexReader = await indexCommand.ExecuteReaderAsync();
+        await using NpgsqlDataReader indexReader = await indexCommand.ExecuteReaderAsync();
         Assert.True(await indexReader.ReadAsync(), "Expected a unique index on hr.employees.AppUserId.");
         Assert.True(indexReader.GetBoolean(0));
     }
@@ -78,7 +79,7 @@ public sealed class HrSchemaTests : IAsyncLifetime
         using var context = new HrDbContext(
             new DbContextOptionsBuilder<HrDbContext>().UseNpgsql(_container.GetConnectionString()).Options);
 
-        var employeeType = context.Model.FindEntityType(typeof(Employee))!;
+        IEntityType employeeType = context.Model.FindEntityType(typeof(Employee))!;
 
         // PC-03 liveness: all three assertions below read EF metadata, and all three are satisfied by a
         // metadata reader that returns nothing. The property list proves the model is really built and
@@ -96,9 +97,9 @@ public sealed class HrSchemaTests : IAsyncLifetime
 
     private async Task MigrateModuleAsync(string assemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -109,12 +110,12 @@ public sealed class HrSchemaTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

@@ -5,7 +5,10 @@ public class Result
     protected Result(bool isSuccess, Error error)
     {
         if (isSuccess && error != Error.None || !isSuccess && error == Error.None)
+        {
             throw new ArgumentException("invalid argument result!");
+        }
+
         IsSuccess = isSuccess;
         Error = error;
     }
@@ -32,7 +35,7 @@ public class Result<TValue>(TValue? value, bool isSuccess, Error error) : Result
 {
     public TValue? Value => IsSuccess
         ? value
-        : throw new ArgumentException("invalid success result");
+        : default;
 
 
     public static implicit operator Result<TValue>(TValue value)

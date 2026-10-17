@@ -38,7 +38,7 @@ public sealed class OutboxProcessor(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly TimeSpan _fallbackInterval = TimeSpan.FromSeconds(
-        int.TryParse(configuration["Outbox:FallbackPollSeconds"], out var seconds) ? seconds : 60);
+        int.TryParse(configuration["Outbox:FallbackPollSeconds"], out int seconds) ? seconds : 60);
 
     // E2-01: this instance's own ExecuteAsync loop and any caller driving ProcessPendingAsync directly
     // (tests' "flush now" pattern, see that method's own doc comment) are two independent entry points
@@ -61,7 +61,9 @@ public sealed class OutboxProcessor(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!BackgroundLoops.Enabled(configuration))
+        {
             return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -94,9 +96,9 @@ public sealed class OutboxProcessor(
         try
         {
             List<Guid> pendingIds;
-            await using (var probeScope = scopeFactory.CreateAsyncScope())
+            await using (AsyncServiceScope probeScope = scopeFactory.CreateAsyncScope())
             {
-                var shared = probeScope.ServiceProvider.GetRequiredService<SharedDbContext>();
+                SharedDbContext shared = probeScope.ServiceProvider.GetRequiredService<SharedDbContext>();
                 pendingIds = await shared.OutboxMessages
                     .Where(m => m.ProcessedUtc == null)
                     .OrderBy(m => m.OccurredUtc)
@@ -104,8 +106,10 @@ public sealed class OutboxProcessor(
                     .ToListAsync(ct);
             }
 
-            foreach (var id in pendingIds)
+            foreach (Guid id in pendingIds)
+            {
                 await ProcessOneAsync(id, ct);
+            }
         }
         finally
         {
@@ -115,18 +119,20 @@ public sealed class OutboxProcessor(
 
     private async Task ProcessOneAsync(Guid messageId, CancellationToken ct)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var shared = scope.ServiceProvider.GetRequiredService<SharedDbContext>();
+        await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+        SharedDbContext shared = scope.ServiceProvider.GetRequiredService<SharedDbContext>();
 
-        var message = await shared.OutboxMessages.FirstOrDefaultAsync(m => m.Id == messageId, ct);
+        OutboxMessage? message = await shared.OutboxMessages.FirstOrDefaultAsync(m => m.Id == messageId, ct);
         if (message is null || message.ProcessedUtc is not null)
+        {
             return; // already handled by a concurrent run
+        }
 
-        var eventType = Type.GetType(message.Type)
+        Type eventType = Type.GetType(message.Type)
             ?? throw new InvalidOperationException($"Unknown outbox event type '{message.Type}'.");
         var @event = (IIntegrationEvent)JsonSerializer.Deserialize(message.Content, eventType, JsonOptions)!;
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+        IEventBus eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
 
         try
         {

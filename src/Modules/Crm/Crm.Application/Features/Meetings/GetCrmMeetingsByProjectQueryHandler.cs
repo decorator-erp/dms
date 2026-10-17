@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Crm.Contracts.Meetings;
+using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
@@ -27,10 +28,10 @@ internal sealed class GetCrmMeetingsByProjectQueryHandler(CrmDbContext db)
     public async Task<Result<PagedResult<CrmMeetingResponse>>> HandleAsync(
         GetCrmMeetingsByProjectQuery query, CancellationToken ct = default)
     {
-        var baseQuery = db.CrmMeetings.AsNoTracking()
+        IQueryable<CrmMeeting> baseQuery = db.CrmMeetings.AsNoTracking()
             .Where(m => m.ProjectId == query.ProjectId && m.IsActive);
 
-        var totalCount = await baseQuery.CountAsync(ct);
+        int totalCount = await baseQuery.CountAsync(ct);
 
         var meetings = await baseQuery
             .OrderByDescending(m => m.CreatedAtUtc)
@@ -68,7 +69,7 @@ internal sealed class GetCrmMeetingsByProjectQueryHandler(CrmDbContext db)
                 CrmEnumMapping.ToContracts(m.Type), CrmEnumMapping.ToContracts(m.Status),
                 m.ScheduledAtUtc, m.DurationMinutes, m.Location, m.RequestedByEmployeeId, m.RequestedByContactId,
                 m.CanceledAtUtc, m.CancelReason, m.CreatedAtUtc,
-                slotsByMeeting.TryGetValue(m.Id, out var slots) ? slots : []))
+                slotsByMeeting.TryGetValue(m.Id, out List<CrmMeetingSlotResponse>? slots) ? slots : []))
             .ToList();
 
         return new PagedResult<CrmMeetingResponse>(items, query.PageNumber, query.PageSize, totalCount);

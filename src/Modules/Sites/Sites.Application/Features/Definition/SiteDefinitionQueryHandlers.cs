@@ -14,7 +14,7 @@ internal sealed class GetSiteModulesQueryHandler(SitesDbContext db)
     public async Task<Result<IReadOnlyList<SiteModuleResponse>>> HandleAsync(
         GetSiteModulesQuery query, CancellationToken ct = default)
     {
-        var modules = await db.SiteModules.AsNoTracking()
+        List<SiteModuleResponse> modules = await db.SiteModules.AsNoTracking()
             .Where(m => query.IncludeInactive || m.IsActive)
             .OrderBy(m => m.SortOrder).ThenBy(m => m.Code)
             .Select(m => new SiteModuleResponse(
@@ -38,14 +38,14 @@ internal sealed class GetSiteModuleSchemaQueryHandler(SitesDbContext db, ISiteSc
     public async Task<Result<SiteModuleSchemaResponse>> HandleAsync(
         GetSiteModuleSchemaQuery query, CancellationToken ct = default)
     {
-        var schema = await cache.GetOrAddAsync(query.Code, token => BuildAsync(query.Code, token), ct);
+        SiteModuleSchemaResponse? schema = await cache.GetOrAddAsync(query.Code, token => BuildAsync(query.Code, token), ct);
 
         return schema is null ? SiteErrors.ModuleNotFound : schema;
     }
 
     private async Task<SiteModuleSchemaResponse?> BuildAsync(string code, CancellationToken ct)
     {
-        var normalized = code.Trim().ToLower();
+        string normalized = code.Trim().ToLower();
 
         var module = await db.SiteModules.AsNoTracking()
             .Where(m => m.Code.ToLower() == normalized && m.IsActive)
@@ -61,7 +61,10 @@ internal sealed class GetSiteModuleSchemaQueryHandler(SitesDbContext db, ISiteSc
             })
             .FirstOrDefaultAsync(ct);
 
-        if (module is null) return null;
+        if (module is null)
+        {
+            return null;
+        }
 
         // Ordered by ix_site_module_items_module_sort -- no sort node.
         var fields = await (
@@ -118,7 +121,7 @@ internal sealed class GetSiteModuleSchemaQueryHandler(SitesDbContext db, ISiteSc
                 SiteEnumMapping.ToContracts(f.DataType), f.Unit,
                 f.MinValue, f.MaxValue, f.Tolerance, f.MaxLength, f.RegexPattern,
                 f.IsRequired, f.IsVisible, f.SortOrder,
-                optionsByItem.TryGetValue(f.ItemId, out var opts) ? opts : []))]);
+                optionsByItem.TryGetValue(f.ItemId, out IReadOnlyList<SiteItemOptionResponse>? opts) ? opts : []))]);
     }
 }
 
@@ -177,7 +180,7 @@ internal sealed class GetSiteItemsQueryHandler(SitesDbContext db)
                 i.Id, i.Code, i.NameEn, i.NameAr, SiteEnumMapping.ToContracts(i.DataType), i.Unit,
                 i.MinValue, i.MaxValue, i.Tolerance, i.MaxLength, i.RegexPattern,
                 i.IsSystem, i.IsActive,
-                optionsByItem.TryGetValue(i.Id, out var opts) ? opts : [])),
+                optionsByItem.TryGetValue(i.Id, out IReadOnlyList<SiteItemOptionResponse>? opts) ? opts : [])),
         ];
 
         return Result.Success(responses);
@@ -205,14 +208,17 @@ internal sealed class GetSiteItemUsageQueryHandler(SitesDbContext db)
             .Select(i => new { i.Id, i.Code })
             .FirstOrDefaultAsync(ct);
 
-        if (item is null) return SiteErrors.ItemNotFound;
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
-        var capturedValueCount = await db.SiteRecordValues
+        int capturedValueCount = await db.SiteRecordValues
             .CountAsync(v => v.ItemId == query.ItemId, ct);
 
         // No link.IsActive filter: a detached link still says where this item HAS been used, and the
         // flag is surfaced per row so the caller can tell the two apart.
-        var modules = await (
+        List<SiteItemUsageModuleResponse> modules = await (
             from link in db.SiteModuleItems.AsNoTracking()
             join module in db.SiteModules.AsNoTracking() on link.ModuleId equals module.Id
             where link.ItemId == query.ItemId

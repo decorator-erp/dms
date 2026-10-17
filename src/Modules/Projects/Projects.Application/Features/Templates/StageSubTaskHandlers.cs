@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts.Templates;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -21,9 +22,11 @@ internal sealed class CreateStageSubTaskCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result<Guid>> HandleAsync(CreateStageSubTaskCommand command, CancellationToken ct = default)
     {
-        var stageTaskExists = await db.StageTasks.AsNoTracking().AnyAsync(t => t.Id == command.StageTaskId, ct);
+        bool stageTaskExists = await db.StageTasks.AsNoTracking().AnyAsync(t => t.Id == command.StageTaskId, ct);
         if (!stageTaskExists)
+        {
             return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageTaskNotFound);
+        }
 
         var subTask = Domain.StageSubTask.Create(command.StageTaskId, command.Title, command.Order, command.IsRequired, command.Description);
         db.StageSubTasks.Add(subTask);
@@ -36,9 +39,11 @@ internal sealed class UpdateStageSubTaskCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(UpdateStageSubTaskCommand command, CancellationToken ct = default)
     {
-        var subTask = await db.StageSubTasks.FindAsync([command.StageSubTaskId], ct);
+        StageSubTask? subTask = await db.StageSubTasks.FindAsync([command.StageSubTaskId], ct);
         if (subTask is null)
+        {
             return Domain.TemplateEntityErrors.StageSubTaskNotFound;
+        }
 
         subTask.Update(command.Title, command.Order, command.IsRequired, command.Description);
         await db.SaveChangesAsync(ct);
@@ -50,9 +55,11 @@ internal sealed class DeleteStageSubTaskCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(DeleteStageSubTaskCommand command, CancellationToken ct = default)
     {
-        var subTask = await db.StageSubTasks.FindAsync([command.StageSubTaskId], ct);
+        StageSubTask? subTask = await db.StageSubTasks.FindAsync([command.StageSubTaskId], ct);
         if (subTask is null)
+        {
             return Domain.TemplateEntityErrors.StageSubTaskNotFound;
+        }
 
         db.StageSubTasks.Remove(subTask);
         await db.SaveChangesAsync(ct);

@@ -8,6 +8,7 @@ using Finance.Contracts.CostCategories;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -22,14 +23,14 @@ internal sealed class CostCategoryEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/cost-categories").WithTags("CostCategories");
+        RouteGroupBuilder group = app.MapGroup("/api/cost-categories").WithTags("CostCategories");
 
         group.MapPost("/", async (
             CreateCostCategoryRequest request,
             ICommandHandler<CreateCostCategoryCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateCostCategoryCommand(request), ct);
+            Result<Guid> result = await handler.HandleAsync(new CreateCostCategoryCommand(request), ct);
 
             return result.Match(
                 id => Results.Created($"/api/cost-categories/{id}", new { CostCategoryId = id }),
@@ -43,7 +44,7 @@ internal sealed class CostCategoryEndpoints : IEndpoint
             IQueryHandler<GetCostCategoryListQuery, PagedResult<CostCategoryListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<CostCategoryListItemResponse>> result = await handler.HandleAsync(
                 new GetCostCategoryListQuery(skip ?? 0, take ?? 50, search, isActive), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -54,7 +55,7 @@ internal sealed class CostCategoryEndpoints : IEndpoint
             IQueryHandler<GetCostCategoryByIdQuery, CostCategoryResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCostCategoryByIdQuery(id), ct);
+            Result<CostCategoryResponse> result = await handler.HandleAsync(new GetCostCategoryByIdQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -63,7 +64,7 @@ internal sealed class CostCategoryEndpoints : IEndpoint
             Guid id, UpdateCostCategoryRequest request,
             ICommandHandler<UpdateCostCategoryCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateCostCategoryCommand(id, request), ct);
+            Result result = await handler.HandleAsync(new UpdateCostCategoryCommand(id, request), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageCostCategory);
@@ -71,7 +72,7 @@ internal sealed class CostCategoryEndpoints : IEndpoint
         group.MapPut("/{id:guid}/activate", async (
             Guid id, ICommandHandler<ActivateCostCategoryCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ActivateCostCategoryCommand(id), ct);
+            Result result = await handler.HandleAsync(new ActivateCostCategoryCommand(id), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageCostCategory);
@@ -79,7 +80,7 @@ internal sealed class CostCategoryEndpoints : IEndpoint
         group.MapPut("/{id:guid}/deactivate", async (
             Guid id, ICommandHandler<DeactivateCostCategoryCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeactivateCostCategoryCommand(id), ct);
+            Result result = await handler.HandleAsync(new DeactivateCostCategoryCommand(id), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageCostCategory);

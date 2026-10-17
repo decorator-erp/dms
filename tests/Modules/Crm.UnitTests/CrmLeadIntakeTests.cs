@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -23,7 +24,7 @@ public class CrmLeadIntakeTests
     {
         var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
 
-        var result = intake.Update(new CrmLeadIntakeData(JobTitle: "Architect"));
+        Result result = intake.Update(new CrmLeadIntakeData(JobTitle: "Architect"));
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Architect", intake.JobTitle);
@@ -34,7 +35,7 @@ public class CrmLeadIntakeTests
     {
         var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
 
-        var result = intake.Update(new CrmLeadIntakeData(
+        Result result = intake.Update(new CrmLeadIntakeData(
             UsedDesignerBefore: false, DesignerExperience: (PastExperience)1));
 
         Assert.True(result.IsFailure);
@@ -46,7 +47,7 @@ public class CrmLeadIntakeTests
     {
         var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
 
-        var result = intake.Update(new CrmLeadIntakeData(
+        Result result = intake.Update(new CrmLeadIntakeData(
             UsedDesignerBefore: true, DesignerExperienceReason: "it was fine"));
 
         Assert.True(result.IsFailure);

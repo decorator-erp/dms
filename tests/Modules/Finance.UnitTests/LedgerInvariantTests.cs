@@ -34,7 +34,7 @@ public class LedgerInvariantTests
     [InlineData(-100)]
     public void Create_WithNonPositiveAmount_FailsWithAmountMustBePositive(decimal amount)
     {
-        var result = Post(LedgerEntryType.ActualCost, LedgerDirection.Out, amount);
+        Result<LedgerEntry> result = Post(LedgerEntryType.ActualCost, LedgerDirection.Out, amount);
 
         Assert.True(result.IsFailure);
         Assert.Equal(LedgerEntryErrors.AmountMustBePositive, result.Error);
@@ -45,7 +45,7 @@ public class LedgerInvariantTests
     [Fact]
     public void Create_WithSmallestRepresentableAmount_Succeeds()
     {
-        var result = Post(LedgerEntryType.ActualCost, LedgerDirection.Out, 0.0001m);
+        Result<LedgerEntry> result = Post(LedgerEntryType.ActualCost, LedgerDirection.Out, 0.0001m);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(0.0001m, result.Value!.Amount);
@@ -56,12 +56,12 @@ public class LedgerInvariantTests
     [Fact]
     public void ClientPayment_MustBeInbound()
     {
-        var wrong = Post(LedgerEntryType.ClientPayment, LedgerDirection.Out, clientId: Guid.NewGuid());
+        Result<LedgerEntry> wrong = Post(LedgerEntryType.ClientPayment, LedgerDirection.Out, clientId: Guid.NewGuid());
 
         Assert.True(wrong.IsFailure);
         Assert.Equal(LedgerEntryErrors.InvalidDirection, wrong.Error);
 
-        var right = Post(LedgerEntryType.ClientPayment, LedgerDirection.In, clientId: Guid.NewGuid());
+        Result<LedgerEntry> right = Post(LedgerEntryType.ClientPayment, LedgerDirection.In, clientId: Guid.NewGuid());
         Assert.True(right.IsSuccess);
     }
 
@@ -70,9 +70,9 @@ public class LedgerInvariantTests
     [Fact]
     public void NonPaymentTypes_MustBeOutbound()
     {
-        foreach (var type in new[] { LedgerEntryType.Commitment, LedgerEntryType.ActualCost })
+        foreach (LedgerEntryType type in new[] { LedgerEntryType.Commitment, LedgerEntryType.ActualCost })
         {
-            var wrong = Post(type, LedgerDirection.In);
+            Result<LedgerEntry> wrong = Post(type, LedgerDirection.In);
 
             Assert.True(wrong.IsFailure);
             Assert.Equal(LedgerEntryErrors.InvalidDirection, wrong.Error);
@@ -86,7 +86,7 @@ public class LedgerInvariantTests
     [Fact]
     public void ClientPayment_WithoutAClient_FailsWithInvalidPartyForType()
     {
-        var result = Post(LedgerEntryType.ClientPayment, LedgerDirection.In, clientId: null);
+        Result<LedgerEntry> result = Post(LedgerEntryType.ClientPayment, LedgerDirection.In, clientId: null);
 
         Assert.True(result.IsFailure);
         // Not InvalidDirection - the direction here is correct, and conflating the two would let a
@@ -113,10 +113,10 @@ public class LedgerInvariantTests
     {
         var originalId = Guid.NewGuid();
 
-        var inboundActualCost = Post(LedgerEntryType.ActualCost, LedgerDirection.In, reversalOfId: originalId);
+        Result<LedgerEntry> inboundActualCost = Post(LedgerEntryType.ActualCost, LedgerDirection.In, reversalOfId: originalId);
         Assert.True(inboundActualCost.IsSuccess);
 
-        var outboundPaymentWithNoClient = Post(
+        Result<LedgerEntry> outboundPaymentWithNoClient = Post(
             LedgerEntryType.ClientPayment, LedgerDirection.Out, clientId: null, reversalOfId: originalId);
         Assert.True(outboundPaymentWithNoClient.IsSuccess);
 
@@ -141,12 +141,12 @@ public class LedgerInvariantTests
         // make the NotEqual below pass or fail depending on the date the suite runs.
         var longAgo = new DateOnly(2020, 3, 4);
 
-        var original = LedgerEntry.Create(
+        LedgerEntry original = LedgerEntry.Create(
             ProjectId, 1234.5678m, LedgerDirection.In, LedgerEntryType.ClientPayment, longAgo, ActorId,
             projectStageId: Guid.NewGuid(), projectTaskId: Guid.NewGuid(), budgetLineId: Guid.NewGuid(),
             method: PaymentMethod.BankTransfer, clientId: clientId, reference: "REF-1").Value!;
 
-        var reversal = LedgerEntry.CreateReversal(original, ActorId, "undo").Value!;
+        LedgerEntry reversal = LedgerEntry.CreateReversal(original, ActorId, "undo").Value!;
 
         Assert.Equal(original.Amount, reversal.Amount);
         Assert.Equal(LedgerDirection.Out, reversal.Direction);
@@ -178,9 +178,9 @@ public class LedgerInvariantTests
     [Fact]
     public void ReversingAReversal_FlipsBackToTheOriginalDirection()
     {
-        var original = Post(LedgerEntryType.ActualCost, LedgerDirection.Out).Value!;
-        var reversal = LedgerEntry.CreateReversal(original, ActorId).Value!;
-        var reReversal = LedgerEntry.CreateReversal(reversal, ActorId).Value!;
+        LedgerEntry original = Post(LedgerEntryType.ActualCost, LedgerDirection.Out).Value!;
+        LedgerEntry reversal = LedgerEntry.CreateReversal(original, ActorId).Value!;
+        LedgerEntry reReversal = LedgerEntry.CreateReversal(reversal, ActorId).Value!;
 
         Assert.Equal(LedgerDirection.In, reversal.Direction);
         Assert.Equal(LedgerDirection.Out, reReversal.Direction);
@@ -194,7 +194,7 @@ public class LedgerInvariantTests
     [InlineData(-5)]
     public void Allocation_WithNonPositiveAmount_Fails(decimal amount)
     {
-        var result = LedgerAllocation.Create(Guid.NewGuid(), Guid.NewGuid(), amount);
+        Result<LedgerAllocation> result = LedgerAllocation.Create(Guid.NewGuid(), Guid.NewGuid(), amount);
 
         Assert.True(result.IsFailure);
         Assert.Equal(LedgerAllocationErrors.AmountMustBePositive, result.Error);
@@ -213,10 +213,7 @@ public class LedgerInvariantTests
     [InlineData(100, 100, 0.0001, true)]  // already fully allocated
     [InlineData(100, 30, 20, false)]
     public void WouldExceedUnallocated_BoundsTheSetNotTheRow(
-        decimal entryAmount, decimal alreadyAllocated, decimal requested, bool expectedExceeds)
-    {
-        Assert.Equal(
+        decimal entryAmount, decimal alreadyAllocated, decimal requested, bool expectedExceeds) => Assert.Equal(
             expectedExceeds,
             LedgerAllocation.WouldExceedUnallocated(entryAmount, alreadyAllocated, requested));
-    }
 }

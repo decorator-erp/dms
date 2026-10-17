@@ -24,20 +24,14 @@ public class NotificationTests
     private const string Bob = "user-bob";
 
     [Fact]
-    public void ScopeDedupeKey_GivesTheSameRecipientTheSameKey_SoARerunIsANoOp()
-    {
-        Assert.Equal(
+    public void ScopeDedupeKey_GivesTheSameRecipientTheSameKey_SoARerunIsANoOp() => Assert.Equal(
             Notification.ScopeDedupeKey(LogicalKey, Alice),
             Notification.ScopeDedupeKey(LogicalKey, Alice));
-    }
 
     [Fact]
-    public void ScopeDedupeKey_GivesDifferentRecipientsDifferentKeys_SoOneReminderCanFanOut()
-    {
-        Assert.NotEqual(
+    public void ScopeDedupeKey_GivesDifferentRecipientsDifferentKeys_SoOneReminderCanFanOut() => Assert.NotEqual(
             Notification.ScopeDedupeKey(LogicalKey, Alice),
             Notification.ScopeDedupeKey(LogicalKey, Bob));
-    }
 
     /// <summary>
     /// A null logical key stays null rather than becoming <c>":user-alice"</c>. The unique index is
@@ -46,10 +40,7 @@ public class NotificationTests
     /// would collide with their first and vanish.
     /// </summary>
     [Fact]
-    public void ScopeDedupeKey_LeavesANullLogicalKeyNull_SoUnkeyedNotificationsNeverCollide()
-    {
-        Assert.Null(Notification.ScopeDedupeKey(null, Alice));
-    }
+    public void ScopeDedupeKey_LeavesANullLogicalKeyNull_SoUnkeyedNotificationsNeverCollide() => Assert.Null(Notification.ScopeDedupeKey(null, Alice));
 
     [Fact]
     public void Create_StoresTheScopedKey_NotTheLogicalOneItWasGiven()
@@ -85,7 +76,7 @@ public class NotificationTests
     {
         var notification = Notification.Create(Alice, NotificationType.TaskAssigned, "Assigned");
         var first = new DateTime(2026, 8, 17, 9, 0, 0, DateTimeKind.Utc);
-        var later = first.AddHours(3);
+        DateTime later = first.AddHours(3);
 
         notification.MarkRead(first);
         notification.MarkRead(later);

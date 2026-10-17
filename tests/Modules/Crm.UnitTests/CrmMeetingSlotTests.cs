@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -10,7 +11,7 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Create_WithValidData_Succeeds()
     {
-        var result = CrmMeetingSlot.Create(
+        Result<CrmMeetingSlot> result = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now);
 
         Assert.True(result.IsSuccess);
@@ -20,7 +21,7 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Create_WithBothProposers_Fails()
     {
-        var result = CrmMeetingSlot.Create(
+        Result<CrmMeetingSlot> result = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), Guid.NewGuid(), Now);
 
         Assert.True(result.IsFailure);
@@ -30,7 +31,7 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Create_WithEndBeforeStart_Fails()
     {
-        var result = CrmMeetingSlot.Create(
+        Result<CrmMeetingSlot> result = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(-1), Guid.NewGuid(), null, Now);
 
         Assert.True(result.IsFailure);
@@ -40,7 +41,7 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Create_InThePast_Fails()
     {
-        var result = CrmMeetingSlot.Create(
+        Result<CrmMeetingSlot> result = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(-1), Now.AddDays(-1).AddHours(1), Guid.NewGuid(), null, Now);
 
         Assert.True(result.IsFailure);
@@ -50,10 +51,10 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Accept_WhenProposed_Succeeds()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
 
-        var result = slot.Accept();
+        Result result = slot.Accept();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(MeetingSlotStatus.Accepted, slot.Status);
@@ -62,11 +63,11 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Accept_WhenAlreadyAccepted_Fails()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
         Assert.True(slot.Accept().IsSuccess);
 
-        var result = slot.Accept();
+        Result result = slot.Accept();
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
@@ -75,10 +76,10 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Decline_WhenProposed_Succeeds()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
 
-        var result = slot.Decline();
+        Result result = slot.Decline();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(MeetingSlotStatus.Declined, slot.Status);
@@ -87,11 +88,11 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Accept_WhenDeclined_Fails()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
         Assert.True(slot.Decline().IsSuccess);
 
-        var result = slot.Accept();
+        Result result = slot.Accept();
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
@@ -100,11 +101,11 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Decline_WhenAlreadyDeclined_Fails()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
         Assert.True(slot.Decline().IsSuccess);
 
-        var result = slot.Decline();
+        Result result = slot.Decline();
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
@@ -113,7 +114,7 @@ public class CrmMeetingSlotTests
     [Fact]
     public void Demote_FromAccepted_SetsDeclined()
     {
-        var slot = CrmMeetingSlot.Create(
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
         Assert.True(slot.Accept().IsSuccess);
 

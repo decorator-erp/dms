@@ -34,8 +34,15 @@ internal sealed class SiteModuleItem : Entity, IAuditable
     public static Result<SiteModuleItem> Create(
         Guid moduleId, Guid itemId, bool isRequired = false, bool isVisible = true, int sortOrder = 0)
     {
-        if (moduleId == Guid.Empty || itemId == Guid.Empty) return SiteErrors.InvalidData;
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        if (moduleId == Guid.Empty || itemId == Guid.Empty)
+        {
+            return SiteErrors.InvalidData;
+        }
+
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         return new SiteModuleItem
         {
@@ -49,7 +56,10 @@ internal sealed class SiteModuleItem : Entity, IAuditable
 
     public Result Update(bool isRequired, bool isVisible, int sortOrder)
     {
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         IsRequired = isRequired;
         IsVisible = isVisible;

@@ -18,8 +18,11 @@ internal sealed class CrmSpaceType : Entity, IAuditable
 
     public static Result<CrmSpaceType> Create(string code, string nameEn, string nameAr, int sortOrder = 0)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmSpaceType { Code = code, NameEn = nameEn, NameAr = nameAr, SortOrder = sortOrder };
     }
@@ -28,7 +31,9 @@ internal sealed class CrmSpaceType : Entity, IAuditable
     public Result Update(string nameEn, string nameAr, int sortOrder)
     {
         if (string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return CrmSpaceTypeErrors.NameRequired;
+        }
 
         NameEn = nameEn;
         NameAr = nameAr;
@@ -42,9 +47,16 @@ internal sealed class CrmSpaceType : Entity, IAuditable
 
     private static Result Validate(string code, string nameEn, string nameAr)
     {
-        if (string.IsNullOrWhiteSpace(code)) return CrmSpaceTypeErrors.CodeRequired;
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return CrmSpaceTypeErrors.CodeRequired;
+        }
+
         if (string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return CrmSpaceTypeErrors.NameRequired;
+        }
+
         return Result.Success();
     }
 }

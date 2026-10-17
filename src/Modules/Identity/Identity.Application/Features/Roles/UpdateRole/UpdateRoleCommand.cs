@@ -26,14 +26,16 @@ internal sealed class UpdateRoleCommandHandler(RoleManager<ApplicationRole> role
 {
     public async Task<Result> HandleAsync(UpdateRoleCommand command, CancellationToken ct = default)
     {
-        var role = await roleManager.FindByIdAsync(command.RoleId);
+        ApplicationRole? role = await roleManager.FindByIdAsync(command.RoleId);
         if (role is null)
+        {
             return RoleErrors.NotFound;
+        }
 
         role.Rename(command.Name);
         role.UpdateDescription(command.Description);
 
-        var result = await roleManager.UpdateAsync(role);
+        IdentityResult result = await roleManager.UpdateAsync(role);
         return result.Succeeded
             ? Result.Success()
             : Error.BadRequest("roles.UpdateFailed", string.Join("; ", result.Errors.Select(e => e.Description)));

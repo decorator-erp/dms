@@ -28,51 +28,50 @@ public static class AuditModelConfiguration
     /// did something auditable, which is backwards. <c>Rule9CrossSchemaForeignKeyTests</c> asserts the
     /// absence rather than leaving it to be noticed.</para>
     /// </summary>
-    public static void ConfigureAudit(this ModelBuilder modelBuilder, bool ownsMigration)
-    {
-        modelBuilder.Entity<AuditLog>(b =>
-        {
-            b.ToTable("audit_logs", "shared", t =>
-            {
-                if (!ownsMigration)
-                    t.ExcludeFromMigrations();
-            });
+    public static void ConfigureAudit(this ModelBuilder modelBuilder, bool ownsMigration) => modelBuilder.Entity<AuditLog>(b =>
+                                                                                                  {
+                                                                                                      b.ToTable("audit_logs", "shared", t =>
+                                                                                                      {
+                                                                                                          if (!ownsMigration)
+                                                                                                          {
+                                                                                                              t.ExcludeFromMigrations();
+                                                                                                          }
+                                                                                                      });
 
-            b.HasKey(x => x.Id);
-            b.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+                                                                                                      b.HasKey(x => x.Id);
+                                                                                                      b.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
 
-            b.Property(x => x.UserId).HasColumnName("user_id").HasMaxLength(450);
-            b.Property(x => x.UserEmail).HasColumnName("user_email").HasMaxLength(256);
-            b.Property(x => x.IpAddress).HasColumnName("ip_address").HasMaxLength(64);
-            b.Property(x => x.UserAgent).HasColumnName("user_agent");
+                                                                                                      b.Property(x => x.UserId).HasColumnName("user_id").HasMaxLength(450);
+                                                                                                      b.Property(x => x.UserEmail).HasColumnName("user_email").HasMaxLength(256);
+                                                                                                      b.Property(x => x.IpAddress).HasColumnName("ip_address").HasMaxLength(64);
+                                                                                                      b.Property(x => x.UserAgent).HasColumnName("user_agent");
 
-            b.Property(x => x.Action).HasColumnName("action").HasConversion<int>().IsRequired();
-            b.Property(x => x.EntityName).HasColumnName("entity_name").HasMaxLength(128).IsRequired();
-            b.Property(x => x.EntityId).HasColumnName("entity_id").HasMaxLength(256);
+                                                                                                      b.Property(x => x.Action).HasColumnName("action").HasConversion<int>().IsRequired();
+                                                                                                      b.Property(x => x.EntityName).HasColumnName("entity_name").HasMaxLength(128).IsRequired();
+                                                                                                      b.Property(x => x.EntityId).HasColumnName("entity_id").HasMaxLength(256);
 
-            b.Property(x => x.OldValues).HasColumnName("old_values").HasColumnType("jsonb");
-            b.Property(x => x.NewValues).HasColumnName("new_values").HasColumnType("jsonb");
-            b.Property(x => x.ChangedColumns).HasColumnName("changed_columns").HasColumnType("jsonb");
+                                                                                                      b.Property(x => x.OldValues).HasColumnName("old_values").HasColumnType("jsonb");
+                                                                                                      b.Property(x => x.NewValues).HasColumnName("new_values").HasColumnType("jsonb");
+                                                                                                      b.Property(x => x.ChangedColumns).HasColumnName("changed_columns").HasColumnType("jsonb");
 
-            b.Property(x => x.Module).HasColumnName("module").HasMaxLength(64);
-            b.Property(x => x.Timestamp).HasColumnName("timestamp").IsRequired();
+                                                                                                      b.Property(x => x.Module).HasColumnName("module").HasMaxLength(64);
+                                                                                                      b.Property(x => x.Timestamp).HasColumnName("timestamp").IsRequired();
 
-            b.Property(x => x.RequestPath).HasColumnName("request_path").HasMaxLength(512);
-            b.Property(x => x.RequestMethod).HasColumnName("request_method").HasMaxLength(16);
+                                                                                                      b.Property(x => x.RequestPath).HasColumnName("request_path").HasMaxLength(512);
+                                                                                                      b.Property(x => x.RequestMethod).HasColumnName("request_method").HasMaxLength(16);
 
-            // Entity history: "everything that happened to this row".
-            b.HasIndex(x => new { x.EntityName, x.EntityId })
-                .HasDatabaseName("ix_audit_logs_entity");
+                                                                                                      // Entity history: "everything that happened to this row".
+                                                                                                      b.HasIndex(x => new { x.EntityName, x.EntityId })
+                                                                                                          .HasDatabaseName("ix_audit_logs_entity");
 
-            // "What did this user do", the /api/audit/my-activity and /api/audit/user/{id} reads.
-            b.HasIndex(x => new { x.UserId, x.Timestamp })
-                .HasDatabaseName("ix_audit_logs_user_timestamp")
-                .IsDescending(false, true);
+                                                                                                      // "What did this user do", the /api/audit/my-activity and /api/audit/user/{id} reads.
+                                                                                                      b.HasIndex(x => new { x.UserId, x.Timestamp })
+                                                                                                          .HasDatabaseName("ix_audit_logs_user_timestamp")
+                                                                                                          .IsDescending(false, true);
 
-            // The unfiltered log, newest first — the default /api/audit page.
-            b.HasIndex(x => x.Timestamp)
-                .HasDatabaseName("ix_audit_logs_timestamp")
-                .IsDescending(true);
-        });
-    }
+                                                                                                      // The unfiltered log, newest first — the default /api/audit page.
+                                                                                                      b.HasIndex(x => x.Timestamp)
+                                                                                                          .HasDatabaseName("ix_audit_logs_timestamp")
+                                                                                                          .IsDescending(true);
+                                                                                                  });
 }

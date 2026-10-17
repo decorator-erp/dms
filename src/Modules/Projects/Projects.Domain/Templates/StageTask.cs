@@ -27,14 +27,28 @@ internal sealed class StageTask : Entity, IAuditable
         string? name = null, int? order = null, decimal? weight = null, string? description = null, Guid? departmentId = null)
     {
         if (name is not null)
+        {
             Name = name;
+        }
+
         if (order is not null)
+        {
             Order = order.Value;
+        }
+
         if (weight is not null)
+        {
             Weight = weight.Value;
+        }
+
         if (description is not null)
+        {
             Description = description;
+        }
+
         if (departmentId is not null)
+        {
             DepartmentId = departmentId;
+        }
     }
 }

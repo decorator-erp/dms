@@ -12,10 +12,7 @@ internal sealed class SiteRecordConfiguration : IEntityTypeConfiguration<SiteRec
     {
         builder.HasQueryFilter(x => x.IsActive);
 
-        builder.ToTable("site_records", t =>
-        {
-            t.HasCheckConstraint("ck_site_records_sort", "\"SortOrder\" >= 0");
-        });
+        builder.ToTable("site_records", t => t.HasCheckConstraint("ck_site_records_sort", "\"SortOrder\" >= 0"));
 
         builder.HasKey(x => x.Id);
         builder.ConfigureEntityConventions();

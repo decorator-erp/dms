@@ -28,22 +28,27 @@ internal sealed class CreateSiteItemCommandHandler(SitesDbContext db, ISiteSchem
     public async Task<Result<Guid>> HandleAsync(
         CreateSiteItemCommand command, CancellationToken ct = default)
     {
-        var normalized = command.Request.Code.Trim().ToLower();
+        string normalized = command.Request.Code.Trim().ToLower();
 
         if (await db.SiteItems.AnyAsync(i => i.Code.ToLower() == normalized, ct))
+        {
             return SiteErrors.CodeTaken;
+        }
 
-        var item = SiteItem.Create(
+        Result<SiteItem> item = SiteItem.Create(
             command.Request.Code, command.Request.NameEn, command.Request.NameAr,
             SiteEnumMapping.ToDomain(command.Request.DataType), command.Request.Unit,
             command.Request.MinValue, command.Request.MaxValue, command.Request.Tolerance,
             command.Request.MaxLength, command.Request.RegexPattern);
 
-        if (item.IsFailure) return item.Error;
+        if (item.IsFailure)
+        {
+            return item.Error;
+        }
 
         db.SiteItems.Add(item.Value!);
 
-        var saved = await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
+        Result saved = await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
         return saved.IsFailure ? saved.Error : item.Value!.Id;
     }
 }
@@ -65,14 +70,20 @@ internal sealed class UpdateSiteItemCommandHandler(SitesDbContext db, ISiteSchem
 {
     public async Task<Result> HandleAsync(UpdateSiteItemCommand command, CancellationToken ct = default)
     {
-        var item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
-        if (item is null) return SiteErrors.ItemNotFound;
+        SiteItem? item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
-        var updated = item.Update(
+        Result updated = item.Update(
             command.Request.NameEn, command.Request.NameAr, command.Request.MinValue,
             command.Request.MaxValue, command.Request.MaxLength, command.Request.RegexPattern);
 
-        if (updated.IsFailure) return updated;
+        if (updated.IsFailure)
+        {
+            return updated;
+        }
 
         return await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
     }
@@ -99,28 +110,39 @@ internal sealed class ChangeSiteItemShapeCommandHandler(SitesDbContext db, ISite
     public async Task<Result> HandleAsync(
         ChangeSiteItemShapeCommand command, CancellationToken ct = default)
     {
-        var item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
-        if (item is null) return SiteErrors.ItemNotFound;
+        SiteItem? item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
         // The one probe that makes this whole rule real. Not filtered by the record's IsActive: a value
         // on a soft-deleted record still pins the item's meaning for that historical row.
-        var hasValues = await db.SiteRecordValues.AnyAsync(v => v.ItemId == command.ItemId, ct);
-        if (hasValues) return SiteErrors.ItemLocked;
+        bool hasValues = await db.SiteRecordValues.AnyAsync(v => v.ItemId == command.ItemId, ct);
+        if (hasValues)
+        {
+            return SiteErrors.ItemLocked;
+        }
 
         // Skip the uniqueness probe when the "rename" changes nothing -- otherwise an unchanged code
         // collides with the item's own row.
         if (!item.CodeEquals(command.Request.Code))
         {
-            var normalized = command.Request.Code.Trim().ToLower();
+            string normalized = command.Request.Code.Trim().ToLower();
             if (await db.SiteItems.AnyAsync(i => i.Id != command.ItemId && i.Code.ToLower() == normalized, ct))
+            {
                 return SiteErrors.CodeTaken;
+            }
         }
 
-        var changed = item.ChangeCapturedShape(
+        Result changed = item.ChangeCapturedShape(
             command.Request.Code, SiteEnumMapping.ToDomain(command.Request.DataType),
             command.Request.Unit, command.Request.Tolerance);
 
-        if (changed.IsFailure) return changed;
+        if (changed.IsFailure)
+        {
+            return changed;
+        }
 
         return await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
     }
@@ -131,19 +153,29 @@ internal sealed class DeleteSiteItemCommandHandler(SitesDbContext db, ISiteSchem
 {
     public async Task<Result> HandleAsync(DeleteSiteItemCommand command, CancellationToken ct = default)
     {
-        var item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
-        if (item is null) return SiteErrors.ItemNotFound;
+        SiteItem? item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
-        var deletable = item.EnsureDeletable();
-        if (deletable.IsFailure) return deletable;
+        Result deletable = item.EnsureDeletable();
+        if (deletable.IsFailure)
+        {
+            return deletable;
+        }
 
         if (await db.SiteRecordValues.AnyAsync(v => v.ItemId == command.ItemId, ct))
+        {
             return SiteErrors.ItemInUse;
+        }
 
         // AnyAsync, not GetAllAsync(...).Any(): the backend materializes every link for the item just to
         // test whether one exists. Same answer, one row instead of all of them.
         if (await db.SiteModuleItems.AnyAsync(l => l.ItemId == command.ItemId, ct))
+        {
             return SiteErrors.ItemInUse;
+        }
 
         db.SiteItems.Remove(item);
 
@@ -156,11 +188,20 @@ internal sealed class SetSiteItemActiveCommandHandler(SitesDbContext db, ISiteSc
 {
     public async Task<Result> HandleAsync(SetSiteItemActiveCommand command, CancellationToken ct = default)
     {
-        var item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
-        if (item is null) return SiteErrors.ItemNotFound;
+        SiteItem? item = await db.SiteItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
+        if (item is null)
+        {
+            return SiteErrors.ItemNotFound;
+        }
 
-        if (command.IsActive) item.Activate();
-        else item.Deactivate();
+        if (command.IsActive)
+        {
+            item.Activate();
+        }
+        else
+        {
+            item.Deactivate();
+        }
 
         return await SiteDefinitionWrites.SaveAsync(db, schemaCache, ct);
     }

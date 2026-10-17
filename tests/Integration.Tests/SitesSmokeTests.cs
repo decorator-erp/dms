@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Finance.Contracts;
 using Identity.Contracts;
 using Notifications.Contracts;
-using Finance.Contracts;
 using Sites.Contracts;
 using Xunit;
 
@@ -50,23 +50,25 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/permissions");
+        HttpResponseMessage response = await client.GetAsync("/api/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        List<ModulePermissionSet>? modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
         Assert.NotNull(modules);
 
-        var sitesModule = Assert.Single(modules!, m => m.Module == "Sites");
+        ModulePermissionSet sitesModule = Assert.Single(modules!, m => m.Module == "Sites");
 
         // The full 7, not a sample -- SitesPermissions.All is the one list SitesModule registers and
         // this counts, so the number cannot drift from the constants.
         Assert.Equal(SitesPermissions.All.Count, sitesModule.Permissions.Count);
-        foreach (var permission in SitesPermissions.All)
+        foreach (string permission in SitesPermissions.All)
+        {
             Assert.Contains(permission, sitesModule.Permissions);
+        }
 
         // The seventh string is the one PLAN-PHASE5.md's grep could not see, because its pattern
         // excluded the dot. It gates 18 of the 20 definition routes.
@@ -76,11 +78,11 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_TotalsAcrossAllNineModules()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var modules = await client.GetFromJsonAsync<List<ModulePermissionSet>>("/api/permissions");
+        List<ModulePermissionSet>? modules = await client.GetFromJsonAsync<List<ModulePermissionSet>>("/api/permissions");
 
         Assert.NotNull(modules);
         Assert.Equal(TotalPermissionsAcrossAllModules, modules!.Sum(m => m.Permissions.Count));
@@ -95,12 +97,12 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task OpenApiDocument_ListsTheSiteRoutes()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/openapi/v1.json");
+        HttpResponseMessage response = await client.GetAsync("/openapi/v1.json");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var document = await response.Content.ReadAsStringAsync();
+        string document = await response.Content.ReadAsStringAsync();
 
         // The survey surface.
         Assert.Contains("/api/sites", document);
@@ -126,9 +128,9 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task AProtectedSiteRoute_WithoutAToken_Is401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync($"/api/sites?projectId={Guid.NewGuid()}");
+        HttpResponseMessage response = await client.GetAsync($"/api/sites?projectId={Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -141,11 +143,11 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task AProtectedSiteRoute_WithATokenLackingThePermission_Is403()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync($"/api/sites?projectId={Guid.NewGuid()}");
+        HttpResponseMessage response = await client.GetAsync($"/api/sites?projectId={Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -157,14 +159,14 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task ADefinitionWrite_WithOnlySitesRead_Is403_WhileTheReadSucceeds()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), SitesPermissions.Read);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), SitesPermissions.Read);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var read = await client.GetAsync("/api/site-modules");
+        HttpResponseMessage read = await client.GetAsync("/api/site-modules");
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
 
-        var write = await client.PostAsJsonAsync("/api/site-modules", new
+        HttpResponseMessage write = await client.PostAsJsonAsync("/api/site-modules", new
         {
             Code = $"m{Guid.NewGuid():N}"[..12],
             NameEn = "Openings",

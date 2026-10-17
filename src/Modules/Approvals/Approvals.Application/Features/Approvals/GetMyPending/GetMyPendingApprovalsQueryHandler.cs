@@ -1,4 +1,5 @@
 using Approvals.Contracts.Approvals;
+using Approvals.Domain;
 using Approvals.Infrastructure.Persistence;
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
@@ -34,15 +35,17 @@ internal sealed class GetMyPendingApprovalsQueryHandler(ApprovalsDbContext db, I
         GetMyPendingApprovalsQuery query, CancellationToken ct = default)
     {
         if (currentUser.UserId is null)
+        {
             return Domain.ApprovalErrors.Unauthenticated;
+        }
 
-        var userId = currentUser.UserId;
-        var baseQuery = db.Approvals.AsNoTracking()
+        string userId = currentUser.UserId;
+        IQueryable<Approval> baseQuery = db.Approvals.AsNoTracking()
             .Where(a => a.Decision == null && a.Approvers.Any(ap => ap.ApproverUserId == userId));
 
-        var totalCount = await baseQuery.CountAsync(ct);
+        int totalCount = await baseQuery.CountAsync(ct);
 
-        var approvals = await baseQuery
+        List<Approval> approvals = await baseQuery
             .OrderBy(a => a.DueAtUtc ?? DateTimeOffset.MaxValue)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)

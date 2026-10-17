@@ -16,14 +16,18 @@ internal sealed class UpdateCrmBriefSpaceCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(UpdateCrmBriefSpaceCommand command, CancellationToken ct = default)
     {
-        var entry = await db.CrmBriefSpaces.FindAsync([command.EntryId], ct);
+        CrmBriefSpace? entry = await db.CrmBriefSpaces.FindAsync([command.EntryId], ct);
         if (entry is null)
+        {
             return CrmBriefErrors.NotFound;
+        }
 
-        var result = entry.Update(
+        Result result = entry.Update(
             command.SpaceId, command.CountOrPieces, command.Requirements, command.MeetingId, command.ProjectTaskId);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

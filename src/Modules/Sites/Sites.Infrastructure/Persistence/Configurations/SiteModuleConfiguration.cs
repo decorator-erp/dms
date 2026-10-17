@@ -14,10 +14,7 @@ internal sealed class SiteModuleConfiguration : IEntityTypeConfiguration<SiteMod
 {
     public void Configure(EntityTypeBuilder<SiteModule> builder)
     {
-        builder.ToTable("site_modules", t =>
-        {
-            t.HasCheckConstraint("ck_site_modules_sort", "\"SortOrder\" >= 0");
-        });
+        builder.ToTable("site_modules", t => t.HasCheckConstraint("ck_site_modules_sort", "\"SortOrder\" >= 0"));
 
         builder.HasKey(x => x.Id);
         builder.ConfigureEntityConventions();

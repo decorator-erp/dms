@@ -16,7 +16,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 {
     private async Task<Guid> CategoryAsync()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return (await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(
@@ -26,9 +26,9 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> BudgetLineAsync(Guid projectId, decimal allocated)
     {
-        var categoryId = await CategoryAsync();
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        Guid categoryId = await CategoryAsync();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
             .HandleAsync(new CreateBudgetLineCommand(new CreateBudgetLineRequest(
                 "LB", projectId, categoryId, "Ledger budget", allocated)));
@@ -39,7 +39,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Result<Guid>> PostAsync(PostLedgerEntryRequest request, Guid recordedById)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new PostLedgerEntryCommand(request, recordedById));
@@ -47,8 +47,8 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<BudgetLineResponse> ReadLineAsync(Guid id)
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<BudgetLineResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetBudgetLineByIdQuery, BudgetLineResponse>>()
             .HandleAsync(new GetBudgetLineByIdQuery(id));
 
@@ -61,16 +61,16 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_ACommitment_RaisesCommittedAndLowersAvailable()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 400m, LedgerDirection.Out, LedgerEntryType.Commitment,
             DateOnly.FromDateTime(DateTime.UtcNow), BudgetLineId: lineId), scope.EmployeeId);
 
         Assert.True(posted.IsSuccess, posted.IsFailure ? posted.Error.ToString() : null);
 
-        var line = await ReadLineAsync(lineId);
+        BudgetLineResponse line = await ReadLineAsync(lineId);
         Assert.Equal(400m, line.CommittedAmount);
         Assert.Equal(0m, line.ActualAmount);
         Assert.Equal(600m, line.AvailableAmount);
@@ -85,21 +85,21 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_AnActualCost_MovesCommittedIntoActual_LeavingAvailableUnchanged()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 400m, LedgerDirection.Out, LedgerEntryType.Commitment, today,
             BudgetLineId: lineId), scope.EmployeeId);
 
-        var afterCommitment = await ReadLineAsync(lineId);
+        BudgetLineResponse afterCommitment = await ReadLineAsync(lineId);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 400m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             BudgetLineId: lineId), scope.EmployeeId);
 
-        var afterActual = await ReadLineAsync(lineId);
+        BudgetLineResponse afterActual = await ReadLineAsync(lineId);
 
         Assert.Equal(0m, afterActual.CommittedAmount);
         Assert.Equal(400m, afterActual.ActualAmount);
@@ -114,10 +114,10 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_ACommitmentBeyondAvailable_FailsWithInsufficientBudget()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 100m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 100m);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 100.01m, LedgerDirection.Out, LedgerEntryType.Commitment,
             DateOnly.FromDateTime(DateTime.UtcNow), BudgetLineId: lineId), scope.EmployeeId);
 
@@ -125,7 +125,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
         Assert.Equal("ledger_entries.InsufficientBudget", posted.Error.Code);
 
         // And nothing moved -- a refused posting must leave the line exactly as it was.
-        var line = await ReadLineAsync(lineId);
+        BudgetLineResponse line = await ReadLineAsync(lineId);
         Assert.Equal(0m, line.CommittedAmount);
         Assert.Equal(100m, line.AvailableAmount);
     }
@@ -135,10 +135,10 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_ACommitmentExactlyAtAvailable_Succeeds()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 100m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 100m);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 100m, LedgerDirection.Out, LedgerEntryType.Commitment,
             DateOnly.FromDateTime(DateTime.UtcNow), BudgetLineId: lineId), scope.EmployeeId);
 
@@ -162,18 +162,18 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_AnActualCostBeyondAvailable_IsAllowed_AndLeavesAvailableUnchanged()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 100m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 100m);
 
-        var before = await ReadLineAsync(lineId);
+        BudgetLineResponse before = await ReadLineAsync(lineId);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 250m, LedgerDirection.Out, LedgerEntryType.ActualCost,
             DateOnly.FromDateTime(DateTime.UtcNow), BudgetLineId: lineId), scope.EmployeeId);
 
         Assert.True(posted.IsSuccess, posted.IsFailure ? posted.Error.ToString() : null);
 
-        var line = await ReadLineAsync(lineId);
+        BudgetLineResponse line = await ReadLineAsync(lineId);
         Assert.Equal(250m, line.ActualAmount);
         Assert.Equal(-250m, line.CommittedAmount);
 
@@ -187,9 +187,9 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_AClientPaymentWithoutAClient_FailsWithInvalidPartyForType()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 50m, LedgerDirection.In, LedgerEntryType.ClientPayment,
             DateOnly.FromDateTime(DateTime.UtcNow)), scope.EmployeeId);
 
@@ -200,9 +200,9 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_ACommitmentInbound_FailsWithInvalidDirection()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
 
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 50m, LedgerDirection.In, LedgerEntryType.Commitment,
             DateOnly.FromDateTime(DateTime.UtcNow)), scope.EmployeeId);
 
@@ -215,16 +215,16 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_TheSameReferenceTwiceInOneProject_FailsWithDuplicatePosting()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var reference = $"REF-{Guid.NewGuid().ToString("N")[..8]}";
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        string reference = $"REF-{Guid.NewGuid().ToString("N")[..8]}";
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var first = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> first = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             Reference: reference), scope.EmployeeId);
         Assert.True(first.IsSuccess);
 
-        var second = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> second = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             Reference: reference), scope.EmployeeId);
 
@@ -241,17 +241,17 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_TheSameReferenceInADifferentProject_Succeeds()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var other = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var reference = $"MILESTONE-{Guid.NewGuid().ToString("N")[..8]}";
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated other = await FinanceTestData.IsolatedProjectAsync(fixture);
+        string reference = $"MILESTONE-{Guid.NewGuid().ToString("N")[..8]}";
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var first = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> first = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             Reference: reference), scope.EmployeeId);
         Assert.True(first.IsSuccess);
 
-        var second = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> second = await PostAsync(new PostLedgerEntryRequest(
             other.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             Reference: reference), scope.EmployeeId);
 
@@ -263,7 +263,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Post_TwoIdenticalEntriesWithNoSource_BothSucceed()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var request = new PostLedgerEntryRequest(
@@ -283,30 +283,30 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Reverse_AnActualCost_RestoresTheBudgetLineExactly()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 300m, LedgerDirection.Out, LedgerEntryType.Commitment, today,
             BudgetLineId: lineId), scope.EmployeeId);
 
-        var before = await ReadLineAsync(lineId);
+        BudgetLineResponse before = await ReadLineAsync(lineId);
 
-        var actualId = (await PostAsync(new PostLedgerEntryRequest(
+        Guid actualId = (await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 120m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             BudgetLineId: lineId), scope.EmployeeId)).Value;
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
-            var reversed = await dbScope.ServiceProvider
+            Result<Guid> reversed = await dbScope.ServiceProvider
                 .GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>()
                 .HandleAsync(new ReverseLedgerEntryCommand(actualId, scope.EmployeeId, "mistake"));
 
             Assert.True(reversed.IsSuccess, reversed.IsFailure ? reversed.Error.ToString() : null);
         }
 
-        var after = await ReadLineAsync(lineId);
+        BudgetLineResponse after = await ReadLineAsync(lineId);
 
         Assert.Equal(before.CommittedAmount, after.CommittedAmount);
         Assert.Equal(before.ActualAmount, after.ActualAmount);
@@ -316,21 +316,21 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Reverse_Twice_FailsWithAlreadyReversed()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var entryId = (await PostAsync(new PostLedgerEntryRequest(
+        Guid entryId = (await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 60m, LedgerDirection.Out, LedgerEntryType.ActualCost, today),
             scope.EmployeeId)).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var reverse = dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        ICommandHandler<ReverseLedgerEntryCommand, Guid> reverse = dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>();
 
         Assert.True((await reverse.HandleAsync(
             new ReverseLedgerEntryCommand(entryId, scope.EmployeeId))).IsSuccess);
 
-        var second = await reverse.HandleAsync(new ReverseLedgerEntryCommand(entryId, scope.EmployeeId));
+        Result<Guid> second = await reverse.HandleAsync(new ReverseLedgerEntryCommand(entryId, scope.EmployeeId));
 
         Assert.True(second.IsFailure);
         Assert.Equal("ledger_entries.AlreadyReversed", second.Error.Code);
@@ -344,23 +344,23 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Reverse_StampsTheReversalWithTodaysDate_NotTheOriginals()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
         var longAgo = new DateOnly(2020, 3, 4);
 
-        var entryId = (await PostAsync(new PostLedgerEntryRequest(
+        Guid entryId = (await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 75m, LedgerDirection.Out, LedgerEntryType.ActualCost, longAgo),
             scope.EmployeeId)).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var mirrorId = (await dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Guid mirrorId = (await dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>()
             .HandleAsync(new ReverseLedgerEntryCommand(entryId, scope.EmployeeId))).Value;
 
-        var read = dbScope.ServiceProvider
+        IQueryHandler<GetLedgerEntryByIdQuery, LedgerEntryResponse> read = dbScope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetLedgerEntryByIdQuery, LedgerEntryResponse>>();
 
-        var original = (await read.HandleAsync(new GetLedgerEntryByIdQuery(entryId))).Value!;
-        var mirror = (await read.HandleAsync(new GetLedgerEntryByIdQuery(mirrorId))).Value!;
+        LedgerEntryResponse original = (await read.HandleAsync(new GetLedgerEntryByIdQuery(entryId))).Value!;
+        LedgerEntryResponse mirror = (await read.HandleAsync(new GetLedgerEntryByIdQuery(mirrorId))).Value!;
 
         Assert.Equal(longAgo, original.OccurredOn);
         Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), mirror.OccurredOn);
@@ -374,26 +374,26 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Reverse_AReversal_IsAllowed_AndFlipsTheDirectionBack()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var entryId = (await PostAsync(new PostLedgerEntryRequest(
+        Guid entryId = (await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 33m, LedgerDirection.Out, LedgerEntryType.ActualCost, today),
             scope.EmployeeId)).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var reverse = dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        ICommandHandler<ReverseLedgerEntryCommand, Guid> reverse = dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>();
 
-        var mirrorId = (await reverse.HandleAsync(
+        Guid mirrorId = (await reverse.HandleAsync(
             new ReverseLedgerEntryCommand(entryId, scope.EmployeeId))).Value;
 
-        var reInstated = await reverse.HandleAsync(
+        Result<Guid> reInstated = await reverse.HandleAsync(
             new ReverseLedgerEntryCommand(mirrorId, scope.EmployeeId));
 
         Assert.True(reInstated.IsSuccess, reInstated.IsFailure ? reInstated.Error.ToString() : null);
 
-        var read = await dbScope.ServiceProvider
+        Result<LedgerEntryResponse> read = await dbScope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetLedgerEntryByIdQuery, LedgerEntryResponse>>()
             .HandleAsync(new GetLedgerEntryByIdQuery(reInstated.Value));
 
@@ -404,8 +404,8 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> ClientInvoiceAsync(Guid projectId, Guid clientId, decimal amount)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
             .HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
                 $"INV-{Guid.NewGuid().ToString("N")[..10]}", projectId, InvoiceType.ClientInvoice,
@@ -419,7 +419,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> ClientPaymentAsync(Guid projectId, Guid clientId, decimal amount, Guid actorId)
     {
-        var posted = await PostAsync(new PostLedgerEntryRequest(
+        Result<Guid> posted = await PostAsync(new PostLedgerEntryRequest(
             projectId, amount, LedgerDirection.In, LedgerEntryType.ClientPayment,
             DateOnly.FromDateTime(DateTime.UtcNow), ClientId: clientId), actorId);
 
@@ -430,19 +430,19 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Allocate_ReducesTheInvoiceBalance_AndFlipsToPaidWhenItReachesZero()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 500m);
-        var paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 500m, scope.EmployeeId);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 500m);
+        Guid paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 500m, scope.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
-        var allocated = await sp.GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>()
+        Result allocated = await sp.GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>()
             .HandleAsync(new AllocateLedgerEntryCommand(paymentId, invoiceId, 500m, scope.EmployeeId));
 
         Assert.True(allocated.IsSuccess, allocated.IsFailure ? allocated.Error.ToString() : null);
 
-        var invoice = await sp.GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
+        Result<InvoiceResponse> invoice = await sp.GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
             .HandleAsync(new GetInvoiceByIdQuery(invoiceId));
 
         Assert.Equal(500m, invoice.Value!.PaidAmount);
@@ -457,20 +457,20 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Allocate_BeyondThePaymentsUnallocatedAmount_FailsWithExceedsUnallocated()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var firstInvoice = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 300m);
-        var secondInvoice = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 300m);
-        var paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 400m, scope.EmployeeId);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid firstInvoice = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 300m);
+        Guid secondInvoice = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 300m);
+        Guid paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 400m, scope.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var allocate = dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        ICommandHandler<AllocateLedgerEntryCommand> allocate = dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>();
 
         Assert.True((await allocate.HandleAsync(
             new AllocateLedgerEntryCommand(paymentId, firstInvoice, 300m, scope.EmployeeId))).IsSuccess);
 
         // 300 already allocated of a 400 payment; 150 more would exceed it.
-        var second = await allocate.HandleAsync(
+        Result second = await allocate.HandleAsync(
             new AllocateLedgerEntryCommand(paymentId, secondInvoice, 150m, scope.EmployeeId));
 
         Assert.True(second.IsFailure);
@@ -485,13 +485,13 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Allocate_BeyondTheInvoiceBalance_FailsWithOverAllocation()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 200m);
-        var firstPayment = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 150m, scope.EmployeeId);
-        var secondPayment = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 150m, scope.EmployeeId);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 200m);
+        Guid firstPayment = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 150m, scope.EmployeeId);
+        Guid secondPayment = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 150m, scope.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var allocate = dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        ICommandHandler<AllocateLedgerEntryCommand> allocate = dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>();
 
         Assert.True((await allocate.HandleAsync(
@@ -499,7 +499,7 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
 
         // The second payment has 150 unallocated, so the payment-side bound permits this; only the
         // invoice's remaining 50 balance refuses it.
-        var second = await allocate.HandleAsync(
+        Result second = await allocate.HandleAsync(
             new AllocateLedgerEntryCommand(secondPayment, invoiceId, 150m, scope.EmployeeId));
 
         Assert.True(second.IsFailure);
@@ -511,16 +511,16 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Allocate_ACommitment_FailsWithNotAPayment()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
-        var invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 100m);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
+        Guid invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 100m);
 
-        var commitmentId = (await PostAsync(new PostLedgerEntryRequest(
+        Guid commitmentId = (await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 100m, LedgerDirection.Out, LedgerEntryType.Commitment,
             DateOnly.FromDateTime(DateTime.UtcNow), BudgetLineId: lineId), scope.EmployeeId)).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var allocated = await dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result allocated = await dbScope.ServiceProvider
             .GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>()
             .HandleAsync(new AllocateLedgerEntryCommand(commitmentId, invoiceId, 100m, scope.EmployeeId));
 
@@ -533,28 +533,28 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Allocate_PartiallyLeavesBothSidesOpen()
     {
-        var scope = await FinanceTestData.ScopeAsync(fixture);
-        var invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 800m);
-        var paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 500m, scope.EmployeeId);
+        FinanceTestData.Scope scope = await FinanceTestData.ScopeAsync(fixture);
+        Guid invoiceId = await ClientInvoiceAsync(scope.ProjectId, scope.ClientId, 800m);
+        Guid paymentId = await ClientPaymentAsync(scope.ProjectId, scope.ClientId, 500m, scope.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
         await sp.GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>()
             .HandleAsync(new AllocateLedgerEntryCommand(paymentId, invoiceId, 300m, scope.EmployeeId));
 
-        var invoice = (await sp.GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
+        InvoiceResponse invoice = (await sp.GetRequiredService<IQueryHandler<GetInvoiceByIdQuery, InvoiceResponse>>()
             .HandleAsync(new GetInvoiceByIdQuery(invoiceId))).Value!;
 
         Assert.Equal(300m, invoice.PaidAmount);
         Assert.Equal(500m, invoice.Balance);
         Assert.Equal("Open", invoice.Status);
 
-        var unallocated = await sp.GetRequiredService<
+        Result<PagedResult<UnallocatedLedgerEntryResponse>> unallocated = await sp.GetRequiredService<
                 IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>>>()
             .HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
 
-        var row = Assert.Single(unallocated.Value!.Items, e => e.Id == paymentId);
+        UnallocatedLedgerEntryResponse row = Assert.Single(unallocated.Value!.Items, e => e.Id == paymentId);
         Assert.Equal(500m, row.Amount);
         Assert.Equal(200m, row.UnallocatedAmount);
     }
@@ -564,23 +564,23 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetUnallocated_ExcludesAFullyAllocatedPayment()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var invoiceId = await ClientInvoiceAsync(scope.ProjectId, owner.ClientId, 90m);
-        var paymentId = await ClientPaymentAsync(scope.ProjectId, owner.ClientId, 90m, owner.EmployeeId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid invoiceId = await ClientInvoiceAsync(scope.ProjectId, owner.ClientId, 90m);
+        Guid paymentId = await ClientPaymentAsync(scope.ProjectId, owner.ClientId, 90m, owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var list = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>> list = sp.GetRequiredService<
             IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>>>();
 
-        var before = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
+        Result<PagedResult<UnallocatedLedgerEntryResponse>> before = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
         Assert.Contains(before.Value!.Items, e => e.Id == paymentId);
 
         await sp.GetRequiredService<ICommandHandler<AllocateLedgerEntryCommand>>()
             .HandleAsync(new AllocateLedgerEntryCommand(paymentId, invoiceId, 90m, owner.EmployeeId));
 
-        var after = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
+        Result<PagedResult<UnallocatedLedgerEntryResponse>> after = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
         Assert.DoesNotContain(after.Value!.Items, e => e.Id == paymentId);
     }
 
@@ -590,22 +590,22 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetUnallocated_ExcludesAReversedPaymentAndItsMirror()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var paymentId = await ClientPaymentAsync(scope.ProjectId, owner.ClientId, 70m, owner.EmployeeId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid paymentId = await ClientPaymentAsync(scope.ProjectId, owner.ClientId, 70m, owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var list = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>> list = sp.GetRequiredService<
             IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>>>();
 
-        var before = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
+        Result<PagedResult<UnallocatedLedgerEntryResponse>> before = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
         Assert.Contains(before.Value!.Items, e => e.Id == paymentId);
 
-        var mirrorId = (await sp.GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>()
+        Guid mirrorId = (await sp.GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>()
             .HandleAsync(new ReverseLedgerEntryCommand(paymentId, owner.EmployeeId))).Value;
 
-        var after = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
+        Result<PagedResult<UnallocatedLedgerEntryResponse>> after = await list.HandleAsync(new GetUnallocatedLedgerEntriesQuery(scope.ProjectId));
         Assert.DoesNotContain(after.Value!.Items, e => e.Id == paymentId);
         Assert.DoesNotContain(after.Value!.Items, e => e.Id == mirrorId);
     }
@@ -615,8 +615,8 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetByProject_FiltersByTypeAndDateWindow()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         var old = new DateOnly(2021, 1, 1);
         var recent = new DateOnly(2026, 6, 1);
@@ -627,19 +627,19 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 20m, LedgerDirection.Out, LedgerEntryType.Commitment, recent), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var list = dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IQueryHandler<GetLedgerEntriesByProjectQuery, PagedResult<LedgerEntryListItemResponse>> list = dbScope.ServiceProvider.GetRequiredService<
             IQueryHandler<GetLedgerEntriesByProjectQuery, PagedResult<LedgerEntryListItemResponse>>>();
 
-        var all = await list.HandleAsync(new GetLedgerEntriesByProjectQuery(scope.ProjectId));
+        Result<PagedResult<LedgerEntryListItemResponse>> all = await list.HandleAsync(new GetLedgerEntriesByProjectQuery(scope.ProjectId));
         Assert.Equal(2, all.Value!.TotalCount);
 
-        var commitments = await list.HandleAsync(
+        Result<PagedResult<LedgerEntryListItemResponse>> commitments = await list.HandleAsync(
             new GetLedgerEntriesByProjectQuery(scope.ProjectId, Type: LedgerEntryType.Commitment));
         Assert.Single(commitments.Value!.Items);
         Assert.Equal("Commitment", commitments.Value.Items[0].Type);
 
-        var windowed = await list.HandleAsync(new GetLedgerEntriesByProjectQuery(
+        Result<PagedResult<LedgerEntryListItemResponse>> windowed = await list.HandleAsync(new GetLedgerEntriesByProjectQuery(
             scope.ProjectId, FromDate: new DateOnly(2026, 1, 1)));
         Assert.Single(windowed.Value!.Items);
         Assert.Equal(recent, windowed.Value.Items[0].OccurredOn);
@@ -648,8 +648,8 @@ public sealed class LedgerFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetById_ForAnUnknownEntry_FailsWithNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<LedgerEntryResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetLedgerEntryByIdQuery, LedgerEntryResponse>>()
             .HandleAsync(new GetLedgerEntryByIdQuery(Guid.NewGuid()));
 

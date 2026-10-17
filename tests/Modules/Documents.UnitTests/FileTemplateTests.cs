@@ -1,4 +1,5 @@
 using Documents.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Documents.UnitTests;
@@ -13,7 +14,7 @@ public class FileTemplateTests
     [Fact]
     public void Create_StartsActive()
     {
-        var template = CreateTemplate();
+        FileTemplate template = CreateTemplate();
 
         Assert.True(template.IsActive);
     }
@@ -21,7 +22,7 @@ public class FileTemplateTests
     [Fact]
     public void Create_NameAlreadyExists_Fails()
     {
-        var result = FileTemplate.Create(
+        Result<FileTemplate> result = FileTemplate.Create(
             "Dup", FileTemplateCategory.Cad, "a.dwg", "path", "application/octet-stream", 10,
             nameAlreadyExists: true);
 
@@ -32,7 +33,7 @@ public class FileTemplateTests
     [Fact]
     public void Create_ZeroFileSize_Fails()
     {
-        var result = FileTemplate.Create(
+        Result<FileTemplate> result = FileTemplate.Create(
             "X", FileTemplateCategory.Other, "a.txt", "path", "text/plain", 0);
 
         Assert.True(result.IsFailure);
@@ -42,11 +43,11 @@ public class FileTemplateTests
     [Fact]
     public void Update_CannotChangeStoredFile()
     {
-        var template = CreateTemplate();
-        var originalStoragePath = template.StoragePath;
-        var originalFileName = template.FileName;
+        FileTemplate template = CreateTemplate();
+        string originalStoragePath = template.StoragePath;
+        string originalFileName = template.FileName;
 
-        var result = template.Update("Renamed Cover Sheet", FileTemplateCategory.Image, "new description");
+        Result result = template.Update("Renamed Cover Sheet", FileTemplateCategory.Image, "new description");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Renamed Cover Sheet", template.Name);
@@ -59,9 +60,9 @@ public class FileTemplateTests
     [Fact]
     public void Update_ToAnAlreadyTakenDifferentName_Fails()
     {
-        var template = CreateTemplate();
+        FileTemplate template = CreateTemplate();
 
-        var result = template.Update("Someone Else's Name", FileTemplateCategory.Document, null, nameAlreadyExists: true);
+        Result result = template.Update("Someone Else's Name", FileTemplateCategory.Document, null, nameAlreadyExists: true);
 
         Assert.True(result.IsFailure);
         Assert.Equal(FileTemplateErrors.NameAlreadyExists, result.Error);
@@ -70,11 +71,11 @@ public class FileTemplateTests
     [Fact]
     public void Update_KeepingItsOwnName_NeverCollidesWithItself()
     {
-        var template = CreateTemplate();
+        FileTemplate template = CreateTemplate();
 
         // nameAlreadyExists=true here simulates a naive "any row with this name" check finding the
         // template's OWN row - Update must not reject on the unchanged name.
-        var result = template.Update(template.Name, FileTemplateCategory.Cad, null, nameAlreadyExists: true);
+        Result result = template.Update(template.Name, FileTemplateCategory.Cad, null, nameAlreadyExists: true);
 
         Assert.True(result.IsSuccess);
     }
@@ -82,7 +83,7 @@ public class FileTemplateTests
     [Fact]
     public void ActivateDeactivate_ToggleIsActive()
     {
-        var template = CreateTemplate();
+        FileTemplate template = CreateTemplate();
 
         template.Deactivate();
         Assert.False(template.IsActive);

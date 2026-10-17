@@ -32,8 +32,15 @@ internal sealed class Client : Entity, IAuditable
 
     public static Result<Client> Create(string appUserId, string address, string? notes = null)
     {
-        if (string.IsNullOrWhiteSpace(appUserId)) return ClientErrors.AppUserIdRequired;
-        if (string.IsNullOrWhiteSpace(address)) return ClientErrors.AddressRequired;
+        if (string.IsNullOrWhiteSpace(appUserId))
+        {
+            return ClientErrors.AppUserIdRequired;
+        }
+
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return ClientErrors.AddressRequired;
+        }
 
         return new Client
         {
@@ -46,9 +53,20 @@ internal sealed class Client : Entity, IAuditable
     public void UpdateProfile(
         string? jobTitle = null, string? maritalStatus = null, string? representativeName = null)
     {
-        if (jobTitle is not null) JobTitle = jobTitle;
-        if (maritalStatus is not null) MaritalStatus = maritalStatus;
-        if (representativeName is not null) RepresentativeName = representativeName;
+        if (jobTitle is not null)
+        {
+            JobTitle = jobTitle;
+        }
+
+        if (maritalStatus is not null)
+        {
+            MaritalStatus = maritalStatus;
+        }
+
+        if (representativeName is not null)
+        {
+            RepresentativeName = representativeName;
+        }
     }
 
     /// <summary>Hop 1 of lead conversion — fill blanks from the converted lead's intake. Never
@@ -58,7 +76,9 @@ internal sealed class Client : Entity, IAuditable
     {
         JobTitle ??= jobTitle;
         if (string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(clientAddress))
+        {
             Address = clientAddress;
+        }
     }
 
     public void Deactivate() => SetActive(false);
@@ -67,8 +87,11 @@ internal sealed class Client : Entity, IAuditable
 
     public Result<Guid> AddChild(char gender, short age)
     {
-        var child = ClientChild.Create(gender, age);
-        if (child.IsFailure) return child.Error;
+        Result<ClientChild> child = ClientChild.Create(gender, age);
+        if (child.IsFailure)
+        {
+            return child.Error;
+        }
 
         _children.Add(child.Value!);
         return child.Value!.Id;
@@ -76,16 +99,22 @@ internal sealed class Client : Entity, IAuditable
 
     public Result UpdateChild(Guid childId, char gender, short age)
     {
-        var child = _children.FirstOrDefault(c => c.Id == childId);
-        if (child is null) return ClientErrors.ChildNotFound;
+        ClientChild? child = _children.FirstOrDefault(c => c.Id == childId);
+        if (child is null)
+        {
+            return ClientErrors.ChildNotFound;
+        }
 
         return child.Update(gender, age);
     }
 
     public Result RemoveChild(Guid childId)
     {
-        var child = _children.FirstOrDefault(c => c.Id == childId);
-        if (child is null) return ClientErrors.ChildNotFound;
+        ClientChild? child = _children.FirstOrDefault(c => c.Id == childId);
+        if (child is null)
+        {
+            return ClientErrors.ChildNotFound;
+        }
 
         _children.Remove(child);
         return Result.Success();

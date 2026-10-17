@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Identity.Contracts.Roles;
+using Identity.Domain;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
@@ -11,7 +12,7 @@ internal sealed class GetAllRolesQueryHandler(IRoleService roleService)
     public async Task<Result<IReadOnlyList<RoleResponse>>> HandleAsync(
         GetAllRolesQuery query, CancellationToken ct = default)
     {
-        var roles = await roleService.GetAllRolesAsync(ct);
+        IReadOnlyList<ApplicationRole> roles = await roleService.GetAllRolesAsync(ct);
         return Result.Success<IReadOnlyList<RoleResponse>>([.. roles.Select(r => r.ToResponse())]);
     }
 }

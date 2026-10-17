@@ -65,8 +65,10 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         _container = new Testcontainers.PostgreSql.PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        foreach (var schema in ModuleDependencyOrder.SchemaOrder)
+        foreach (string schema in ModuleDependencyOrder.SchemaOrder)
+        {
             await MigrateSchemaAsync(schema);
+        }
 
         await SeedPublicLeadIntakeOwnerAsync();
 
@@ -163,7 +165,9 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 Func<TState, Exception?, string> formatter)
             {
                 if (IsEnabled(logLevel) && eventId.Id == Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.CommandExecuted.Id)
+                {
                     sink.Enqueue(formatter(state, exception));
+                }
             }
         }
     }
@@ -179,7 +183,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         await using var connection = new NpgsqlConnection(ConnectionString);
         await connection.OpenAsync();
 
-        await using (var userCommand = connection.CreateCommand())
+        await using (NpgsqlCommand userCommand = connection.CreateCommand())
         {
             userCommand.CommandText = """
                 INSERT INTO identity.users
@@ -191,17 +195,15 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             await userCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var employeeCommand = connection.CreateCommand())
-        {
-            employeeCommand.CommandText = """
+        await using NpgsqlCommand employeeCommand = connection.CreateCommand();
+        employeeCommand.CommandText = """
                 INSERT INTO hr.employees
                     ("Id", "JobTitle", "HireDate", "ContractType", "AppUserId", "IsActive", "CreatedAtUtc")
                 VALUES (@id, 'Sales', CURRENT_DATE, 1, @appUserId, true, now());
                 """;
-            employeeCommand.Parameters.AddWithValue("id", PublicLeadIntakeOwnerId);
-            employeeCommand.Parameters.AddWithValue("appUserId", appUserId);
-            await employeeCommand.ExecuteNonQueryAsync();
-        }
+        employeeCommand.Parameters.AddWithValue("id", PublicLeadIntakeOwnerId);
+        employeeCommand.Parameters.AddWithValue("appUserId", appUserId);
+        await employeeCommand.ExecuteNonQueryAsync();
     }
 
     private async Task MigrateSchemaAsync(string schema)
@@ -301,9 +303,9 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// </summary>
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = ConnectionString,
@@ -314,12 +316,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

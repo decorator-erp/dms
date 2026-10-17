@@ -7,6 +7,7 @@ using Crm.Contracts.Artifacts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -18,13 +19,13 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var artifacts = app.MapGroup("/api/crm/artifacts").WithTags("Crm Artifacts");
+        RouteGroupBuilder artifacts = app.MapGroup("/api/crm/artifacts").WithTags("Crm Artifacts");
 
         artifacts.MapPost("/", async (
             LinkCrmArtifactDocumentCommand command, ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Created($"/api/crm/artifacts/{id}", new { ArtifactDocumentId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Manage);
 
@@ -32,7 +33,7 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             Guid briefId, IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
@@ -40,7 +41,7 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             Guid spaceId, IQueryHandler<GetCrmArtifactDocumentsBySpaceQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
@@ -49,7 +50,7 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             IQueryHandler<GetCrmArtifactDocumentsByRequirementItemQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
@@ -57,7 +58,7 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             Guid meetingId, IQueryHandler<GetCrmArtifactDocumentsByMeetingQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
     }

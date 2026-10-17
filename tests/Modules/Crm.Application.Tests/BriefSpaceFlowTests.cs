@@ -4,10 +4,10 @@ using Crm.Contracts.Briefs;
 using Crm.Contracts.Clients;
 using Crm.Contracts.Spaces;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.Application.Tests;
@@ -22,28 +22,28 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task DesignBrief_CreateUpdateSend_RequestsAClientApproval()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (clientAppUserId, clientId) = await CreateClientAsync(sp, "brief-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string? clientAppUserId, Guid clientId) = await CreateClientAsync(sp, "brief-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
 
-        var createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
+        ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         var headData = new CrmBriefHeadData((UnitType)1, (UnitCondition)1, Address: "Original Addr");
-        var briefResult = await createBrief.HandleAsync(
+        Result<Guid> briefResult = await createBrief.HandleAsync(
             new CreateCrmDesignBriefCommand(projectId, employeeId, null, headData));
         Assert.True(briefResult.IsSuccess);
-        var briefId = briefResult.Value;
+        Guid briefId = briefResult.Value;
 
-        var updateHead = sp.GetRequiredService<ICommandHandler<UpdateCrmBriefHeadCommand>>();
-        var updatedData = headData with { Address = "Updated Addr" };
+        ICommandHandler<UpdateCrmBriefHeadCommand> updateHead = sp.GetRequiredService<ICommandHandler<UpdateCrmBriefHeadCommand>>();
+        CrmBriefHeadData updatedData = headData with { Address = "Updated Addr" };
         Assert.True((await updateHead.HandleAsync(new UpdateCrmBriefHeadCommand(briefId, updatedData))).IsSuccess);
 
-        var sendBrief = sp.GetRequiredService<ICommandHandler<SendCrmBriefCommand>>();
-        var sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId));
+        ICommandHandler<SendCrmBriefCommand> sendBrief = sp.GetRequiredService<ICommandHandler<SendCrmBriefCommand>>();
+        Result sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId));
         Assert.True(sendResult.IsSuccess);
 
-        var getBrief = sp.GetRequiredService<IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse>>();
-        var brief = await getBrief.HandleAsync(new GetCrmBriefByProjectQuery(projectId));
+        IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse> getBrief = sp.GetRequiredService<IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse>>();
+        Result<CrmDesignBriefResponse> brief = await getBrief.HandleAsync(new GetCrmBriefByProjectQuery(projectId));
         Assert.True(brief.IsSuccess);
         Assert.Equal(CrmApprovalState.PendingApproval, brief.Value!.Status);
         Assert.Equal("Updated Addr", brief.Value.Head.Address);
@@ -57,89 +57,82 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task BriefSpaceLedger_SendThenSupersede_OnlyAfterApproval()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "space-client");
-        var (projectId, employeeId) = await CreateProjectAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "space-client");
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
 
-        var createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
-        var briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
+        ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
+        Guid briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
             projectId, employeeId, null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
 
-        var createEntry = sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>();
-        var entryResult = await createEntry.HandleAsync(
+        ICommandHandler<CreateCrmBriefSpaceCommand, Guid> createEntry = sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>();
+        Result<Guid> entryResult = await createEntry.HandleAsync(
             new CreateCrmBriefSpaceCommand(briefId, employeeId, SpaceId: null, Requirements: "north-facing light"));
         Assert.True(entryResult.IsSuccess);
-        var entryId = entryResult.Value;
+        Guid entryId = entryResult.Value;
 
-        var supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid>>();
-        var supersedeResult = await supersede.HandleAsync(
+        ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid>>();
+        Result<Guid> supersedeResult = await supersede.HandleAsync(
             new SupersedeCrmBriefSpaceCommand(entryId, Guid.NewGuid(), SpaceId: null, Requirements: "corrected"));
 
         // Only a locked (Approved) entry can be superseded - a Draft entry must be rejected.
         Assert.True(supersedeResult.IsFailure);
 
-        var getEntries = sp.GetRequiredService<IQueryHandler<GetCrmBriefSpacesByBriefQuery, IReadOnlyList<CrmBriefSpaceResponse>>>();
-        var entries = (await getEntries.HandleAsync(new GetCrmBriefSpacesByBriefQuery(briefId))).Value!;
+        IQueryHandler<GetCrmBriefSpacesByBriefQuery, IReadOnlyList<CrmBriefSpaceResponse>> getEntries = sp.GetRequiredService<IQueryHandler<GetCrmBriefSpacesByBriefQuery, IReadOnlyList<CrmBriefSpaceResponse>>>();
+        IReadOnlyList<CrmBriefSpaceResponse> entries = (await getEntries.HandleAsync(new GetCrmBriefSpacesByBriefQuery(briefId))).Value!;
         Assert.Single(entries);
     }
 
     [Fact]
     public async Task SpaceTypeAndSpace_CreateAndUpdate_RoundTrip()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var (_, clientId) = await CreateClientAsync(sp, "roundtrip-client");
-        var (projectId, _) = await CreateProjectAsync(sp, clientId);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (string _, Guid clientId) = await CreateClientAsync(sp, "roundtrip-client");
+        (Guid projectId, Guid _) = await CreateProjectAsync(sp, clientId);
 
-        var createType = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>();
-        var typeResult = await createType.HandleAsync(
+        ICommandHandler<CreateCrmSpaceTypeCommand, Guid> createType = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>();
+        Result<Guid> typeResult = await createType.HandleAsync(
             new CreateCrmSpaceTypeCommand($"bed-{Guid.NewGuid():N}", "Bedroom", "غرفة نوم"));
         Assert.True(typeResult.IsSuccess);
 
-        var createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
-        var spaceResult = await createSpace.HandleAsync(
+        ICommandHandler<CreateCrmSpaceCommand, Guid> createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
+        Result<Guid> spaceResult = await createSpace.HandleAsync(
             new CreateCrmSpaceCommand(projectId, typeResult.Value, "Kids Room"));
         Assert.True(spaceResult.IsSuccess);
 
-        var updateSpace = sp.GetRequiredService<ICommandHandler<UpdateCrmSpaceCommand>>();
+        ICommandHandler<UpdateCrmSpaceCommand> updateSpace = sp.GetRequiredService<ICommandHandler<UpdateCrmSpaceCommand>>();
         Assert.True((await updateSpace.HandleAsync(
             new UpdateCrmSpaceCommand(spaceResult.Value, typeResult.Value, "Kids Room (renamed)", Description: null))).IsSuccess);
 
-        var getSpaces = sp.GetRequiredService<IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>>>();
-        var spaces = (await getSpaces.HandleAsync(new GetCrmSpacesByProjectQuery(projectId))).Value!;
+        IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>> getSpaces = sp.GetRequiredService<IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>>>();
+        IReadOnlyList<CrmSpaceResponse> spaces = (await getSpaces.HandleAsync(new GetCrmSpacesByProjectQuery(projectId))).Value!;
         Assert.Equal("Kids Room (renamed)", spaces.Single().Name);
     }
 
     [Fact]
     public async Task CreateCrmSpace_WithUnknownProjectId_IsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createType = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>();
-        var typeId = (await createType.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmSpaceTypeCommand, Guid> createType = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>();
+        Guid typeId = (await createType.HandleAsync(
             new CreateCrmSpaceTypeCommand($"bed-{Guid.NewGuid():N}", "Bedroom", "غرفة نوم"))).Value;
 
-        var createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
-        var result = await createSpace.HandleAsync(new CreateCrmSpaceCommand(Guid.NewGuid(), typeId, "Orphan Room"));
+        ICommandHandler<CreateCrmSpaceCommand, Guid> createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
+        Result<Guid> result = await createSpace.HandleAsync(new CreateCrmSpaceCommand(Guid.NewGuid(), typeId, "Orphan Room"));
 
         Assert.True(result.IsFailure);
     }
 
     private static async Task<(string AppUserId, Guid ClientId)> CreateClientAsync(IServiceProvider sp, string label)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var registerResult = await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"{label}-{suffix}@example.com", "P@ssw0rd123!", "Test", label, null, "employee")));
-        Assert.True(registerResult.IsSuccess);
-        var appUserId = registerResult.Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid clientId, string appUserId) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"{label}-{suffix}@example.com", lastName: label);
 
-        var createClient = sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>();
-        var clientResult = await createClient.HandleAsync(new CreateClientCommand(appUserId, "1 Test Way"));
-        Assert.True(clientResult.IsSuccess);
-
-        return (appUserId, clientResult.Value);
+        return (appUserId, clientId);
     }
 
     /// <summary>Real project creation via <c>Projects.Application</c>'s own handler — needs a real
@@ -150,24 +143,18 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     /// <c>CreateProjectAsync</c>.</summary>
     private static async Task<(Guid ProjectId, Guid EmployeeId)> CreateProjectAsync(IServiceProvider sp, Guid clientId)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var ownerAppUserId = (await register.HandleAsync(new RegisterCommand(
-            new RegisterRequest($"owner-{suffix}@example.com", "P@ssw0rd123!", "Owner", "Test", null, "employee")))).Value!;
+        string suffix = Guid.NewGuid().ToString("N");
+        (Guid employeeId, string ownerAppUserId) = await HrTestSeeding.HireEmployeeAsync(
+            sp, $"owner-{suffix}@example.com", jobTitle: "PM", firstName: "Owner");
 
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var employeeResult = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(ownerAppUserId, "PM", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(employeeResult.IsSuccess);
-
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerAppUserId;
 
-        var createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
-        var projectResult = await createProject.HandleAsync(
+        ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
+        Result<Guid> projectResult = await createProject.HandleAsync(
             new CreateProjectCommand($"P-{suffix}", "Test Project", "123 Main St", WorkflowType.Stage, clientId));
         Assert.True(projectResult.IsSuccess);
 
-        return (projectResult.Value, employeeResult.Value);
+        return (projectResult.Value, employeeId);
     }
 }

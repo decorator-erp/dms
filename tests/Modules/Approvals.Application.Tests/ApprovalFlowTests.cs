@@ -1,8 +1,8 @@
 using Approvals.Contracts;
 using Approvals.Contracts.Approvals;
 using BuildingBlocks.Messaging;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 using Domain = Approvals.Domain;
 
@@ -19,28 +19,28 @@ public sealed class ApprovalFlowTests(ApprovalsApplicationFixture fixture)
     [Fact]
     public async Task Request_then_decide_then_outbox_delivers_with_zero_handlers()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var requesterUserId = await RegisterUserAsync(sp);
-        var approverUserId = await RegisterUserAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        string requesterUserId = await RegisterUserAsync(sp);
+        string approverUserId = await RegisterUserAsync(sp);
 
-        var requester = sp.GetRequiredService<IApprovalRequester>();
-        var requestResult = await requester.RequestAsync(new ApprovalRequest(
+        IApprovalRequester requester = sp.GetRequiredService<IApprovalRequester>();
+        Result<Guid> requestResult = await requester.RequestAsync(new ApprovalRequest(
             ApprovalSubjectType.GateCondition, Guid.NewGuid(), ApprovalType.ManagerApproval,
             requesterUserId, [new ApproverSpec(ApproverKind.Employee, approverUserId)], DueAtUtc: null),
             CancellationToken.None);
         Assert.True(requestResult.IsSuccess);
-        var approvalId = requestResult.Value;
+        Guid approvalId = requestResult.Value;
 
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = approverUserId;
 
-        var decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
-        var decideResult = await decide.HandleAsync(
+        ICommandHandler<DecideApprovalCommand> decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
+        Result decideResult = await decide.HandleAsync(
             new DecideApprovalCommand(approvalId, ApprovalDecision.Approved, Comment: null));
         Assert.True(decideResult.IsSuccess);
 
-        var snapshot = await requester.GetAsync(approvalId, CancellationToken.None);
+        ApprovalSnapshot? snapshot = await requester.GetAsync(approvalId, CancellationToken.None);
         Assert.NotNull(snapshot);
         Assert.Equal(ApprovalState.Approved, snapshot.State);
         Assert.Equal(ApprovalDecision.Approved, snapshot.Decision);
@@ -57,31 +57,31 @@ public sealed class ApprovalFlowTests(ApprovalsApplicationFixture fixture)
     [Fact]
     public async Task Decide_ByNonApprover_IsForbidden_UnlessCallerHasDecideAny()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var requesterUserId = await RegisterUserAsync(sp);
-        var approverUserId = await RegisterUserAsync(sp);
-        var strangerUserId = await RegisterUserAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        string requesterUserId = await RegisterUserAsync(sp);
+        string approverUserId = await RegisterUserAsync(sp);
+        string strangerUserId = await RegisterUserAsync(sp);
 
-        var requester = sp.GetRequiredService<IApprovalRequester>();
-        var requestResult = await requester.RequestAsync(new ApprovalRequest(
+        IApprovalRequester requester = sp.GetRequiredService<IApprovalRequester>();
+        Result<Guid> requestResult = await requester.RequestAsync(new ApprovalRequest(
             ApprovalSubjectType.GateCondition, Guid.NewGuid(), ApprovalType.ManagerApproval,
             requesterUserId, [new ApproverSpec(ApproverKind.Employee, approverUserId)], DueAtUtc: null),
             CancellationToken.None);
-        var approvalId = requestResult.Value;
+        Guid approvalId = requestResult.Value;
 
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = strangerUserId;
 
-        var decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
-        var forbidden = await decide.HandleAsync(
+        ICommandHandler<DecideApprovalCommand> decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
+        Result forbidden = await decide.HandleAsync(
             new DecideApprovalCommand(approvalId, ApprovalDecision.Approved, Comment: null));
         Assert.True(forbidden.IsFailure);
         Assert.Equal(Domain.ApprovalErrors.NotAssignedApprover, forbidden.Error);
         Assert.Equal(403, forbidden.Error.Status);
 
         currentUser.Grant(ApprovalsPermissions.DecideAny);
-        var overridden = await decide.HandleAsync(
+        Result overridden = await decide.HandleAsync(
             new DecideApprovalCommand(approvalId, ApprovalDecision.Approved, Comment: null));
         Assert.True(overridden.IsSuccess);
     }
@@ -89,26 +89,26 @@ public sealed class ApprovalFlowTests(ApprovalsApplicationFixture fixture)
     [Fact]
     public async Task Decide_AnAlreadyDecidedApproval_IsRejectedAsConflict()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var requesterUserId = await RegisterUserAsync(sp);
-        var approverUserId = await RegisterUserAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        string requesterUserId = await RegisterUserAsync(sp);
+        string approverUserId = await RegisterUserAsync(sp);
 
-        var requester = sp.GetRequiredService<IApprovalRequester>();
-        var requestResult = await requester.RequestAsync(new ApprovalRequest(
+        IApprovalRequester requester = sp.GetRequiredService<IApprovalRequester>();
+        Result<Guid> requestResult = await requester.RequestAsync(new ApprovalRequest(
             ApprovalSubjectType.GateCondition, Guid.NewGuid(), ApprovalType.ManagerApproval,
             requesterUserId, [new ApproverSpec(ApproverKind.Employee, approverUserId)], DueAtUtc: null),
             CancellationToken.None);
-        var approvalId = requestResult.Value;
+        Guid approvalId = requestResult.Value;
 
-        var currentUser = sp.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = approverUserId;
 
-        var decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
-        var first = await decide.HandleAsync(new DecideApprovalCommand(approvalId, ApprovalDecision.Approved, null));
+        ICommandHandler<DecideApprovalCommand> decide = sp.GetRequiredService<ICommandHandler<DecideApprovalCommand>>();
+        Result first = await decide.HandleAsync(new DecideApprovalCommand(approvalId, ApprovalDecision.Approved, null));
         Assert.True(first.IsSuccess);
 
-        var second = await decide.HandleAsync(new DecideApprovalCommand(approvalId, ApprovalDecision.Rejected, "changed my mind"));
+        Result second = await decide.HandleAsync(new DecideApprovalCommand(approvalId, ApprovalDecision.Rejected, "changed my mind"));
         Assert.True(second.IsFailure);
         Assert.Equal(Domain.ApprovalErrors.AlreadyDecided, second.Error);
         Assert.Equal(409, second.Error.Status);
@@ -117,20 +117,20 @@ public sealed class ApprovalFlowTests(ApprovalsApplicationFixture fixture)
     [Fact]
     public async Task RequestingASecondApproval_ForAnAlreadyOpenSubject_IsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var requesterUserId = await RegisterUserAsync(sp);
-        var approverUserId = await RegisterUserAsync(sp);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        string requesterUserId = await RegisterUserAsync(sp);
+        string approverUserId = await RegisterUserAsync(sp);
         var subjectId = Guid.NewGuid();
 
-        var requester = sp.GetRequiredService<IApprovalRequester>();
-        var first = await requester.RequestAsync(new ApprovalRequest(
+        IApprovalRequester requester = sp.GetRequiredService<IApprovalRequester>();
+        Result<Guid> first = await requester.RequestAsync(new ApprovalRequest(
             ApprovalSubjectType.GateCondition, subjectId, ApprovalType.ManagerApproval,
             requesterUserId, [new ApproverSpec(ApproverKind.Employee, approverUserId)], DueAtUtc: null),
             CancellationToken.None);
         Assert.True(first.IsSuccess);
 
-        var second = await requester.RequestAsync(new ApprovalRequest(
+        Result<Guid> second = await requester.RequestAsync(new ApprovalRequest(
             ApprovalSubjectType.GateCondition, subjectId, ApprovalType.ManagerApproval,
             requesterUserId, [new ApproverSpec(ApproverKind.Employee, approverUserId)], DueAtUtc: null),
             CancellationToken.None);
@@ -140,14 +140,9 @@ public sealed class ApprovalFlowTests(ApprovalsApplicationFixture fixture)
 
     private static async Task<string> RegisterUserAsync(IServiceProvider sp)
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var email = $"user-{suffix}@example.com";
+        string suffix = Guid.NewGuid().ToString("N");
+        string email = $"user-{suffix}@example.com";
 
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var result = await register.HandleAsync(
-            new RegisterCommand(new RegisterRequest(email, "P@ssw0rd123!", "Test", "User", null, "employee")));
-
-        Assert.True(result.IsSuccess);
-        return result.Value!;
+        return await IdentityTestSeeding.ProvisionActiveUserAsync(sp, email);
     }
 }

@@ -26,12 +26,14 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
 {
     public async Task<Result<Guid>> RequestAsync(ApprovalRequest request, CancellationToken ct)
     {
-        var subjectType = ToDomain(request.SubjectType);
+        Domain.ApprovalSubjectType subjectType = ToDomain(request.SubjectType);
 
-        var alreadyOpen = await db.Approvals.AsNoTracking().AnyAsync(
+        bool alreadyOpen = await db.Approvals.AsNoTracking().AnyAsync(
             a => a.SubjectType == subjectType && a.SubjectId == request.SubjectId && a.Decision == null, ct);
         if (alreadyOpen)
+        {
             return Result.Failure<Guid>(Domain.ApprovalErrors.OpenApprovalExists);
+        }
 
         var approval = Domain.Approval.Create(
             subjectType,
@@ -52,13 +54,13 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
 
     public async Task<ApprovalSnapshot?> GetAsync(Guid approvalId, CancellationToken ct)
     {
-        var approval = await db.Approvals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == approvalId, ct);
+        Domain.Approval? approval = await db.Approvals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == approvalId, ct);
         return approval is null ? null : ToSnapshot(approval);
     }
 
     public async Task<IReadOnlyList<ApprovalSnapshot>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
-        var approvals = await db.Approvals.AsNoTracking().Where(a => ids.Contains(a.Id)).ToListAsync(ct);
+        List<Domain.Approval> approvals = await db.Approvals.AsNoTracking().Where(a => ids.Contains(a.Id)).ToListAsync(ct);
         return [.. approvals.Select(ToSnapshot)];
     }
 

@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using Hr.Contracts.Departments;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -11,7 +12,7 @@ internal sealed class GetDepartmentQueryHandler(HrDbContext db) : IQueryHandler<
 {
     public async Task<Result<DepartmentResponse>> HandleAsync(GetDepartmentQuery query, CancellationToken ct = default)
     {
-        var department = await db.Departments.AsNoTracking().FirstOrDefaultAsync(d => d.Id == query.DepartmentId, ct);
+        Department? department = await db.Departments.AsNoTracking().FirstOrDefaultAsync(d => d.Id == query.DepartmentId, ct);
 
         return department is null
             ? DepartmentErrors.NotFound

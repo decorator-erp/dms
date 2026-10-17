@@ -17,15 +17,19 @@ internal sealed class UserAdministration(UserManager<ApplicationUser> userManage
 {
     public async Task<Result> DeactivateAsync(string userId, CancellationToken ct)
     {
-        var user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
         if (user is null)
+        {
             return UserErrors.NotFound;
+        }
 
         if (!user.IsActive)
+        {
             return Result.Success();
+        }
 
         user.Deactivate();
-        var result = await userManager.UpdateAsync(user);
+        IdentityResult result = await userManager.UpdateAsync(user);
 
         return result.Succeeded
             ? Result.Success()
@@ -34,15 +38,19 @@ internal sealed class UserAdministration(UserManager<ApplicationUser> userManage
 
     public async Task<Result> ReactivateAsync(string userId, CancellationToken ct)
     {
-        var user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
         if (user is null)
+        {
             return UserErrors.NotFound;
+        }
 
         if (user.IsActive)
+        {
             return Result.Success();
+        }
 
         user.Reactivate();
-        var result = await userManager.UpdateAsync(user);
+        IdentityResult result = await userManager.UpdateAsync(user);
 
         return result.Succeeded
             ? Result.Success()

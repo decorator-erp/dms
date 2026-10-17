@@ -23,12 +23,23 @@ internal sealed class Stage : Entity, IAuditable
     public void Update(string? name = null, int? order = null, decimal? weightPercent = null, string? description = null)
     {
         if (name is not null)
+        {
             Name = name;
+        }
+
         if (order is not null)
+        {
             Order = order.Value;
+        }
+
         if (weightPercent is not null)
+        {
             WeightPercent = weightPercent.Value;
+        }
+
         if (description is not null)
+        {
             Description = description;
+        }
     }
 }

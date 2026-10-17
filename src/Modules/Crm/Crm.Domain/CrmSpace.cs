@@ -22,7 +22,10 @@ internal sealed class CrmSpace : Entity, IAuditable
     public static Result<CrmSpace> Create(
         Guid projectId, Guid spaceTypeId, string name, int sortOrder = 0, string? description = null)
     {
-        if (string.IsNullOrWhiteSpace(name)) return CrmSpaceErrors.InvalidData;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return CrmSpaceErrors.InvalidData;
+        }
 
         return new CrmSpace
         {
@@ -38,7 +41,10 @@ internal sealed class CrmSpace : Entity, IAuditable
     /// there is no "leave unchanged" meaning for null here.</summary>
     public Result Update(Guid spaceTypeId, string name, string? description = null)
     {
-        if (string.IsNullOrWhiteSpace(name)) return CrmSpaceErrors.InvalidData;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return CrmSpaceErrors.InvalidData;
+        }
 
         SpaceTypeId = spaceTypeId;
         Name = name.Trim();
@@ -48,7 +54,7 @@ internal sealed class CrmSpace : Entity, IAuditable
 
     private static string? NormalizeDescription(string? description)
     {
-        var trimmed = description?.Trim();
+        string? trimmed = description?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 

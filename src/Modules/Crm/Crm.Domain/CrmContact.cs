@@ -32,8 +32,11 @@ internal sealed class CrmContact : Entity, IAuditable
         string? mobile = null,
         string? notes = null)
     {
-        var validation = ValidateNames(firstName, lastName);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = ValidateNames(firstName, lastName);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmContact
         {
@@ -53,8 +56,11 @@ internal sealed class CrmContact : Entity, IAuditable
         string firstName, string lastName, ContactRole role,
         string? email, string? phone, string? mobile, string? notes)
     {
-        var validation = ValidateNames(firstName, lastName);
-        if (validation.IsFailure) return validation;
+        Result validation = ValidateNames(firstName, lastName);
+        if (validation.IsFailure)
+        {
+            return validation;
+        }
 
         FirstName = firstName;
         LastName = lastName;
@@ -73,7 +79,10 @@ internal sealed class CrmContact : Entity, IAuditable
     private static Result ValidateNames(string firstName, string lastName)
     {
         if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+        {
             return CrmContactErrors.NameRequired;
+        }
+
         return Result.Success();
     }
 }

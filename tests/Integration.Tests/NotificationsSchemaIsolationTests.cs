@@ -1,6 +1,7 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Notifications.Contracts;
 using Xunit;
@@ -29,8 +30,8 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task ReadingTheInbox_IssuesNoSqlAgainstAnotherModulesSchema()
     {
-        var userId = Guid.NewGuid().ToString();
-        var client = fixture.CreateClient();
+        string userId = Guid.NewGuid().ToString();
+        HttpClient client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", fixture.IssueTestToken(userId, NotificationsPermissions.ViewOwn));
 
@@ -57,7 +58,7 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task ReadingTheAuditLog_TouchesSharedAndNoOtherModulesSchema()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", fixture.IssueTestToken(Guid.NewGuid().ToString(), NotificationsPermissions.AuditRead));
 
@@ -81,10 +82,10 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
     public async Task WritingANotification_IssuesNoSqlAgainstAnotherModulesSchema()
     {
         // A real user, because notify.notifications has a foreign key to identity.users.
-        var recipient = await RegisterUserAsync();
+        string recipient = await RegisterUserAsync();
 
-        await using var scope = fixture.Services.CreateAsyncScope();
-        var notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
+        INotificationService notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
         fixture.ClearCapturedSql();
 
@@ -114,15 +115,7 @@ public sealed class NotificationsSchemaIsolationTests(ApiFixture fixture)
             $"Notifications issued SQL touching another module's schema: {string.Join(" | ", offending)}");
     }
 
-    private async Task<string> RegisterUserAsync()
-    {
-        var response = await fixture.CreateClient().PostAsJsonAsync(
-            "/api/auth/register",
-            new Identity.Contracts.Auth.RegisterRequest(
-                $"iso-{Guid.NewGuid():N}@example.com", "P@ssw0rd123!", "Iso", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-        return body.GetProperty("userId").GetString()!;
-    }
+    private Task<string> RegisterUserAsync() =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"iso-{Guid.NewGuid():N}@example.com", firstName: "Iso");
 }

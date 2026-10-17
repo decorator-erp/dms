@@ -27,19 +27,25 @@ internal sealed class RevokeRefreshTokenCommandHandler(
 {
     public async Task<Result> HandleAsync(RevokeRefreshTokenCommand command, CancellationToken ct = default)
     {
-        var request = command.Request;
+        RefreshTokenRequest request = command.Request;
 
-        var userId = jwtProvider.ValidateToken(request.Token, validateLifetime: false);
+        string? userId = jwtProvider.ValidateToken(request.Token, validateLifetime: false);
         if (userId is null)
+        {
             return AuthErrors.InvalidToken;
+        }
 
-        var user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
         if (user is null)
+        {
             return AuthErrors.InvalidUser;
+        }
 
-        var revokeResult = user.RevokeRefreshToken(request.RefreshToken, DateTime.UtcNow);
+        Result revokeResult = user.RevokeRefreshToken(request.RefreshToken, DateTime.UtcNow);
         if (revokeResult.IsFailure)
+        {
             return revokeResult;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();

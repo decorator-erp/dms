@@ -4,6 +4,7 @@ using FluentValidation;
 using Hr.Contracts;
 using Hr.Contracts.Employees;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using SharedKernel;
 
@@ -33,12 +34,16 @@ internal sealed class DeactivateEmployeeCommandHandler(HrDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(DeactivateEmployeeCommand command, CancellationToken ct = default)
     {
-        var employee = await db.Employees.FindAsync([command.EmployeeId], ct);
+        Employee? employee = await db.Employees.FindAsync([command.EmployeeId], ct);
         if (employee is null)
+        {
             return EmployeeErrors.NotFound;
+        }
 
         if (!employee.IsActive)
+        {
             return EmployeeErrors.AlreadyInactive;
+        }
 
         employee.Deactivate();
         db.Outbox().Enqueue(new EmployeeDeactivatedIntegrationEvent(Guid.NewGuid(), employee.Id, DateTimeOffset.UtcNow));

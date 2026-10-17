@@ -51,18 +51,20 @@ internal static class FinanceGateVerdicts
             })
             .FirstOrDefaultAsync(ct);
 
-        var effectiveCap = (budget?.Allocated ?? 0m) + (budget?.Adjustment ?? 0m);
+        decimal effectiveCap = (budget?.Allocated ?? 0m) + (budget?.Adjustment ?? 0m);
 
-        var actual = await db.LedgerEntries
+        decimal actual = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.ProjectTaskId == taskId && e.Type == LedgerEntryType.ActualCost && e.IsActive)
             .SumAsync(e => (decimal?)(e.Direction == LedgerDirection.Out ? e.Amount : -e.Amount), ct) ?? 0m;
 
-        var overBudget = Math.Max(0m, actual - effectiveCap);
+        decimal overBudget = Math.Max(0m, actual - effectiveCap);
         if (overBudget == 0m)
+        {
             return true;
+        }
 
-        var signedDifferences = await db.Variations
+        decimal signedDifferences = await db.Variations
             .AsNoTracking()
             .Where(v => v.ProjectTaskId == taskId
                         && v.IsActive
@@ -83,12 +85,12 @@ internal static class FinanceGateVerdicts
     /// </summary>
     public static async Task<bool> IsStageFundedAsync(FinanceDbContext db, Guid stageId, CancellationToken ct)
     {
-        var invoiced = await db.Invoices
+        decimal invoiced = await db.Invoices
             .AsNoTracking()
             .Where(i => i.ProjectStageId == stageId && i.Type == InvoiceType.ClientInvoice && i.IsActive)
             .SumAsync(i => (decimal?)i.TotalAmount, ct) ?? 0m;
 
-        var paid = await db.LedgerEntries
+        decimal paid = await db.LedgerEntries
             .AsNoTracking()
             .Where(e => e.ProjectStageId == stageId && e.Type == LedgerEntryType.ClientPayment && e.IsActive)
             .SumAsync(e => (decimal?)(e.Direction == LedgerDirection.In ? e.Amount : -e.Amount), ct) ?? 0m;
@@ -106,7 +108,7 @@ internal static class FinanceGateVerdicts
     {
         if (projectTaskId is Guid taskId)
         {
-            var covered = await IsTaskCoveredAsync(db, taskId, ct);
+            bool covered = await IsTaskCoveredAsync(db, taskId, ct);
 
             db.Outbox().Enqueue(new Finance.Contracts.TaskBudgetCoverageChangedIntegrationEvent(
                 Guid.NewGuid(), taskId, covered, DateTimeOffset.UtcNow));
@@ -114,7 +116,7 @@ internal static class FinanceGateVerdicts
 
         if (projectStageId is Guid stageId)
         {
-            var funded = await IsStageFundedAsync(db, stageId, ct);
+            bool funded = await IsStageFundedAsync(db, stageId, ct);
 
             db.Outbox().Enqueue(new Finance.Contracts.StageFundingChangedIntegrationEvent(
                 Guid.NewGuid(), stageId, funded, DateTimeOffset.UtcNow));

@@ -22,7 +22,7 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
     public async Task<(string Token, int ExpireMinutes)> GenerateTokenAsync(
         ApplicationUser user, IEnumerable<string> roles, CancellationToken ct = default)
     {
-        var permissions = await effectivePermissionService.ResolveAsync(user.Id, ct);
+        IEnumerable<string> permissions = await effectivePermissionService.ResolveAsync(user.Id, ct);
 
         List<Claim> claims =
         [
@@ -68,7 +68,7 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
 
         try
         {
-            var principal = handler.ValidateToken(token, validationParameters, out _);
+            ClaimsPrincipal principal = handler.ValidateToken(token, validationParameters, out _);
             return principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         }
         catch (SecurityTokenException)

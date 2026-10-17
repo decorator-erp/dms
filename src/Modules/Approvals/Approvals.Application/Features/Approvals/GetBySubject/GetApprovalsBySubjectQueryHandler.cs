@@ -1,4 +1,5 @@
 using Approvals.Contracts.Approvals;
+using Approvals.Domain;
 using Approvals.Infrastructure.Persistence;
 using BuildingBlocks.Messaging;
 using FluentValidation;
@@ -20,9 +21,9 @@ internal sealed class GetApprovalsBySubjectQueryHandler(ApprovalsDbContext db)
     public async Task<Result<IReadOnlyList<ApprovalTrailItemResponse>>> HandleAsync(
         GetApprovalsBySubjectQuery query, CancellationToken ct = default)
     {
-        var subjectType = ApprovalEnumMapping.ToDomain(query.SubjectType);
+        ApprovalSubjectType subjectType = ApprovalEnumMapping.ToDomain(query.SubjectType);
 
-        var approvals = await db.Approvals.AsNoTracking()
+        List<Approval> approvals = await db.Approvals.AsNoTracking()
             .Where(a => a.SubjectType == subjectType && a.SubjectId == query.SubjectId)
             .OrderByDescending(a => a.Round)
             .ToListAsync(ct);

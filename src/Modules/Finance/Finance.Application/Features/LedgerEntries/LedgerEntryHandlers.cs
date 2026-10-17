@@ -48,13 +48,15 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(PostLedgerEntryCommand command, CancellationToken ct = default)
     {
-        var r = command.Request;
-        var type = FinanceEnumMapping.ToDomain(r.Type);
+        PostLedgerEntryRequest r = command.Request;
+        LedgerEntryType type = FinanceEnumMapping.ToDomain(r.Type);
 
         if (await IsDuplicateAsync(r.ProjectId, type, r.VariationId, r.Reference, ct))
+        {
             return LedgerEntryErrors.DuplicatePosting;
+        }
 
-        var created = LedgerEntry.Create(
+        Result<LedgerEntry> created = LedgerEntry.Create(
             projectId: r.ProjectId,
             amount: r.Amount,
             direction: FinanceEnumMapping.ToDomain(r.Direction),
@@ -72,9 +74,11 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
             note: r.Note);
 
         if (created.IsFailure)
+        {
             return created.Error;
+        }
 
-        var entry = created.Value!;
+        LedgerEntry entry = created.Value!;
 
         // The budget gate. A commitment beyond what the line still has available is blocked until a
         // variation funds it -- this is the rule that makes AvailableAmount mean something rather than
@@ -82,14 +86,18 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
         // that has already moved, and refusing to record it would make the ledger disagree with reality.
         if (entry is { Type: LedgerEntryType.Commitment, BudgetLineId: Guid budgetLineId })
         {
-            var line = await db.BudgetLines
+            BudgetLine? line = await db.BudgetLines
                 .FirstOrDefaultAsync(b => b.Id == budgetLineId && b.IsActive, ct);
 
             if (line is null)
+            {
                 return BudgetLineErrors.NotFound;
+            }
 
             if (entry.Amount > line.AvailableAmount)
+            {
                 return LedgerEntryErrors.InsufficientBudget;
+            }
         }
 
         db.LedgerEntries.Add(entry);
@@ -123,14 +131,11 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
     /// staying on as a hint that some branch below cares about the difference.</para>
     /// </summary>
     internal static Task PublishPostingConsequencesAsync(
-        FinanceDbContext db, LedgerEntry entry, CancellationToken ct)
-    {
-        return FinanceGateVerdicts.PublishAsync(
+        FinanceDbContext db, LedgerEntry entry, CancellationToken ct) => FinanceGateVerdicts.PublishAsync(
             db,
             projectTaskId: entry.Type == LedgerEntryType.ActualCost ? entry.ProjectTaskId : null,
             projectStageId: entry.Type == LedgerEntryType.ClientPayment ? entry.ProjectStageId : null,
             ct);
-    }
 
     /// <summary>
     /// The idempotence key: an entry is a duplicate when another non-reversal entry of the same type
@@ -149,7 +154,9 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
         Guid projectId, LedgerEntryType type, Guid? variationId, string? reference, CancellationToken ct)
     {
         if (variationId is null && reference is null)
+        {
             return Task.FromResult(false);
+        }
 
         return db.LedgerEntries.AnyAsync(
             e => e.ProjectId == projectId
@@ -177,14 +184,18 @@ internal sealed class PostLedgerEntryCommandHandler(FinanceDbContext db)
     internal static async Task ApplyPostingEffectsAsync(
         FinanceDbContext db, LedgerEntry entry, int sign, CancellationToken ct)
     {
-        var delta = sign * entry.Amount;
+        decimal delta = sign * entry.Amount;
 
         if (entry.BudgetLineId is not Guid budgetLineId)
+        {
             return;
+        }
 
-        var line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == budgetLineId && b.IsActive, ct);
+        BudgetLine? line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == budgetLineId && b.IsActive, ct);
         if (line is null)
+        {
             return;
+        }
 
         switch (entry.Type)
         {
@@ -233,16 +244,22 @@ internal sealed class ReverseLedgerEntryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(ReverseLedgerEntryCommand command, CancellationToken ct = default)
     {
-        var original = await db.LedgerEntries.FirstOrDefaultAsync(e => e.Id == command.Id && e.IsActive, ct);
+        LedgerEntry? original = await db.LedgerEntries.FirstOrDefaultAsync(e => e.Id == command.Id && e.IsActive, ct);
         if (original is null)
+        {
             return LedgerEntryErrors.NotFound;
+        }
 
         if (await db.LedgerEntries.AnyAsync(e => e.ReversalOfId == command.Id, ct))
+        {
             return LedgerEntryErrors.AlreadyReversed;
+        }
 
-        var mirror = LedgerEntry.CreateReversal(original, command.RecordedById, command.Note);
+        Result<LedgerEntry> mirror = LedgerEntry.CreateReversal(original, command.RecordedById, command.Note);
         if (mirror.IsFailure)
+        {
             return mirror.Error;
+        }
 
         db.LedgerEntries.Add(mirror.Value!);
         await db.SaveChangesAsync(ct);
@@ -290,34 +307,46 @@ internal sealed class AllocateLedgerEntryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(AllocateLedgerEntryCommand command, CancellationToken ct = default)
     {
-        var entry = await db.LedgerEntries.FirstOrDefaultAsync(e => e.Id == command.Id && e.IsActive, ct);
+        LedgerEntry? entry = await db.LedgerEntries.FirstOrDefaultAsync(e => e.Id == command.Id && e.IsActive, ct);
         if (entry is null)
+        {
             return LedgerEntryErrors.NotFound;
+        }
 
         if (entry.Type == LedgerEntryType.Commitment)
+        {
             return LedgerEntryErrors.NotAPayment;
+        }
 
-        var alreadyAllocated = await db.LedgerAllocations
+        decimal alreadyAllocated = await db.LedgerAllocations
             .Where(a => a.LedgerEntryId == command.Id && a.IsActive)
             .SumAsync(a => (decimal?)a.Amount, ct) ?? 0m;
 
         if (LedgerAllocation.WouldExceedUnallocated(entry.Amount, alreadyAllocated, command.Amount))
+        {
             return LedgerAllocationErrors.ExceedsUnallocated;
+        }
 
-        var invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.InvoiceId && i.IsActive, ct);
+        Invoice? invoice = await db.Invoices.FirstOrDefaultAsync(i => i.Id == command.InvoiceId && i.IsActive, ct);
         if (invoice is null)
+        {
             return InvoiceErrors.NotFound;
+        }
 
-        var allocation = LedgerAllocation.Create(command.Id, command.InvoiceId, command.Amount);
+        Result<LedgerAllocation> allocation = LedgerAllocation.Create(command.Id, command.InvoiceId, command.Amount);
         if (allocation.IsFailure)
+        {
             return allocation.Error;
+        }
 
         // The invoice side is applied BEFORE the allocation row is added, so an over-payment refusal
         // leaves nothing to undo. Both land in the decorator's transaction either way; this just keeps
         // the failure path from depending on that.
-        var paid = invoice.ApplyPayment(command.Amount);
+        Result paid = invoice.ApplyPayment(command.Amount);
         if (paid.IsFailure)
+        {
             return paid.Error;
+        }
 
         db.LedgerAllocations.Add(allocation.Value!);
         await db.SaveChangesAsync(ct);
@@ -332,7 +361,7 @@ internal sealed class GetLedgerEntryByIdQueryHandler(FinanceDbContext db)
     public async Task<Result<LedgerEntryResponse>> HandleAsync(
         GetLedgerEntryByIdQuery query, CancellationToken ct = default)
     {
-        var response = await db.LedgerEntries
+        LedgerEntryResponse? response = await db.LedgerEntries
             .Where(e => e.Id == query.Id && e.IsActive)
             .Select(e => new LedgerEntryResponse(
                 e.Id, e.ProjectId, e.ProjectStageId, e.ProjectTaskId, e.BudgetLineId,
@@ -362,35 +391,43 @@ internal sealed class GetLedgerEntriesByProjectQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<LedgerEntryListItemResponse>>> HandleAsync(
         GetLedgerEntriesByProjectQuery query, CancellationToken ct = default)
     {
-        var q = db.LedgerEntries.Where(e => e.ProjectId == query.ProjectId && e.IsActive);
+        IQueryable<LedgerEntry> q = db.LedgerEntries.Where(e => e.ProjectId == query.ProjectId && e.IsActive);
 
         if (query.Direction is { } direction)
         {
-            var value = FinanceEnumMapping.ToDomain(direction);
+            LedgerDirection value = FinanceEnumMapping.ToDomain(direction);
             q = q.Where(e => e.Direction == value);
         }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            LedgerEntryType value = FinanceEnumMapping.ToDomain(type);
             q = q.Where(e => e.Type == value);
         }
 
         if (query.ProjectStageId is { } stageId)
+        {
             q = q.Where(e => e.ProjectStageId == stageId);
+        }
 
         if (query.ProjectTaskId is { } taskId)
+        {
             q = q.Where(e => e.ProjectTaskId == taskId);
+        }
 
         if (query.FromDate is { } from)
+        {
             q = q.Where(e => e.OccurredOn >= from);
+        }
 
         if (query.ToDate is { } to)
+        {
             q = q.Where(e => e.OccurredOn <= to);
+        }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<LedgerEntryListItemResponse> items = await q
             .OrderByDescending(e => e.OccurredOn)
             .ThenByDescending(e => e.CreatedAtUtc)
             .Skip(query.Skip)
@@ -430,11 +467,11 @@ internal sealed class GetUnallocatedLedgerEntriesQueryHandler(FinanceDbContext d
     public async Task<Result<PagedResult<UnallocatedLedgerEntryResponse>>> HandleAsync(
         GetUnallocatedLedgerEntriesQuery query, CancellationToken ct = default)
     {
-        var reversedIds = db.LedgerEntries
+        IQueryable<Guid> reversedIds = db.LedgerEntries
             .Where(e => e.ReversalOfId != null)
             .Select(e => e.ReversalOfId!.Value);
 
-        var candidates = db.LedgerEntries
+        IQueryable<LedgerEntry> candidates = db.LedgerEntries
             .Where(e => e.ProjectId == query.ProjectId
                         && e.IsActive
                         && e.Type != LedgerEntryType.Commitment
@@ -451,9 +488,9 @@ internal sealed class GetUnallocatedLedgerEntriesQueryHandler(FinanceDbContext d
             })
             .Where(x => x.Entry.Amount - x.Allocated > 0);
 
-        var total = await projected.CountAsync(ct);
+        int total = await projected.CountAsync(ct);
 
-        var items = await projected
+        List<UnallocatedLedgerEntryResponse> items = await projected
             .OrderByDescending(x => x.Entry.OccurredOn)
             .ThenByDescending(x => x.Entry.CreatedAtUtc)
             .Skip(query.Skip)

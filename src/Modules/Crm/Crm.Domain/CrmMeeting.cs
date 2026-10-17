@@ -36,7 +36,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
         int? durationMinutes = null)
     {
         if (requestedByEmployeeId.HasValue == requestedByContactId.HasValue)
+        {
             return CrmMeetingErrors.InvalidRequester;
+        }
 
         return new CrmMeeting
         {
@@ -60,12 +62,17 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result Schedule(DateTime startsAtUtc, int? durationMinutes)
     {
         if (Status is not (MeetingStatus.Requested or MeetingStatus.Rescheduled))
+        {
             return CrmMeetingErrors.InvalidStateTransition;
+        }
 
         Status = MeetingStatus.Scheduled;
         ScheduledAtUtc = startsAtUtc;
         if (durationMinutes is not null)
+        {
             DurationMinutes = durationMinutes;
+        }
+
         return Result.Success();
     }
 
@@ -73,10 +80,14 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result MarkRescheduling(DateTime nowUtc)
     {
         if (IsTerminal)
+        {
             return CrmMeetingErrors.InvalidStateTransition;
+        }
 
         if (HasStarted(nowUtc))
+        {
             return CrmMeetingErrors.AlreadyStarted;
+        }
 
         Status = MeetingStatus.Rescheduled;
         ScheduledAtUtc = null;
@@ -87,13 +98,19 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result Cancel(string reason, DateTime nowUtc)
     {
         if (string.IsNullOrWhiteSpace(reason))
+        {
             return CrmMeetingErrors.CancelReasonRequired;
+        }
 
         if (IsTerminal)
+        {
             return CrmMeetingErrors.InvalidStateTransition;
+        }
 
         if (HasStarted(nowUtc))
+        {
             return CrmMeetingErrors.AlreadyStarted;
+        }
 
         Status = MeetingStatus.Canceled;
         CanceledAtUtc = nowUtc;
@@ -104,7 +121,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result Complete(DateTime nowUtc)
     {
         if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        {
             return CrmMeetingErrors.InvalidStateTransition;
+        }
 
         Status = MeetingStatus.Completed;
         return Result.Success();
@@ -113,7 +132,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result MarkNoShow(DateTime nowUtc)
     {
         if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        {
             return CrmMeetingErrors.InvalidStateTransition;
+        }
 
         Status = MeetingStatus.NoShow;
         return Result.Success();
@@ -124,7 +145,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public Result MarkReminderSent(DateTime nowUtc)
     {
         if (ReminderSentAtUtc is not null)
+        {
             return Result.Success();
+        }
 
         ReminderSentAtUtc = nowUtc;
         return Result.Success();

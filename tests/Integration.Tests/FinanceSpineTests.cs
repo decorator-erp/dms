@@ -36,17 +36,22 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
     [Fact]
     public async Task TheWholeFinancialLifecycle_RunsTwice_AcrossAllNineModules()
     {
-        for (var pass = 0; pass < 2; pass++)
+        for (int pass = 0; pass < 2; pass++)
+        {
             await RunSpineAsync();
+        }
     }
 
     private async Task RunSpineAsync()
     {
-        var suffix = Guid.NewGuid().ToString("N")[..12];
-        var client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        HttpClient client = fixture.CreateClient();
 
         // ── Identity + HR + CRM: the actor, the employee, the client ──────────────
-        var appUserId = await RegisterAsync(client, $"fin-spine-{suffix}@example.com");
+        // Hiring creates the login, so Identity and HR are one call now.
+        (_, string appUserId) = await HrTestSeeding.HireEmployeeOverHttpAsync(
+            fixture, $"fin-spine-{suffix}@example.com", jobTitle: "Accountant",
+            firstName: "Fin", lastName: "Spine");
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -60,35 +65,26 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
                 FinancePermissions.ManageInvoice, FinancePermissions.RecordPayment,
                 FinancePermissions.GenerateBoq));
 
-        var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
-        {
-            AppUserId = appUserId,
-            JobTitle = "Accountant",
-            HireDate = Today,
-            ContractType = "FullTime",
-        });
-        Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
-
-        var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
+        Guid clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
 
         // ── Projects: a project with one stage and one task ───────────────────────
-        var templateResponse = await client.PostAsJsonAsync(
+        HttpResponseMessage templateResponse = await client.PostAsJsonAsync(
             "/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
         Assert.Equal(HttpStatusCode.OK, templateResponse.StatusCode);
-        var templateId = (await templateResponse.Content.ReadFromJsonAsync<StageTemplateIdBody>())!.StageTemplateId;
+        Guid templateId = (await templateResponse.Content.ReadFromJsonAsync<StageTemplateIdBody>())!.StageTemplateId;
 
-        var templateStageResponse = await client.PostAsJsonAsync(
+        HttpResponseMessage templateStageResponse = await client.PostAsJsonAsync(
             $"/api/stage-templates/{templateId}/stages",
             new { Name = "Fit-out", Order = 1, WeightPercent = 100m, Description = (string?)null });
         Assert.Equal(HttpStatusCode.OK, templateStageResponse.StatusCode);
-        var templateStageId = (await templateStageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
+        Guid templateStageId = (await templateStageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
 
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(
             $"/api/stages/{templateStageId}/tasks",
             new { Name = "Joinery", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null }))
             .StatusCode);
 
-        var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+        HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"F-{suffix}"[..12],
             Name = "Finance Spine",
@@ -98,24 +94,24 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
             StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
-        var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+        Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-        var stages = await (await client.GetAsync($"/api/projects/{projectId}/stages"))
+        List<ProjectStageBody>? stages = await (await client.GetAsync($"/api/projects/{projectId}/stages"))
             .Content.ReadFromJsonAsync<List<ProjectStageBody>>();
-        var projectStageId = Assert.Single(stages!).Id;
+        Guid projectStageId = Assert.Single(stages!).Id;
 
-        var tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks"))
+        List<ProjectTaskBody>? tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks"))
             .Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
-        var projectTaskId = Assert.Single(tasks!).Id;
+        Guid projectTaskId = Assert.Single(tasks!).Id;
 
         // ── Finance: cost category and a task-scoped budget line ──────────────────
-        var costCategoryId = (await (await client.PostAsJsonAsync("/api/cost-categories", new
+        Guid costCategoryId = (await (await client.PostAsJsonAsync("/api/cost-categories", new
         {
             Code = $"CC{suffix[..8]}",
             Name = "Materials",
         })).Content.ReadFromJsonAsync<CostCategoryIdBody>())!.CostCategoryId;
 
-        var budgetLineId = (await (await client.PostAsJsonAsync("/api/budget-lines", new
+        Guid budgetLineId = (await (await client.PostAsJsonAsync("/api/budget-lines", new
         {
             Code = "BL-1",
             ProjectId = projectId,
@@ -131,7 +127,7 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
         // A ClientDifference, so the signature path and the coverage path are both exercised. Raising
         // opens a Budget gate on the task IN PROJECTS, via the outbox -- this request never touches
         // projects.gate_conditions.
-        var variationId = (await (await client.PostAsJsonAsync("/api/variations", new
+        Guid variationId = (await (await client.PostAsJsonAsync("/api/variations", new
         {
             Kind = 1, // ClientDifference
             ProjectId = projectId,
@@ -163,7 +159,7 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
             (await client.PutAsJsonAsync($"/api/variations/{variationId}/apply", new { })).StatusCode);
 
         // ── Invoice issued, payment posted, payment allocated ─────────────────────
-        var invoiceId = (await (await client.PostAsJsonAsync("/api/invoices", new
+        Guid invoiceId = (await (await client.PostAsJsonAsync("/api/invoices", new
         {
             Number = $"INV-{suffix}",
             ProjectId = projectId,
@@ -175,7 +171,7 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
             ClientId = clientId,
         })).Content.ReadFromJsonAsync<InvoiceIdBody>())!.InvoiceId;
 
-        var paymentId = (await (await client.PostAsJsonAsync("/api/ledger-entries", new
+        Guid paymentId = (await (await client.PostAsJsonAsync("/api/ledger-entries", new
         {
             ProjectId = projectId,
             Amount = 1300m,
@@ -192,12 +188,12 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
 
         await DrainOutboxAsync();
 
-        var invoice = await client.GetFromJsonAsync<InvoiceStatusBody>($"/api/invoices/{invoiceId}");
+        InvoiceStatusBody? invoice = await client.GetFromJsonAsync<InvoiceStatusBody>($"/api/invoices/{invoiceId}");
         Assert.Equal("Paid", invoice!.Status);
         Assert.Equal(0m, invoice.Balance);
 
         // ── BOQ snapshot ──────────────────────────────────────────────────────────
-        var snapshotResponse = await client.PostAsJsonAsync("/api/boq-snapshots", new
+        HttpResponseMessage snapshotResponse = await client.PostAsJsonAsync("/api/boq-snapshots", new
         {
             ProjectId = projectId,
             Type = 3, // Manual
@@ -206,7 +202,7 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
         });
         Assert.Equal(HttpStatusCode.Created, snapshotResponse.StatusCode);
 
-        var snapshot = await client.GetFromJsonAsync<BoqSnapshotBody>(
+        BoqSnapshotBody? snapshot = await client.GetFromJsonAsync<BoqSnapshotBody>(
             $"/api/boq-snapshots/by-project/{projectId}/latest");
 
         Assert.Equal(1, snapshot!.Version);
@@ -217,50 +213,42 @@ public sealed class FinanceSpineTests(ApiFixture fixture)
         Assert.Equal(300m, snapshot.DifferenceTotal);
 
         // ── And the whole thing reconciles through the read slice ─────────────────
-        var summary = await client.GetFromJsonAsync<FinancialSummaryBody>(
+        FinancialSummaryBody? summary = await client.GetFromJsonAsync<FinancialSummaryBody>(
             $"/api/projects/{projectId}/financial/summary");
 
         Assert.Equal(1000m, summary!.Totals.EffectiveCap);
         Assert.Equal(1300m, summary.Totals.ClientPaidAmount);
 
-        var dashboard = await client.GetFromJsonAsync<DashboardBody>(
+        DashboardBody? dashboard = await client.GetFromJsonAsync<DashboardBody>(
             $"/api/projects/{projectId}/financial-dashboard");
 
-        var fundedStage = Assert.Single(dashboard!.Collection.Stages);
+        DashboardStageBody fundedStage = Assert.Single(dashboard!.Collection.Stages);
         Assert.True(fundedStage.IsFunded);
     }
 
     private async Task DrainOutboxAsync()
     {
-        var processor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor processor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
 
         // Bounded rather than looping to quiescence: a chain that will not settle is a bug this should
         // surface as a failed assertion below, not as a hang.
-        for (var i = 0; i < 5; i++)
+        for (int i = 0; i < 5; i++)
+        {
             await processor.ProcessPendingAsync(CancellationToken.None);
+        }
     }
 
     private static async Task<int> TaskStatusAsync(HttpClient client, Guid projectId)
     {
-        var tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks"))
+        List<ProjectTaskBody>? tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks"))
             .Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
 
         return Assert.Single(tasks!).Status;
     }
 
-    private async Task<string> RegisterAsync(HttpClient client, string email)
-    {
-        var response = await client.PostAsJsonAsync(
-            "/api/auth/register",
-            new Identity.Contracts.Auth.RegisterRequest(
-                email, "P@ssw0rd123!", "Fin", "Spine", null, "employee"));
+    private Task<string> RegisterAsync(string email) =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(fixture, email, firstName: "Fin", lastName: "Spine");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        return (await response.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
-    }
-
-    private sealed record RegisterResponseBody(string UserId);
     private sealed record StageTemplateIdBody(Guid StageTemplateId);
     private sealed record StageIdBody(Guid StageId);
     private sealed record ProjectIdBody(Guid ProjectId);

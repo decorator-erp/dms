@@ -7,6 +7,7 @@ using Crm.Contracts.DesignProfile;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -15,13 +16,10 @@ namespace Crm.Infrastructure.Endpoints;
 /// <c>ClientDesignProfileResponse</c>'s own remarks.</summary>
 internal sealed class CrmDesignProfileEndpoints : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/api/crm/projects/{projectId:guid}/design-profile", async (
-            Guid projectId, IQueryHandler<GetClientDesignProfileQuery, ClientDesignProfileResponse> handler, CancellationToken ct) =>
-        {
-            var result = await handler.HandleAsync(new GetClientDesignProfileQuery(projectId), ct);
-            return result.Match(Results.Ok, r => r.ToProblem());
-        }).WithTags("Crm Design Profile").RequirePermission(CrmPermissions.DesignProfile.Read);
-    }
+    public void MapEndpoint(IEndpointRouteBuilder app) => app.MapGet("/api/crm/projects/{projectId:guid}/design-profile", async (
+                                                                   Guid projectId, IQueryHandler<GetClientDesignProfileQuery, ClientDesignProfileResponse> handler, CancellationToken ct) =>
+                                                               {
+                                                                   Result<ClientDesignProfileResponse> result = await handler.HandleAsync(new GetClientDesignProfileQuery(projectId), ct);
+                                                                   return result.Match(Results.Ok, r => r.ToProblem());
+                                                               }).WithTags("Crm Design Profile").RequirePermission(CrmPermissions.DesignProfile.Read);
 }

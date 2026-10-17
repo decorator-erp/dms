@@ -2,9 +2,11 @@ using Approvals.Contracts;
 using BuildingBlocks.Events;
 using BuildingBlocks.Outbox;
 using Crm.Contracts;
+using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using Crm.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 
 namespace Crm.Infrastructure.IntegrationEvents;
 
@@ -66,13 +68,19 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
 
     private async Task HandleDesignBriefAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
-        var brief = await db.CrmDesignBriefs.FirstOrDefaultAsync(b => b.Id == @event.SubjectId, ct);
-        if (brief is null) return;
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.FirstOrDefaultAsync(b => b.Id == @event.SubjectId, ct);
+        if (brief is null)
+        {
+            return;
+        }
 
         if (@event.Decision == ApprovalDecision.Approved)
         {
-            var result = brief.MarkApproved();
-            if (result.IsFailure) return;
+            Result result = brief.MarkApproved();
+            if (result.IsFailure)
+            {
+                return;
+            }
 
             if (brief.ProjectStageId is { } stageId)
             {
@@ -88,13 +96,20 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
 
     private async Task HandleBriefSpaceAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
-        var entry = await db.CrmBriefSpaces.FirstOrDefaultAsync(e => e.Id == @event.SubjectId, ct);
-        if (entry is null) return;
+        CrmBriefSpace? entry = await db.CrmBriefSpaces.FirstOrDefaultAsync(e => e.Id == @event.SubjectId, ct);
+        if (entry is null)
+        {
+            return;
+        }
 
         if (@event.Decision == ApprovalDecision.Approved)
+        {
             entry.MarkApproved();
+        }
         else
+        {
             entry.MarkRejected();
+        }
 
         // Flush now, ahead of InboxDedupeDecorator's own final SaveChangesAsync - PublishIfResolvedAsync's
         // CountUnresolvedForStageAsync/CountUnresolvedForTaskAsync run AsNoTracking queries, which always
@@ -105,24 +120,31 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
         // remarks already establish for DomainEventDispatcher's drain loop.
         await db.SaveChangesAsync(ct);
 
-        var brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == entry.BriefId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == entry.BriefId, ct);
         await PublishIfResolvedAsync(brief?.ProjectStageId, entry.ProjectTaskId, ct);
     }
 
     private async Task HandleRequirementItemAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
-        var item = await db.CrmRequirementItems.FirstOrDefaultAsync(i => i.Id == @event.SubjectId, ct);
-        if (item is null) return;
+        CrmRequirementItem? item = await db.CrmRequirementItems.FirstOrDefaultAsync(i => i.Id == @event.SubjectId, ct);
+        if (item is null)
+        {
+            return;
+        }
 
         if (@event.Decision == ApprovalDecision.Approved)
+        {
             item.MarkApproved();
+        }
         else
+        {
             item.MarkRejected();
+        }
 
         // See HandleBriefSpaceAsync's identical call for why this flush is required before counting.
         await db.SaveChangesAsync(ct);
 
-        var period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.PeriodId, ct);
+        CrmRequirementPeriod? period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.PeriodId, ct);
         await PublishIfResolvedAsync(period?.ProjectStageId, item.ProjectTaskId, ct);
     }
 

@@ -23,7 +23,9 @@ internal sealed class StageDepartment : IAuditable
     public static StageDepartment Create(Guid stageId, Guid departmentId)
     {
         if (stageId == Guid.Empty || departmentId == Guid.Empty)
+        {
             throw new ArgumentException("StageDepartment requires non-empty stage and department ids.");
+        }
 
         return new StageDepartment { StageId = stageId, DepartmentId = departmentId };
     }

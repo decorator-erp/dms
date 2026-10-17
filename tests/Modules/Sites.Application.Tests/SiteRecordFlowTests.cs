@@ -9,9 +9,9 @@ using Sites.Contracts.Documents;
 using Sites.Contracts.Records;
 using Sites.Contracts.Surveys;
 using Sites.Domain;
+using Xunit;
 using SiteDocumentKind = Sites.Contracts.SiteDocumentKind;
 using SiteItemDataType = Sites.Contracts.SiteItemDataType;
-using Xunit;
 
 namespace Sites.Application.Tests;
 
@@ -27,7 +27,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
     private async Task<T> ResolveAsync<T>(Func<IServiceProvider, Task<T>> run)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
             .Grant(ProjectsPermissions.Projects.ReadAll);
 
@@ -44,9 +44,9 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
     private async Task<Guid> CreateSiteAsync()
     {
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        var result = await SendAsync(new CreateSiteCommand(
+        Result<Guid> result = await SendAsync(new CreateSiteCommand(
             new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(Address: "12 Nasr Road")),
             owners.EmployeeId, SiteTestData.OwnerUserId), true);
 
@@ -57,10 +57,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     /// <summary>A module with one required Number field — the smallest form that can be captured.</summary>
     private async Task<(Guid ModuleId, Guid ItemId)> CreateFormAsync()
     {
-        var moduleId = (await SendAsync(new CreateSiteModuleCommand(
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
             new CreateSiteModuleRequest(Unique("m"), "Openings", "الفتحات")), true)).Value;
 
-        var itemId = (await SendAsync(new CreateSiteItemCommand(
+        Guid itemId = (await SendAsync(new CreateSiteItemCommand(
             new CreateSiteItemRequest(
                 Unique("width"), "Width", "العرض", SiteItemDataType.Number, "cm",
                 MinValue: 1m, MaxValue: 500m)), true)).Value;
@@ -112,10 +112,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddRecord_PersistsIt()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        var result = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         Assert.True(result.IsSuccess);
@@ -125,13 +125,13 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddRecord_WithADuplicateLabelInAnotherCase_IsRefused()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
         await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
-        var second = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> second = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "FRONT DOOR"), SiteTestData.OwnerUserId), true);
 
         Assert.Equal(SiteErrors.LabelTaken, second.Error);
@@ -144,16 +144,16 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeletingARecord_FreesItsLabelForReuse()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        var first = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> first = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         Assert.True((await SendAsync(new DeleteSiteRecordCommand(
             siteId, first.Value, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var reused = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> reused = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         Assert.True(reused.IsSuccess);
@@ -166,14 +166,14 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task UpdatingARecordThroughTheWrongSite_IsRecordNotFound()
     {
-        var (moduleId, _) = await CreateFormAsync();
-        var siteA = await CreateSiteAsync();
-        var siteB = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+        Guid siteA = await CreateSiteAsync();
+        Guid siteB = await CreateSiteAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteA, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
-        var result = await SendAsync(new UpdateSiteRecordCommand(
+        Result result = await SendAsync(new UpdateSiteRecordCommand(
             siteB, record.Value, new UpdateSiteRecordRequest("Renamed", null, null, 0, null),
             SiteTestData.OwnerUserId));
 
@@ -186,10 +186,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task SetValues_PersistsThemAndReplacingWithAnEmptySetClearsThem()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
@@ -201,7 +201,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
         // Absent means cleared -- the table has no soft-delete flag, and a cleared measurement is not a
         // measurement. The required-field rule still applies, so an empty set is refused...
-        var cleared = await SendAsync(new SetSiteRecordValuesCommand(
+        Result cleared = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value, new SetSiteRecordValuesRequest([]), SiteTestData.OwnerUserId));
 
         Assert.True(cleared.IsFailure);
@@ -211,13 +211,13 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task SetValues_OutsideTheItemsBounds_IsRefusedAndNothingIsWritten()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
-        var result = await SendAsync(new SetSiteRecordValuesCommand(
+        Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 9999m)]),
             SiteTestData.OwnerUserId));
@@ -230,13 +230,13 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task SetValues_ReportsEveryProblemAtOnce()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
-        var result = await SendAsync(new SetSiteRecordValuesCommand(
+        Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
             new SetSiteRecordValuesRequest(
             [
@@ -245,18 +245,18 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             ]),
             SiteTestData.OwnerUserId));
 
-        var validation = Assert.IsType<ValidationError>(result.Error);
+        ValidationError validation = Assert.IsType<ValidationError>(result.Error);
         Assert.True(validation.Errors.Length >= 2);
     }
 
     [Fact]
     public async Task SetValues_OnAnApprovedSurvey_IsRefused()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         await SendAsync(new SetSiteRecordValuesCommand(
@@ -268,7 +268,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
-        var result = await SendAsync(new SetSiteRecordValuesCommand(
+        Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 120m)]),
             SiteTestData.OwnerUserId));
@@ -291,10 +291,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task SetValues_OnASubmittedSurvey_IsRefusedAndTheStoredValueIsUnchanged()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         await SendAsync(new SetSiteRecordValuesCommand(
@@ -304,7 +304,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var result = await SendAsync(new SetSiteRecordValuesCommand(
+        Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 120m)]),
             SiteTestData.OwnerUserId));
@@ -319,12 +319,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddRecord_OnASubmittedSurvey_IsRefused()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
         Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
 
-        var result = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Added after review"),
             SiteTestData.OwnerUserId), true);
 
@@ -336,13 +336,13 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task BulkSave_CreatesAndUpdatesInOneTransaction()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var existing = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> existing = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Door 1"), SiteTestData.OwnerUserId), true);
 
-        var result = await SendAsync(new BulkSaveSiteRecordsCommand(
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
             siteId,
             new BulkSaveSiteRecordsRequest(
             [
@@ -372,22 +372,22 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task BulkSave_AnUpdateRowNamingAnotherModule_IsStillValidatedAgainstItsOwn()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
         // A second module with NO required fields -- the schema an attacker would name to skip validation.
-        var emptyModuleId = (await SendAsync(new CreateSiteModuleCommand(
+        Guid emptyModuleId = (await SendAsync(new CreateSiteModuleCommand(
             new CreateSiteModuleRequest(Unique("empty"), "Empty", "فارغ")), true)).Value;
-        var filler = (await SendAsync(new CreateSiteItemCommand(
+        Guid filler = (await SendAsync(new CreateSiteItemCommand(
             new CreateSiteItemRequest(Unique("note"), "Note", "ملاحظة", SiteItemDataType.Text)), true)).Value;
         await SendAsync(new AttachSiteItemCommand(
             emptyModuleId, new AttachSiteItemRequest(filler)), true);
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Door 1"), SiteTestData.OwnerUserId), true);
 
         // Claims the empty module, supplies no value for the real module's REQUIRED field.
-        var result = await SendAsync(new BulkSaveSiteRecordsCommand(
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
             siteId,
             new BulkSaveSiteRecordsRequest(
             [
@@ -397,7 +397,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             SiteTestData.OwnerUserId));
 
         Assert.True(result.IsFailure);
-        var validation = Assert.IsType<ValidationError>(result.Error);
+        ValidationError validation = Assert.IsType<ValidationError>(result.Error);
         Assert.Contains(validation.Errors, e => e.Code.EndsWith(".Required", StringComparison.Ordinal));
 
         _ = itemId;
@@ -411,10 +411,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task BulkSave_TwoRowsClaimingOneLabel_IsLabelTakenRatherThanAWriteFailure()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var result = await SendAsync(new BulkSaveSiteRecordsCommand(
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
             siteId,
             new BulkSaveSiteRecordsRequest(
             [
@@ -432,10 +432,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task BulkSave_WithAFailingRowLate_WritesNothing()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var result = await SendAsync(new BulkSaveSiteRecordsCommand(
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
             siteId,
             new BulkSaveSiteRecordsRequest(
             [
@@ -467,12 +467,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddRecord_WithASpaceFromAnotherProject_IsSpaceNotInProject()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        var foreignSpaceId = await SiteTestData.CreateSpaceInAnotherProjectAsync(fixture);
+        Guid foreignSpaceId = await SiteTestData.CreateSpaceInAnotherProjectAsync(fixture);
 
-        var result = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Bedroom door", SpaceId: foreignSpaceId),
             SiteTestData.OwnerUserId), true);
 
@@ -482,10 +482,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddRecord_WithANonexistentSpace_IsSpaceNotFound()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        var result = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Bedroom door", SpaceId: Guid.NewGuid()),
             SiteTestData.OwnerUserId), true);
 
@@ -503,11 +503,11 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task LinkDocument_FromAnotherProject_IsDocumentNotFound()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
-        var foreignDocumentId = await SiteTestData.CreateDocumentInAnotherProjectAsync(fixture);
+        Guid foreignDocumentId = await SiteTestData.CreateDocumentInAnotherProjectAsync(fixture);
 
-        var result = await SendAsync(new LinkSiteDocumentCommand(
+        Result<Guid> result = await SendAsync(new LinkSiteDocumentCommand(
             siteId, new LinkSiteDocumentRequest(foreignDocumentId, SiteDocumentKind.Photo),
             (await SiteTestData.OwnersAsync(fixture)).EmployeeId, SiteTestData.OwnerUserId), true);
 
@@ -517,9 +517,9 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task LinkDocument_ThatDoesNotExist_IsDocumentNotFound()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
-        var result = await SendAsync(new LinkSiteDocumentCommand(
+        Result<Guid> result = await SendAsync(new LinkSiteDocumentCommand(
             siteId, new LinkSiteDocumentRequest(Guid.NewGuid(), SiteDocumentKind.Photo),
             (await SiteTestData.OwnersAsync(fixture)).EmployeeId, SiteTestData.OwnerUserId), true);
 
@@ -534,21 +534,21 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task LinkDocument_ToAnotherSitesRecord_IsTheSameErrorAsANonexistentRecord()
     {
-        var (moduleId, _) = await CreateFormAsync();
-        var siteA = await CreateSiteAsync();
-        var siteB = await CreateSiteAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+        Guid siteA = await CreateSiteAsync();
+        Guid siteB = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        var foreignRecord = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> foreignRecord = await SendAsync(new AddSiteRecordCommand(
             siteA, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
 
-        var documentId = await SiteTestData.CreateDocumentAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
 
-        var wrongSite = await SendAsync(new LinkSiteDocumentCommand(
+        Result<Guid> wrongSite = await SendAsync(new LinkSiteDocumentCommand(
             siteB, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, foreignRecord.Value),
             owners.EmployeeId, SiteTestData.OwnerUserId), true);
 
-        var missing = await SendAsync(new LinkSiteDocumentCommand(
+        Result<Guid> missing = await SendAsync(new LinkSiteDocumentCommand(
             siteB, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, Guid.NewGuid()),
             owners.EmployeeId, SiteTestData.OwnerUserId), true);
 
@@ -559,15 +559,15 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task LinkThenListDocuments_ReturnsTheSitesOwnAndItsRecordsAttachments()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
-        var owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
 
-        var siteDocument = await SiteTestData.CreateDocumentAsync(fixture);
-        var recordDocument = await SiteTestData.CreateDocumentAsync(fixture);
+        Guid siteDocument = await SiteTestData.CreateDocumentAsync(fixture);
+        Guid recordDocument = await SiteTestData.CreateDocumentAsync(fixture);
 
         Assert.True((await SendAsync(new LinkSiteDocumentCommand(
             siteId, new LinkSiteDocumentRequest(siteDocument, SiteDocumentKind.Sketch),
@@ -577,7 +577,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             siteId, new LinkSiteDocumentRequest(recordDocument, SiteDocumentKind.Photo, record.Value),
             owners.EmployeeId, SiteTestData.OwnerUserId), true)).IsSuccess);
 
-        var listed = await ResolveAsync(sp => sp
+        Result<IReadOnlyList<SiteDocumentResponse>> listed = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSiteDocumentsQuery, IReadOnlyList<SiteDocumentResponse>>>()
             .HandleAsync(new GetSiteDocumentsQuery(siteId, SiteTestData.OwnerUserId)));
 
@@ -596,12 +596,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Pivot_ColumnsCarryTheirOptions()
     {
-        var siteId = await CreateSiteAsync();
+        Guid siteId = await CreateSiteAsync();
 
-        var moduleId = (await SendAsync(new CreateSiteModuleCommand(
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
             new CreateSiteModuleRequest(Unique("sel"), "Openings", "الفتحات")), true)).Value;
 
-        var itemId = (await SendAsync(new CreateSiteItemCommand(
+        Guid itemId = (await SendAsync(new CreateSiteItemCommand(
             new CreateSiteItemRequest(Unique("leaf"), "Leaf", "درفة", SiteItemDataType.Select)), true)).Value;
 
         Assert.True((await SendAsync(new AddSiteItemOptionCommand(
@@ -609,12 +609,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
         await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)), true);
 
-        var pivot = await ResolveAsync(sp => sp
+        Result<SitePivotResponse> pivot = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSitePivotQuery, SitePivotResponse>>()
             .HandleAsync(new GetSitePivotQuery(siteId, moduleId, SiteTestData.OwnerUserId)));
 
         Assert.True(pivot.IsSuccess);
-        var column = Assert.Single(pivot.Value!.Columns);
+        SiteSchemaFieldResponse column = Assert.Single(pivot.Value!.Columns);
         Assert.Single(column.Options);
     }
 
@@ -625,12 +625,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Pivot_ForADeactivatedModule_IsNotFound()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
         Assert.True((await SendAsync(new SetSiteModuleActiveCommand(moduleId, IsActive: false))).IsSuccess);
 
-        var pivot = await ResolveAsync(sp => sp
+        Result<SitePivotResponse> pivot = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSitePivotQuery, SitePivotResponse>>()
             .HandleAsync(new GetSitePivotQuery(siteId, moduleId, SiteTestData.OwnerUserId)));
 
@@ -645,10 +645,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Pivot_AfterAnItemIsDetached_HasNoCellWithoutAColumn()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var record = await SendAsync(new AddSiteRecordCommand(
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
 
         await SendAsync(new SetSiteRecordValuesCommand(
@@ -661,17 +661,17 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         // is equally what a projection emitting no cells at all would give. Reading the pivot WHILE the
         // item is attached proves it really does emit one, so the emptiness afterwards is the detach's
         // doing rather than the query's.
-        var attached = await ReadPivotAsync(siteId, moduleId);
+        SitePivotResponse attached = await ReadPivotAsync(siteId, moduleId);
         Assert.Single(attached.Columns);
         Assert.Single(Assert.Single(attached.Rows).Cells);
 
         // The value survives the detach by design -- reattaching makes it visible again.
         Assert.True((await SendAsync(new DetachSiteItemCommand(moduleId, itemId))).IsSuccess);
 
-        var pivot = await ReadPivotAsync(siteId, moduleId);
+        SitePivotResponse pivot = await ReadPivotAsync(siteId, moduleId);
 
         var columnCodes = pivot.Columns.Select(c => c.Code).ToHashSet();
-        var row = Assert.Single(pivot.Rows);
+        SitePivotRowResponse row = Assert.Single(pivot.Rows);
 
         Assert.Empty(row.Cells.Keys.Except(columnCodes));
     }
@@ -680,7 +680,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     /// drift from the thing it controls.</summary>
     private async Task<SitePivotResponse> ReadPivotAsync(Guid siteId, Guid moduleId)
     {
-        var pivot = await ResolveAsync(sp => sp
+        Result<SitePivotResponse> pivot = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSitePivotQuery, SitePivotResponse>>()
             .HandleAsync(new GetSitePivotQuery(siteId, moduleId, SiteTestData.OwnerUserId)));
 
@@ -693,12 +693,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Families_GroupsRecordsThatMeasureTheSameThing()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        foreach (var (label, width) in new[] { ("Door 1", 90m), ("Door 2", 90m), ("Door 3", 100m) })
+        foreach ((string? label, decimal width) in new[] { ("Door 1", 90m), ("Door 2", 90m), ("Door 3", 100m) })
         {
-            var record = await SendAsync(new AddSiteRecordCommand(
+            Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
                 siteId, new CreateSiteRecordRequest(moduleId, label), SiteTestData.OwnerUserId), true);
 
             await SendAsync(new SetSiteRecordValuesCommand(
@@ -707,7 +707,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
                 SiteTestData.OwnerUserId));
         }
 
-        var families = await ResolveAsync(sp => sp
+        Result<SiteFamiliesResponse> families = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSiteFamiliesQuery, SiteFamiliesResponse>>()
             .HandleAsync(new GetSiteFamiliesQuery(siteId, moduleId, null, SiteTestData.OwnerUserId)));
 
@@ -722,10 +722,10 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Families_WithAnUnknownGroupByToken_IsABadRequestNamingIt()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, _) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        var families = await ResolveAsync(sp => sp
+        Result<SiteFamiliesResponse> families = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSiteFamiliesQuery, SiteFamiliesResponse>>()
             .HandleAsync(new GetSiteFamiliesQuery(
                 siteId, moduleId, "not_a_field", SiteTestData.OwnerUserId)));
@@ -743,12 +743,12 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Families_WithARepeatedGroupByToken_DeduplicatesTheKey()
     {
-        var siteId = await CreateSiteAsync();
-        var (moduleId, itemId) = await CreateFormAsync();
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
 
-        var code = await SiteTestData.ItemCodeAsync(fixture, itemId);
+        string code = await SiteTestData.ItemCodeAsync(fixture, itemId);
 
-        var families = await ResolveAsync(sp => sp
+        Result<SiteFamiliesResponse> families = await ResolveAsync(sp => sp
             .GetRequiredService<IQueryHandler<GetSiteFamiliesQuery, SiteFamiliesResponse>>()
             .HandleAsync(new GetSiteFamiliesQuery(
                 siteId, moduleId, $"{code},{code}", SiteTestData.OwnerUserId)));

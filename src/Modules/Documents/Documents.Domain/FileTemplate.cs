@@ -35,13 +35,19 @@ internal sealed class FileTemplate : Entity, IAuditable
         string contentType, long fileSizeBytes, string? description = null, bool nameAlreadyExists = false)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return FileTemplateErrors.NameRequired;
+        }
 
         if (nameAlreadyExists)
+        {
             return FileTemplateErrors.NameAlreadyExists;
+        }
 
         if (fileSizeBytes <= 0)
+        {
             return FileTemplateErrors.InvalidFileSize;
+        }
 
         return new FileTemplate
         {
@@ -58,10 +64,14 @@ internal sealed class FileTemplate : Entity, IAuditable
     public Result Update(string name, FileTemplateCategory category, string? description, bool nameAlreadyExists = false)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return FileTemplateErrors.NameRequired;
+        }
 
         if (nameAlreadyExists && !string.Equals(name, Name, StringComparison.Ordinal))
+        {
             return FileTemplateErrors.NameAlreadyExists;
+        }
 
         Name = name;
         Category = category;

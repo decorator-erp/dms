@@ -13,7 +13,7 @@ public static class ValidationExtensions
         this AbstractValidator<T> validator,
         Expression<Func<T, string?>> selector)
     {
-        var getValue = selector.Compile();
+        Func<T, string?> getValue = selector.Compile();
 
         return validator.RuleFor(selector)
             .NotEmpty()

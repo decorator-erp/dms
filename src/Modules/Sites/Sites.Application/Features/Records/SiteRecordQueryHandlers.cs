@@ -28,7 +28,10 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
             .Select(m => new { m.Id, m.Code })
             .FirstOrDefaultAsync(ct);
 
-        if (module is null) return SiteErrors.ModuleNotFound;
+        if (module is null)
+        {
+            return SiteErrors.ModuleNotFound;
+        }
 
         var fields = await (
             from link in db.SiteModuleItems.AsNoTracking()
@@ -62,7 +65,7 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
             .Select(f => f.ItemId)
             .ToList();
 
-        var optionsByItem = selectItemIds.Count == 0
+        Dictionary<Guid, IReadOnlyList<SiteItemOptionResponse>> optionsByItem = selectItemIds.Count == 0
             ? []
             : (await db.SiteItemOptions.AsNoTracking()
                     .Where(o => selectItemIds.Contains(o.ItemId) && o.IsActive)
@@ -84,7 +87,7 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
                 f.LinkId, f.ItemId, f.Code, f.NameEn, f.NameAr,
                 SiteEnumMapping.ToContracts(f.DataType), f.Unit, f.MinValue, f.MaxValue, f.Tolerance,
                 f.MaxLength, f.RegexPattern, f.IsRequired, f.IsVisible, f.SortOrder,
-                optionsByItem.TryGetValue(f.ItemId, out var opts) ? opts : []))
+                optionsByItem.TryGetValue(f.ItemId, out IReadOnlyList<SiteItemOptionResponse>? opts) ? opts : []))
             .ToList();
 
         var records = await db.SiteRecords.AsNoTracking()
@@ -124,7 +127,7 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
 
         // Space names come from CRM through its own contract, batched -- never a join into crm's tables.
         var spaceIds = records.Where(r => r.SpaceId.HasValue).Select(r => r.SpaceId!.Value).Distinct().ToList();
-        var spaceNames = spaceIds.Count == 0
+        Dictionary<Guid, string> spaceNames = spaceIds.Count == 0
             ? []
             : (await spaces.GetManyAsync(spaceIds, ct)).ToDictionary(s => s.Id, s => s.Name);
 
@@ -136,7 +139,10 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
 
             // Every column gets a key, present or not -- a record missing an optional value must still
             // render a blank cell rather than a ragged row.
-            foreach (var column in columns) map[column.Code] = null;
+            foreach (SiteSchemaFieldResponse? column in columns)
+            {
+                map[column.Code] = null;
+            }
 
             if (cellsByRecord.TryGetValue(r.Id, out var found))
             {
@@ -146,7 +152,10 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
                     // which ADDS missing keys -- so a value captured against an item since detached or
                     // deactivated (filtered out of `columns` above) appeared as an extra cell with no
                     // matching column, the ragged row the code one line up promises never to produce.
-                    if (!columnCodes.Contains(cell.Code)) continue;
+                    if (!columnCodes.Contains(cell.Code))
+                    {
+                        continue;
+                    }
 
                     map[cell.Code] = new SitePivotCellResponse(
                         cell.ValueNumber, cell.ValueText, cell.ValueBool, cell.ValueDate,
@@ -154,7 +163,7 @@ internal sealed class GetSitePivotQueryHandler(SitesDbContext db, ICrmSpaceReade
                 }
             }
 
-            var spaceName = r.SpaceId is { } id && spaceNames.TryGetValue(id, out var name) ? name : null;
+            string? spaceName = r.SpaceId is { } id && spaceNames.TryGetValue(id, out string? name) ? name : null;
 
             return new SitePivotRowResponse(r.Id, r.Label, r.SpaceId, spaceName, r.SortOrder, r.Note, map);
         }).ToList();
@@ -190,7 +199,7 @@ internal sealed class GetSiteRecordsGroupedQueryHandler(SitesDbContext db, ICrmS
         // The backend LEFT JOINs crm.crm_spaces directly. A module may not read another module's tables,
         // so the names come batched through ICrmSpaceReader instead -- one call, not one per record.
         var spaceIds = records.Where(r => r.SpaceId.HasValue).Select(r => r.SpaceId!.Value).Distinct().ToList();
-        var spaceById = spaceIds.Count == 0
+        Dictionary<Guid, string> spaceById = spaceIds.Count == 0
             ? []
             : (await spaces.GetManyAsync(spaceIds, ct)).ToDictionary(s => s.Id, s => s.Name);
 
@@ -200,7 +209,7 @@ internal sealed class GetSiteRecordsGroupedQueryHandler(SitesDbContext db, ICrmS
             .Select(g => new
             {
                 SpaceId = g.Key,
-                Name = g.Key is { } id && spaceById.TryGetValue(id, out var n) ? n : null,
+                Name = g.Key is { } id && spaceById.TryGetValue(id, out string? n) ? n : null,
                 Records = g.ToList(),
             })
             .OrderBy(g => g.SpaceId is null ? 1 : 0)
@@ -234,12 +243,15 @@ internal sealed class GetSiteFamiliesQueryHandler(SitesDbContext db, ISiteReadQu
     public async Task<Result<SiteFamiliesResponse>> HandleAsync(
         GetSiteFamiliesQuery query, CancellationToken ct = default)
     {
-        var resolved = await ResolveGroupByAsync(query.ModuleId, query.GroupBy, ct);
-        if (resolved.IsFailure) return resolved.Error;
+        Result<List<(Guid ItemId, string Code)>> resolved = await ResolveGroupByAsync(query.ModuleId, query.GroupBy, ct);
+        if (resolved.IsFailure)
+        {
+            return resolved.Error;
+        }
 
-        var keys = resolved.Value!;
+        List<(Guid ItemId, string Code)> keys = resolved.Value!;
 
-        var families = await readQueries.GetFamiliesAsync(
+        IReadOnlyList<SiteFamilyResponse> families = await readQueries.GetFamiliesAsync(
             query.SiteId, query.ModuleId, [.. keys.Select(k => k.ItemId)], ct);
 
         return new SiteFamiliesResponse(
@@ -264,9 +276,12 @@ internal sealed class GetSiteFamiliesQueryHandler(SitesDbContext db, ISiteReadQu
             select new { item.Id, item.Code, link.IsRequired })
             .ToListAsync(ct);
 
-        if (linked.Count == 0) return SiteErrors.ModuleNotFound;
+        if (linked.Count == 0)
+        {
+            return SiteErrors.ModuleNotFound;
+        }
 
-        var token = groupBy?.Trim();
+        string? token = groupBy?.Trim();
 
         if (string.IsNullOrEmpty(token) || token.Equals("exact", StringComparison.OrdinalIgnoreCase))
         {
@@ -288,7 +303,7 @@ internal sealed class GetSiteFamiliesQueryHandler(SitesDbContext db, ISiteReadQu
                     "sites.families.NoDimensions", "This module has no dimensional fields to group by.");
         }
 
-        var requested = token
+        List<string> requested = token
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
 
@@ -296,30 +311,40 @@ internal sealed class GetSiteFamiliesQueryHandler(SitesDbContext db, ISiteReadQu
         // caller got 200 with no families -- a silent empty answer to a groupBy that named no field this
         // module has. An unresolvable groupBy is a 400, and naming no field at all is unresolvable.
         if (requested.Count == 0)
+        {
             return Error.BadRequest(
                 "sites.families.UnknownGroupBy",
                 "groupBy named no fields. Supply field codes separated by commas, or omit it.");
+        }
 
         var resolved = new List<(Guid, string)>(requested.Count);
         var unknown = new List<string>();
 
-        foreach (var code in requested)
+        foreach (string? code in requested)
         {
             // Match on the caller's token, but carry forward the row's own id and code.
             var match = linked.FirstOrDefault(f => f.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
 
-            if (match is null) unknown.Add(code);
+            if (match is null)
+            {
+                unknown.Add(code);
+            }
 
             // Defect B14: the backend appends one entry per requested token with no distinct check, so
             // ?groupBy=width_cm,width_cm produced a family key of "width_cm=90 | width_cm=90". FamilyKey
             // is documented as the exporter's join token, so a caller could mint keys matching nothing.
-            else if (!resolved.Any(r => r.Item1 == match.Id)) resolved.Add((match.Id, match.Code));
+            else if (!resolved.Any(r => r.Item1 == match.Id))
+            {
+                resolved.Add((match.Id, match.Code));
+            }
         }
 
         if (unknown.Count > 0)
+        {
             return Error.BadRequest(
                 "sites.families.UnknownGroupBy",
                 $"Not a field of this module: {string.Join(", ", unknown)}.");
+        }
 
         return resolved;
     }
@@ -332,7 +357,7 @@ internal sealed class GetSiteBoqQueryHandler(ISiteReadQueries readQueries)
     public async Task<Result<SiteBoqResponse>> HandleAsync(
         GetSiteBoqQuery query, CancellationToken ct = default)
     {
-        var lines = await readQueries.GetBoqAsync(query.SiteId, ct);
+        IReadOnlyList<SiteBoqLineResponse> lines = await readQueries.GetBoqAsync(query.SiteId, ct);
         return new SiteBoqResponse(query.SiteId, lines);
     }
 }

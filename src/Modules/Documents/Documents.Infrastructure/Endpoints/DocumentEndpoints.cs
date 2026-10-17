@@ -8,6 +8,7 @@ using Documents.Contracts.Documents;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Documents.Infrastructure.Endpoints;
 
@@ -19,26 +20,26 @@ internal sealed class DocumentEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var documents = app.MapGroup("/api/project-documents").WithTags("Documents");
+        RouteGroupBuilder documents = app.MapGroup("/api/project-documents").WithTags("Documents");
 
         documents.MapGet("/{documentId:guid}", async (
             Guid documentId, IQueryHandler<GetProjectDocumentByIdQuery, ProjectDocumentResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectDocumentByIdQuery(documentId), ct);
+            Result<ProjectDocumentResponse> result = await handler.HandleAsync(new GetProjectDocumentByIdQuery(documentId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Read);
 
         documents.MapPut("/{documentId:guid}/move", async (
             Guid documentId, MoveDocumentRequest request, ICommandHandler<MoveProjectDocumentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new MoveProjectDocumentCommand(documentId, request.FolderId), ct);
+            Result result = await handler.HandleAsync(new MoveProjectDocumentCommand(documentId, request.FolderId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Update);
 
         documents.MapDelete("/{documentId:guid}", async (
             Guid documentId, ICommandHandler<DeleteProjectDocumentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteProjectDocumentCommand(documentId), ct);
+            Result result = await handler.HandleAsync(new DeleteProjectDocumentCommand(documentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Delete);
 
@@ -46,48 +47,48 @@ internal sealed class DocumentEndpoints : IEndpoint
             Guid documentId, RequestReviewRequest request, ICurrentUser currentUser,
             ICommandHandler<RequestDocumentReviewCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new RequestDocumentReviewCommand(documentId, request.ApproverEmployeeId, currentUser.UserId!), ct);
             return result.Match(id => Results.Ok(new { ApprovalId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Update);
 
-        var projects = app.MapGroup("/api/projects/{projectId:guid}").WithTags("Documents");
+        RouteGroupBuilder projects = app.MapGroup("/api/projects/{projectId:guid}").WithTags("Documents");
 
         projects.MapGet("/documents", async (
             Guid projectId, IQueryHandler<GetProjectDocumentsByProjectQuery, IReadOnlyList<ProjectDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectDocumentsByProjectQuery(projectId), ct);
+            Result<IReadOnlyList<ProjectDocumentResponse>> result = await handler.HandleAsync(new GetProjectDocumentsByProjectQuery(projectId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Read);
 
-        var folders = app.MapGroup("/api/document-folders/{folderId:guid}").WithTags("Documents");
+        RouteGroupBuilder folders = app.MapGroup("/api/document-folders/{folderId:guid}").WithTags("Documents");
 
         folders.MapGet("/documents", async (
             Guid folderId, IQueryHandler<GetProjectDocumentsByFolderQuery, IReadOnlyList<ProjectDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectDocumentsByFolderQuery(folderId), ct);
+            Result<IReadOnlyList<ProjectDocumentResponse>> result = await handler.HandleAsync(new GetProjectDocumentsByFolderQuery(folderId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Read);
 
-        var stages = app.MapGroup("/api/project-stages/{stageId:guid}").WithTags("Documents");
+        RouteGroupBuilder stages = app.MapGroup("/api/project-stages/{stageId:guid}").WithTags("Documents");
 
         stages.MapGet("/documents", async (
             Guid stageId, IQueryHandler<GetProjectDocumentsByStageQuery, IReadOnlyList<ProjectDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectDocumentsByStageQuery(stageId), ct);
+            Result<IReadOnlyList<ProjectDocumentResponse>> result = await handler.HandleAsync(new GetProjectDocumentsByStageQuery(stageId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Read);
 
-        var tasks = app.MapGroup("/api/project-tasks/{taskId:guid}").WithTags("Documents");
+        RouteGroupBuilder tasks = app.MapGroup("/api/project-tasks/{taskId:guid}").WithTags("Documents");
 
         tasks.MapGet("/documents", async (
             Guid taskId, IQueryHandler<GetProjectDocumentsByTaskQuery, IReadOnlyList<ProjectDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectDocumentsByTaskQuery(taskId), ct);
+            Result<IReadOnlyList<ProjectDocumentResponse>> result = await handler.HandleAsync(new GetProjectDocumentsByTaskQuery(taskId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Read);
     }

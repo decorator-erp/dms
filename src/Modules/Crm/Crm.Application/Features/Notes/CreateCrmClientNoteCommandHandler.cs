@@ -22,9 +22,11 @@ internal sealed class CreateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmClientNoteCommand command, CancellationToken ct = default)
     {
-        var clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
+        bool clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
         if (!clientExists)
+        {
             return Result.Failure<Guid>(ClientErrors.NotFound);
+        }
 
         var note = CrmClientNote.Create(command.ClientId, command.ProjectId, command.Content, command.WrittenById);
         db.CrmClientNotes.Add(note);

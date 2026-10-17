@@ -27,8 +27,15 @@ internal sealed class CrmSpaceItem : Entity, IAuditable
         Guid spaceId, Guid catalogItemId, CrmProvisionStatus status = CrmProvisionStatus.ToBuy,
         string? note = null, Guid? sourceBriefSpaceId = null)
     {
-        if (spaceId == Guid.Empty) return CrmSpaceErrors.SpaceNotFound;
-        if (catalogItemId == Guid.Empty) return CrmCatalogErrors.ItemNotFound;
+        if (spaceId == Guid.Empty)
+        {
+            return CrmSpaceErrors.SpaceNotFound;
+        }
+
+        if (catalogItemId == Guid.Empty)
+        {
+            return CrmCatalogErrors.ItemNotFound;
+        }
 
         return new CrmSpaceItem
         {
@@ -45,9 +52,20 @@ internal sealed class CrmSpaceItem : Entity, IAuditable
         CrmProvisionStatus status = CrmProvisionStatus.ToBuy, string? note = null,
         Guid? sourceBriefSpaceId = null)
     {
-        if (spaceId == Guid.Empty) return CrmSpaceErrors.SpaceNotFound;
-        if (customCategoryId == Guid.Empty) return CrmCatalogErrors.CategoryNotFound;
-        if (string.IsNullOrWhiteSpace(customName)) return CrmCatalogErrors.CustomNameRequired;
+        if (spaceId == Guid.Empty)
+        {
+            return CrmSpaceErrors.SpaceNotFound;
+        }
+
+        if (customCategoryId == Guid.Empty)
+        {
+            return CrmCatalogErrors.CategoryNotFound;
+        }
+
+        if (string.IsNullOrWhiteSpace(customName))
+        {
+            return CrmCatalogErrors.CustomNameRequired;
+        }
 
         return new CrmSpaceItem
         {
@@ -66,8 +84,15 @@ internal sealed class CrmSpaceItem : Entity, IAuditable
     /// <see cref="CustomCategoryId"/> before calling this — Domain has no category-tree access.</summary>
     public Result PromoteToItem(Guid catalogItemId)
     {
-        if (!IsCustom) return CrmCatalogErrors.NotACustomEntry;
-        if (catalogItemId == Guid.Empty) return CrmCatalogErrors.ItemNotFound;
+        if (!IsCustom)
+        {
+            return CrmCatalogErrors.NotACustomEntry;
+        }
+
+        if (catalogItemId == Guid.Empty)
+        {
+            return CrmCatalogErrors.ItemNotFound;
+        }
 
         CatalogItemId = catalogItemId;
         CustomName = null;
@@ -77,8 +102,15 @@ internal sealed class CrmSpaceItem : Entity, IAuditable
 
     public Result Rename(string customName)
     {
-        if (!IsCustom) return CrmCatalogErrors.NotACustomEntry;
-        if (string.IsNullOrWhiteSpace(customName)) return CrmCatalogErrors.CustomNameRequired;
+        if (!IsCustom)
+        {
+            return CrmCatalogErrors.NotACustomEntry;
+        }
+
+        if (string.IsNullOrWhiteSpace(customName))
+        {
+            return CrmCatalogErrors.CustomNameRequired;
+        }
 
         CustomName = customName.Trim();
         return Result.Success();

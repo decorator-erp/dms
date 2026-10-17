@@ -62,11 +62,11 @@ internal sealed class InvoiceDueJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
         var today = DateOnly.FromDateTime(now);
 
-        var windowStart = today.AddDays(-60); // bound the overdue scan; dedupe already stops repeats.
-        var windowEnd = today.AddDays(5);     // earliest tier is -5d.
+        DateOnly windowStart = today.AddDays(-60); // bound the overdue scan; dedupe already stops repeats.
+        DateOnly windowEnd = today.AddDays(5);     // earliest tier is -5d.
 
         var invoices = await db.Invoices
             .AsNoTracking()
@@ -91,11 +91,15 @@ internal sealed class InvoiceDueJob(
             var due = invoice.Due.ToDateTime(TimeOnly.MinValue);
 
             if (DeadlineTiers.MostRelevant(now, due, Tiers) is not { } tier)
+            {
                 continue;
+            }
 
-            var targets = await RecipientsAsync(invoice.ProjectId, invoice.ClientId, ct);
+            List<string> targets = await RecipientsAsync(invoice.ProjectId, invoice.ClientId, ct);
             if (targets.Count == 0)
+            {
                 continue;
+            }
 
             await notifications.NotifyManyAsync(
                 targets,
@@ -127,7 +131,9 @@ internal sealed class InvoiceDueJob(
         string? clientUserId = null;
 
         if (clientId is Guid id && await clientDirectory.GetAsync(id, ct) is { } client)
+        {
             clientUserId = client.AppUserId;
+        }
 
         string?[] candidates = [ownerUserId, clientUserId];
 

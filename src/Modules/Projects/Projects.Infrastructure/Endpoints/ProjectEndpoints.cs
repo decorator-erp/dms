@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
+using SharedKernel;
 
 namespace Projects.Infrastructure.Endpoints;
 
@@ -20,13 +21,13 @@ internal sealed class ProjectEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/projects").WithTags("Projects");
+        RouteGroupBuilder group = app.MapGroup("/api/projects").WithTags("Projects");
 
         group.MapGet("/", async (
             int pageNumber, int pageSize, string? nameFilter, ICurrentUser currentUser,
             IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectsQuery(pageNumber, pageSize, currentUser.UserId!, nameFilter), ct);
+            Result<PagedResult<ProjectResponse>> result = await handler.HandleAsync(new GetProjectsQuery(pageNumber, pageSize, currentUser.UserId!, nameFilter), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Read);
 
@@ -34,14 +35,14 @@ internal sealed class ProjectEndpoints : IEndpoint
             Guid projectId, ICurrentUser currentUser,
             IQueryHandler<GetProjectQuery, ProjectResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectQuery(projectId, currentUser.UserId!), ct);
+            Result<ProjectResponse> result = await handler.HandleAsync(new GetProjectQuery(projectId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Read);
 
         group.MapPost("/", async (
             CreateProjectCommand command, ICommandHandler<CreateProjectCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(projectId => Results.Ok(new { ProjectId = projectId }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Create);
 
@@ -49,7 +50,7 @@ internal sealed class ProjectEndpoints : IEndpoint
             Guid projectId, UpdateProjectRequest request, ICurrentUser currentUser,
             ICommandHandler<UpdateProjectCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateProjectCommand(
+            Result result = await handler.HandleAsync(new UpdateProjectCommand(
                 projectId, currentUser.UserId!, request.Name, request.Description, request.Address,
                 request.Notes, request.EstimatedStartDate, request.EstimatedEndDate), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -59,7 +60,7 @@ internal sealed class ProjectEndpoints : IEndpoint
             Guid projectId, ProjectStatus status, ICurrentUser currentUser,
             ICommandHandler<ChangeProjectStatusCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ChangeProjectStatusCommand(projectId, currentUser.UserId!, status), ct);
+            Result result = await handler.HandleAsync(new ChangeProjectStatusCommand(projectId, currentUser.UserId!, status), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.ChangeStatus);
 
@@ -67,7 +68,7 @@ internal sealed class ProjectEndpoints : IEndpoint
             Guid projectId, bool isActive, ICurrentUser currentUser,
             ICommandHandler<SetProjectActiveCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SetProjectActiveCommand(projectId, currentUser.UserId!, isActive), ct);
+            Result result = await handler.HandleAsync(new SetProjectActiveCommand(projectId, currentUser.UserId!, isActive), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.SetActive);
 
@@ -75,7 +76,7 @@ internal sealed class ProjectEndpoints : IEndpoint
             Guid projectId, ICurrentUser currentUser,
             ICommandHandler<DeleteProjectCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteProjectCommand(projectId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new DeleteProjectCommand(projectId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Delete);
     }

@@ -60,16 +60,16 @@ internal sealed class LocalFileStorageService : IFileStorageService
 
     public LocalFileStorageService(IConfiguration cfg)
     {
-        var configuredRoot = cfg["FileStorage:RootPath"];
-        var root = string.IsNullOrWhiteSpace(configuredRoot) ? "uploads" : configuredRoot;
+        string? configuredRoot = cfg["FileStorage:RootPath"];
+        string root = string.IsNullOrWhiteSpace(configuredRoot) ? "uploads" : configuredRoot;
         _rootPath = Path.IsPathRooted(root) ? root : Path.Combine(Directory.GetCurrentDirectory(), root);
         Directory.CreateDirectory(_rootPath);
 
-        MaxUploadBytes = long.TryParse(cfg["FileStorage:MaxUploadBytes"], out var configuredMax) && configuredMax > 0
+        MaxUploadBytes = long.TryParse(cfg["FileStorage:MaxUploadBytes"], out long configuredMax) && configuredMax > 0
             ? configuredMax
             : 52_428_800;
 
-        var configuredExtensions = cfg.GetSection("FileStorage:AllowedFileExtensions").Get<string[]>();
+        string[]? configuredExtensions = cfg.GetSection("FileStorage:AllowedFileExtensions").Get<string[]>();
         _allowedExtensions = configuredExtensions is { Length: > 0 }
             ? new HashSet<string>(configuredExtensions, StringComparer.OrdinalIgnoreCase)
             : DefaultAllowedExtensions;
@@ -79,38 +79,46 @@ internal sealed class LocalFileStorageService : IFileStorageService
         Stream content, string originalFileName, string subFolder, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(originalFileName))
+        {
             throw new ArgumentException("A file name is required.", nameof(originalFileName));
+        }
 
         if (originalFileName.IndexOfAny(['/', '\\']) >= 0 || originalFileName.Contains(".."))
+        {
             throw new ArgumentException(
                 "The file name may not contain path separators or '..'.", nameof(originalFileName));
+        }
 
-        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        string extension = Path.GetExtension(originalFileName).ToLowerInvariant();
         if (!_allowedExtensions.Contains(extension))
+        {
             throw new NotSupportedException($"File extension '{extension}' is not allowed.");
+        }
 
         if (content.CanSeek && content.Length > MaxUploadBytes)
+        {
             throw new InvalidOperationException(
                 $"File exceeds the maximum allowed size of {MaxUploadBytes} bytes.");
+        }
 
-        var sanitizedSubFolder = SanitizeSubFolder(subFolder);
-        var storedFileName = $"{Guid.NewGuid():N}{extension}";
-        var relativePath = sanitizedSubFolder.Length == 0
+        string sanitizedSubFolder = SanitizeSubFolder(subFolder);
+        string storedFileName = $"{Guid.NewGuid():N}{extension}";
+        string relativePath = sanitizedSubFolder.Length == 0
             ? storedFileName
             : $"{sanitizedSubFolder}/{storedFileName}";
 
-        var fullPath = ResolveUnderRoot(relativePath)
+        string fullPath = ResolveUnderRoot(relativePath)
             ?? throw new InvalidOperationException("Resolved storage path escapes the configured root.");
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
-        var succeeded = false;
+        bool succeeded = false;
         try
         {
             await using (var fileStream = new FileStream(
                 fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                var buffer = new byte[CopyBufferSize];
+                byte[] buffer = new byte[CopyBufferSize];
                 long totalWritten = 0;
                 int read;
                 while ((read = await content.ReadAsync(buffer, ct)) > 0)
@@ -133,7 +141,9 @@ internal sealed class LocalFileStorageService : IFileStorageService
             // Delete the partial file on any failure mid-copy (size cap exceeded, cancellation, I/O
             // error) - never leave a truncated, oversized-attempt file behind.
             if (!succeeded && File.Exists(fullPath))
+            {
                 File.Delete(fullPath);
+            }
         }
 
         return relativePath;
@@ -141,7 +151,7 @@ internal sealed class LocalFileStorageService : IFileStorageService
 
     public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken ct = default)
     {
-        var fullPath = TryResolveExistingUnderRoot(storagePath);
+        string? fullPath = TryResolveExistingUnderRoot(storagePath);
 
         Stream? stream = fullPath is null
             ? null
@@ -154,9 +164,11 @@ internal sealed class LocalFileStorageService : IFileStorageService
     {
         try
         {
-            var fullPath = TryResolveExistingUnderRoot(storagePath);
+            string? fullPath = TryResolveExistingUnderRoot(storagePath);
             if (fullPath is not null)
+            {
                 File.Delete(fullPath);
+            }
         }
         catch
         {
@@ -177,9 +189,11 @@ internal sealed class LocalFileStorageService : IFileStorageService
     private static string SanitizeSubFolder(string? subFolder)
     {
         if (string.IsNullOrWhiteSpace(subFolder))
+        {
             return string.Empty;
+        }
 
-        var segments = subFolder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string[] segments = subFolder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
 
         if (segments.Any(s => s == ".."))
         {
@@ -187,7 +201,7 @@ internal sealed class LocalFileStorageService : IFileStorageService
                 "The sub-folder path may not contain '..' segments.", nameof(subFolder));
         }
 
-        var safeSegments = segments.Where(s => s != ".");
+        IEnumerable<string> safeSegments = segments.Where(s => s != ".");
         return string.Join('/', safeSegments);
     }
 
@@ -195,7 +209,7 @@ internal sealed class LocalFileStorageService : IFileStorageService
     /// the fail-closed backstop, independent of whatever sanitization already happened upstream.</summary>
     private string? ResolveUnderRoot(string relativePath)
     {
-        var fullPath = Path.GetFullPath(
+        string fullPath = Path.GetFullPath(
             Path.Combine(_rootPath, relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
         return IsUnderRoot(fullPath) ? fullPath : null;
@@ -204,9 +218,11 @@ internal sealed class LocalFileStorageService : IFileStorageService
     private string? TryResolveExistingUnderRoot(string storagePath)
     {
         if (string.IsNullOrWhiteSpace(storagePath))
+        {
             return null;
+        }
 
-        var fullPath = ResolveUnderRoot(storagePath);
+        string? fullPath = ResolveUnderRoot(storagePath);
         return fullPath is not null && File.Exists(fullPath) ? fullPath : null;
     }
 
@@ -215,7 +231,7 @@ internal sealed class LocalFileStorageService : IFileStorageService
     /// <c>uploads</c>.</summary>
     private bool IsUnderRoot(string fullPath)
     {
-        var normalizedRoot = _rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedRoot = _rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         return fullPath.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase)
             || fullPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);

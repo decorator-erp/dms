@@ -26,11 +26,6 @@ public sealed class PeriodicJobWorker(
 {
     private const int DefaultSweepMinutes = 15;
 
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(
-        int.TryParse(configuration["Notifications:SweepMinutes"], out var minutes) && minutes > 0
-            ? minutes
-            : DefaultSweepMinutes);
-
     // Same reasoning as OutboxProcessor._sweepGate: RunAllJobsAsync is public so tests (and a manual
     // "run now") can drive it, which makes this loop and that caller two independent entry points into
     // the same job set. Jobs are idempotent, so an interleave cannot duplicate a notification - but a
@@ -44,14 +39,19 @@ public sealed class PeriodicJobWorker(
     /// construction — <c>new PeriodicTimer(TimeSpan.Zero)</c> is an <c>ArgumentOutOfRangeException</c>,
     /// so <c>Notifications:SweepMinutes=0</c> would take the host down at first tick rather than
     /// degrade.</summary>
-    public TimeSpan Interval => _interval;
+    public TimeSpan Interval { get; } = TimeSpan.FromMinutes(
+        int.TryParse(configuration["Notifications:SweepMinutes"], out int minutes) && minutes > 0
+            ? minutes
+            : DefaultSweepMinutes);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!BackgroundLoops.Enabled(configuration))
+        {
             return;
+        }
 
-        using var timer = new PeriodicTimer(_interval);
+        using var timer = new PeriodicTimer(Interval);
 
         try
         {
@@ -90,13 +90,15 @@ public sealed class PeriodicJobWorker(
             // and a DbContext constructor opens no connection. Paying that to delete an unstated
             // ordering assumption is the right trade.
             List<string> jobNames;
-            await using (var probeScope = scopeFactory.CreateAsyncScope())
+            await using (AsyncServiceScope probeScope = scopeFactory.CreateAsyncScope())
             {
                 jobNames = [.. probeScope.ServiceProvider.GetServices<IPeriodicJob>().Select(job => job.Name)];
             }
 
             if (jobNames.Count == 0)
+            {
                 return;
+            }
 
             var duplicates = jobNames.GroupBy(name => name, StringComparer.Ordinal)
                 .Where(group => group.Count() > 1)
@@ -111,13 +113,15 @@ public sealed class PeriodicJobWorker(
                     string.Join(", ", duplicates));
             }
 
-            foreach (var jobName in jobNames)
+            foreach (string jobName in jobNames)
             {
                 if (ct.IsCancellationRequested)
+                {
                     return;
+                }
 
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var job = scope.ServiceProvider.GetServices<IPeriodicJob>()
+                await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+                IPeriodicJob? job = scope.ServiceProvider.GetServices<IPeriodicJob>()
                     .FirstOrDefault(candidate => string.Equals(candidate.Name, jobName, StringComparison.Ordinal));
 
                 if (job is null)

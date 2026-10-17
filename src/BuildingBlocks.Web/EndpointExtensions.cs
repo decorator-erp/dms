@@ -19,11 +19,11 @@ public static class EndpointExtensions
     /// </summary>
     public static IEndpointRouteBuilder MapModuleEndpoints(this IEndpointRouteBuilder app, Assembly assembly)
     {
-        var endpointTypes = assembly.DefinedTypes
+        IEnumerable<TypeInfo> endpointTypes = assembly.DefinedTypes
             .Where(type => type is { IsAbstract: false, IsInterface: false }
                         && typeof(IEndpoint).IsAssignableFrom(type));
 
-        foreach (var type in endpointTypes)
+        foreach (TypeInfo? type in endpointTypes)
         {
             var endpoint = (IEndpoint)Activator.CreateInstance(type, nonPublic: true)!;
             endpoint.MapEndpoint(app);

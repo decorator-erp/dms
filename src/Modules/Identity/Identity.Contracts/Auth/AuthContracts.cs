@@ -12,12 +12,12 @@ namespace Identity.Contracts.Auth;
 /// simply refuses. <c>Identity.Contracts</c> is the one project both sides already reference without a
 /// cycle. The validators and handlers implementing these commands are unaffected and stay `internal` in
 /// <c>Identity.Application</c> — only the thin wire-shape types moved.
+///
+/// <para><b>There is no <c>RegisterRequest</c> here any more.</b> Self-registration is gone: a login is
+/// created only as one half of an employee or a client, through
+/// <see cref="IUserProvisioning"/>. These types are what remains — the operations a user performs on
+/// their <i>own</i> existing account.</para>
 /// </summary>
-public sealed record RegisterRequest(
-    string Email, string Password, string FirstName, string LastName, string? PhoneNumber, string RoleName);
-
-public sealed record RegisterCommand(RegisterRequest Request) : ICommand<string>;
-
 public sealed record LoginRequest(string Email, string Password);
 
 public sealed record LoginCommand(LoginRequest Request) : ICommand<AuthResponse>;

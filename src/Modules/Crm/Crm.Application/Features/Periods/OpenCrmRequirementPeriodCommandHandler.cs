@@ -28,21 +28,27 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
 {
     public async Task<Result<Guid>> HandleAsync(OpenCrmRequirementPeriodCommand command, CancellationToken ct = default)
     {
-        var project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
         if (project is null)
+        {
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
+        }
 
-        var alreadyOpen = await db.CrmRequirementPeriods.AnyAsync(
+        bool alreadyOpen = await db.CrmRequirementPeriods.AnyAsync(
             p => p.ProjectId == command.ProjectId && p.Status == RequirementPeriodStatus.Open, ct);
         if (alreadyOpen)
+        {
             return Result.Failure<Guid>(CrmPeriodErrors.NotOpen);
+        }
 
-        var result = CrmRequirementPeriod.Create(
+        Result<CrmRequirementPeriod> result = CrmRequirementPeriod.Create(
             command.ProjectId, command.ProjectStageId, command.ClosesAtUtc, command.OpenedById);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var period = result.Value!;
+        CrmRequirementPeriod period = result.Value!;
         db.CrmRequirementPeriods.Add(period);
         await db.SaveChangesAsync(ct);
 

@@ -14,7 +14,7 @@ internal sealed class GetCrmMeetingByIdQueryHandler(CrmDbContext db)
 {
     public async Task<Result<CrmMeetingResponse>> HandleAsync(GetCrmMeetingByIdQuery query, CancellationToken ct = default)
     {
-        var response = await MeetingSupport.ToResponseAsync(db, query.MeetingId, ct);
+        CrmMeetingResponse? response = await MeetingSupport.ToResponseAsync(db, query.MeetingId, ct);
         return response is null
             ? Result.Failure<CrmMeetingResponse>(CrmMeetingErrors.NotFound)
             : response;

@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -11,7 +12,7 @@ public class CrmLeadTests
     [Fact]
     public void Create_WithValidData_StartsAsNew()
     {
-        var result = CrmLead.Create("Jane", "Doe", (LeadSource)1, Guid.NewGuid());
+        Result<CrmLead> result = CrmLead.Create("Jane", "Doe", (LeadSource)1, Guid.NewGuid());
 
         Assert.True(result.IsSuccess);
         Assert.Equal((LeadStatus)1, result.Value!.Status);
@@ -24,7 +25,7 @@ public class CrmLeadTests
     [InlineData(null, "Doe")]
     public void Create_WithoutRequiredNames_Fails(string? firstName, string lastName)
     {
-        var result = CrmLead.Create(firstName!, lastName, (LeadSource)1, Guid.NewGuid());
+        Result<CrmLead> result = CrmLead.Create(firstName!, lastName, (LeadSource)1, Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.NameRequired, result.Error);
@@ -33,9 +34,9 @@ public class CrmLeadTests
     [Fact]
     public void ChangeStatus_ToNonConvertedValue_Succeeds()
     {
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
 
-        var result = lead.ChangeStatus((LeadStatus)2);
+        Result result = lead.ChangeStatus((LeadStatus)2);
 
         Assert.True(result.IsSuccess);
         Assert.Equal((LeadStatus)2, lead.Status);
@@ -45,9 +46,9 @@ public class CrmLeadTests
     public void ChangeStatus_ToConverted_IsRejected()
     {
         // Conversion happens only through Convert() so the client link is always set consistently.
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
 
-        var result = lead.ChangeStatus(LeadStatus.Converted);
+        Result result = lead.ChangeStatus(LeadStatus.Converted);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.InvalidStatusTransition, result.Error);
@@ -56,11 +57,11 @@ public class CrmLeadTests
     [Fact]
     public void Convert_WithValidClientId_Succeeds()
     {
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
         var clientId = Guid.NewGuid();
         var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var result = lead.Convert(clientId, now);
+        Result result = lead.Convert(clientId, now);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(LeadStatus.Converted, lead.Status);
@@ -73,9 +74,9 @@ public class CrmLeadTests
     {
         // The bug fixed on port: the backend's Convert() accepted any Guid, including Guid.Empty,
         // trusting the one caller to have checked first. The entity now rejects the cheap case itself.
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
 
-        var result = lead.Convert(Guid.Empty);
+        Result result = lead.Convert(Guid.Empty);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.InvalidClientId, result.Error);
@@ -86,10 +87,10 @@ public class CrmLeadTests
     [Fact]
     public void Convert_WhenAlreadyConverted_Fails()
     {
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
         Assert.True(lead.Convert(Guid.NewGuid()).IsSuccess);
 
-        var result = lead.Convert(Guid.NewGuid());
+        Result result = lead.Convert(Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.AlreadyConverted, result.Error);
@@ -98,10 +99,10 @@ public class CrmLeadTests
     [Fact]
     public void Update_WhenAlreadyConverted_Fails()
     {
-        var lead = CreateLead();
+        CrmLead lead = CreateLead();
         Assert.True(lead.Convert(Guid.NewGuid()).IsSuccess);
 
-        var result = lead.Update("A", "B", (LeadSource)2, Guid.NewGuid(), null, null, null);
+        Result result = lead.Update("A", "B", (LeadSource)2, Guid.NewGuid(), null, null, null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.AlreadyConverted, result.Error);

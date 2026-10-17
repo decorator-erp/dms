@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Meetings;
+using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -21,12 +22,12 @@ internal sealed class GetCrmMeetingSlotsByMeetingQueryHandler(CrmDbContext db)
     public async Task<Result<IReadOnlyList<CrmMeetingSlotResponse>>> HandleAsync(
         GetCrmMeetingSlotsByMeetingQuery query, CancellationToken ct = default)
     {
-        var slots = await db.CrmMeetingSlots.AsNoTracking()
+        List<CrmMeetingSlot> slots = await db.CrmMeetingSlots.AsNoTracking()
             .Where(s => s.MeetingId == query.MeetingId)
             .OrderBy(s => s.StartsAtUtc)
             .ToListAsync(ct);
 
-        List<CrmMeetingSlotResponse> items = slots.Select(MeetingSupport.ToSlotResponse).ToList();
+        var items = slots.Select(MeetingSupport.ToSlotResponse).ToList();
         return items;
     }
 }

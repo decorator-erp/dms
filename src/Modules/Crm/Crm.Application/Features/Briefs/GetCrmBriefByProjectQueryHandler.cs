@@ -12,9 +12,11 @@ internal sealed class GetCrmBriefByProjectQueryHandler(CrmDbContext db)
 {
     public async Task<Result<CrmDesignBriefResponse>> HandleAsync(GetCrmBriefByProjectQuery query, CancellationToken ct = default)
     {
-        var brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
         if (brief is null)
+        {
             return Result.Failure<CrmDesignBriefResponse>(CrmBriefErrors.NotFound);
+        }
 
         var data = new Contracts.Briefs.CrmBriefHeadData(
             CrmEnumMapping.ToContracts(brief.UnitType), CrmEnumMapping.ToContracts(brief.UnitCondition),

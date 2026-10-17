@@ -9,6 +9,7 @@ using Crm.Contracts.Meetings;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -27,17 +28,19 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var meetings = app.MapGroup("/api/crm/meetings").WithTags("Crm Meetings");
+        RouteGroupBuilder meetings = app.MapGroup("/api/crm/meetings").WithTags("Crm Meetings");
 
         meetings.MapPost("/propose", async (
             ProposeMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<ProposeCrmMeetingCommand, Guid> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(new ProposeCrmMeetingCommand(
+            Result<Guid> result = await handler.HandleAsync(new ProposeCrmMeetingCommand(
                 request.ProjectId, employeeId.Value, request.Title, request.Type, request.Slots,
                 request.PeriodId, request.Location, request.DurationMinutes), ct);
             return result.Match(
@@ -48,11 +51,13 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid slotId, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<AcceptCrmMeetingSlotCommand> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, employeeId.Value, null), ct);
+            Result result = await handler.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, employeeId.Value, null), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondSlot);
 
@@ -60,11 +65,13 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid slotId, DeclineSlotRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<DeclineCrmMeetingSlotCommand> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new DeclineCrmMeetingSlotCommand(slotId, employeeId.Value, null, request.CounterSlots), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondSlot);
@@ -73,11 +80,13 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid meetingId, RescheduleMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<RescheduleCrmMeetingCommand> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(new RescheduleCrmMeetingCommand(
+            Result result = await handler.HandleAsync(new RescheduleCrmMeetingCommand(
                 meetingId, employeeId.Value, null, request.StartsAtUtc, request.EndsAtUtc), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Reschedule);
@@ -86,11 +95,13 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid meetingId, CancelMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<CancelCrmMeetingCommand> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new CancelCrmMeetingCommand(meetingId, employeeId.Value, null, request.Reason), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Cancel);
@@ -98,21 +109,21 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
         meetings.MapPut("/{meetingId:guid}/complete", async (
             Guid meetingId, ICommandHandler<CompleteCrmMeetingCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CompleteCrmMeetingCommand(meetingId), ct);
+            Result result = await handler.HandleAsync(new CompleteCrmMeetingCommand(meetingId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Complete);
 
         meetings.MapPut("/{meetingId:guid}/no-show", async (
             Guid meetingId, ICommandHandler<MarkCrmMeetingNoShowCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new MarkCrmMeetingNoShowCommand(meetingId), ct);
+            Result result = await handler.HandleAsync(new MarkCrmMeetingNoShowCommand(meetingId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.MarkNoShow);
 
         meetings.MapGet("/{meetingId:guid}", async (
             Guid meetingId, IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmMeetingByIdQuery(meetingId), ct);
+            Result<CrmMeetingResponse> result = await handler.HandleAsync(new GetCrmMeetingByIdQuery(meetingId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Read);
 
@@ -120,7 +131,7 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid projectId, int pageNumber, int pageSize,
             IQueryHandler<GetCrmMeetingsByProjectQuery, PagedResult<CrmMeetingResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmMeetingsByProjectQuery(projectId, pageNumber, pageSize), ct);
+            Result<PagedResult<CrmMeetingResponse>> result = await handler.HandleAsync(new GetCrmMeetingsByProjectQuery(projectId, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Read);
 
@@ -128,7 +139,7 @@ internal sealed class CrmMeetingEndpoints : IEndpoint
             Guid projectId, DateTime fromUtc, DateTime toUtc,
             IQueryHandler<GetFreeMeetingSlotsQuery, IReadOnlyList<FreeSlotResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetFreeMeetingSlotsQuery(projectId, fromUtc, toUtc), ct);
+            Result<IReadOnlyList<FreeSlotResponse>> result = await handler.HandleAsync(new GetFreeMeetingSlotsQuery(projectId, fromUtc, toUtc), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.Read);
     }

@@ -52,9 +52,14 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
     public Result Update(CrmLeadIntakeData data)
     {
         if (data.DesignerExperience is not null && data.UsedDesignerBefore != true)
+        {
             return CrmLeadErrors.DesignerExperienceWithoutUse;
+        }
+
         if (data.DesignerExperienceReason is not null && data.DesignerExperience is null)
+        {
             return CrmLeadErrors.ExperienceReasonWithoutExperience;
+        }
 
         Apply(data);
         return Result.Success();

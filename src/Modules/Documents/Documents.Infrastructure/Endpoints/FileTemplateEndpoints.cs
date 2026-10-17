@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Documents.Infrastructure.Endpoints;
 
@@ -18,17 +19,19 @@ internal sealed class FileTemplateEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var templates = app.MapGroup("/api/file-templates").WithTags("FileTemplates");
+        RouteGroupBuilder templates = app.MapGroup("/api/file-templates").WithTags("FileTemplates");
 
         templates.MapPost("/", async (
             IFormFile file, [FromForm] string name, [FromForm] string category, [FromForm] string? description,
             ICommandHandler<CreateFileTemplateCommand, Guid> handler, CancellationToken ct) =>
         {
             if (file is null || file.Length == 0)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "A non-empty file is required.");
+            }
 
-            await using var stream = file.OpenReadStream();
-            var result = await handler.HandleAsync(new CreateFileTemplateCommand(
+            await using Stream stream = file.OpenReadStream();
+            Result<Guid> result = await handler.HandleAsync(new CreateFileTemplateCommand(
                 name, category, stream, file.FileName, file.ContentType, file.Length, description), ct);
             return result.Match(id => Results.Ok(new { FileTemplateId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesManage).DisableAntiforgery();
@@ -36,14 +39,14 @@ internal sealed class FileTemplateEndpoints : IEndpoint
         templates.MapGet("/", async (
             string? category, IQueryHandler<GetFileTemplatesQuery, IReadOnlyList<FileTemplateResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetFileTemplatesQuery(category), ct);
+            Result<IReadOnlyList<FileTemplateResponse>> result = await handler.HandleAsync(new GetFileTemplatesQuery(category), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesRead);
 
         templates.MapGet("/{fileTemplateId:guid}", async (
             Guid fileTemplateId, IQueryHandler<GetFileTemplateByIdQuery, FileTemplateResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetFileTemplateByIdQuery(fileTemplateId), ct);
+            Result<FileTemplateResponse> result = await handler.HandleAsync(new GetFileTemplateByIdQuery(fileTemplateId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesRead);
 
@@ -51,7 +54,7 @@ internal sealed class FileTemplateEndpoints : IEndpoint
             Guid fileTemplateId, UpdateFileTemplateRequest request, ICommandHandler<UpdateFileTemplateCommand> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateFileTemplateCommand(fileTemplateId, request.Name, request.Category, request.Description), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesManage);
@@ -59,21 +62,21 @@ internal sealed class FileTemplateEndpoints : IEndpoint
         templates.MapDelete("/{fileTemplateId:guid}", async (
             Guid fileTemplateId, ICommandHandler<DeleteFileTemplateCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteFileTemplateCommand(fileTemplateId), ct);
+            Result result = await handler.HandleAsync(new DeleteFileTemplateCommand(fileTemplateId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesManage);
 
         templates.MapPost("/{fileTemplateId:guid}/activate", async (
             Guid fileTemplateId, ICommandHandler<ActivateFileTemplateCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new ActivateFileTemplateCommand(fileTemplateId), ct);
+            Result result = await handler.HandleAsync(new ActivateFileTemplateCommand(fileTemplateId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesManage);
 
         templates.MapPost("/{fileTemplateId:guid}/deactivate", async (
             Guid fileTemplateId, ICommandHandler<DeactivateFileTemplateCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeactivateFileTemplateCommand(fileTemplateId), ct);
+            Result result = await handler.HandleAsync(new DeactivateFileTemplateCommand(fileTemplateId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.FileTemplatesManage);
     }

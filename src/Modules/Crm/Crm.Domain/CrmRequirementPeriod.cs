@@ -24,7 +24,9 @@ internal sealed class CrmRequirementPeriod : Entity, IAuditable
         Guid projectId, Guid? projectStageId, DateTime closesAtUtc, Guid openedById, DateTime? nowUtc = null)
     {
         if (closesAtUtc <= (nowUtc ?? DateTime.UtcNow))
+        {
             return CrmPeriodErrors.InvalidCloseTime;
+        }
 
         return new CrmRequirementPeriod
         {
@@ -40,10 +42,14 @@ internal sealed class CrmRequirementPeriod : Entity, IAuditable
     public Result Extend(DateTime newClosesAtUtc, DateTime? nowUtc = null)
     {
         if (Status != RequirementPeriodStatus.Open)
+        {
             return CrmPeriodErrors.NotOpen;
+        }
 
         if (newClosesAtUtc <= (nowUtc ?? DateTime.UtcNow))
+        {
             return CrmPeriodErrors.InvalidCloseTime;
+        }
 
         ClosesAtUtc = newClosesAtUtc;
         return Result.Success();
@@ -52,7 +58,9 @@ internal sealed class CrmRequirementPeriod : Entity, IAuditable
     public Result Close(DateTime nowUtc)
     {
         if (Status != RequirementPeriodStatus.Open)
+        {
             return CrmPeriodErrors.NotOpen;
+        }
 
         Status = RequirementPeriodStatus.Closed;
         ClosedAtUtc = nowUtc;
@@ -63,10 +71,14 @@ internal sealed class CrmRequirementPeriod : Entity, IAuditable
     public Result MarkCloseNotified(DateTime nowUtc)
     {
         if (Status != RequirementPeriodStatus.Closed)
+        {
             return CrmPeriodErrors.NotOpen;
+        }
 
         if (CloseNotifiedAtUtc is not null)
+        {
             return Result.Success();
+        }
 
         CloseNotifiedAtUtc = nowUtc;
         return Result.Success();

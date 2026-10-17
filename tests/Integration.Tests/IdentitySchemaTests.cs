@@ -22,14 +22,16 @@ public sealed class IdentitySchemaTests(ApiFixture fixture)
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
 
-        await using var command = connection.CreateCommand();
+        await using NpgsqlCommand command = connection.CreateCommand();
         command.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'identity';";
 
         var actual = new HashSet<string>();
-        await using (var reader = await command.ExecuteReaderAsync())
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync())
         {
             while (await reader.ReadAsync())
+            {
                 actual.Add(reader.GetString(0));
+            }
         }
 
         Assert.Equal(ExpectedTables, actual);

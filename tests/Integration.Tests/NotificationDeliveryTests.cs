@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using Identity.Contracts.Auth;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,15 +30,15 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
     [Fact]
     public async Task OneReminderToThreeRecipients_WritesThreeRows_AndReRunningWritesNone()
     {
-        var recipients = await Task.WhenAll(
+        string[] recipients = await Task.WhenAll(
             RegisterUserAsync("fanout-a"), RegisterUserAsync("fanout-b"), RegisterUserAsync("fanout-c"));
-        var dedupeKey = $"task-{Guid.NewGuid():N}-due--1d";
+        string dedupeKey = $"task-{Guid.NewGuid():N}-due--1d";
 
         await NotifyAsync(recipients, dedupeKey);
-        var afterFirstRun = await CountNotificationsAsync(recipients);
+        int afterFirstRun = await CountNotificationsAsync(recipients);
 
         await NotifyAsync(recipients, dedupeKey);
-        var afterSecondRun = await CountNotificationsAsync(recipients);
+        int afterSecondRun = await CountNotificationsAsync(recipients);
 
         Assert.Equal(3, afterFirstRun);
         Assert.Equal(afterFirstRun, afterSecondRun);
@@ -54,9 +53,9 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
     [Fact]
     public async Task TheSameLogicalKey_ReachesEveryRecipientSeparately()
     {
-        var first = await RegisterUserAsync("scope-a");
-        var second = await RegisterUserAsync("scope-b");
-        var dedupeKey = $"stage-{Guid.NewGuid():N}-due-0d";
+        string first = await RegisterUserAsync("scope-a");
+        string second = await RegisterUserAsync("scope-b");
+        string dedupeKey = $"stage-{Guid.NewGuid():N}-due-0d";
 
         await NotifyAsync([first], dedupeKey);
         await NotifyAsync([second], dedupeKey);
@@ -73,7 +72,7 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
     [Fact]
     public async Task NotificationsWithoutADedupeKey_AreNeverDeduplicated()
     {
-        var recipient = await RegisterUserAsync("unkeyed");
+        string recipient = await RegisterUserAsync("unkeyed");
 
         await NotifyAsync([recipient], dedupeKey: null);
         await NotifyAsync([recipient], dedupeKey: null);
@@ -94,12 +93,12 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
     [Fact]
     public async Task HubNegotiate_AcceptsTheQueryStringToken_AndRejectsAnUnauthenticatedRequest()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString());
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString());
 
-        var withToken = await client.PostAsync(
+        HttpResponseMessage withToken = await client.PostAsync(
             $"/hubs/notifications/negotiate?negotiateVersion=1&access_token={token}", null);
-        var withoutToken = await client.PostAsync("/hubs/notifications/negotiate?negotiateVersion=1", null);
+        HttpResponseMessage withoutToken = await client.PostAsync("/hubs/notifications/negotiate?negotiateVersion=1", null);
 
         Assert.Equal(HttpStatusCode.OK, withToken.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, withoutToken.StatusCode);
@@ -121,11 +120,11 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
     [Fact]
     public async Task AConnectedClient_ReceivesItsOwnPush_AndNotAnotherUsersReceives()
     {
-        var mine = await RegisterUserAsync("push-mine");
-        var theirs = await RegisterUserAsync("push-theirs");
+        string mine = await RegisterUserAsync("push-mine");
+        string theirs = await RegisterUserAsync("push-theirs");
 
-        await using var myConnection = BuildConnection(mine);
-        await using var theirConnection = BuildConnection(theirs);
+        await using HubConnection myConnection = BuildConnection(mine);
+        await using HubConnection theirConnection = BuildConnection(theirs);
 
         var myPush = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var theirPush = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -138,13 +137,13 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
 
         await NotifyAsync([mine], dedupeKey: null);
 
-        var delivered = await Task.WhenAny(myPush.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+        Task delivered = await Task.WhenAny(myPush.Task, Task.Delay(TimeSpan.FromSeconds(10)));
         Assert.Same(myPush.Task, delivered);
 
         // The other user's connection is live and joined its own group; it simply is not a member of
         // the group this notification targeted. A short wait, because proving a NEGATIVE needs the
         // message to have had time to arrive if it were going to.
-        var leaked = await Task.WhenAny(theirPush.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        Task leaked = await Task.WhenAny(theirPush.Task, Task.Delay(TimeSpan.FromSeconds(2)));
         Assert.NotSame(theirPush.Task, leaked);
     }
 
@@ -158,20 +157,13 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
             })
             .Build();
 
-    private async Task<string> RegisterUserAsync(string prefix)
-    {
-        var client = fixture.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"{prefix}-{Guid.NewGuid():N}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        return (await response.Content.ReadFromJsonAsync<RegisterResponse>())!.UserId;
-    }
+    private Task<string> RegisterUserAsync(string prefix) =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(fixture, $"{prefix}-{Guid.NewGuid():N}@example.com");
 
     private async Task NotifyAsync(IReadOnlyCollection<string> recipients, string? dedupeKey)
     {
-        await using var scope = fixture.Services.CreateAsyncScope();
-        var notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
+        INotificationService notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
         await notifications.NotifyManyAsync(
             recipients,

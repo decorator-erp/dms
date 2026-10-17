@@ -7,54 +7,44 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Hr.Contracts;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using SharedKernel;
 using Xunit;
 
 namespace Integration.Tests;
 
 /// <summary>
-/// G3-01: register a user (Identity) → create an employee referencing that user (HR) → assert
-/// <see cref="IHrDirectory.ResolveEmployeeIdAsync"/> returns the employee id, and that HR issued no SQL
-/// against the <c>identity</c> schema. Runs through the REAL composition root
+/// G3-01: hire an employee (HR, which provisions their Identity login as part of the same command) →
+/// assert <see cref="IHrDirectory.ResolveEmployeeIdAsync"/> returns the employee id, and that HR issued
+/// no SQL against the <c>identity</c> schema. Runs through the REAL composition root
 /// (<see cref="ApiFixture"/>'s <c>WebApplicationFactory&lt;Program&gt;</c>), resolving the public
 /// command handlers and <see cref="IHrDirectory"/> directly from its <c>Services</c> — every type
-/// touched here (<c>RegisterCommand</c>, <c>CreateEmployeeCommand</c>, <c>IHrDirectory</c>) is public in
-/// its module's <c>*.Contracts</c> project, so no <c>InternalsVisibleTo</c> grant is needed to reach any
-/// of it, which is itself part of what this test is proving.
+/// touched here (<c>CreateEmployeeCommand</c>, <c>IUserProvisioning</c>, <c>IHrDirectory</c>) is public
+/// in its module's <c>*.Contracts</c> project, so no <c>InternalsVisibleTo</c> grant is needed to reach
+/// any of it, which is itself part of what this test is proving.
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class CrossModuleSmokeTests(ApiFixture fixture)
 {
     [Fact]
-    public async Task Register_then_create_employee_resolves_through_IHrDirectory_with_no_identity_sql()
+    public async Task Hire_employee_resolves_through_IHrDirectory_with_no_identity_sql()
     {
-        using var scope = fixture.Services.CreateScope();
-        var sp = scope.ServiceProvider;
+        using IServiceScope scope = fixture.Services.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var suffix = Guid.NewGuid().ToString("N");
-        var email = $"smoke-{suffix}@example.com";
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
-        var registerResult = await register.HandleAsync(
-            new RegisterCommand(new RegisterRequest(email, "P@ssw0rd123!", "Test", "User", null, "employee")));
-        Assert.True(registerResult.IsSuccess);
-        var appUserId = registerResult.Value!;
+        (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, $"smoke-{suffix}@example.com");
 
-        var createEmployee = sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>();
-        var createResult = await createEmployee.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Engineer", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-        Assert.True(createResult.IsSuccess);
-        var employeeId = createResult.Value;
-
-        // Only the resolve call itself is under observation - registration and employee creation
-        // legitimately touch identity (Register writes it directly; CreateEmployee validates AppUserId
-        // via IUserDirectory) and would make this assertion meaningless if included.
+        // Only the resolve call itself is under observation - hiring legitimately touches identity (it
+        // provisions the login through IUserProvisioning) and would make this assertion meaningless if
+        // included.
         fixture.ClearCapturedSql();
 
-        var hrDirectory = sp.GetRequiredService<IHrDirectory>();
-        var resolvedId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, CancellationToken.None);
+        IHrDirectory hrDirectory = sp.GetRequiredService<IHrDirectory>();
+        Guid? resolvedId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, CancellationToken.None);
 
         Assert.Equal(employeeId, resolvedId);
 
@@ -80,43 +70,32 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task Approval_gate_flow_spans_all_four_modules_end_to_end()
     {
-        var client = fixture.CreateClient();
-        var suffix = Guid.NewGuid().ToString("N");
+        HttpClient client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"g6-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-        var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+        (_, string appUserId) = await HrTestSeeding.HireEmployeeOverHttpAsync(
+            fixture, $"g6-{suffix}@example.com");
 
-        var token = fixture.IssueTestToken(
+        string token = fixture.IssueTestToken(
             appUserId, "employees.create", "stages.manage", "project.create", "project.read_all",
             "stage_tasks.read", "stage_tasks.manage_gates", "approvals.decide");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
-        {
-            AppUserId = appUserId,
-            JobTitle = "Engineer",
-            HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            ContractType = "FullTime",
-        });
-        Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
+        HttpResponseMessage templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
+        Guid templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
 
-        var templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
-        var templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
-
-        var stageResponse = await client.PostAsJsonAsync(
+        HttpResponseMessage stageResponse = await client.PostAsJsonAsync(
             $"/api/stage-templates/{templateId}/stages",
             new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
-        var stageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
+        Guid stageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
 
-        var taskResponse = await client.PostAsJsonAsync(
+        HttpResponseMessage taskResponse = await client.PostAsJsonAsync(
             $"/api/stages/{stageId}/tasks",
             new { Name = "Needs Approval", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
         Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
 
-        var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
-        var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+        Guid clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
+        HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"P-{suffix}",
             Name = "G6 Smoke",
@@ -126,12 +105,12 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
-        var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+        Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-        var tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
-        var taskId = Assert.Single(tasks!).Id;
+        List<ProjectTaskBody>? tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
+        Guid taskId = Assert.Single(tasks!).Id;
 
-        var createGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
+        HttpResponseMessage createGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
         {
             ConditionType = 3, // Approval
             Trigger = 1, // Unlock
@@ -142,22 +121,22 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         });
         Assert.Equal(HttpStatusCode.OK, createGateResponse.StatusCode);
 
-        var gates = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates")).Content.ReadFromJsonAsync<List<GateBody>>();
-        var gate = Assert.Single(gates!);
+        List<GateBody>? gates = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates")).Content.ReadFromJsonAsync<List<GateBody>>();
+        GateBody gate = Assert.Single(gates!);
         Assert.NotNull(gate.ApprovalId);
         Assert.Equal(1, gate.Status); // Pending
 
-        var decideResponse = await client.PutAsJsonAsync(
+        HttpResponseMessage decideResponse = await client.PutAsJsonAsync(
             $"/api/approvals/{gate.ApprovalId}/decide", new { Decision = 1, Comment = (string?)null }); // Approved
         Assert.Equal(HttpStatusCode.NoContent, decideResponse.StatusCode);
 
-        var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
         await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
 
-        var gatesAfter = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates")).Content.ReadFromJsonAsync<List<GateBody>>();
+        List<GateBody>? gatesAfter = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates")).Content.ReadFromJsonAsync<List<GateBody>>();
         Assert.Equal(2, Assert.Single(gatesAfter!).Status); // Satisfied
 
-        var tasksAfter = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
+        List<ProjectTaskBody>? tasksAfter = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
         Assert.Equal(2, Assert.Single(tasksAfter!).Status); // Open (was Locked while the gate was pending)
     }
 
@@ -184,45 +163,33 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
 
         async Task RunFlowAsync()
         {
-            var client = fixture.CreateClient();
-            var suffix = Guid.NewGuid().ToString("N");
+            HttpClient client = fixture.CreateClient();
+            string suffix = Guid.NewGuid().ToString("N");
 
-            var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-                $"g7-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-            Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-            var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+            (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeOverHttpAsync(
+                fixture, $"g7-{suffix}@example.com");
 
-            var token = fixture.IssueTestToken(
+            string token = fixture.IssueTestToken(
                 appUserId, "employees.create", "stages.manage", "project.create", "project.read_all",
                 "stage_tasks.read", "stage_tasks.manage_gates", "approvals.decide",
                 "documents.upload", "documents.read", "documents.update");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
-            {
-                AppUserId = appUserId,
-                JobTitle = "Engineer",
-                HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                ContractType = "FullTime",
-            });
-            Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
-            var employeeId = (await employeeResponse.Content.ReadFromJsonAsync<EmployeeIdBody>())!.EmployeeId;
+            HttpResponseMessage templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
+            Guid templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
 
-            var templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
-            var templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
-
-            var stageResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage stageResponse = await client.PostAsJsonAsync(
                 $"/api/stage-templates/{templateId}/stages",
                 new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
-            var stageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
+            Guid stageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
 
-            var taskResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage taskResponse = await client.PostAsJsonAsync(
                 $"/api/stages/{stageId}/tasks",
                 new { Name = "Needs Doc", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
             Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
 
-            var clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
-            var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+            Guid clientId = await CrmTestSeeding.SeedClientAsync(fixture.ConnectionString, appUserId);
+            HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
             {
                 Code = $"P-{suffix}",
                 Name = "G7 Smoke",
@@ -232,19 +199,19 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 StageTemplateId = templateId,
             });
             Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
-            var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+            Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-            var tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
-            var taskId = Assert.Single(tasks!).Id;
+            List<ProjectTaskBody>? tasks = await (await client.GetAsync($"/api/projects/{projectId}/tasks")).Content.ReadFromJsonAsync<List<ProjectTaskBody>>();
+            Guid taskId = Assert.Single(tasks!).Id;
 
             // Folder tree - a task-scoped folder, so the upload below can pass its id and match scope.
-            var folderResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage folderResponse = await client.PostAsJsonAsync(
                 $"/api/project-tasks/{taskId}/document-folders", new { Name = "Drawings", ParentFolderId = (Guid?)null });
             Assert.Equal(HttpStatusCode.OK, folderResponse.StatusCode);
-            var folderId = (await folderResponse.Content.ReadFromJsonAsync<FolderIdBody>())!.FolderId;
+            Guid folderId = (await folderResponse.Content.ReadFromJsonAsync<FolderIdBody>())!.FolderId;
 
             // Attachment gate, created BEFORE the upload it must be satisfied by.
-            var attachmentGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
+            HttpResponseMessage attachmentGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
             {
                 ConditionType = 5, // Attachment
                 Trigger = 1, // Unlock
@@ -255,33 +222,33 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 ReferencedDocumentId = (Guid?)null,
             });
             Assert.Equal(HttpStatusCode.OK, attachmentGateResponse.StatusCode);
-            var attachmentGateId = (await attachmentGateResponse.Content.ReadFromJsonAsync<GateIdBody>())!.GateConditionId;
+            Guid attachmentGateId = (await attachmentGateResponse.Content.ReadFromJsonAsync<GateIdBody>())!.GateConditionId;
 
             // Upload - through real multipart form content, not a JSON body.
-            var documentId = await UploadAsync(client, $"/api/project-tasks/{taskId}/documents", "v1 contents", folderId);
+            Guid documentId = await UploadAsync(client, $"/api/project-tasks/{taskId}/documents", "v1 contents", folderId);
 
-            var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+            OutboxProcessor outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
 
-            var gatesAfterUpload = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates"))
+            List<GateBody>? gatesAfterUpload = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates"))
                 .Content.ReadFromJsonAsync<List<GateBody>>();
             Assert.Equal(2, gatesAfterUpload!.Single(g => g.Id == attachmentGateId).Status); // Satisfied
 
             // Revision - a new lineage row, its own id.
-            var revisionId = await UploadRevisionAsync(client, documentId, "v2 contents");
+            Guid revisionId = await UploadRevisionAsync(client, documentId, "v2 contents");
 
             // Download - the REVISION's bytes, not v1's.
-            var downloadResponse = await client.GetAsync($"/api/project-documents/{revisionId}/download");
+            HttpResponseMessage downloadResponse = await client.GetAsync($"/api/project-documents/{revisionId}/download");
             Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
-            var downloaded = await downloadResponse.Content.ReadAsStringAsync();
+            string downloaded = await downloadResponse.Content.ReadAsStringAsync();
             Assert.Equal("v2 contents", downloaded);
 
-            var revisionDetail = await (await client.GetAsync($"/api/project-documents/{revisionId}"))
+            DocumentDetailBody? revisionDetail = await (await client.GetAsync($"/api/project-documents/{revisionId}"))
                 .Content.ReadFromJsonAsync<DocumentDetailBody>();
-            var rootDocumentId = revisionDetail!.RootDocumentId;
+            Guid rootDocumentId = revisionDetail!.RootDocumentId;
 
             // DocumentApproved gate, created BEFORE the review decision it must be satisfied by.
-            var documentApprovedGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
+            HttpResponseMessage documentApprovedGateResponse = await client.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates", new
             {
                 ConditionType = 10, // DocumentApproved
                 Trigger = 1, // Unlock
@@ -292,15 +259,15 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 ReferencedDocumentId = rootDocumentId,
             });
             Assert.Equal(HttpStatusCode.OK, documentApprovedGateResponse.StatusCode);
-            var documentApprovedGateId = (await documentApprovedGateResponse.Content.ReadFromJsonAsync<GateIdBody>())!.GateConditionId;
+            Guid documentApprovedGateId = (await documentApprovedGateResponse.Content.ReadFromJsonAsync<GateIdBody>())!.GateConditionId;
 
             // Document approval - self-review (same employee as uploader/approver), one actor throughout.
-            var requestReviewResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage requestReviewResponse = await client.PostAsJsonAsync(
                 $"/api/project-documents/{revisionId}/request-review", new { ApproverEmployeeId = employeeId });
             Assert.Equal(HttpStatusCode.OK, requestReviewResponse.StatusCode);
-            var approvalId = (await requestReviewResponse.Content.ReadFromJsonAsync<ApprovalIdBody>())!.ApprovalId;
+            Guid approvalId = (await requestReviewResponse.Content.ReadFromJsonAsync<ApprovalIdBody>())!.ApprovalId;
 
-            var decideResponse = await client.PutAsJsonAsync(
+            HttpResponseMessage decideResponse = await client.PutAsJsonAsync(
                 $"/api/approvals/{approvalId}/decide", new { Decision = 1, Comment = (string?)null }); // Approved
             Assert.Equal(HttpStatusCode.NoContent, decideResponse.StatusCode);
 
@@ -310,11 +277,11 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
 
-            var lockedDocument = await (await client.GetAsync($"/api/project-documents/{revisionId}"))
+            DocumentDetailBody? lockedDocument = await (await client.GetAsync($"/api/project-documents/{revisionId}"))
                 .Content.ReadFromJsonAsync<DocumentDetailBody>();
             Assert.True(lockedDocument!.IsLocked);
 
-            var gatesAfterApproval = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates"))
+            List<GateBody>? gatesAfterApproval = await (await client.GetAsync($"/api/projects/{projectId}/tasks/{taskId}/gates"))
                 .Content.ReadFromJsonAsync<List<GateBody>>();
             Assert.Equal(2, gatesAfterApproval!.Single(g => g.Id == documentApprovedGateId).Status); // Satisfied
         }
@@ -345,53 +312,52 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
 
         async Task RunFlowAsync()
         {
-            var client = fixture.CreateClient();
-            var suffix = Guid.NewGuid().ToString("N");
+            HttpClient client = fixture.CreateClient();
+            string suffix = Guid.NewGuid().ToString("N");
 
-            var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-                $"g9-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-            Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-            var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+            (_, string appUserId) = await HrTestSeeding.HireEmployeeOverHttpAsync(
+                fixture, $"g9-{suffix}@example.com");
 
-            var token = fixture.IssueTestToken(
+            string token = fixture.IssueTestToken(
                 appUserId, "employees.create", "stages.read", "stages.manage", "stages.manage_gates", "project.create",
-                "project.read_all", "stage_tasks.read", "clients.create", "crm.briefs.manage", "crm.briefs.send",
+                "project.read_all", "stage_tasks.read", "clients.create", "clients.read",
+                "crm.briefs.manage", "crm.briefs.send",
                 "crm.items.create", "crm.items.send", "crm.periods.open", "crm.periods.close",
                 "approvals.decide", "approvals.read",
                 "crm.meetings.schedule", "crm.meetings.reschedule", "crm.meetings.cancel", "crm.meetings.read");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
-            {
-                AppUserId = appUserId,
-                JobTitle = "Engineer",
-                HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                ContractType = "FullTime",
-            });
-            Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
-
-            var clientResponse = await client.PostAsJsonAsync("/api/clients", new
-            {
-                AppUserId = appUserId,
-                Address = "1 Client Rd",
-            });
+            HttpResponseMessage clientResponse = await client.PostAsJsonAsync(
+                "/api/clients", ClientRequests.NewClientBody("portal"));
             Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
-            var clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
+            Guid clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
 
-            var templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
-            var templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
+            // The client is a DIFFERENT person from the employee driving this flow - creating a client
+            // provisions their own portal login now, where the caller used to hand in an AppUserId and
+            // routinely handed in their own. That matters below: every CrmBrief/BriefSpace/
+            // RequirementItem approval names the CLIENT as its sole approver
+            // (SendCrmBriefCommandHandler's ApproverSpec), so the client-review decisions have to be
+            // made with the client's own token. The employee's token is legitimately Forbidden for
+            // them - it only ever worked because the two identities used to be the same row.
+            string clientAppUserId = (await client.GetFromJsonAsync<ClientAppUserBody>($"/api/clients/{clientId}"))!.AppUserId;
+            HttpClient portalClient = fixture.CreateClient();
+            portalClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer", fixture.IssueTestToken(clientAppUserId, "approvals.decide", "approvals.read"));
 
-            var stageResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
+            Guid templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
+
+            HttpResponseMessage stageResponse = await client.PostAsJsonAsync(
                 $"/api/stage-templates/{templateId}/stages",
                 new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
-            var templateStageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
+            Guid templateStageId = (await stageResponse.Content.ReadFromJsonAsync<StageIdBody>())!.StageId;
 
-            var taskResponse = await client.PostAsJsonAsync(
+            HttpResponseMessage taskResponse = await client.PostAsJsonAsync(
                 $"/api/stages/{templateStageId}/tasks",
                 new { Name = "Needs Gathering", Order = 1, Weight = 1.00m, Description = (string?)null, DepartmentId = (Guid?)null });
             Assert.Equal(HttpStatusCode.OK, taskResponse.StatusCode);
 
-            var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+            HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
             {
                 Code = $"P-{suffix}",
                 Name = "G9 Smoke",
@@ -401,12 +367,12 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 StageTemplateId = templateId,
             });
             Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
-            var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+            Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-            var stagesResponse = await client.GetAsync($"/api/projects/{projectId}/stages");
+            HttpResponseMessage stagesResponse = await client.GetAsync($"/api/projects/{projectId}/stages");
             Assert.Equal(HttpStatusCode.OK, stagesResponse.StatusCode);
-            var stages = await stagesResponse.Content.ReadFromJsonAsync<List<ProjectStageBody>>();
-            var stageId = Assert.Single(stages!).Id;
+            List<ProjectStageBody>? stages = await stagesResponse.Content.ReadFromJsonAsync<List<ProjectStageBody>>();
+            Guid stageId = Assert.Single(stages!).Id;
 
             // --- M1-02: the Meetings spine step ("lead -> convert to client -> meeting scheduled ->
             // design brief -> ...") - propose/reschedule/cancel through the real HTTP surface, proving
@@ -416,7 +382,7 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             // registered as both the employee and the client above, and CrmAccessGuard always resolves
             // the employee branch first) - that accept/schedule/outbox path is covered end-to-end by
             // Crm.Application.Tests.MeetingFlowTests instead, with a second, separate identity.
-            var proposeMeetingResponse = await client.PostAsJsonAsync("/api/crm/meetings/propose", new
+            HttpResponseMessage proposeMeetingResponse = await client.PostAsJsonAsync("/api/crm/meetings/propose", new
             {
                 ProjectId = projectId,
                 Title = "Kickoff",
@@ -424,52 +390,52 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 Slots = new[] { new { StartsAtUtc = DateTime.UtcNow.AddDays(1), EndsAtUtc = DateTime.UtcNow.AddDays(1).AddHours(1) } },
             });
             Assert.Equal(HttpStatusCode.Created, proposeMeetingResponse.StatusCode);
-            var meetingId = (await proposeMeetingResponse.Content.ReadFromJsonAsync<MeetingIdBody>())!.MeetingId;
+            Guid meetingId = (await proposeMeetingResponse.Content.ReadFromJsonAsync<MeetingIdBody>())!.MeetingId;
 
-            var getMeetingResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            HttpResponseMessage getMeetingResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
             Assert.Equal(HttpStatusCode.OK, getMeetingResponse.StatusCode);
-            var meeting = await getMeetingResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            CrmMeetingStatusBody? meeting = await getMeetingResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
             Assert.Equal("Kickoff", meeting!.Title);
             Assert.Equal(1, meeting.Status); // Requested
 
-            var newStart = DateTime.UtcNow.AddDays(3);
-            var rescheduleResponse = await client.PutAsJsonAsync($"/api/crm/meetings/{meetingId}/reschedule", new
+            DateTime newStart = DateTime.UtcNow.AddDays(3);
+            HttpResponseMessage rescheduleResponse = await client.PutAsJsonAsync($"/api/crm/meetings/{meetingId}/reschedule", new
             {
                 StartsAtUtc = newStart,
                 EndsAtUtc = newStart.AddHours(1),
             });
             Assert.Equal(HttpStatusCode.NoContent, rescheduleResponse.StatusCode);
 
-            var afterRescheduleResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
-            var rescheduled = await afterRescheduleResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            HttpResponseMessage afterRescheduleResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            CrmMeetingStatusBody? rescheduled = await afterRescheduleResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
             Assert.Equal(3, rescheduled!.Status); // Rescheduled
 
-            var cancelResponse = await client.PutAsJsonAsync(
+            HttpResponseMessage cancelResponse = await client.PutAsJsonAsync(
                 $"/api/crm/meetings/{meetingId}/cancel", new { Reason = "smoke test done" });
             Assert.Equal(HttpStatusCode.NoContent, cancelResponse.StatusCode);
 
-            var afterCancelResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
-            var canceled = await afterCancelResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
+            HttpResponseMessage afterCancelResponse = await client.GetAsync($"/api/crm/meetings/{meetingId}");
+            CrmMeetingStatusBody? canceled = await afterCancelResponse.Content.ReadFromJsonAsync<CrmMeetingStatusBody>();
             Assert.Equal(5, canceled!.Status); // Canceled
 
-            var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+            OutboxProcessor outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
 
             // --- CrmBriefApproved: create the stage gate BEFORE the brief it must be satisfied by. ---
-            var briefGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 8, label: "Needs brief approval");
+            Guid briefGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 8, label: "Needs brief approval");
 
-            var briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
+            HttpResponseMessage briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
             {
                 ProjectStageId = stageId,
                 Data = new { UnitType = 1, UnitCondition = 1 },
             });
             Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);
-            var briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
+            Guid briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
 
-            var sendBriefResponse = await client.PutAsync($"/api/crm/briefs/{briefId}/send", content: null);
+            HttpResponseMessage sendBriefResponse = await client.PutAsync($"/api/crm/briefs/{briefId}/send", content: null);
             Assert.Equal(HttpStatusCode.NoContent, sendBriefResponse.StatusCode);
 
-            var briefApprovalId = await FindApprovalIdAsync(client, subjectType: "DesignBrief", subjectId: briefId);
-            await DecideApprovalAsync(client, briefApprovalId);
+            Guid briefApprovalId = await FindApprovalIdAsync(client, subjectType: "DesignBrief", subjectId: briefId);
+            await DecideApprovalAsync(portalClient, briefApprovalId);
 
             // ApprovalDecidedIntegrationEvent -> CRM marks the brief Approved and enqueues
             // CrmBriefApprovedIntegrationEvent -> Projects satisfies the gate: two real hops.
@@ -479,17 +445,17 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             Assert.Equal(2, await GetGateStatusAsync(client, projectId, stageId, briefGateId)); // Satisfied
 
             // --- CrmItemsResolved: same two-hop shape, off a requirement item instead of a brief. ---
-            var itemsGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 9, label: "Needs items resolved");
+            Guid itemsGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 9, label: "Needs items resolved");
 
-            var periodResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/periods", new
+            HttpResponseMessage periodResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/periods", new
             {
                 ProjectStageId = stageId,
                 ClosesAtUtc = DateTime.UtcNow.AddDays(7),
             });
             Assert.Equal(HttpStatusCode.Created, periodResponse.StatusCode);
-            var periodId = (await periodResponse.Content.ReadFromJsonAsync<PeriodIdBody>())!.PeriodId;
+            Guid periodId = (await periodResponse.Content.ReadFromJsonAsync<PeriodIdBody>())!.PeriodId;
 
-            var itemResponse = await client.PostAsJsonAsync($"/api/crm/periods/{periodId}/items", new
+            HttpResponseMessage itemResponse = await client.PostAsJsonAsync($"/api/crm/periods/{periodId}/items", new
             {
                 ProjectId = projectId,
                 Category = 1, // SpaceLayout
@@ -497,13 +463,13 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
                 Priority = 2, // Medium
             });
             Assert.Equal(HttpStatusCode.Created, itemResponse.StatusCode);
-            var itemId = (await itemResponse.Content.ReadFromJsonAsync<ItemIdBody>())!.ItemId;
+            Guid itemId = (await itemResponse.Content.ReadFromJsonAsync<ItemIdBody>())!.ItemId;
 
-            var sendItemResponse = await client.PutAsync($"/api/crm/requirement-items/{itemId}/send", content: null);
+            HttpResponseMessage sendItemResponse = await client.PutAsync($"/api/crm/requirement-items/{itemId}/send", content: null);
             Assert.Equal(HttpStatusCode.NoContent, sendItemResponse.StatusCode);
 
-            var itemApprovalId = await FindApprovalIdAsync(client, subjectType: "RequirementItem", subjectId: itemId);
-            await DecideApprovalAsync(client, itemApprovalId);
+            Guid itemApprovalId = await FindApprovalIdAsync(client, subjectType: "RequirementItem", subjectId: itemId);
+            await DecideApprovalAsync(portalClient, itemApprovalId);
 
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
@@ -511,9 +477,9 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             Assert.Equal(2, await GetGateStatusAsync(client, projectId, stageId, itemsGateId)); // Satisfied
 
             // --- CrmPeriodClosed: one hop - closing the period publishes directly, no Approvals round trip. ---
-            var periodGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 7, label: "Needs period closed");
+            Guid periodGateId = await CreateStageGateAsync(client, projectId, stageId, conditionType: 7, label: "Needs period closed");
 
-            var closePeriodResponse = await client.PutAsync($"/api/crm/periods/{periodId}/close", content: null);
+            HttpResponseMessage closePeriodResponse = await client.PutAsync($"/api/crm/periods/{periodId}/close", content: null);
             Assert.Equal(HttpStatusCode.NoContent, closePeriodResponse.StatusCode);
 
             await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
@@ -537,34 +503,23 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task ApprovalDecidedEvent_ForAGateConditionSubject_DoesNotTouchAnyCrmDesignBrief()
     {
-        var client = fixture.CreateClient();
-        var suffix = Guid.NewGuid().ToString("N");
+        HttpClient client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"g9-filter-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-        var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+        (_, string appUserId) = await HrTestSeeding.HireEmployeeOverHttpAsync(
+            fixture, $"g9-filter-{suffix}@example.com");
 
-        var token = fixture.IssueTestToken(
+        string token = fixture.IssueTestToken(
             appUserId, "employees.create", "project.create", "clients.create", "crm.briefs.manage", "crm.briefs.read");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var employeeResponse = await client.PostAsJsonAsync("/api/employees", new
-        {
-            AppUserId = appUserId,
-            JobTitle = "Engineer",
-            HireDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            ContractType = "FullTime",
-        });
-        Assert.Equal(HttpStatusCode.OK, employeeResponse.StatusCode);
-
-        var clientResponse = await client.PostAsJsonAsync("/api/clients", new { AppUserId = appUserId, Address = "1 Client Rd" });
+        HttpResponseMessage clientResponse = await client.PostAsJsonAsync("/api/clients", ClientRequests.NewClientBody("client"));
         Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
-        var clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
+        Guid clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
 
         // No stage template at all - CreateCrmDesignBriefCommand's ProjectStageId is nullable, and this
         // test only needs a real project + a real brief, not a stage-owned one.
-        var projectResponse = await client.PostAsJsonAsync("/api/projects", new
+        HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"P-{suffix}",
             Name = "Filter Test",
@@ -573,14 +528,14 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             ClientId = clientId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
-        var projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+        Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
 
-        var briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
+        HttpResponseMessage briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
         {
             Data = new { UnitType = 1, UnitCondition = 1 },
         });
         Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);
-        var briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
+        Guid briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
 
         // Reuses the REAL brief's own id as the fake event's SubjectId, under the WRONG SubjectType
         // (GateCondition, not DesignBrief) - if CrmApprovalDecidedIntegrationEventHandler's filter
@@ -589,25 +544,25 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         // from fixture.Services - that is the root provider, and asking it for a scoped service throws
         // before this test asserts anything. Same scope-first shape as this file's own
         // Register_then_create_employee test.
-        await using var scope = fixture.Services.CreateAsyncScope();
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+        await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
+        IEventBus eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
         await eventBus.PublishAsync(
             new Approvals.Contracts.ApprovalDecidedIntegrationEvent(
                 Guid.NewGuid(), Guid.NewGuid(), Approvals.Contracts.ApprovalSubjectType.GateCondition, briefId,
                 Approvals.Contracts.ApprovalDecision.Approved, appUserId, DateTimeOffset.UtcNow),
             CancellationToken.None);
 
-        var outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor outboxProcessor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
         await outboxProcessor.ProcessPendingAsync(CancellationToken.None);
 
-        var briefAfter = await (await client.GetAsync($"/api/crm/projects/{projectId}/brief"))
+        CrmBriefStatusBody? briefAfter = await (await client.GetAsync($"/api/crm/projects/{projectId}/brief"))
             .Content.ReadFromJsonAsync<CrmBriefStatusBody>();
         Assert.Equal(1, briefAfter!.Status); // still Draft
     }
 
     private static async Task<Guid> CreateStageGateAsync(HttpClient client, Guid projectId, Guid stageId, int conditionType, string label)
     {
-        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/stages/{stageId}/gates", new
+        HttpResponseMessage response = await client.PostAsJsonAsync($"/api/projects/{projectId}/stages/{stageId}/gates", new
         {
             ConditionType = conditionType,
             Trigger = 1, // Unlock
@@ -622,21 +577,21 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
 
     private static async Task<int> GetGateStatusAsync(HttpClient client, Guid projectId, Guid stageId, Guid gateId)
     {
-        var gates = await (await client.GetAsync($"/api/projects/{projectId}/stages/{stageId}/gates"))
+        List<GateBody>? gates = await (await client.GetAsync($"/api/projects/{projectId}/stages/{stageId}/gates"))
             .Content.ReadFromJsonAsync<List<GateBody>>();
         return gates!.Single(g => g.Id == gateId).Status;
     }
 
     private static async Task<Guid> FindApprovalIdAsync(HttpClient client, string subjectType, Guid subjectId)
     {
-        var trail = await (await client.GetAsync($"/api/approvals/by-subject/{subjectType}/{subjectId}"))
+        List<ApprovalTrailItemBody>? trail = await (await client.GetAsync($"/api/approvals/by-subject/{subjectType}/{subjectId}"))
             .Content.ReadFromJsonAsync<List<ApprovalTrailItemBody>>();
         return Assert.Single(trail!).Id;
     }
 
     private static async Task DecideApprovalAsync(HttpClient client, Guid approvalId)
     {
-        var response = await client.PutAsJsonAsync($"/api/approvals/{approvalId}/decide", new { Decision = 1, Comment = (string?)null }); // Approved
+        HttpResponseMessage response = await client.PutAsJsonAsync($"/api/approvals/{approvalId}/decide", new { Decision = 1, Comment = (string?)null }); // Approved
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
@@ -647,9 +602,11 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
         content.Add(fileContent, "file", "drawing.txt");
         if (folderId is { } id)
+        {
             content.Add(new StringContent(id.ToString()), "folderId");
+        }
 
-        var response = await client.PostAsync(url, content);
+        HttpResponseMessage response = await client.PostAsync(url, content);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<DocumentIdBody>())!.DocumentId;
     }
@@ -661,12 +618,11 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
         content.Add(fileContent, "file", "drawing.txt");
 
-        var response = await client.PostAsync($"/api/project-documents/{documentId}/revisions", content);
+        HttpResponseMessage response = await client.PostAsync($"/api/project-documents/{documentId}/revisions", content);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<DocumentIdBody>())!.DocumentId;
     }
 
-    private sealed record RegisterResponseBody(string UserId);
     private sealed record IdBody(Guid StageTemplateId);
     private sealed record StageIdBody(Guid StageId);
     private sealed record ProjectIdBody(Guid ProjectId);
@@ -679,6 +635,7 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
     private sealed record ApprovalIdBody(Guid ApprovalId);
     private sealed record DocumentDetailBody(Guid Id, Guid RootDocumentId, bool IsLocked);
     private sealed record ClientIdBody(Guid ClientId);
+    private sealed record ClientAppUserBody(string AppUserId);
     private sealed record ProjectStageBody(Guid Id);
     private sealed record BriefIdBody(Guid BriefId);
     private sealed record PeriodIdBody(Guid PeriodId);

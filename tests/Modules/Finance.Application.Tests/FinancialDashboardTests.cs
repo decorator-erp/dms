@@ -6,6 +6,7 @@ using Finance.Contracts.Dashboard;
 using Finance.Contracts.Invoices;
 using Finance.Contracts.LedgerEntries;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.Application.Tests;
@@ -15,8 +16,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
 {
     private async Task<ProjectFinancialDashboardResponse> DashboardAsync(Guid projectId)
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<ProjectFinancialDashboardResponse> read = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialDashboardQuery, ProjectFinancialDashboardResponse>>()
             .HandleAsync(new GetProjectFinancialDashboardQuery(projectId));
 
@@ -27,14 +28,14 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     private async Task<Guid> BudgetLineAsync(
         Guid projectId, decimal allocated, Guid? stageId = null, Guid? taskId = null)
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
 
-        var categoryId = (await sp.GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
+        Guid categoryId = (await sp.GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(new CreateCostCategoryRequest(
                 $"DC{Guid.NewGuid().ToString("N")[..8]}", "Materials")))).Value;
 
-        var created = await sp.GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
+        Result<Guid> created = await sp.GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
             .HandleAsync(new CreateBudgetLineCommand(new CreateBudgetLineRequest(
                 "DB", projectId, categoryId, "Dashboard budget", allocated, stageId, taskId)));
 
@@ -44,8 +45,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
 
     private async Task PostAsync(PostLedgerEntryRequest request, Guid actorId)
     {
-        await using var scope = fixture.CreateScope();
-        var posted = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> posted = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new PostLedgerEntryCommand(request, actorId));
 
@@ -55,8 +56,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ForAnUnknownProject_FailsWithProjectNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<ProjectFinancialDashboardResponse> read = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialDashboardQuery, ProjectFinancialDashboardResponse>>()
             .HandleAsync(new GetProjectFinancialDashboardQuery(Guid.NewGuid()));
 
@@ -70,9 +71,9 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ForAProjectWithNoFinance_IsAllZeros()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
-        var dashboard = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse dashboard = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal("EGP", dashboard.Currency);
         Assert.Equal(0m, dashboard.Budget.EffectiveCap);
@@ -94,11 +95,11 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_BudgetBlockAgreesWithItsOwnDefinition()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 1000m);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 300m, LedgerDirection.Out, LedgerEntryType.Commitment, today,
@@ -108,8 +109,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 120m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             BudgetLineId: lineId), owner.EmployeeId);
 
-        var d = await DashboardAsync(scope.ProjectId);
-        var b = d.Budget;
+        ProjectFinancialDashboardResponse d = await DashboardAsync(scope.ProjectId);
+        BudgetSummary b = d.Budget;
 
         Assert.Equal(1000m, b.EstimatedBudget);
         Assert.Equal(0m, b.ApprovedAdjustments);
@@ -133,14 +134,14 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_StageIsFundedOnlyWhenInvoicedAndCovered()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         // A stage that appears in finance only through a budget line: invoiced 0, paid 0.
         await BudgetLineAsync(scope.ProjectId, 500m, scope.OtherStageId);
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
             await dbScope.ServiceProvider.GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
                 .HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
@@ -149,15 +150,15 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
                     ProjectStageId: scope.StageId, ClientId: owner.ClientId)));
         }
 
-        var partlyPaid = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse partlyPaid = await DashboardAsync(scope.ProjectId);
 
-        var invoicedStage = partlyPaid.Collection.Stages.Single(s => s.StageId == scope.StageId);
+        StageFundingRow invoicedStage = partlyPaid.Collection.Stages.Single(s => s.StageId == scope.StageId);
         Assert.Equal(400m, invoicedStage.RequiredBudget);
         Assert.Equal(0m, invoicedStage.ClientPaidAmount);
         Assert.False(invoicedStage.IsFunded);
 
         // The uninvoiced stage must NOT read as funded, which is the assertion the `> 0` half carries.
-        var uninvoicedStage = partlyPaid.Collection.Stages.Single(s => s.StageId == scope.OtherStageId);
+        StageFundingRow uninvoicedStage = partlyPaid.Collection.Stages.Single(s => s.StageId == scope.OtherStageId);
         Assert.Equal(0m, uninvoicedStage.RequiredBudget);
         Assert.False(uninvoicedStage.IsFunded);
 
@@ -165,8 +166,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 400m, LedgerDirection.In, LedgerEntryType.ClientPayment, today,
             ProjectStageId: scope.StageId, ClientId: owner.ClientId), owner.EmployeeId);
 
-        var funded = await DashboardAsync(scope.ProjectId);
-        var after = funded.Collection.Stages.Single(s => s.StageId == scope.StageId);
+        ProjectFinancialDashboardResponse funded = await DashboardAsync(scope.ProjectId);
+        StageFundingRow after = funded.Collection.Stages.Single(s => s.StageId == scope.StageId);
 
         Assert.Equal(400m, after.ClientPaidAmount);
         Assert.True(after.IsFunded);
@@ -177,11 +178,11 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ResolvesStageNamesFromProjects()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
         await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId);
 
-        var dashboard = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse dashboard = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal("First stage", dashboard.Collection.Stages.Single().Name);
     }
@@ -194,12 +195,12 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ListsOnlyOverBudgetTasks_WithTheirNamesAndOverrun()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var overLine = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
-        var underLine = await BudgetLineAsync(scope.ProjectId, 900m, scope.OtherStageId, scope.OtherTaskId);
+        Guid overLine = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
+        Guid underLine = await BudgetLineAsync(scope.ProjectId, 900m, scope.OtherStageId, scope.OtherTaskId);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 175m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
@@ -209,9 +210,9 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 50m, LedgerDirection.Out, LedgerEntryType.ActualCost, today,
             ProjectTaskId: scope.OtherTaskId, BudgetLineId: underLine), owner.EmployeeId);
 
-        var dashboard = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse dashboard = await DashboardAsync(scope.ProjectId);
 
-        var over = Assert.Single(dashboard.OverBudgetTasks);
+        OverBudgetTaskRow over = Assert.Single(dashboard.OverBudgetTasks);
         Assert.Equal(scope.TaskId, over.TaskId);
         Assert.Equal("First task", over.Name);
         Assert.Equal(100m, over.Allocated);
@@ -224,20 +225,20 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_BucketsInvoicesByStatusAndTotalsTheOutstanding()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
-            var create = dbScope.ServiceProvider
+            ICommandHandler<CreateInvoiceCommand, Guid> create = dbScope.ServiceProvider
                 .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>();
 
             await create.HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
                 $"DA-{Guid.NewGuid().ToString("N")[..10]}", scope.ProjectId, InvoiceType.ClientInvoice,
                 today, [new InvoiceLineDto("A", 1m, 100m)], ClientId: owner.ClientId)));
 
-            var cancelledId = (await create.HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
+            Guid cancelledId = (await create.HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
                 $"DB-{Guid.NewGuid().ToString("N")[..10]}", scope.ProjectId, InvoiceType.ClientInvoice,
                 today, [new InvoiceLineDto("B", 1m, 60m)], ClientId: owner.ClientId)))).Value;
 
@@ -245,7 +246,7 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
                 .HandleAsync(new CancelInvoiceCommand(cancelledId));
         }
 
-        var dashboard = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse dashboard = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal(2, dashboard.Invoices.TotalCount);
         Assert.Equal(dashboard.Invoices.ByStatus.Sum(b => b.Count), dashboard.Invoices.TotalCount);
@@ -257,8 +258,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ReportsEarningsAsSignedLedgerTotals()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         await BudgetLineAsync(scope.ProjectId, 1000m);
@@ -271,7 +272,7 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 250m, LedgerDirection.Out, LedgerEntryType.ActualCost, today),
             owner.EmployeeId);
 
-        var d = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse d = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal(700m, d.Earnings.TotalIn);
         Assert.Equal(250m, d.Earnings.TotalOut);
@@ -285,14 +286,14 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_PercentagesAreZeroWhenThereIsNoBudget()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 500m, LedgerDirection.In, LedgerEntryType.ClientPayment,
             DateOnly.FromDateTime(DateTime.UtcNow), ClientId: owner.ClientId), owner.EmployeeId);
 
-        var d = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse d = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal(0m, d.Budget.EffectiveCap);
         Assert.Equal(0m, d.Earnings.MarginPercent);
@@ -302,12 +303,12 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ProjectsBudgetLineRowsWithTheirCostCategoryName()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
         await BudgetLineAsync(scope.ProjectId, 250m);
 
-        var d = await DashboardAsync(scope.ProjectId);
-        var row = Assert.Single(d.BudgetLines);
+        ProjectFinancialDashboardResponse d = await DashboardAsync(scope.ProjectId);
+        BudgetLineRow row = Assert.Single(d.BudgetLines);
 
         Assert.Equal("Materials", row.CostCategoryName);
         Assert.Equal(250m, row.Allocated);
@@ -318,8 +319,8 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Dashboard_ReturnsRecentActivityNewestFirst()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost,
@@ -329,7 +330,7 @@ public sealed class FinancialDashboardTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 20m, LedgerDirection.Out, LedgerEntryType.ActualCost,
             new DateOnly(2026, 6, 1)), owner.EmployeeId);
 
-        var d = await DashboardAsync(scope.ProjectId);
+        ProjectFinancialDashboardResponse d = await DashboardAsync(scope.ProjectId);
 
         Assert.Equal(2, d.RecentActivity.Count);
         Assert.Equal(new DateOnly(2026, 6, 1), d.RecentActivity[0].OccurredOn);

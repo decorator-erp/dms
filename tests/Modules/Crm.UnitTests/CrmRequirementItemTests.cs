@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -14,7 +15,7 @@ public class CrmRequirementItemTests
     {
         var meetingId = Guid.NewGuid();
 
-        var result = CrmRequirementItem.CreateByEmployee(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateByEmployee(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1,
             sourceType: RequirementSource.Meeting, meetingId: meetingId);
 
@@ -25,7 +26,7 @@ public class CrmRequirementItemTests
     [Fact]
     public void CreateByEmployee_WithSourceTypeButNoMatchingId_Fails()
     {
-        var result = CrmRequirementItem.CreateByEmployee(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateByEmployee(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1,
             sourceType: RequirementSource.Meeting);
 
@@ -36,7 +37,7 @@ public class CrmRequirementItemTests
     [Fact]
     public void CreateByEmployee_WithIdButNoSourceType_Fails()
     {
-        var result = CrmRequirementItem.CreateByEmployee(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateByEmployee(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1,
             meetingId: Guid.NewGuid());
 
@@ -47,7 +48,7 @@ public class CrmRequirementItemTests
     [Fact]
     public void CreateByEmployee_WithTwoSourceIdsSet_Fails()
     {
-        var result = CrmRequirementItem.CreateByEmployee(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateByEmployee(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1,
             sourceType: RequirementSource.Meeting, meetingId: Guid.NewGuid(), briefId: Guid.NewGuid());
 
@@ -69,9 +70,9 @@ public class CrmRequirementItemTests
     [Fact]
     public void Send_ByEmployeeAuthor_Succeeds()
     {
-        var item = CreateEmployeeItem();
+        CrmRequirementItem item = CreateEmployeeItem();
 
-        var result = item.Send();
+        Result result = item.Send();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ApprovalState.PendingApproval, item.ApprovalStatus);
@@ -83,7 +84,7 @@ public class CrmRequirementItemTests
         var item = CrmRequirementItem.CreateByClient(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1);
 
-        var result = item.Send();
+        Result result = item.Send();
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmItemErrors.SendRequiresEmployeeAuthor, result.Error);
@@ -92,11 +93,11 @@ public class CrmRequirementItemTests
     [Fact]
     public void Update_WhenLocked_Fails()
     {
-        var item = CreateEmployeeItem();
+        CrmRequirementItem item = CreateEmployeeItem();
         Assert.True(item.Send().IsSuccess);
         Assert.True(item.MarkApproved().IsSuccess);
 
-        var result = item.Update((RequirementCategory)2, "New", (TaskPriority)2, null, null, null, null, null, null, null, null);
+        Result result = item.Update((RequirementCategory)2, "New", (TaskPriority)2, null, null, null, null, null, null, null, null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmItemErrors.ItemLocked, result.Error);
@@ -105,9 +106,9 @@ public class CrmRequirementItemTests
     [Fact]
     public void CreateSuperseding_WhenOriginalNotLocked_Fails()
     {
-        var original = CreateEmployeeItem();
+        CrmRequirementItem original = CreateEmployeeItem();
 
-        var result = CrmRequirementItem.CreateSuperseding(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
             original, Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1);
 
         Assert.True(result.IsFailure);
@@ -117,11 +118,11 @@ public class CrmRequirementItemTests
     [Fact]
     public void CreateSuperseding_WhenOriginalLocked_Succeeds()
     {
-        var original = CreateEmployeeItem();
+        CrmRequirementItem original = CreateEmployeeItem();
         Assert.True(original.Send().IsSuccess);
         Assert.True(original.MarkApproved().IsSuccess);
 
-        var result = CrmRequirementItem.CreateSuperseding(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
             original, Guid.NewGuid(), (RequirementCategory)1, "Corrected", (TaskPriority)2);
 
         Assert.True(result.IsSuccess);
@@ -137,7 +138,7 @@ public class CrmRequirementItemTests
         var original = CrmRequirementItem.CreateByClient(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1);
 
-        var result = CrmRequirementItem.CreateSuperseding(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
             original, Guid.NewGuid(), (RequirementCategory)1, "Corrected", (TaskPriority)1);
 
         Assert.True(result.IsSuccess);

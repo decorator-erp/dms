@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.Application.Tests;
@@ -39,7 +40,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> CategoryAsync()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return (await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(
@@ -49,8 +50,8 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     private async Task<Guid> BudgetLineAsync(
         Guid projectId, decimal allocated, Guid? stageId = null, Guid? taskId = null)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
             .HandleAsync(new CreateBudgetLineCommand(new CreateBudgetLineRequest(
                 "GB", projectId, await CategoryAsync(), "Gate budget", allocated, stageId, taskId)));
@@ -61,8 +62,8 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
     private async Task PostAsync(PostLedgerEntryRequest request, Guid actorId)
     {
-        await using var scope = fixture.CreateScope();
-        var posted = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> posted = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new PostLedgerEntryCommand(request, actorId));
 
@@ -79,7 +80,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
 
-        var scope = stageId is Guid s ? $"\"ProjectStageId\" = '{s}'" : $"\"ProjectTaskId\" = '{taskId}'";
+        string scope = stageId is Guid s ? $"\"ProjectStageId\" = '{s}'" : $"\"ProjectTaskId\" = '{taskId}'";
 
         await using var command = new NpgsqlCommand(
             $"""
@@ -88,11 +89,13 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
              ORDER BY "CreatedAtUtc" DESC LIMIT 1;
              """, connection);
 
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
+        {
             return null;
+        }
 
-        var status = reader.GetInt32(0) switch { 1 => "Pending", 2 => "Satisfied", 3 => "Rejected", _ => "?" };
+        string status = reader.GetInt32(0) switch { 1 => "Pending", 2 => "Satisfied", 3 => "Rejected", _ => "?" };
         return (status, reader.IsDBNull(1) ? null : reader.GetGuid(1));
     }
 
@@ -119,14 +122,14 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task RaisingAndApprovingAVariation_OpensThenSatisfiesTheTaskBudgetGate()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
 
         Guid variationId;
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
-            var raised = await dbScope.ServiceProvider
+            Result<Guid> raised = await dbScope.ServiceProvider
                 .GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
                 .HandleAsync(new RaiseVariationCommand(
                     new RaiseVariationRequest(
@@ -141,7 +144,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         await fixture.DrainOutboxAsync();
 
-        var opened = await GateAsync(null, scope.TaskId);
+        (string Status, Guid? VariationId)? opened = await GateAsync(null, scope.TaskId);
         Assert.NotNull(opened);
         Assert.Equal("Pending", opened!.Value.Status);
         Assert.Equal(variationId, opened.Value.VariationId);
@@ -149,14 +152,14 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
         // An Unlock-trigger gate locks its owner the moment it exists.
         Assert.Equal(TaskLocked, await TaskStatusAsync(scope.TaskId));
 
-        await using (var dbScope = fixture.CreateScope())
+        await using (AsyncServiceScope dbScope = fixture.CreateScope())
         {
-            var sp = dbScope.ServiceProvider;
+            IServiceProvider sp = dbScope.ServiceProvider;
 
             await sp.GetRequiredService<ICommandHandler<SubmitVariationCommand>>()
                 .HandleAsync(new SubmitVariationCommand(variationId));
 
-            var approved = await sp.GetRequiredService<ICommandHandler<ApproveVariationCommand>>()
+            Result approved = await sp.GetRequiredService<ICommandHandler<ApproveVariationCommand>>()
                 .HandleAsync(new ApproveVariationCommand(variationId, owner.EmployeeId));
 
             Assert.True(approved.IsSuccess, approved.IsFailure ? approved.Error.ToString() : null);
@@ -164,7 +167,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         await fixture.DrainOutboxAsync();
 
-        var satisfied = await GateAsync(null, scope.TaskId);
+        (string Status, Guid? VariationId)? satisfied = await GateAsync(null, scope.TaskId);
         Assert.Equal("Satisfied", satisfied!.Value.Status);
 
         // The unlock cascade ran -- and it ran in Projects, off a domain event Finance never
@@ -180,14 +183,14 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task RejectingAVariation_RejectsTheGateAndLeavesTheOwnerLocked()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
-        var variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
+        Guid variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
             .HandleAsync(new RaiseVariationCommand(
                 new RaiseVariationRequest(
                     VariationKind.InternalChange, scope.ProjectId, "Rejected raise",
@@ -203,7 +206,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         await fixture.DrainOutboxAsync();
 
-        var gate = await GateAsync(null, scope.TaskId);
+        (string Status, Guid? VariationId)? gate = await GateAsync(null, scope.TaskId);
         Assert.Equal("Rejected", gate!.Value.Status);
 
         // Still Locked -- rejection does not free the work, it records that this route to funding failed.
@@ -218,25 +221,25 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ASecondVariationOnTheSameTask_ReusesTheExistingGate()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 500m, scope.StageId, scope.TaskId);
 
-        await using var dbScope = fixture.CreateScope();
-        var raise = dbScope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>();
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        ICommandHandler<RaiseVariationCommand, Guid> raise = dbScope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>();
 
         RaiseVariationRequest Request(string reason) => new(
             VariationKind.InternalChange, scope.ProjectId, reason,
             ProjectStageId: scope.StageId, ProjectTaskId: scope.TaskId,
             BudgetLineId: lineId, Amount: 25m);
 
-        var first = (await raise.HandleAsync(new RaiseVariationCommand(Request("First"), owner.EmployeeId))).Value;
+        Guid first = (await raise.HandleAsync(new RaiseVariationCommand(Request("First"), owner.EmployeeId))).Value;
         await fixture.DrainOutboxAsync();
 
         // The first gate is now LINKED, so the second raise cannot reuse it and opens its own -- which is
         // correct: two independent funding routes, each with its own gate. The re-link path is exercised
         // by the count staying at one per LINKED variation rather than growing unlinked duplicates.
-        var second = (await raise.HandleAsync(new RaiseVariationCommand(Request("Second"), owner.EmployeeId))).Value;
+        Guid second = (await raise.HandleAsync(new RaiseVariationCommand(Request("Second"), owner.EmployeeId))).Value;
         await fixture.DrainOutboxAsync();
 
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
@@ -264,14 +267,14 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GoingOverBudget_RePendsASatisfiedGateAndRelocksTheTask()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
-        var variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
+        Guid variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
             .HandleAsync(new RaiseVariationCommand(
                 new RaiseVariationRequest(
                     VariationKind.InternalChange, scope.ProjectId, "Open the gate",
@@ -310,9 +313,9 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ASignedClientDifference_CoversAnOverrunWithoutRaisingTheBudgetLine()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, 100m, scope.StageId, scope.TaskId);
 
         // Spend 160 against a 100 cap -> 60 over budget, uncovered.
         await PostAsync(new PostLedgerEntryRequest(
@@ -321,11 +324,11 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         await fixture.DrainOutboxAsync();
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
         // A client difference of exactly 60: chosen 160 against a budgeted 100.
-        var variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
+        Guid variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
             .HandleAsync(new RaiseVariationCommand(
                 new RaiseVariationRequest(
                     VariationKind.ClientDifference, scope.ProjectId, "Client picked the better finish",
@@ -347,7 +350,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         // And the budget line is untouched -- the coverage came from the variation row, not from a
         // raised cap. Raising it too would credit the same 60 twice.
-        var line = await sp.GetRequiredService<IQueryHandler<GetBudgetLineByIdQuery, BudgetLineResponse>>()
+        Result<BudgetLineResponse> line = await sp.GetRequiredService<IQueryHandler<GetBudgetLineByIdQuery, BudgetLineResponse>>()
             .HandleAsync(new GetBudgetLineByIdQuery(lineId));
 
         Assert.Equal(0m, line.Value!.AdjustmentAllocation);
@@ -364,14 +367,14 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task AStageBecomesFunded_OnlyWhenPaymentsCoverItsClientInvoices()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
         // A stage-scoped variation opens the stage's Budget gate.
-        var variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
+        Guid variationId = (await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
             .HandleAsync(new RaiseVariationCommand(
                 new RaiseVariationRequest(
                     VariationKind.InternalChange, scope.ProjectId, "Stage funding gate",
@@ -419,11 +422,11 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task APaymentOnAnUninvoicedStage_DoesNotFundIt()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
 
         await sp.GetRequiredService<ICommandHandler<RaiseVariationCommand, Guid>>()
             .HandleAsync(new RaiseVariationCommand(
@@ -465,20 +468,20 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public void EveryConditionType_HasARegisteredHandler()
     {
-        using var scope = fixture.CreateScope();
+        using AsyncServiceScope scope = fixture.CreateScope();
 
         var handled = scope.ServiceProvider.GetServices<IGateConditionTypeHandler>()
             .Select(h => h.Type)
             .ToHashSet();
 
-        var all = Enum.GetValues<ConditionType>();
+        ConditionType[] all = Enum.GetValues<ConditionType>();
 
         // Liveness: an empty registry would make the Except below trivially empty of surprises, and the
         // whole assertion would pass while nothing was registered at all.
         Assert.NotEmpty(handled);
         Assert.NotEmpty(all);
 
-        var unhandled = all.Where(t => !handled.Contains(t)).ToArray();
+        ConditionType[] unhandled = all.Where(t => !handled.Contains(t)).ToArray();
 
         Assert.True(
             unhandled.Length == 0,
@@ -499,7 +502,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public void InvoiceDueJob_IsRegisteredByFinanceModule()
     {
-        using var scope = fixture.CreateScope();
+        using AsyncServiceScope scope = fixture.CreateScope();
 
         var jobNames = scope.ServiceProvider.GetServices<IPeriodicJob>()
             .Select(job => job.Name)

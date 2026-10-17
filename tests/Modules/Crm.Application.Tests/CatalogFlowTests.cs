@@ -1,7 +1,9 @@
 using BuildingBlocks.Messaging;
 using Crm.Contracts;
 using Crm.Contracts.Catalog;
+using Crm.Contracts.Spaces;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.Application.Tests;
@@ -16,17 +18,17 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task CreateCategory_Root_GetsRootShapedPath()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
 
-        var result = await createCategory.HandleAsync(
+        Result<Guid> result = await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"root-{Guid.NewGuid():N}", "Furniture", "أثاث"));
         Assert.True(result.IsSuccess);
 
-        var getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
-        var tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
-        var root = tree.Single(c => c.Id == result.Value);
+        IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
+        IReadOnlyList<CrmCatalogCategoryResponse> tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
+        CrmCatalogCategoryResponse root = tree.Single(c => c.Id == result.Value);
 
         Assert.Equal($"/{result.Value}/", root.Path);
         Assert.Equal(0, root.Depth);
@@ -36,18 +38,18 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task CreateCategory_Child_InheritsParentPathAndDepth()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
 
-        var parentId = (await createCategory.HandleAsync(
+        Guid parentId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"p-{Guid.NewGuid():N}", "Furniture", "أثاث"))).Value;
-        var childId = (await createCategory.HandleAsync(
+        Guid childId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(parentId, $"c-{Guid.NewGuid():N}", "Beds", "أسرة"))).Value;
 
-        var getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
-        var tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
-        var child = tree.Single(c => c.Id == childId);
+        IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
+        IReadOnlyList<CrmCatalogCategoryResponse> tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
+        CrmCatalogCategoryResponse child = tree.Single(c => c.Id == childId);
 
         Assert.Equal($"/{parentId}/{childId}/", child.Path);
         Assert.Equal(1, child.Depth);
@@ -57,27 +59,27 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task MoveCategory_RewritesTheWholeSubtreesPathsAndDepths()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
 
-        var oldParentId = (await createCategory.HandleAsync(
+        Guid oldParentId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"old-{Guid.NewGuid():N}", "Old Parent", "أب قديم"))).Value;
-        var newParentId = (await createCategory.HandleAsync(
+        Guid newParentId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"new-{Guid.NewGuid():N}", "New Parent", "أب جديد"))).Value;
-        var movedId = (await createCategory.HandleAsync(
+        Guid movedId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(oldParentId, $"moved-{Guid.NewGuid():N}", "Moved", "منقول"))).Value;
-        var grandchildId = (await createCategory.HandleAsync(
+        Guid grandchildId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(movedId, $"gc-{Guid.NewGuid():N}", "Grandchild", "حفيد"))).Value;
 
-        var move = sp.GetRequiredService<ICommandHandler<MoveCrmCatalogCategoryCommand>>();
-        var moveResult = await move.HandleAsync(new MoveCrmCatalogCategoryCommand(movedId, newParentId));
+        ICommandHandler<MoveCrmCatalogCategoryCommand> move = sp.GetRequiredService<ICommandHandler<MoveCrmCatalogCategoryCommand>>();
+        Result moveResult = await move.HandleAsync(new MoveCrmCatalogCategoryCommand(movedId, newParentId));
         Assert.True(moveResult.IsSuccess);
 
-        var getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
-        var tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
-        var moved = tree.Single(c => c.Id == movedId);
-        var grandchild = tree.Single(c => c.Id == grandchildId);
+        IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> getTree = sp.GetRequiredService<IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>>>();
+        IReadOnlyList<CrmCatalogCategoryResponse> tree = (await getTree.HandleAsync(new GetCrmCatalogTreeQuery())).Value!;
+        CrmCatalogCategoryResponse moved = tree.Single(c => c.Id == movedId);
+        CrmCatalogCategoryResponse grandchild = tree.Single(c => c.Id == grandchildId);
 
         Assert.Equal(newParentId, moved.ParentId);
         Assert.Equal($"/{newParentId}/{movedId}/", moved.Path);
@@ -90,17 +92,17 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task MoveCategory_UnderItsOwnDescendant_IsRejectedAsACycle()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
 
-        var parentId = (await createCategory.HandleAsync(
+        Guid parentId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"p-{Guid.NewGuid():N}", "Parent", "أب"))).Value;
-        var childId = (await createCategory.HandleAsync(
+        Guid childId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(parentId, $"c-{Guid.NewGuid():N}", "Child", "ابن"))).Value;
 
-        var move = sp.GetRequiredService<ICommandHandler<MoveCrmCatalogCategoryCommand>>();
-        var result = await move.HandleAsync(new MoveCrmCatalogCategoryCommand(parentId, childId));
+        ICommandHandler<MoveCrmCatalogCategoryCommand> move = sp.GetRequiredService<ICommandHandler<MoveCrmCatalogCategoryCommand>>();
+        Result result = await move.HandleAsync(new MoveCrmCatalogCategoryCommand(parentId, childId));
 
         Assert.True(result.IsFailure);
     }
@@ -108,27 +110,27 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task ItemAttributeValues_SetTwice_ReplacesRatherThanAccumulates()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
-        var categoryId = (await createCategory.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        Guid categoryId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"cat-{Guid.NewGuid():N}", "Beds", "أسرة"))).Value;
 
-        var createAttribute = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogAttributeCommand, Guid>>();
-        var attributeId = (await createAttribute.HandleAsync(new CreateCrmCatalogAttributeCommand(
+        ICommandHandler<CreateCrmCatalogAttributeCommand, Guid> createAttribute = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogAttributeCommand, Guid>>();
+        Guid attributeId = (await createAttribute.HandleAsync(new CreateCrmCatalogAttributeCommand(
             categoryId, $"style-{Guid.NewGuid():N}", "Style", "الطراز", CatalogAttributeType.Text))).Value;
 
-        var createItem = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogItemCommand, Guid>>();
-        var itemId = (await createItem.HandleAsync(new CreateCrmCatalogItemCommand(
+        ICommandHandler<CreateCrmCatalogItemCommand, Guid> createItem = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogItemCommand, Guid>>();
+        Guid itemId = (await createItem.HandleAsync(new CreateCrmCatalogItemCommand(
             categoryId, $"bed-{Guid.NewGuid():N}", "Bed M-01", "سرير م-01"))).Value;
 
-        var setValues = sp.GetRequiredService<ICommandHandler<SetCrmCatalogItemAttributeValuesCommand>>();
+        ICommandHandler<SetCrmCatalogItemAttributeValuesCommand> setValues = sp.GetRequiredService<ICommandHandler<SetCrmCatalogItemAttributeValuesCommand>>();
         Assert.True((await setValues.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(
             itemId, [new CatalogAttributeValueData(attributeId, ValueText: "Modern")]))).IsSuccess);
 
         // Second set replaces, not appends - re-setting with the SAME attribute id must still leave
         // exactly one value row for this item, not two.
-        var secondResult = await setValues.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(
+        Result secondResult = await setValues.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(
             itemId, [new CatalogAttributeValueData(attributeId, ValueText: "Contemporary")]));
         Assert.True(secondResult.IsSuccess);
     }
@@ -136,17 +138,17 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task ItemAttributeValues_WithUnknownAttributeId_IsRejected()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
-        var categoryId = (await createCategory.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        Guid categoryId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"cat-{Guid.NewGuid():N}", "Beds", "أسرة"))).Value;
-        var createItem = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogItemCommand, Guid>>();
-        var itemId = (await createItem.HandleAsync(new CreateCrmCatalogItemCommand(
+        ICommandHandler<CreateCrmCatalogItemCommand, Guid> createItem = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogItemCommand, Guid>>();
+        Guid itemId = (await createItem.HandleAsync(new CreateCrmCatalogItemCommand(
             categoryId, $"bed-{Guid.NewGuid():N}", "Bed M-02", "سرير م-02"))).Value;
 
-        var setValues = sp.GetRequiredService<ICommandHandler<SetCrmCatalogItemAttributeValuesCommand>>();
-        var result = await setValues.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(
+        ICommandHandler<SetCrmCatalogItemAttributeValuesCommand> setValues = sp.GetRequiredService<ICommandHandler<SetCrmCatalogItemAttributeValuesCommand>>();
+        Result result = await setValues.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(
             itemId, [new CatalogAttributeValueData(Guid.NewGuid(), ValueText: "Modern")]));
 
         Assert.True(result.IsFailure);
@@ -155,20 +157,20 @@ public sealed class CatalogFlowTests(CrmApplicationFixture fixture)
     [Fact]
     public async Task MapCategoryToSpaceType_Twice_IsRejectedAsDuplicate()
     {
-        await using var scope = fixture.CreateScope();
-        var sp = scope.ServiceProvider;
-        var createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
-        var categoryId = (await createCategory.HandleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> createCategory = sp.GetRequiredService<ICommandHandler<CreateCrmCatalogCategoryCommand, Guid>>();
+        Guid categoryId = (await createCategory.HandleAsync(
             new CreateCrmCatalogCategoryCommand(null, $"cat-{Guid.NewGuid():N}", "Sanitary", "صحي"))).Value;
 
-        var createType = sp.GetRequiredService<ICommandHandler<Crm.Contracts.Spaces.CreateCrmSpaceTypeCommand, Guid>>();
-        var spaceTypeId = (await createType.HandleAsync(
+        ICommandHandler<CreateCrmSpaceTypeCommand, Guid> createType = sp.GetRequiredService<ICommandHandler<Crm.Contracts.Spaces.CreateCrmSpaceTypeCommand, Guid>>();
+        Guid spaceTypeId = (await createType.HandleAsync(
             new Crm.Contracts.Spaces.CreateCrmSpaceTypeCommand($"bath-{Guid.NewGuid():N}", "Bathroom", "حمام"))).Value;
 
-        var map = sp.GetRequiredService<ICommandHandler<MapCrmCatalogCategoryToSpaceTypeCommand>>();
+        ICommandHandler<MapCrmCatalogCategoryToSpaceTypeCommand> map = sp.GetRequiredService<ICommandHandler<MapCrmCatalogCategoryToSpaceTypeCommand>>();
         Assert.True((await map.HandleAsync(new MapCrmCatalogCategoryToSpaceTypeCommand(categoryId, spaceTypeId))).IsSuccess);
 
-        var duplicateResult = await map.HandleAsync(new MapCrmCatalogCategoryToSpaceTypeCommand(categoryId, spaceTypeId));
+        Result duplicateResult = await map.HandleAsync(new MapCrmCatalogCategoryToSpaceTypeCommand(categoryId, spaceTypeId));
         Assert.True(duplicateResult.IsFailure);
     }
 }

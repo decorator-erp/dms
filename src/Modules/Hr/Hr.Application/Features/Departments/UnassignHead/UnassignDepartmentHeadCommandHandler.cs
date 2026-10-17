@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts.Departments;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using SharedKernel;
 
@@ -16,12 +17,16 @@ internal sealed class UnassignDepartmentHeadCommandHandler(HrDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(UnassignDepartmentHeadCommand command, CancellationToken ct = default)
     {
-        var department = await db.Departments.FindAsync([command.DepartmentId], ct);
+        Department? department = await db.Departments.FindAsync([command.DepartmentId], ct);
         if (department is null)
+        {
             return DepartmentErrors.NotFound;
+        }
 
         if (!department.DepartmentHeadId.HasValue)
+        {
             return DepartmentErrors.DepartmentHeadNotAssign;
+        }
 
         department.RemoveHead();
         await db.SaveChangesAsync(ct);

@@ -4,6 +4,7 @@ using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using Projects.Contracts.Stages;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -21,23 +22,31 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
 {
     public async Task<Result> HandleAsync(CompleteProjectStageCommand command, CancellationToken ct = default)
     {
-        var stage = await db.ProjectStages.FirstOrDefaultAsync(
+        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
             s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
         if (stage is null)
+        {
             return Domain.StageErrors.NotFound;
+        }
 
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
         if (employeeId is null)
+        {
             return Domain.ProjectErrors.AccessDenied;
+        }
 
-        var hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
+        bool hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
             g => g.ProjectStageId == stage.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
         if (hasUnsatisfiedGates)
+        {
             return Domain.StageErrors.GatesNotSatisfied;
+        }
 
-        var result = stage.Complete(employeeId.Value);
+        Result result = stage.Complete(employeeId.Value);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectStageCompletedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
@@ -51,14 +60,18 @@ internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(RejectProjectStageCommand command, CancellationToken ct = default)
     {
-        var stage = await db.ProjectStages.FirstOrDefaultAsync(
+        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
             s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
         if (stage is null)
+        {
             return Domain.StageErrors.NotFound;
+        }
 
-        var result = stage.Reject(command.Reason);
+        Result result = stage.Reject(command.Reason);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         db.Outbox().Enqueue(new ProjectStageRejectedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
@@ -73,7 +86,7 @@ internal sealed class GetProjectStageQueryHandler(ProjectsDbContext db)
 {
     public async Task<Result<ProjectStageResponse>> HandleAsync(GetProjectStageQuery query, CancellationToken ct = default)
     {
-        var response = await db.ProjectStages.AsNoTracking()
+        ProjectStageResponse? response = await db.ProjectStages.AsNoTracking()
             .Where(s => s.Id == query.StageId && s.ProjectId == query.ProjectId)
             .Select(ToResponse())
             .FirstOrDefaultAsync(ct);

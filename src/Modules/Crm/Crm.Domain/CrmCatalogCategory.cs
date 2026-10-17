@@ -43,8 +43,11 @@ internal sealed class CrmCatalogCategory : Entity, IAuditable
         CatalogSelectionMode selectionMode = CatalogSelectionMode.None, bool isRequired = false,
         int sortOrder = 0, string? descriptionEn = null, string? descriptionAr = null, string? imageUri = null)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmCatalogCategory
         {
@@ -67,8 +70,11 @@ internal sealed class CrmCatalogCategory : Entity, IAuditable
         string code, string nameEn, string nameAr, CatalogSelectionMode selectionMode, bool isRequired,
         string? descriptionEn, string? descriptionAr, string? imageUri)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         Code = code;
         NameEn = nameEn;
@@ -98,7 +104,10 @@ internal sealed class CrmCatalogCategory : Entity, IAuditable
     private static Result Validate(string code, string nameEn, string nameAr)
     {
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return CrmCatalogErrors.InvalidData;
+        }
+
         return Result.Success();
     }
 }

@@ -16,15 +16,13 @@ internal sealed class SiteRecordValueConfiguration : IEntityTypeConfiguration<Si
     public void Configure(EntityTypeBuilder<SiteRecordValue> builder)
     {
         builder.ToTable("site_record_values", t =>
-        {
             // Names the constraint ck_srv_one_value rather than the ck_site_record_values_* convention
             // the rest of this module follows -- deliberate, and preserved from the backend: the schema
             // guard greps for this literal string. num_nonnulls is the database twin of
             // SiteRecordValue.Create's populated-column count.
             t.HasCheckConstraint(
                 "ck_srv_one_value",
-                "num_nonnulls(\"ValueNumber\", \"ValueText\", \"ValueBool\", \"ValueDate\", \"OptionId\") = 1");
-        });
+                "num_nonnulls(\"ValueNumber\", \"ValueText\", \"ValueBool\", \"ValueDate\", \"OptionId\") = 1"));
 
         builder.HasKey(x => new { x.RecordId, x.ItemId })
             .HasName("pk_site_record_values");

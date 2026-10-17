@@ -9,6 +9,7 @@ using Finance.Contracts.Financial;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -39,14 +40,14 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
         // Deliberately its own group object rather than one shared with FinanceEndpoints below. Two
         // MapGroup calls on the same prefix are independent route trees; sharing one would couple this
         // file's lifetime to that one's for no benefit.
-        var group = app.MapGroup("/api/projects").WithTags("ProjectFinancial");
+        RouteGroupBuilder group = app.MapGroup("/api/projects").WithTags("ProjectFinancial");
 
         group.MapGet("/{id:guid}/financial/summary", async (
             Guid id,
             IQueryHandler<GetProjectFinancialSummaryQuery, ProjectFinancialSummaryResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectFinancialSummaryQuery(id), ct);
+            Result<ProjectFinancialSummaryResponse> result = await handler.HandleAsync(new GetProjectFinancialSummaryQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -58,7 +59,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectFinancialMovementsQuery, PagedResult<LedgerMovementResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<LedgerMovementResponse>> result = await handler.HandleAsync(
                 new GetProjectFinancialMovementsQuery(
                     id, fromDate, toDate, type, direction, projectStageId, projectTaskId,
                     budgetLineId, variationId, skip ?? 0, take ?? 50),
@@ -72,7 +73,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectCostCategoryBreakdownQuery, IReadOnlyList<CostCategoryRow>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectCostCategoryBreakdownQuery(id), ct);
+            Result<IReadOnlyList<CostCategoryRow>> result = await handler.HandleAsync(new GetProjectCostCategoryBreakdownQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -82,7 +83,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectCashflowQuery, IReadOnlyList<MonthlyCashRow>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<IReadOnlyList<MonthlyCashRow>> result = await handler.HandleAsync(
                 new GetProjectCashflowQuery(id, fromDate, toDate), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -96,7 +97,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectFinancialDashboardQuery, ProjectFinancialDashboardResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<ProjectFinancialDashboardResponse> result = await handler.HandleAsync(
                 new GetProjectFinancialDashboardQuery(projectId, recentActivityCount ?? 20), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -108,7 +109,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectInvoicesQuery, PagedResult<InvoiceListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<InvoiceListItemResponse>> result = await handler.HandleAsync(
                 new GetProjectInvoicesQuery(id, status, type, projectStageId, skip ?? 0, take ?? 50), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -120,7 +121,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectVariationsQuery, PagedResult<VariationListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<VariationListItemResponse>> result = await handler.HandleAsync(
                 new GetProjectVariationsQuery(
                     id, status, kind, projectStageId, projectTaskId, skip ?? 0, take ?? 50),
                 ct);
@@ -133,7 +134,7 @@ internal sealed class ProjectFinancialEndpoints : IEndpoint
             IQueryHandler<GetProjectBoqSnapshotsQuery, IReadOnlyList<BoqSnapshotSummaryResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetProjectBoqSnapshotsQuery(id, type, version), ct);
+            Result<IReadOnlyList<BoqSnapshotSummaryResponse>> result = await handler.HandleAsync(new GetProjectBoqSnapshotsQuery(id, type, version), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);

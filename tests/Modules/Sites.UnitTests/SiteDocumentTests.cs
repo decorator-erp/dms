@@ -1,3 +1,4 @@
+using SharedKernel;
 using Sites.Domain;
 using Xunit;
 
@@ -17,7 +18,7 @@ public class SiteDocumentTests
     {
         var siteId = Guid.NewGuid();
 
-        var link = SiteDocument
+        SiteDocument link = SiteDocument
             .Create(DocumentId, SiteDocumentKind.Sketch, AddedById, siteId: siteId).Value!;
 
         Assert.Equal(siteId, link.SiteId);
@@ -33,7 +34,7 @@ public class SiteDocumentTests
     {
         var recordId = Guid.NewGuid();
 
-        var link = SiteDocument
+        SiteDocument link = SiteDocument
             .Create(DocumentId, SiteDocumentKind.Photo, AddedById, recordId: recordId).Value!;
 
         Assert.Equal(recordId, link.RecordId);
@@ -48,7 +49,7 @@ public class SiteDocumentTests
     [Fact]
     public void Create_WithNeitherSubject_IsRefused()
     {
-        var result = SiteDocument.Create(DocumentId, SiteDocumentKind.Video, AddedById);
+        Result<SiteDocument> result = SiteDocument.Create(DocumentId, SiteDocumentKind.Video, AddedById);
 
         Assert.Equal(SiteErrors.InvalidDocumentSubject, result.Error);
         Assert.Equal(400, result.Error.Status);
@@ -57,7 +58,7 @@ public class SiteDocumentTests
     [Fact]
     public void Create_WithBothSubjects_IsRefused()
     {
-        var result = SiteDocument.Create(
+        Result<SiteDocument> result = SiteDocument.Create(
             DocumentId, SiteDocumentKind.Video, AddedById, Guid.NewGuid(), Guid.NewGuid());
 
         Assert.Equal(SiteErrors.InvalidDocumentSubject, result.Error);
@@ -82,7 +83,7 @@ public class SiteDocumentTests
     [Fact]
     public void Create_WithBothProblems_ReportsTheMissingIdsFirst()
     {
-        var result = SiteDocument.Create(Guid.Empty, SiteDocumentKind.Photo, Guid.Empty);
+        Result<SiteDocument> result = SiteDocument.Create(Guid.Empty, SiteDocumentKind.Photo, Guid.Empty);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -90,7 +91,7 @@ public class SiteDocumentTests
     [Fact]
     public void Deactivate_UnlinksWithoutTouchingTheDocumentReference()
     {
-        var link = SiteDocument
+        SiteDocument link = SiteDocument
             .Create(DocumentId, SiteDocumentKind.Sketch, AddedById, siteId: Guid.NewGuid()).Value!;
 
         link.Deactivate();

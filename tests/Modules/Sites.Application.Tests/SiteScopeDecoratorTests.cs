@@ -1,13 +1,14 @@
 using BuildingBlocks.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
+using SharedKernel;
 using Sites.Contracts;
-using Sites.Domain;
 using Sites.Contracts.Surveys;
+using Sites.Domain;
+using Xunit;
 // The eight enum pairs are duplicated between Contracts and Domain by construction (see
 // SiteEnumMapping). These tests speak the Contracts vocabulary; SiteErrors comes from Domain.
 using SiteItemDataType = Sites.Contracts.SiteItemDataType;
-using Xunit;
 
 namespace Sites.Application.Tests;
 
@@ -41,15 +42,15 @@ public sealed class SiteScopeDecoratorTests(SitesApplicationFixture fixture)
     private async Task<Guid> SeedSiteAsync()
     {
         // CaptureValueAsync builds the whole graph a site needs -- project, employee, module, record.
-        var itemId = await SeedItemAsync();
-        var context = await SiteTestData.CaptureValueAsync(fixture, itemId);
+        Guid itemId = await SeedItemAsync();
+        SiteTestData.CapturedValue context = await SiteTestData.CaptureValueAsync(fixture, itemId);
         return context.SiteId;
     }
 
     private async Task<Guid> SeedItemAsync()
     {
-        await using var scope = fixture.CreateScope();
-        var result = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> result = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<Contracts.Definition.CreateSiteItemCommand, Guid>>()
             .HandleAsync(new Contracts.Definition.CreateSiteItemCommand(
                 new Contracts.Definition.CreateSiteItemRequest(
@@ -61,11 +62,14 @@ public sealed class SiteScopeDecoratorTests(SitesApplicationFixture fixture)
 
     private async Task<SharedKernel.Result<SiteDetailResponse>> ReadAsync(Guid siteId, string userId, bool readAll)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
 
-        var currentUser = scope.ServiceProvider.GetRequiredService<TestCurrentUser>();
+        TestCurrentUser currentUser = scope.ServiceProvider.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = userId;
-        if (readAll) currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
+        if (readAll)
+        {
+            currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
+        }
 
         return await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSiteByIdQuery, SiteDetailResponse>>()
@@ -79,9 +83,9 @@ public sealed class SiteScopeDecoratorTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AQueryForAProjectTheCallerCanSee_ReturnsTheSite()
     {
-        var siteId = await SeedSiteAsync();
+        Guid siteId = await SeedSiteAsync();
 
-        var result = await ReadAsync(siteId, Insider, readAll: true);
+        Result<SiteDetailResponse> result = await ReadAsync(siteId, Insider, readAll: true);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(siteId, result.Value!.Id);
@@ -95,9 +99,9 @@ public sealed class SiteScopeDecoratorTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AQueryForAProjectTheCallerCannotSee_IsNotFound()
     {
-        var siteId = await SeedSiteAsync();
+        Guid siteId = await SeedSiteAsync();
 
-        var result = await ReadAsync(siteId, Outsider, readAll: false);
+        Result<SiteDetailResponse> result = await ReadAsync(siteId, Outsider, readAll: false);
 
         Assert.True(result.IsFailure);
         Assert.Equal(SiteErrors.NotFound, result.Error);
@@ -112,13 +116,13 @@ public sealed class SiteScopeDecoratorTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AQueryForASiteThatDoesNotExist_IsTheSameNotFoundAsAnUnauthorizedOne()
     {
-        var missing = await ReadAsync(Guid.NewGuid(), Insider, readAll: true);
+        Result<SiteDetailResponse> missing = await ReadAsync(Guid.NewGuid(), Insider, readAll: true);
 
         Assert.True(missing.IsFailure);
         Assert.Equal(SiteErrors.NotFound, missing.Error);
 
-        var siteId = await SeedSiteAsync();
-        var forbidden = await ReadAsync(siteId, Outsider, readAll: false);
+        Guid siteId = await SeedSiteAsync();
+        Result<SiteDetailResponse> forbidden = await ReadAsync(siteId, Outsider, readAll: false);
 
         Assert.Equal(missing.Error, forbidden.Error);
     }

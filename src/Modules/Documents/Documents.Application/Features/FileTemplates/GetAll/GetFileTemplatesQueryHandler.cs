@@ -14,10 +14,10 @@ internal sealed class GetFileTemplatesQueryHandler(DocumentsDbContext db)
     public async Task<Result<IReadOnlyList<FileTemplateResponse>>> HandleAsync(
         GetFileTemplatesQuery query, CancellationToken ct = default)
     {
-        var baseQuery = db.FileTemplates.AsNoTracking().AsQueryable();
+        IQueryable<FileTemplate> baseQuery = db.FileTemplates.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(query.CategoryFilter)
-            && Enum.TryParse<FileTemplateCategory>(query.CategoryFilter, out var category))
+            && Enum.TryParse<FileTemplateCategory>(query.CategoryFilter, out FileTemplateCategory category))
         {
             baseQuery = baseQuery.Where(t => t.Category == category);
         }

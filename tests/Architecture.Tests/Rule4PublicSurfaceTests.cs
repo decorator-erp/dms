@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
@@ -19,11 +20,11 @@ public class Rule4PublicSurfaceTests
     [Fact]
     public void OnlyMigrationTypesMayBePublicOutsideContracts()
     {
-        var scoped = ModuleAssemblies.WithSuffix(".Domain")
+        IEnumerable<Assembly> scoped = ModuleAssemblies.WithSuffix(".Domain")
             .Concat(ModuleAssemblies.WithSuffix(".Application"))
             .Concat(ModuleAssemblies.WithSuffix(".Infrastructure"));
 
-        foreach (var assembly in scoped)
+        foreach (Assembly? assembly in scoped)
         {
             var offenders = ModuleAssemblies.SafeGetTypes(assembly)
                 .Where(t => (t.IsPublic || t.IsNestedPublic) && !IsGeneratedMigrationType(t))

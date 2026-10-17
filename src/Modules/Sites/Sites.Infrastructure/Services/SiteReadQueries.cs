@@ -136,9 +136,12 @@ internal sealed class SiteReadQueries(SitesDbContext db) : ISiteReadQueries
     public async Task<IReadOnlyList<SiteFamilyResponse>> GetFamiliesAsync(
         Guid siteId, Guid moduleId, IReadOnlyList<Guid> groupByItemIds, CancellationToken ct = default)
     {
-        if (groupByItemIds.Count == 0) return [];
+        if (groupByItemIds.Count == 0)
+        {
+            return [];
+        }
 
-        await using var command = await CreateCommandAsync(FamiliesSql, ct);
+        await using NpgsqlCommand command = await CreateCommandAsync(FamiliesSql, ct);
         command.Parameters.AddWithValue("siteId", siteId);
         command.Parameters.AddWithValue("moduleId", moduleId);
         command.Parameters.Add(new NpgsqlParameter("groupByIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
@@ -146,7 +149,7 @@ internal sealed class SiteReadQueries(SitesDbContext db) : ISiteReadQueries
             Value = groupByItemIds.ToArray(),
         });
 
-        await using var reader = await command.ExecuteReaderAsync(ct);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(ct);
 
         var results = new List<SiteFamilyResponse>();
         while (await reader.ReadAsync(ct))
@@ -164,14 +167,14 @@ internal sealed class SiteReadQueries(SitesDbContext db) : ISiteReadQueries
     public async Task<IReadOnlyList<SiteBoqLineResponse>> GetBoqAsync(
         Guid siteId, CancellationToken ct = default)
     {
-        await using var command = await CreateCommandAsync(BoqSql, ct);
+        await using NpgsqlCommand command = await CreateCommandAsync(BoqSql, ct);
         command.Parameters.AddWithValue("siteId", siteId);
 
         // Bound from the enum rather than written as a literal 4: renumbering SiteItemDataType would
         // otherwise leave this statement silently selecting the wrong data type.
         command.Parameters.AddWithValue("selectDataType", (int)Sites.Domain.SiteItemDataType.Select);
 
-        await using var reader = await command.ExecuteReaderAsync(ct);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(ct);
 
         var results = new List<SiteBoqLineResponse>();
         while (await reader.ReadAsync(ct))
@@ -196,7 +199,10 @@ internal sealed class SiteReadQueries(SitesDbContext db) : ISiteReadQueries
     private async Task<NpgsqlCommand> CreateCommandAsync(string sql, CancellationToken ct)
     {
         var connection = (NpgsqlConnection)db.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open) await connection.OpenAsync(ct);
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(ct);
+        }
 
         return new NpgsqlCommand(sql, connection);
     }

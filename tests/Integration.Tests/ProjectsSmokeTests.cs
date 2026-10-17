@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Identity.Contracts;
-using Identity.Contracts.Auth;
 using Xunit;
 
 namespace Integration.Tests;
@@ -18,17 +17,17 @@ public sealed class ProjectsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_ContainsProjectsModulePermissionStrings()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/permissions");
+        HttpResponseMessage response = await client.GetAsync("/api/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        List<ModulePermissionSet>? modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
         Assert.NotNull(modules);
 
-        var projectsModule = Assert.Single(modules!, m => m.Module == "Projects");
+        ModulePermissionSet projectsModule = Assert.Single(modules!, m => m.Module == "Projects");
         Assert.Contains("project.read", projectsModule.Permissions);
         Assert.Contains("project.create", projectsModule.Permissions);
         Assert.Contains("stages.manage_gates", projectsModule.Permissions);
@@ -38,9 +37,9 @@ public sealed class ProjectsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task CreateProject_Unauthenticated_Returns401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/projects", new
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = "P-1",
             Name = "Smoke",
@@ -55,11 +54,11 @@ public sealed class ProjectsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task CreateProject_AuthenticatedWithoutPermission_Returns403()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString());
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.PostAsJsonAsync("/api/projects", new
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = "P-1",
             Name = "Smoke",

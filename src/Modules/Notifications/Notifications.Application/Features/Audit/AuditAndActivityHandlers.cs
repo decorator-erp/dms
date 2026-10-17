@@ -3,6 +3,7 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Microsoft.EntityFrameworkCore;
 using Notifications.Contracts;
+using Notifications.Domain;
 using Notifications.Infrastructure.Persistence;
 using SharedKernel;
 
@@ -27,11 +28,11 @@ internal static class AuditQueryProjection
     internal static async Task<PagedResult<AuditLogResponse>> PageAsync(
         IQueryable<AuditLog> rows, int pageNumber, int pageSize, CancellationToken ct)
     {
-        var page = pageNumber < 1 ? 1 : pageNumber;
-        var size = Math.Clamp(pageSize, 1, 100);
+        int page = pageNumber < 1 ? 1 : pageNumber;
+        int size = Math.Clamp(pageSize, 1, 100);
 
-        var total = await rows.CountAsync(ct);
-        var items = await Project(rows.OrderByDescending(a => a.Timestamp).Skip((page - 1) * size).Take(size))
+        int total = await rows.CountAsync(ct);
+        List<AuditLogResponse> items = await Project(rows.OrderByDescending(a => a.Timestamp).Skip((page - 1) * size).Take(size))
             .ToListAsync(ct);
 
         return new PagedResult<AuditLogResponse>(items, page, size, total);
@@ -44,22 +45,42 @@ internal sealed class GetAuditLogsQueryHandler(NotificationsDbContext db)
     public async Task<Result<PagedResult<AuditLogResponse>>> HandleAsync(
         GetAuditLogsQuery query, CancellationToken ct = default)
     {
-        var rows = db.Set<AuditLog>().AsNoTracking();
+        IQueryable<AuditLog> rows = db.Set<AuditLog>().AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(query.UserId))
+        {
             rows = rows.Where(a => a.UserId == query.UserId);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Module))
+        {
             rows = rows.Where(a => a.Module == query.Module);
+        }
+
         if (query.Action is { } action)
+        {
             rows = rows.Where(a => a.Action == action);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.EntityName))
+        {
             rows = rows.Where(a => a.EntityName == query.EntityName);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.EntityId))
+        {
             rows = rows.Where(a => a.EntityId == query.EntityId);
+        }
+
         if (query.From is { } from)
+        {
             rows = rows.Where(a => a.Timestamp >= from);
+        }
+
         if (query.To is { } to)
+        {
             rows = rows.Where(a => a.Timestamp <= to);
+        }
 
         return await AuditQueryProjection.PageAsync(rows, query.PageNumber, query.PageSize, ct);
     }
@@ -71,7 +92,7 @@ internal sealed class GetEntityAuditHistoryQueryHandler(NotificationsDbContext d
     public async Task<Result<PagedResult<AuditLogResponse>>> HandleAsync(
         GetEntityAuditHistoryQuery query, CancellationToken ct = default)
     {
-        var rows = db.Set<AuditLog>().AsNoTracking()
+        IQueryable<AuditLog> rows = db.Set<AuditLog>().AsNoTracking()
             .Where(a => a.EntityName == query.EntityName && a.EntityId == query.EntityId);
 
         return await AuditQueryProjection.PageAsync(rows, query.PageNumber, query.PageSize, ct);
@@ -90,7 +111,7 @@ internal sealed class GetMyAuditActivityQueryHandler(NotificationsDbContext db)
     public async Task<Result<PagedResult<AuditLogResponse>>> HandleAsync(
         GetMyAuditActivityQuery query, CancellationToken ct = default)
     {
-        var rows = db.Set<AuditLog>().AsNoTracking().Where(a => a.UserId == query.UserId);
+        IQueryable<AuditLog> rows = db.Set<AuditLog>().AsNoTracking().Where(a => a.UserId == query.UserId);
 
         return await AuditQueryProjection.PageAsync(rows, query.PageNumber, query.PageSize, ct);
     }
@@ -102,21 +123,29 @@ internal sealed class GetActivitiesQueryHandler(NotificationsDbContext db)
     public async Task<Result<PagedResult<ActivityResponse>>> HandleAsync(
         GetActivitiesQuery query, CancellationToken ct = default)
     {
-        var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
+        int pageSize = Math.Clamp(query.PageSize, 1, 100);
 
-        var rows = db.Activities.AsNoTracking().Where(a => a.IsActive);
+        IQueryable<Activity> rows = db.Activities.AsNoTracking().Where(a => a.IsActive);
 
         if (!string.IsNullOrWhiteSpace(query.EntityName))
+        {
             rows = rows.Where(a => a.EntityName == query.EntityName);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.EntityId))
+        {
             rows = rows.Where(a => a.EntityId == query.EntityId);
+        }
+
         if (query.ProjectId is { } projectId)
+        {
             rows = rows.Where(a => a.ProjectId == projectId);
+        }
 
-        var total = await rows.CountAsync(ct);
+        int total = await rows.CountAsync(ct);
 
-        var items = await rows
+        List<ActivityResponse> items = await rows
             .OrderByDescending(a => a.OccurredAtUtc)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)

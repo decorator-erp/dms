@@ -2,12 +2,12 @@ using BuildingBlocks.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using SharedKernel;
 using Sites.Contracts;
-using Sites.Domain;
 using Sites.Contracts.Definition;
+using Sites.Domain;
+using Xunit;
 // The eight enum pairs are duplicated between Contracts and Domain by construction (see
 // SiteEnumMapping). These tests speak the Contracts vocabulary; SiteErrors comes from Domain.
 using SiteItemDataType = Sites.Contracts.SiteItemDataType;
-using Xunit;
 
 namespace Sites.Application.Tests;
 
@@ -29,11 +29,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
 
     private async Task<Guid> CreateModuleAsync(string? code = null)
     {
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<CreateSiteModuleCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteModuleCommand, Guid>>();
 
-        var result = await handler.HandleAsync(new CreateSiteModuleCommand(
+        Result<Guid> result = await handler.HandleAsync(new CreateSiteModuleCommand(
             new CreateSiteModuleRequest(code ?? Unique("mod"), "Openings", "الفتحات")));
 
         Assert.True(result.IsSuccess);
@@ -43,11 +43,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     private async Task<Guid> CreateItemAsync(
         SiteItemDataType dataType = SiteItemDataType.Number, string? code = null)
     {
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<CreateSiteItemCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteItemCommand, Guid>>();
 
-        var result = await handler.HandleAsync(new CreateSiteItemCommand(
+        Result<Guid> result = await handler.HandleAsync(new CreateSiteItemCommand(
             new CreateSiteItemRequest(code ?? Unique("item"), "Width", "العرض", dataType, "cm")));
 
         Assert.True(result.IsSuccess);
@@ -57,7 +57,7 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     private async Task<Result> SendAsync<TCommand>(TCommand command)
         where TCommand : ICommand
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<TCommand>>()
             .HandleAsync(command);
@@ -68,14 +68,14 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task CreateModule_WithADuplicateCodeInAnotherCase_IsRefused()
     {
-        var code = Unique("dup");
+        string code = Unique("dup");
         await CreateModuleAsync(code);
 
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<CreateSiteModuleCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteModuleCommand, Guid>>();
 
-        var result = await handler.HandleAsync(new CreateSiteModuleCommand(
+        Result<Guid> result = await handler.HandleAsync(new CreateSiteModuleCommand(
             new CreateSiteModuleRequest(code.ToUpperInvariant(), "Other", "أخرى")));
 
         Assert.Equal(SiteErrors.CodeTaken, result.Error);
@@ -84,14 +84,14 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task CreateItem_WithADuplicateCodeInAnotherCase_IsRefused()
     {
-        var code = Unique("dupitem");
+        string code = Unique("dupitem");
         await CreateItemAsync(code: code);
 
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<CreateSiteItemCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateSiteItemCommand, Guid>>();
 
-        var result = await handler.HandleAsync(new CreateSiteItemCommand(
+        Result<Guid> result = await handler.HandleAsync(new CreateSiteItemCommand(
             new CreateSiteItemRequest(code.ToUpperInvariant(), "W", "ع", SiteItemDataType.Number)));
 
         Assert.Equal(SiteErrors.CodeTaken, result.Error);
@@ -102,9 +102,9 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ChangeItemShape_WithNoCapturedValues_IsAllowed()
     {
-        var itemId = await CreateItemAsync();
+        Guid itemId = await CreateItemAsync();
 
-        var result = await SendAsync(new ChangeSiteItemShapeCommand(
+        Result result = await SendAsync(new ChangeSiteItemShapeCommand(
             itemId, new ChangeSiteItemShapeRequest(Unique("reshaped"), SiteItemDataType.Number, "mm", 1m)));
 
         Assert.True(result.IsSuccess);
@@ -117,10 +117,10 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ChangeItemShape_OnceAValueReferencesTheItem_IsRefused()
     {
-        var itemId = await CreateItemAsync();
+        Guid itemId = await CreateItemAsync();
         await SiteTestData.CaptureValueAsync(fixture, itemId);
 
-        var result = await SendAsync(new ChangeSiteItemShapeCommand(
+        Result result = await SendAsync(new ChangeSiteItemShapeCommand(
             itemId, new ChangeSiteItemShapeRequest(Unique("nope"), SiteItemDataType.Number, "mm", 1m)));
 
         Assert.Equal(SiteErrors.ItemLocked, result.Error);
@@ -129,11 +129,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ChangeItemShape_ToItsOwnCode_SkipsTheUniquenessProbe()
     {
-        var code = Unique("same");
-        var itemId = await CreateItemAsync(code: code);
+        string code = Unique("same");
+        Guid itemId = await CreateItemAsync(code: code);
 
         // An unchanged code must not collide with the item's own row.
-        var result = await SendAsync(new ChangeSiteItemShapeCommand(
+        Result result = await SendAsync(new ChangeSiteItemShapeCommand(
             itemId, new ChangeSiteItemShapeRequest(code, SiteItemDataType.Number, "cm", 0.5m)));
 
         Assert.True(result.IsSuccess);
@@ -142,10 +142,10 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeleteItem_OnceAValueReferencesIt_IsRefused()
     {
-        var itemId = await CreateItemAsync();
+        Guid itemId = await CreateItemAsync();
         await SiteTestData.CaptureValueAsync(fixture, itemId);
 
-        var result = await SendAsync(new DeleteSiteItemCommand(itemId));
+        Result result = await SendAsync(new DeleteSiteItemCommand(itemId));
 
         Assert.Equal(SiteErrors.ItemInUse, result.Error);
     }
@@ -153,18 +153,18 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeleteItem_WhileStillLinkedToAModule_IsRefused()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var attach = scope.ServiceProvider
+            ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
             Assert.True((await attach.HandleAsync(
                 new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)))).IsSuccess);
         }
 
-        var result = await SendAsync(new DeleteSiteItemCommand(itemId));
+        Result result = await SendAsync(new DeleteSiteItemCommand(itemId));
 
         Assert.Equal(SiteErrors.ItemInUse, result.Error);
     }
@@ -172,9 +172,9 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeleteItem_WhenUnusedAndUnlinked_Succeeds()
     {
-        var itemId = await CreateItemAsync();
+        Guid itemId = await CreateItemAsync();
 
-        var result = await SendAsync(new DeleteSiteItemCommand(itemId));
+        Result result = await SendAsync(new DeleteSiteItemCommand(itemId));
 
         Assert.True(result.IsSuccess);
     }
@@ -182,10 +182,10 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeleteModule_WithCapturedRecords_IsRefused()
     {
-        var itemId = await CreateItemAsync();
-        var context = await SiteTestData.CaptureValueAsync(fixture, itemId);
+        Guid itemId = await CreateItemAsync();
+        SiteTestData.CapturedValue context = await SiteTestData.CaptureValueAsync(fixture, itemId);
 
-        var result = await SendAsync(new DeleteSiteModuleCommand(context.ModuleId));
+        Result result = await SendAsync(new DeleteSiteModuleCommand(context.ModuleId));
 
         Assert.Equal(SiteErrors.ModuleInUse, result.Error);
     }
@@ -199,11 +199,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DeleteModule_WithOnlySoftDeletedRecords_IsStillRefused()
     {
-        var itemId = await CreateItemAsync();
-        var context = await SiteTestData.CaptureValueAsync(fixture, itemId);
+        Guid itemId = await CreateItemAsync();
+        SiteTestData.CapturedValue context = await SiteTestData.CaptureValueAsync(fixture, itemId);
         await SiteTestData.SoftDeleteRecordAsync(fixture, context.RecordId);
 
-        var result = await SendAsync(new DeleteSiteModuleCommand(context.ModuleId));
+        Result result = await SendAsync(new DeleteSiteModuleCommand(context.ModuleId));
 
         Assert.Equal(SiteErrors.ModuleInUse, result.Error);
     }
@@ -213,17 +213,17 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AttachItem_Twice_IsRefusedTheSecondTime()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
-        await using var scope = fixture.CreateScope();
-        var attach = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
 
         Assert.True((await attach.HandleAsync(
             new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)))).IsSuccess);
 
-        var second = await attach.HandleAsync(
+        Result<Guid> second = await attach.HandleAsync(
             new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)));
 
         Assert.Equal(SiteErrors.AlreadyLinked, second.Error);
@@ -237,34 +237,34 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task DetachThenReattach_ReusesTheSameLinkAndReappliesTheFlags()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
         Guid firstLinkId;
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var attach = scope.ServiceProvider
+            ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
-            var created = await attach.HandleAsync(
+            Result<Guid> created = await attach.HandleAsync(
                 new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)));
             firstLinkId = created.Value;
         }
 
         Assert.True((await SendAsync(new DetachSiteItemCommand(moduleId, itemId))).IsSuccess);
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var attach = scope.ServiceProvider
+            ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
-            var reattached = await attach.HandleAsync(new AttachSiteItemCommand(
+            Result<Guid> reattached = await attach.HandleAsync(new AttachSiteItemCommand(
                 moduleId, new AttachSiteItemRequest(itemId, IsRequired: true, IsVisible: false, SortOrder: 4)));
 
             Assert.True(reattached.IsSuccess);
             Assert.Equal(firstLinkId, reattached.Value);
         }
 
-        var schema = await SchemaAsync(moduleId);
-        var field = Assert.Single(schema.Fields);
+        SiteModuleSchemaResponse schema = await SchemaAsync(moduleId);
+        SiteSchemaFieldResponse field = Assert.Single(schema.Fields);
         Assert.True(field.IsRequired);
         Assert.False(field.IsVisible);
         Assert.Equal(4, field.SortOrder);
@@ -278,16 +278,16 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AttachItem_ThatIsDeactivated_IsRefusedRatherThanSilentlyInvisible()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
         Assert.True((await SendAsync(new SetSiteItemActiveCommand(itemId, IsActive: false))).IsSuccess);
 
-        await using var scope = fixture.CreateScope();
-        var attach = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
 
-        var result = await attach.HandleAsync(
+        Result<Guid> result = await attach.HandleAsync(
             new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)));
 
         Assert.Equal(SiteErrors.ItemNotFound, result.Error);
@@ -296,9 +296,9 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Reorder_WithAnItemThatIsNotLinked_IsRefused()
     {
-        var moduleId = await CreateModuleAsync();
+        Guid moduleId = await CreateModuleAsync();
 
-        var result = await SendAsync(new ReorderSiteLinksCommand(
+        Result result = await SendAsync(new ReorderSiteLinksCommand(
             moduleId, new ReorderSiteLinksRequest([new SiteLinkOrderRequest(Guid.NewGuid(), 1)])));
 
         Assert.Equal(SiteErrors.LinkNotFound, result.Error);
@@ -309,13 +309,13 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddOption_ToANonSelectItem_IsRefused()
     {
-        var itemId = await CreateItemAsync(SiteItemDataType.Number);
+        Guid itemId = await CreateItemAsync(SiteItemDataType.Number);
 
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<AddSiteItemOptionCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<AddSiteItemOptionCommand, Guid>>();
 
-        var result = await handler.HandleAsync(new AddSiteItemOptionCommand(
+        Result<Guid> result = await handler.HandleAsync(new AddSiteItemOptionCommand(
             itemId, new SiteItemOptionRequest("single", "Single", "مفردة")));
 
         Assert.Equal(SiteErrors.OptionsRequireSelect, result.Error);
@@ -324,16 +324,16 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task AddOption_ToASelectItem_Succeeds_AndDuplicateCodesAreRefused()
     {
-        var itemId = await CreateItemAsync(SiteItemDataType.Select);
+        Guid itemId = await CreateItemAsync(SiteItemDataType.Select);
 
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ICommandHandler<AddSiteItemOptionCommand, Guid> handler = scope.ServiceProvider
             .GetRequiredService<ICommandHandler<AddSiteItemOptionCommand, Guid>>();
 
         Assert.True((await handler.HandleAsync(new AddSiteItemOptionCommand(
             itemId, new SiteItemOptionRequest("single", "Single", "مفردة")))).IsSuccess);
 
-        var duplicate = await handler.HandleAsync(new AddSiteItemOptionCommand(
+        Result<Guid> duplicate = await handler.HandleAsync(new AddSiteItemOptionCommand(
             itemId, new SiteItemOptionRequest("SINGLE", "Single again", "مفردة")));
 
         Assert.Equal(SiteErrors.CodeTaken, duplicate.Error);
@@ -344,19 +344,19 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Schema_ExposesRequirednessFromTheLinkNotTheItem()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var attach = scope.ServiceProvider
+            ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
             await attach.HandleAsync(new AttachSiteItemCommand(
                 moduleId, new AttachSiteItemRequest(itemId, IsRequired: true, SortOrder: 2)));
         }
 
-        var schema = await SchemaAsync(moduleId);
-        var field = Assert.Single(schema.Fields);
+        SiteModuleSchemaResponse schema = await SchemaAsync(moduleId);
+        SiteSchemaFieldResponse field = Assert.Single(schema.Fields);
 
         Assert.True(field.IsRequired);
         Assert.Equal(itemId, field.ItemId);
@@ -366,11 +366,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task Schema_ForAnUnknownCode_IsNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var handler = scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IQueryHandler<GetSiteModuleSchemaQuery, SiteModuleSchemaResponse> handler = scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSiteModuleSchemaQuery, SiteModuleSchemaResponse>>();
 
-        var result = await handler.HandleAsync(new GetSiteModuleSchemaQuery("no-such-module"));
+        Result<SiteModuleSchemaResponse> result = await handler.HandleAsync(new GetSiteModuleSchemaQuery("no-such-module"));
 
         Assert.Equal(SiteErrors.ModuleNotFound, result.Error);
     }
@@ -378,19 +378,19 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
     [Fact]
     public async Task ItemUsage_ReportsTheModulesAnItemIsLinkedTo()
     {
-        var moduleId = await CreateModuleAsync();
-        var itemId = await CreateItemAsync();
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
 
-        await using (var scope = fixture.CreateScope())
+        await using (AsyncServiceScope scope = fixture.CreateScope())
         {
-            var attach = scope.ServiceProvider
+            ICommandHandler<AttachSiteItemCommand, Guid> attach = scope.ServiceProvider
                 .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>();
             await attach.HandleAsync(new AttachSiteItemCommand(
                 moduleId, new AttachSiteItemRequest(itemId, IsRequired: true)));
         }
 
-        await using var queryScope = fixture.CreateScope();
-        var usage = await queryScope.ServiceProvider
+        await using AsyncServiceScope queryScope = fixture.CreateScope();
+        Result<SiteItemUsageResponse> usage = await queryScope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSiteItemUsageQuery, SiteItemUsageResponse>>()
             .HandleAsync(new GetSiteItemUsageQuery(itemId));
 
@@ -401,11 +401,11 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
 
     private async Task<SiteModuleSchemaResponse> SchemaAsync(Guid moduleId)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
 
-        var code = await SiteTestData.ModuleCodeAsync(fixture, moduleId);
+        string code = await SiteTestData.ModuleCodeAsync(fixture, moduleId);
 
-        var result = await scope.ServiceProvider
+        Result<SiteModuleSchemaResponse> result = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetSiteModuleSchemaQuery, SiteModuleSchemaResponse>>()
             .HandleAsync(new GetSiteModuleSchemaQuery(code));
 

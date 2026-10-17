@@ -22,10 +22,18 @@ internal sealed class StageTemplate : Entity, IAuditable
     public void Update(string? name = null, string? description = null, bool? isDefault = null)
     {
         if (name is not null)
+        {
             Name = name;
+        }
+
         if (description is not null)
+        {
             Description = description;
+        }
+
         if (isDefault is not null)
+        {
             IsDefault = isDefault.Value;
+        }
     }
 }

@@ -16,7 +16,6 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.Notes).HasMaxLength(2000);
         builder.Property(e => e.ContractType).HasConversion<int>();
         builder.Property(e => e.PhoneNumber).HasMaxLength(50);
-        builder.Property(e => e.EmergencyContactName).HasMaxLength(200);
         builder.Property(e => e.EmergencyContactPhone).HasMaxLength(50);
 
         // AppUserId is a bare string FK to identity.users(id) - no navigation, no HasOne (the two

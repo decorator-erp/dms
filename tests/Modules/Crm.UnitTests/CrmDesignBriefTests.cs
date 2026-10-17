@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -44,7 +45,7 @@ public class CrmDesignBriefTests
     {
         var brief = CrmDesignBrief.Create(Guid.NewGuid(), Guid.NewGuid(), null, MinimalHead());
 
-        var result = brief.MarkApproved();
+        Result result = brief.MarkApproved();
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmBriefErrors.NotPending, result.Error);
@@ -65,7 +66,7 @@ public class CrmDesignBriefTests
     {
         var brief = CrmDesignBrief.Create(Guid.NewGuid(), Guid.NewGuid(), null, MinimalHead("Office Addr"));
 
-        var result = brief.SeedFromIntake(
+        Result result = brief.SeedFromIntake(
             (ProjectSector)1, "Intake Addr", 100m, true, (PastExperience)1, "reason",
             (UnitType)2, (UnitCondition)2, true, false, (FinishingPurpose)1);
 
@@ -83,7 +84,7 @@ public class CrmDesignBriefTests
         Assert.True(brief.MarkPendingApproval().IsSuccess);
         Assert.True(brief.MarkApproved().IsSuccess);
 
-        var result = brief.SeedFromIntake(null, null, null, null, null, null, null, null, null, null, null);
+        Result result = brief.SeedFromIntake(null, null, null, null, null, null, null, null, null, null, null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmBriefErrors.NotDraft, result.Error);

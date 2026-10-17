@@ -8695,3 +8695,210 @@ Navigating by the cited line would have written a module count into a project-co
 grep example — the value before Finance, already stale at `>= 27`. Rewritten to cite
 `layered.Count >=` without the number, which is what survives the next module, and the near-miss is
 now part of the rule's own text.
+
+---
+
+## P-A — `IUserProvisioning`: a login is created inactive, and by the module that owns the person
+
+New `Identity.Contracts.IUserProvisioning` + `IdentityRoles`, implemented by
+`Identity.Infrastructure/Services/UserProvisioning`. `ApplicationUser.Create` gains a trailing
+`isActive` parameter defaulting to `true`, so the seeded admin's call site is untouched.
+
+**Three differences from `RegisterCommandHandler`, which this replaces, and each one is the point.**
+The user is created **inactive**; a role in `DefaultRoles.FullAccessRoles` is **refused outright**
+rather than permission-checked; and ASP.NET Identity's own error text is **logged, never returned**
+(the old handler put it straight into the HTTP problem detail).
+
+`IdentityRoles` names only `employee` and `client` — the two provisionable roles. `DefaultRoles` now
+aliases those two constants rather than re-spelling them. A caller cannot name `admin` without
+inventing the string, and `UserProvisioning` refuses it if they do: the escalation path is structurally
+absent as well as guarded.
+
+`UserProvisioningTests` (5): inactive on create, every `FullAccessRoles` entry refused **with a positive
+control**, exactly the requested role granted, duplicate email refused, and `UserKind.Client` persisting
+as `UserType.Client` — the first coverage of that enum value in the repo. Self-registration hard-coded
+`UserType.Employee`, so every CRM client this codebase ever made was stored as an employee.
+
+Verified by mutation: flipping `isActive: false` to `true` turns `Provisioned_user_is_created_inactive`
+red.
+
+---
+
+## P-E1 — 31 test files off `RegisterCommand`
+
+Per-project `IdentityTestSeeding.ProvisionActiveUserAsync`, duplicated across eight module test projects
+and `Integration.Tests` for the reason `CrmTestSeeding` already records: these projects do not reference
+each other. Provisioned users are activated in the helper, because fixtures want the end state a
+committed business record produces; the inactive window is asserted deliberately elsewhere, and the
+helper's own doc comment says so.
+
+The 13 `Integration.Tests` files that `POST /api/auth/register` were **already failing** before this
+work — the route was deleted in the uncommitted working tree while the tests still called it. They seed
+in-process now.
+
+`AuthFlowTests.Register_with_duplicate_email_is_rejected` is replaced, not deleted:
+`Provisioned_user_cannot_log_in_until_activated` asserts the half of the ADR's invariant that belongs to
+Identity — `LoginCommand` refuses an unactivated account with `AuthErrors.UserNotActive`, and the same
+credentials succeed once activated. Duplicate-email rejection moved to `UserProvisioningTests`, where the
+error code is assertable.
+
+**Found and fixed, unrelated to this work.** `UserDirectory.GetAsync` threw `InvalidOperationException`
+on every call: the uncommitted style sweep had rewritten it to project to `UserSummary` and *then*
+filter, putting the predicate on a non-entity type EF cannot translate. It compiled; it failed at
+runtime; 28 tests across HR/Projects/Documents went red the moment they reached it. Fixed by moving
+`.Where` before `.Select`, matching `GetManyAsync`, which always had the clauses in that order. Worth
+checking whether the same "project then filter" transformation landed elsewhere in that sweep.
+
+---
+
+## P-B — HR hires the person and the login together
+
+**Breaking API change.** `CreateEmployeeCommand` gains `Email`/`Password`/`FirstName`/`LastName` and
+**loses `AppUserId`**; `POST /api/employees` now answers **201 + Location** instead of 200. Both need
+flagging to the frontend. No new permission — hiring already required `employees.create`, and creating
+the login is the same act by the same person.
+
+The handler's ordering is the security property and is commented as such: provision **inactive** →
+employee row and `EmployeeHiredIntegrationEvent` commit together → activation happens in
+`EmployeeHiredIntegrationEventHandler` and nowhere else. The `IUserDirectory` existence check is gone —
+it validated a user this handler now creates.
+
+Validator: `Enum.IsDefined` alongside `TryParse` (finding 2.5 — `"99"` used to parse to an undefined
+`ContractType`), a `HireDate` range where there was no rule at all, and the item-3.6 max-lengths matching
+`EmployeeConfiguration`'s columns. A comment beside the password rules forbids a value-interpolating
+`.WithMessage` on a credential field — the idiom is already in the file two rules away, on
+`ContractType`, where it is harmless.
+
+**Remediation 5.4, brought forward** because commands now carry passwords: `LoggingDecorator` logs
+`Error.Code`, never `Error.Description`. Descriptions are written for the caller and routinely quote the
+value that caused the failure.
+
+`EmployeeFlowTests` (7) + `HireActivationRetryTests` (1). The invariant test asserts, **before** the
+outbox is drained, that the user exists and cannot log in. Verified by mutation: inserting
+`await userAdministration.ReactivateAsync(appUserId, ct);` before `SaveChangesAsync` — the exact "avoid
+the outbox delay" shortcut — turns it red.
+
+**`EmployeeHiredIntegrationEvent` has two subscribers and `EventBus` runs them sequentially, rethrowing
+the first failure.** Activation is therefore retry-dependent, not guaranteed on first dispatch. It
+self-heals because `InboxDedupeDecorator` writes an inbox row per (event, handler), so a retry reruns
+only what failed — but a co-handler that throws on *every* attempt would starve everything behind it.
+Today activation happens to run first only because Notifications is registered last in `Program.cs` for
+unrelated reasons; that ordering is accidental and both activation handlers now say so.
+`HireActivationRetryTests` registers a throw-once co-handler ahead of the module scan and asserts the
+user ends active after a second drain. It does **not** test inbox granularity — under a per-event inbox
+the first delivery would roll back writing no row and the test would pass identically. The property
+coarsening would break is a co-handler's side effect running twice, which `INotificationService`'s
+mandatory dedupe key already prevents a layer lower.
+
+---
+
+## P-C — CRM creates the client and their portal login together
+
+**Breaking API change.** `CreateClientCommand` gains the identity fields and loses `AppUserId`. Mirrors
+P-B exactly, with `UserKind.Client` and `IdentityRoles.Client`. New
+`Crm.Infrastructure/IntegrationEvents/ClientCreatedIntegrationEventHandler`, picked up by the scan
+`CrmModule` already had. `Crm.Infrastructure` gains a `ProjectReference` to `Identity.Contracts` — the
+CRM to Identity direction, the same one `Hr.Infrastructure` already has and for the same reason.
+
+**Lead conversion was a false alarm.** `ConvertCrmLeadCommand(LeadId, ExistingClientId)` requires an
+existing client and fails without one; `Client.Create`/`db.Clients.Add` occur in exactly one file. The
+plan's "a converted lead with no login" describes the backend this was ported from, not this codebase.
+Two stale doc comments corrected instead: `ClientCreatedIntegrationEvent` claimed it was published "by
+lead conversion today" and that no subscriber existed (it now has two), and
+`CreateClientCommandHandler`'s summary claimed conversion "creates the row internally".
+
+**Client-review approvals were being decided by the employee, because they were the same user.**
+`SendCrmBriefCommandHandler` and its two siblings name the **client** as sole approver
+(`ApproverSpec(ApproverKind.Client, client.AppUserId)`). Every fixture passed its own employee's
+`AppUserId` as the new client's, so one identity was both the person driving the flow and the person
+approving it, and no test ever exercised a real client actor. Now that a client gets its own login the
+employee's token is correctly `403`, and `CrossModuleSmokeTests` issues a separate token for the client.
+Any production assumption that the two can be the same principal is now false by construction.
+
+---
+
+## P-D — self-registration deleted
+
+`Identity.Application/Features/Auths/Register/` deleted, `RegisterCommand`/`RegisterRequest` removed from
+`AuthContracts`, `AuthErrors.InvalidRegister` and `AuthErrors.DuplicatedEmail` deleted (the register
+handler was their last caller; provisioning uses `UserErrors.DuplicatedEmail`, coded `users.*` because
+the failure now surfaces through `/api/employees` and `/api/clients`).
+
+`Identity.Contracts/IntegrationEvents.cs` deleted entirely — **both** its events went.
+`UserRegisteredIntegrationEvent` had no consumer and no longer has a producer;
+`UserDeactivatedIntegrationEvent` had neither, and was the entry
+`IntegrationEventConsumerTests.DeclaredUnconsumed` itself called "the first thing to delete for whoever
+sweeps next". Identity now declares no integration events at all, which is what a sink should look like.
+
+`AdminUserSeeder` passes `isActive: true` explicitly, with the ADR's exemption written at the call site:
+it has no employee record by design, so no event will ever activate it.
+
+Comment-truth sweep: `AuthEndpoints`' class doc (it opened "Registers, ..." for a route that no longer
+existed), `DI.cs:126`, `Rule5IntegrationEventPayloadTests`' origin note, `IdentityApplicationFixture`'s
+outbox rationale, `CrossModuleSmokeTests`' class doc, and 23 stale `using Identity.Contracts.Auth;`
+directives.
+
+---
+
+## P-G — Identity is a sink, and now something says so
+
+New `Architecture.Tests/IdentityContractsIsolationTests`. Nothing enforced this before: `Rule3` forbids
+reaching into another module's Domain/Application/Infrastructure but **explicitly permits** any module to
+reference any other module's `.Contracts`, so `Identity.Infrastructure` could have taken a dependency on
+`Hr.Contracts` and no test would have noticed. The property lived in four csproj files and in prose.
+
+Five assertions: the exact `ProjectReference` set of each of Identity's four projects, plus a
+rule-shaped one that names any offender, plus a liveness check that four csproj files were actually
+found. Written **before** the reaper, so that "just move the job into Identity" fails a test rather than
+a review.
+
+Verified by mutation: adding `Hr.Contracts` to `Identity.Infrastructure.csproj` turns two of the five red.
+
+---
+
+## P-F — `UnlinkedUserReaperJob`, and why it is not in Identity
+
+New `IUserLifecycleMaintenance` (`ListUnactivatedAsync` with a **required limit**,
+`DeleteUnactivatedAsync`) implemented by `Identity.Infrastructure/Services/UserLifecycleMaintenance`.
+Deliberately a **third interface**: `IUserProvisioning` is referenced by HR and CRM, and neither should
+acquire enumerate-and-delete as a side effect of being allowed to create a user. `IUserAdministration`'s
+"deliberately narrow" doc stays true.
+
+The job lives in **`src/Api/Jobs`**, registered by `Api.DI`, not by a module. Deciding whether a login
+was ever claimed means asking `IHrDirectory` and `IClientDirectory`, which Identity may not do. Api is
+the composition root and the one legitimate cross-module host; the deviation from
+`PeriodicJobRegistration`'s per-module convention is recorded in both places. `PeriodicJobTests` pins
+nine job names now, with the ninth marked as the Api's.
+
+**`IsActive` carries two meanings and that is why the directory checks exist.** "Deactivated
+ex-employee" and "provisioned, never linked" compose correctly for authentication — both mean the person
+may not log in — but they are opposite for deletion. Reaping on `IsActive` alone would delete every
+ex-employee's account. `DeleteUnactivatedAsync` refuses an active user outright and refuses the seeded
+admin id by name.
+
+**Orphaned audit rows are left behind by design**, stated in the job's doc comment: `ApplicationUser` is
+`IAuditable`, `audit_logs.UserId` has no FK, and history is a record of what happened — the provisioning
+did happen.
+
+`UnlinkedUserReaperTests` (5) drive the real job by name from the real host. The retention threshold is
+moved through **configuration**, not the clock: faking `TimeProvider` would move time for every module in
+a shared host, and back-dating `identity.users."CreatedAt"` would have the test writing into another
+module's schema. Verified by mutation: disabling the `IHrDirectory` check turns three of the five red.
+
+---
+
+## P-X — two pre-existing failures, left alone
+
+Both come from the uncommitted style sweep, not from this work, and both are the tests doing their job.
+
+**`AuditAction` gained a `None = 0` member.** `AuditMechanismTests.AuditAction_HasExactlyTheThreeMembers`
+and `NotificationEnumParityTests.ActivityAction_DomainCopy_MatchesBuildingBlocksAuditAction` both fail on
+it. Fixing it means either removing the member or updating both tests plus Notifications' Domain copy and
+`AuditAction`'s own doc comment, which explains why there are exactly three — a decision for whoever
+added it, not for this work.
+
+**`dotnet format --verify-no-changes` cannot pass on this tree.** `.editorconfig` says
+`end_of_line = crlf`; `.gitattributes` says `*.cs text eol=lf`. 1018 files fail with `ENDOFLINE`,
+including many nothing here touched. Running the formatter would rewrite every `.cs` file to CRLF and be
+undone by the next checkout. New files here use LF, matching their neighbours. The fix is to make the two
+config files agree, which is a repo-wide decision.

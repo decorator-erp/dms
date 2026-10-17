@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -8,7 +9,7 @@ public class ClientTests
     [Fact]
     public void Create_WithValidData_Succeeds()
     {
-        var result = Client.Create("user-1", "123 Main St", "some notes");
+        Result<Client> result = Client.Create("user-1", "123 Main St", "some notes");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("user-1", result.Value!.AppUserId);
@@ -24,7 +25,7 @@ public class ClientTests
     [InlineData(null, "addr")]
     public void Create_WithoutAppUserId_Fails(string? appUserId, string address)
     {
-        var result = Client.Create(appUserId!, address);
+        Result<Client> result = Client.Create(appUserId!, address);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientErrors.AppUserIdRequired, result.Error);
@@ -36,7 +37,7 @@ public class ClientTests
     [InlineData(null)]
     public void Create_WithoutAddress_Fails(string? address)
     {
-        var result = Client.Create("user-1", address!);
+        Result<Client> result = Client.Create("user-1", address!);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientErrors.AddressRequired, result.Error);
@@ -45,7 +46,7 @@ public class ClientTests
     [Fact]
     public void UpdateProfile_OnlySetsSuppliedFields()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
         client.UpdateProfile(jobTitle: "Architect");
 
         Assert.Equal("Architect", client.JobTitle);
@@ -61,7 +62,7 @@ public class ClientTests
     [Fact]
     public void FillBlanksFromIntake_NeverOverwritesOfficeEnteredData()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
         client.UpdateProfile(jobTitle: "Architect");
 
         client.FillBlanksFromIntake(jobTitle: "Engineer", clientAddress: null);
@@ -72,7 +73,7 @@ public class ClientTests
     [Fact]
     public void FillBlanksFromIntake_FillsOnlyBlankFields()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
         client.FillBlanksFromIntake(jobTitle: "Engineer", clientAddress: "New Address");
 
@@ -86,7 +87,7 @@ public class ClientTests
     {
         // Address can only originate non-blank via Create's own validation, but a defensive caller
         // (e.g. a future direct-construction path) must still see the blank-fill rule hold.
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
         client.FillBlanksFromIntake(jobTitle: null, clientAddress: "Real Address");
 
         // Non-blank stays put per the "only when currently empty/whitespace" rule.
@@ -96,9 +97,9 @@ public class ClientTests
     [Fact]
     public void AddChild_AppendsToChildren()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
-        var result = client.AddChild('M', 10);
+        Result<Guid> result = client.AddChild('M', 10);
 
         Assert.True(result.IsSuccess);
         Assert.Single(client.Children);
@@ -108,9 +109,9 @@ public class ClientTests
     [Fact]
     public void AddChild_WithInvalidGender_Fails()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
-        var result = client.AddChild('X', 10);
+        Result<Guid> result = client.AddChild('X', 10);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientChildErrors.InvalidGender, result.Error);
@@ -120,10 +121,10 @@ public class ClientTests
     [Fact]
     public void UpdateChild_WhenPresent_Updates()
     {
-        var client = Client.Create("user-1", "addr").Value!;
-        var childId = client.AddChild('M', 10).Value;
+        Client client = Client.Create("user-1", "addr").Value!;
+        Guid childId = client.AddChild('M', 10).Value;
 
-        var result = client.UpdateChild(childId, 'F', 12);
+        Result result = client.UpdateChild(childId, 'F', 12);
 
         Assert.True(result.IsSuccess);
         Assert.Equal('F', client.Children.Single().Gender);
@@ -133,9 +134,9 @@ public class ClientTests
     [Fact]
     public void UpdateChild_WhenMissing_Fails()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
-        var result = client.UpdateChild(Guid.NewGuid(), 'F', 12);
+        Result result = client.UpdateChild(Guid.NewGuid(), 'F', 12);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientErrors.ChildNotFound, result.Error);
@@ -144,10 +145,10 @@ public class ClientTests
     [Fact]
     public void RemoveChild_WhenPresent_Removes()
     {
-        var client = Client.Create("user-1", "addr").Value!;
-        var childId = client.AddChild('M', 10).Value;
+        Client client = Client.Create("user-1", "addr").Value!;
+        Guid childId = client.AddChild('M', 10).Value;
 
-        var result = client.RemoveChild(childId);
+        Result result = client.RemoveChild(childId);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(client.Children);
@@ -156,9 +157,9 @@ public class ClientTests
     [Fact]
     public void RemoveChild_WhenMissing_Fails()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
-        var result = client.RemoveChild(Guid.NewGuid());
+        Result result = client.RemoveChild(Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(ClientErrors.ChildNotFound, result.Error);
@@ -167,7 +168,7 @@ public class ClientTests
     [Fact]
     public void Deactivate_Then_Activate_TogglesIsActive()
     {
-        var client = Client.Create("user-1", "addr").Value!;
+        Client client = Client.Create("user-1", "addr").Value!;
 
         client.Deactivate();
         Assert.False(client.IsActive);

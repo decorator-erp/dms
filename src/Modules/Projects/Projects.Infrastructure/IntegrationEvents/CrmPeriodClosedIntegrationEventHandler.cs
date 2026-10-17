@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Crm.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Domain = Projects.Domain;
 
@@ -19,14 +20,16 @@ internal sealed class CrmPeriodClosedIntegrationEventHandler(ProjectsDbContext d
 {
     public async Task HandleAsync(CrmPeriodClosedIntegrationEvent @event, CancellationToken ct)
     {
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g =>
                 g.ConditionType == Domain.ConditionType.CrmPeriodClosed &&
                 g.Status == Domain.GateStatus.Pending &&
                 g.ProjectStageId == @event.ProjectStageId)
             .ToListAsync(ct);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(null);
+        }
     }
 }

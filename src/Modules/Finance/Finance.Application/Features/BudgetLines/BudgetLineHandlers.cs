@@ -45,29 +45,35 @@ internal sealed class CreateBudgetLineCommandHandler(FinanceDbContext db, IProje
 {
     public async Task<Result<Guid>> HandleAsync(CreateBudgetLineCommand command, CancellationToken ct = default)
     {
-        var r = command.Request;
+        CreateBudgetLineRequest r = command.Request;
 
         if (!await db.CostCategories.AnyAsync(c => c.Id == r.CostCategoryId && c.IsActive, ct))
+        {
             return BudgetLineErrors.CostCategoryNotFound;
+        }
 
         if (r.ProjectTaskId is Guid taskId)
         {
-            var task = await projects.GetTaskAsync(taskId, ct);
+            TaskSummary? task = await projects.GetTaskAsync(taskId, ct);
 
             if (task is null || task.ProjectId != r.ProjectId || task.ProjectStageId != r.ProjectStageId)
+            {
                 return BudgetLineErrors.TaskStageMismatch;
+            }
         }
         else if (await projects.GetProjectAsync(r.ProjectId, ct) is null)
         {
             return BudgetLineErrors.ProjectNotFound;
         }
 
-        var line = BudgetLine.Create(
+        Result<BudgetLine> line = BudgetLine.Create(
             r.Name, r.AllocatedAmount, r.ProjectId, r.CostCategoryId,
             r.ProjectStageId, r.ProjectTaskId, r.Code, r.Description);
 
         if (line.IsFailure)
+        {
             return line.Error;
+        }
 
         db.BudgetLines.Add(line.Value!);
         await db.SaveChangesAsync(ct);
@@ -104,13 +110,17 @@ internal sealed class UpdateBudgetLineAllocationCommandHandler(FinanceDbContext 
     public async Task<Result> HandleAsync(
         UpdateBudgetLineAllocationCommand command, CancellationToken ct = default)
     {
-        var line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == command.Id && b.IsActive, ct);
+        BudgetLine? line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == command.Id && b.IsActive, ct);
         if (line is null)
+        {
             return BudgetLineErrors.NotFound;
+        }
 
-        var updated = line.UpdateAllocation(command.AllocatedAmount);
+        Result updated = line.UpdateAllocation(command.AllocatedAmount);
         if (updated.IsFailure)
+        {
             return updated.Error;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -145,17 +155,19 @@ internal sealed class RecalculateBudgetLineCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(RecalculateBudgetLineCommand command, CancellationToken ct = default)
     {
-        var line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == command.Id && b.IsActive, ct);
+        BudgetLine? line = await db.BudgetLines.FirstOrDefaultAsync(b => b.Id == command.Id && b.IsActive, ct);
         if (line is null)
+        {
             return BudgetLineErrors.NotFound;
+        }
 
-        var entries = db.LedgerEntries.Where(e => e.BudgetLineId == command.Id && e.IsActive);
+        IQueryable<LedgerEntry> entries = db.LedgerEntries.Where(e => e.BudgetLineId == command.Id && e.IsActive);
 
-        var commitments = await entries
+        decimal commitments = await entries
             .Where(e => e.Type == LedgerEntryType.Commitment)
             .SumAsync(e => (decimal?)(e.Direction == LedgerDirection.Out ? e.Amount : -e.Amount), ct) ?? 0m;
 
-        var actualCosts = await entries
+        decimal actualCosts = await entries
             .Where(e => e.Type == LedgerEntryType.ActualCost)
             .SumAsync(e => (decimal?)(e.Direction == LedgerDirection.Out ? e.Amount : -e.Amount), ct) ?? 0m;
 
@@ -176,7 +188,7 @@ internal sealed class GetBudgetLineByIdQueryHandler(FinanceDbContext db)
         // because the entity properties are [NotMapped] and the projection must run in SQL. The two
         // expressions repeat BudgetLine's own definitions; BudgetLineTests pins them on the entity side
         // and BudgetLineProjectionTests pins that these agree.
-        var response = await db.BudgetLines
+        BudgetLineResponse? response = await db.BudgetLines
             .Where(b => b.Id == query.Id && b.IsActive)
             .Select(b => new BudgetLineResponse(
                 b.Id,
@@ -212,18 +224,24 @@ internal sealed class GetBudgetLinesByProjectQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<BudgetLineListItemResponse>>> HandleAsync(
         GetBudgetLinesByProjectQuery query, CancellationToken ct = default)
     {
-        var q = db.BudgetLines.Where(b => b.ProjectId == query.ProjectId && b.IsActive);
+        IQueryable<BudgetLine> q = db.BudgetLines.Where(b => b.ProjectId == query.ProjectId && b.IsActive);
 
         if (query.CostCategoryId.HasValue)
+        {
             q = q.Where(b => b.CostCategoryId == query.CostCategoryId.Value);
+        }
 
         if (query.ProjectStageId.HasValue)
+        {
             q = q.Where(b => b.ProjectStageId == query.ProjectStageId.Value);
+        }
 
         if (query.ProjectTaskId.HasValue)
+        {
             q = q.Where(b => b.ProjectTaskId == query.ProjectTaskId.Value);
+        }
 
-        var items = await q
+        List<BudgetLineListItemResponse> items = await q
             .OrderBy(b => b.ProjectStageId)
             .ThenBy(b => b.ProjectTaskId)
             .ThenBy(b => b.Name)

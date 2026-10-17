@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -8,7 +9,7 @@ public class CrmCatalogCategoryTests
     [Fact]
     public void Create_Root_WithValidData_Succeeds()
     {
-        var result = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة");
+        Result<CrmCatalogCategory> result = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة");
 
         Assert.True(result.IsSuccess);
         Assert.Null(result.Value!.ParentId);
@@ -21,7 +22,7 @@ public class CrmCatalogCategoryTests
     {
         var parentId = Guid.NewGuid();
 
-        var result = CrmCatalogCategory.Create(parentId, "queen_beds", "Queen Beds", "أسرة كوين");
+        Result<CrmCatalogCategory> result = CrmCatalogCategory.Create(parentId, "queen_beds", "Queen Beds", "أسرة كوين");
 
         Assert.True(result.IsSuccess);
         Assert.Equal(parentId, result.Value!.ParentId);
@@ -33,7 +34,7 @@ public class CrmCatalogCategoryTests
     [InlineData("code", "en", "")]
     public void Create_WithMissingRequiredField_Fails(string code, string nameEn, string nameAr)
     {
-        var result = CrmCatalogCategory.Create(null, code, nameEn, nameAr);
+        Result<CrmCatalogCategory> result = CrmCatalogCategory.Create(null, code, nameEn, nameAr);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmCatalogErrors.InvalidData, result.Error);
@@ -42,9 +43,9 @@ public class CrmCatalogCategoryTests
     [Fact]
     public void Update_WithValidData_Succeeds()
     {
-        var category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
+        CrmCatalogCategory category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
 
-        var result = category.Update("beds", "Bedroom Beds", "أسرة غرفة النوم", CatalogSelectionMode.Single, true, null, null, null);
+        Result result = category.Update("beds", "Bedroom Beds", "أسرة غرفة النوم", CatalogSelectionMode.Single, true, null, null, null);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Bedroom Beds", category.NameEn);
@@ -55,7 +56,7 @@ public class CrmCatalogCategoryTests
     [Fact]
     public void SetPath_UpdatesPathAndDepth()
     {
-        var category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
+        CrmCatalogCategory category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
 
         category.SetPath($"/{category.Id}/", 0);
 
@@ -66,7 +67,7 @@ public class CrmCatalogCategoryTests
     [Fact]
     public void SetParent_ChangesParentId()
     {
-        var category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
+        CrmCatalogCategory category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
         var newParentId = Guid.NewGuid();
 
         category.SetParent(newParentId);
@@ -77,7 +78,7 @@ public class CrmCatalogCategoryTests
     [Fact]
     public void Deactivate_Then_Activate_TogglesIsActive()
     {
-        var category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
+        CrmCatalogCategory category = CrmCatalogCategory.Create(null, "beds", "Beds", "أسرة").Value!;
 
         category.Deactivate();
         Assert.False(category.IsActive);

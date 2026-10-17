@@ -8,7 +8,7 @@ public record Error
         this.Description = Description;
         this.Status = Status;
     }
-
+    
     public string Code { get; }
     public string Description { get; }
     public int? Status { get; }
@@ -44,13 +44,12 @@ public sealed record ValidationError : Error
         : base(
             "Validation.General",
             "One or more validation errors occurred",
-            400)
-    {
+            400) =>
         Errors = errors;
-    }
+    
 
     public Error[] Errors { get; }
 
     public static ValidationError FromResults(IEnumerable<Result> results) =>
-        new(results.Where(r => r.IsFailure).Select(r => r.Error).ToArray());
+        new([.. results.Where(r => r.IsFailure).Select(r => r.Error)]);
 }

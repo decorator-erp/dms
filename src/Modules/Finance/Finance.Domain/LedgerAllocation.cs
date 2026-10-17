@@ -27,7 +27,9 @@ internal sealed class LedgerAllocation : Entity, IAuditable
     public static Result<LedgerAllocation> Create(Guid ledgerEntryId, Guid invoiceId, decimal amount)
     {
         if (amount <= 0)
+        {
             return LedgerAllocationErrors.AmountMustBePositive;
+        }
 
         return new LedgerAllocation
         {

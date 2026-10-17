@@ -21,8 +21,8 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
 {
     private HttpClient AuthorizedClient(params string[] permissions)
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), permissions);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), permissions);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
@@ -34,16 +34,18 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_ContainsAllTwelveFinancePermissionStrings()
     {
-        var client = AuthorizedClient(IdentityPermissions.PermissionsManage);
+        HttpClient client = AuthorizedClient(IdentityPermissions.PermissionsManage);
 
-        var modules = await client.GetFromJsonAsync<List<ModulePermissionSet>>("/api/permissions");
+        List<ModulePermissionSet>? modules = await client.GetFromJsonAsync<List<ModulePermissionSet>>("/api/permissions");
         Assert.NotNull(modules);
 
-        var finance = Assert.Single(modules!, m => m.Module == "Finance");
+        ModulePermissionSet finance = Assert.Single(modules!, m => m.Module == "Finance");
 
         Assert.Equal(FinancePermissions.All.Count, finance.Permissions.Count);
-        foreach (var permission in FinancePermissions.All)
+        foreach (string permission in FinancePermissions.All)
+        {
             Assert.Contains(permission, finance.Permissions);
+        }
 
         // The three that carry a SECOND dot -- the ones an inventory grep of `finance\.[a-z_]+`
         // truncates to "finance.variations" and collapses into one. That miss is why the plan's count
@@ -61,13 +63,13 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task OpenApiDocument_ListsTheFinanceRoutes()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/openapi/v1.json");
+        HttpResponseMessage response = await client.GetAsync("/openapi/v1.json");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var paths = document.RootElement.GetProperty("paths");
+        JsonElement paths = document.RootElement.GetProperty("paths");
 
         var mounted = paths.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
 
@@ -94,7 +96,7 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task OpenApiDocument_ListsTheFinanceRoutesMountedUnderProjectsUrlSpace()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
         using var document = JsonDocument.Parse(
             await client.GetStringAsync("/openapi/v1.json"));
@@ -136,16 +138,16 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task FinanceRoutes_Require_Authentication_ThenPermission()
     {
-        var anonymous = fixture.CreateClient();
-        var unauthorized = await anonymous.GetAsync("/api/cost-categories");
+        HttpClient anonymous = fixture.CreateClient();
+        HttpResponseMessage unauthorized = await anonymous.GetAsync("/api/cost-categories");
         Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
-        var wrongPermission = AuthorizedClient(IdentityPermissions.PermissionsManage);
-        var forbidden = await wrongPermission.GetAsync("/api/cost-categories");
+        HttpClient wrongPermission = AuthorizedClient(IdentityPermissions.PermissionsManage);
+        HttpResponseMessage forbidden = await wrongPermission.GetAsync("/api/cost-categories");
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
 
-        var allowed = AuthorizedClient(FinancePermissions.Read);
-        var ok = await allowed.GetAsync("/api/cost-categories");
+        HttpClient allowed = AuthorizedClient(FinancePermissions.Read);
+        HttpResponseMessage ok = await allowed.GetAsync("/api/cost-categories");
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
     }
 
@@ -157,9 +159,9 @@ public sealed class FinanceSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task ApprovingAVariation_RequiresItsOwnPermission_NotTheAuthoringOne()
     {
-        var authoringOnly = AuthorizedClient(FinancePermissions.ManageVariation);
+        HttpClient authoringOnly = AuthorizedClient(FinancePermissions.ManageVariation);
 
-        var response = await authoringOnly.PutAsJsonAsync(
+        HttpResponseMessage response = await authoringOnly.PutAsJsonAsync(
             $"/api/variations/{Guid.NewGuid()}/approve", new { });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);

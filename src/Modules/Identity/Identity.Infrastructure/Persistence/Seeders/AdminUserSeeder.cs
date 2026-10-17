@@ -21,20 +21,23 @@ internal static class AdminUserSeeder
 {
     /// <summary>Fixed id (backend's own idempotency key — lookup by id, not email) so re-running finds
     /// the same row it created last time even if email/username were ever renamed.</summary>
-    private const string SeedAdminUserId = "00000000-0000-0000-0000-000000000001";
+    /// <summary>Internal rather than private since <c>UserLifecycleMaintenance</c> refuses to delete
+    /// this id by name — see its own remarks for why that guard exists on top of the active check.</summary>
+    internal const string SeedAdminUserId = "00000000-0000-0000-0000-000000000001";
     private const string SeedAdminEmail = "admin@system.dms";
 
     public static async Task SeedAsync(
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager,
         IConfiguration configuration,
-        IHostEnvironment environment,
-        CancellationToken ct = default)
+        IHostEnvironment environment)
     {
         if (await userManager.FindByIdAsync(SeedAdminUserId) is not null)
+        {
             return;
+        }
 
-        var password = configuration["DMS_SEED_ADMIN_PASSWORD"];
+        string? password = configuration["DMS_SEED_ADMIN_PASSWORD"];
         if (string.IsNullOrWhiteSpace(password))
         {
             if (!environment.IsDevelopment())
@@ -49,14 +52,24 @@ internal static class AdminUserSeeder
             return;
         }
 
-        var role = await roleManager.FindByNameAsync(DefaultRoles.Admin)
+        ApplicationRole? role = await roleManager.FindByNameAsync(DefaultRoles.Admin)
             ?? throw new InvalidOperationException(
                 $"Cannot seed the admin user before role '{DefaultRoles.Admin}' exists — RoleSeeder must run first.");
 
+        // isActive: true, stated explicitly rather than left to the default. This is the ADR's one
+        // documented exemption from "a login is created inactive and activated by the integration event
+        // its business record commits with": the seeded admin has no employee record by design, so no
+        // such event will ever be published for it, and an inactive admin would leave a fresh database
+        // with no way in. Every other caller goes through IUserProvisioning, which passes false.
+        //
+        // It is also why UnlinkedUserReaperJob refuses this id outright: an account that is deliberately
+        // active and deliberately unlinked matches nothing the reaper is looking for, but it should not
+        // depend on that to survive.
         var user = ApplicationUser.Create(
-            SeedAdminUserId, SeedAdminEmail, SeedAdminEmail, "System", "Administrator", UserType.Employee);
+            SeedAdminUserId, SeedAdminEmail, SeedAdminEmail, "System", "Administrator", UserType.Employee,
+            isActive: true);
 
-        var createResult = await userManager.CreateAsync(user, password);
+        IdentityResult createResult = await userManager.CreateAsync(user, password);
         if (!createResult.Succeeded)
         {
             throw new InvalidOperationException(

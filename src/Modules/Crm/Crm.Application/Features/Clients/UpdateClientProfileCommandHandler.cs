@@ -16,9 +16,11 @@ internal sealed class UpdateClientProfileCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(UpdateClientProfileCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
         client.UpdateProfile(command.JobTitle, command.MaritalStatus, command.RepresentativeName);
         await db.SaveChangesAsync(ct);

@@ -14,9 +14,11 @@ internal sealed class GetDocumentFolderChildrenQueryHandler(DocumentsDbContext d
     public async Task<Result<IReadOnlyList<DocumentFolderResponse>>> HandleAsync(
         GetDocumentFolderChildrenQuery query, CancellationToken ct = default)
     {
-        var parentExists = await db.DocumentFolders.AsNoTracking().AnyAsync(f => f.Id == query.FolderId, ct);
+        bool parentExists = await db.DocumentFolders.AsNoTracking().AnyAsync(f => f.Id == query.FolderId, ct);
         if (!parentExists)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
         List<DocumentFolderResponse> children = await db.DocumentFolders.AsNoTracking()
             .Where(f => f.ParentFolderId == query.FolderId && f.IsActive)

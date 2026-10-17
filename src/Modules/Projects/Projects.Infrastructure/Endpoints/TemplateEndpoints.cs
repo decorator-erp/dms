@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Projects.Contracts;
 using Projects.Contracts.Templates;
+using SharedKernel;
 
 namespace Projects.Infrastructure.Endpoints;
 
@@ -16,26 +17,26 @@ internal sealed class TemplateEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var templates = app.MapGroup("/api/stage-templates").WithTags("StageTemplates");
+        RouteGroupBuilder templates = app.MapGroup("/api/stage-templates").WithTags("StageTemplates");
 
         templates.MapGet("/", async (
             IQueryHandler<GetStageTemplatesQuery, IReadOnlyList<StageTemplateResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageTemplatesQuery(), ct);
+            Result<IReadOnlyList<StageTemplateResponse>> result = await handler.HandleAsync(new GetStageTemplatesQuery(), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
         templates.MapGet("/{stageTemplateId:guid}", async (
             Guid stageTemplateId, IQueryHandler<GetStageTemplateQuery, StageTemplateResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageTemplateQuery(stageTemplateId), ct);
+            Result<StageTemplateResponse> result = await handler.HandleAsync(new GetStageTemplateQuery(stageTemplateId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
         templates.MapPost("/", async (
             CreateStageTemplateCommand command, ICommandHandler<CreateStageTemplateCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Ok(new { StageTemplateId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
@@ -43,7 +44,7 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageTemplateId, UpdateStageTemplateRequest request,
             ICommandHandler<UpdateStageTemplateCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateStageTemplateCommand(stageTemplateId, request.Name, request.Description, request.IsDefault), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
@@ -51,14 +52,14 @@ internal sealed class TemplateEndpoints : IEndpoint
         templates.MapDelete("/{stageTemplateId:guid}", async (
             Guid stageTemplateId, ICommandHandler<DeleteStageTemplateCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteStageTemplateCommand(stageTemplateId), ct);
+            Result result = await handler.HandleAsync(new DeleteStageTemplateCommand(stageTemplateId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
         templates.MapGet("/{stageTemplateId:guid}/stages", async (
             Guid stageTemplateId, IQueryHandler<GetStagesByTemplateQuery, IReadOnlyList<StageResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStagesByTemplateQuery(stageTemplateId), ct);
+            Result<IReadOnlyList<StageResponse>> result = await handler.HandleAsync(new GetStagesByTemplateQuery(stageTemplateId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
@@ -66,17 +67,17 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageTemplateId, CreateStageRequest request,
             ICommandHandler<CreateStageCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new CreateStageCommand(stageTemplateId, request.Name, request.Order, request.WeightPercent, request.Description), ct);
             return result.Match(id => Results.Ok(new { StageId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
-        var stages = app.MapGroup("/api/stages").WithTags("Stages (template)");
+        RouteGroupBuilder stages = app.MapGroup("/api/stages").WithTags("Stages (template)");
 
         stages.MapPut("/{stageId:guid}", async (
             Guid stageId, UpdateStageRequest request, ICommandHandler<UpdateStageCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateStageCommand(stageId, request.Name, request.Order, request.WeightPercent, request.Description), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
@@ -84,14 +85,14 @@ internal sealed class TemplateEndpoints : IEndpoint
         stages.MapDelete("/{stageId:guid}", async (
             Guid stageId, ICommandHandler<DeleteStageCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteStageCommand(stageId), ct);
+            Result result = await handler.HandleAsync(new DeleteStageCommand(stageId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
         stages.MapGet("/{stageId:guid}/tasks", async (
             Guid stageId, IQueryHandler<GetStageTasksByStageQuery, IReadOnlyList<StageTaskResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageTasksByStageQuery(stageId), ct);
+            Result<IReadOnlyList<StageTaskResponse>> result = await handler.HandleAsync(new GetStageTasksByStageQuery(stageId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
@@ -99,7 +100,7 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageId, CreateStageTaskRequest request,
             ICommandHandler<CreateStageTaskCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateStageTaskCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateStageTaskCommand(
                 stageId, request.Name, request.Order, request.Weight, request.Description, request.DepartmentId), ct);
             return result.Match(id => Results.Ok(new { StageTaskId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
@@ -107,31 +108,31 @@ internal sealed class TemplateEndpoints : IEndpoint
         stages.MapGet("/{stageId:guid}/departments", async (
             Guid stageId, IQueryHandler<GetStageDepartmentsQuery, IReadOnlyList<StageDepartmentResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageDepartmentsQuery(stageId), ct);
+            Result<IReadOnlyList<StageDepartmentResponse>> result = await handler.HandleAsync(new GetStageDepartmentsQuery(stageId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
         stages.MapPost("/{stageId:guid}/departments/{departmentId:guid}", async (
             Guid stageId, Guid departmentId, ICommandHandler<AddStageDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new AddStageDepartmentCommand(stageId, departmentId), ct);
+            Result result = await handler.HandleAsync(new AddStageDepartmentCommand(stageId, departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
         stages.MapDelete("/{stageId:guid}/departments/{departmentId:guid}", async (
             Guid stageId, Guid departmentId, ICommandHandler<RemoveStageDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new RemoveStageDepartmentCommand(stageId, departmentId), ct);
+            Result result = await handler.HandleAsync(new RemoveStageDepartmentCommand(stageId, departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
-        var stageTasks = app.MapGroup("/api/stage-tasks").WithTags("StageTasks (template)");
+        RouteGroupBuilder stageTasks = app.MapGroup("/api/stage-tasks").WithTags("StageTasks (template)");
 
         stageTasks.MapPut("/{stageTaskId:guid}", async (
             Guid stageTaskId, UpdateStageTaskRequest request,
             ICommandHandler<UpdateStageTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateStageTaskCommand(
+            Result result = await handler.HandleAsync(new UpdateStageTaskCommand(
                 stageTaskId, request.Name, request.Order, request.Weight, request.Description, request.DepartmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
@@ -139,7 +140,7 @@ internal sealed class TemplateEndpoints : IEndpoint
         stageTasks.MapDelete("/{stageTaskId:guid}", async (
             Guid stageTaskId, ICommandHandler<DeleteStageTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteStageTaskCommand(stageTaskId), ct);
+            Result result = await handler.HandleAsync(new DeleteStageTaskCommand(stageTaskId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
@@ -147,7 +148,7 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageTaskId, IQueryHandler<GetStageSubTasksByStageTaskQuery, IReadOnlyList<StageSubTaskResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageSubTasksByStageTaskQuery(stageTaskId), ct);
+            Result<IReadOnlyList<StageSubTaskResponse>> result = await handler.HandleAsync(new GetStageSubTasksByStageTaskQuery(stageTaskId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Read);
 
@@ -155,18 +156,18 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageTaskId, CreateStageSubTaskRequest request,
             ICommandHandler<CreateStageSubTaskCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateStageSubTaskCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateStageSubTaskCommand(
                 stageTaskId, request.Title, request.Order, request.IsRequired, request.Description), ct);
             return result.Match(id => Results.Ok(new { StageSubTaskId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
-        var stageSubTasks = app.MapGroup("/api/stage-sub-tasks").WithTags("StageSubTasks (template)");
+        RouteGroupBuilder stageSubTasks = app.MapGroup("/api/stage-sub-tasks").WithTags("StageSubTasks (template)");
 
         stageSubTasks.MapPut("/{stageSubTaskId:guid}", async (
             Guid stageSubTaskId, UpdateStageSubTaskRequest request,
             ICommandHandler<UpdateStageSubTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateStageSubTaskCommand(
+            Result result = await handler.HandleAsync(new UpdateStageSubTaskCommand(
                 stageSubTaskId, request.Title, request.Order, request.IsRequired, request.Description), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
@@ -174,7 +175,7 @@ internal sealed class TemplateEndpoints : IEndpoint
         stageSubTasks.MapDelete("/{stageSubTaskId:guid}", async (
             Guid stageSubTaskId, ICommandHandler<DeleteStageSubTaskCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteStageSubTaskCommand(stageSubTaskId), ct);
+            Result result = await handler.HandleAsync(new DeleteStageSubTaskCommand(stageSubTaskId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
     }

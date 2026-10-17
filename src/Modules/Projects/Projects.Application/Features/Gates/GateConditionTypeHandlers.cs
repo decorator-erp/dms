@@ -26,18 +26,28 @@ internal sealed class StageReferenceHandler(ProjectsDbContext db) : IGateConditi
     public async Task<Result> ValidateAsync(GateConditionContext context, CancellationToken ct = default)
     {
         if (context.ReferencedStageId is not { } referencedStageId)
+        {
             return Domain.GateConditionErrors.InvalidReference;
-        if (context.OwnerKind == GateOwnerKind.Stage && context.OwnerId == referencedStageId)
-            return Domain.GateConditionErrors.SelfReference;
+        }
 
-        var projectId = await db.ProjectStages.AsNoTracking()
+        if (context.OwnerKind == GateOwnerKind.Stage && context.OwnerId == referencedStageId)
+        {
+            return Domain.GateConditionErrors.SelfReference;
+        }
+
+        Guid? projectId = await db.ProjectStages.AsNoTracking()
             .Where(s => s.Id == referencedStageId)
             .Select(s => (Guid?)s.ProjectId)
             .FirstOrDefaultAsync(ct);
         if (projectId is null)
+        {
             return Domain.GateConditionErrors.ReferenceNotFound;
+        }
+
         if (projectId != context.OwnerProjectId)
+        {
             return Domain.GateConditionErrors.CrossProjectReference;
+        }
 
         return Result.Success();
     }
@@ -51,18 +61,28 @@ internal sealed class TaskReferenceHandler(ProjectsDbContext db) : IGateConditio
     public async Task<Result> ValidateAsync(GateConditionContext context, CancellationToken ct = default)
     {
         if (context.ReferencedTaskId is not { } referencedTaskId)
+        {
             return Domain.GateConditionErrors.InvalidReference;
-        if (context.OwnerKind == GateOwnerKind.Task && context.OwnerId == referencedTaskId)
-            return Domain.GateConditionErrors.SelfReference;
+        }
 
-        var projectId = await db.ProjectTasks.AsNoTracking()
+        if (context.OwnerKind == GateOwnerKind.Task && context.OwnerId == referencedTaskId)
+        {
+            return Domain.GateConditionErrors.SelfReference;
+        }
+
+        Guid? projectId = await db.ProjectTasks.AsNoTracking()
             .Where(t => t.Id == referencedTaskId)
             .Select(t => (Guid?)t.ProjectId)
             .FirstOrDefaultAsync(ct);
         if (projectId is null)
+        {
             return Domain.GateConditionErrors.ReferenceNotFound;
+        }
+
         if (projectId != context.OwnerProjectId)
+        {
             return Domain.GateConditionErrors.CrossProjectReference;
+        }
 
         return Result.Success();
     }

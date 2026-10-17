@@ -9,7 +9,7 @@ internal sealed class NotificationsDbContextFactory : IDesignTimeDbContextFactor
 {
     public NotificationsDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<NotificationsDbContext>()
+        DbContextOptionsBuilder<NotificationsDbContext> builder = new DbContextOptionsBuilder<NotificationsDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new NotificationsDbContext(builder.Options);

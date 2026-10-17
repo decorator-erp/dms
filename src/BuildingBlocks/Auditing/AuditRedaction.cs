@@ -37,13 +37,17 @@ internal static class AuditRedaction
 
     internal static bool IsSensitive(IProperty property)
     {
-        var name = property.Name;
+        string name = property.Name;
 
         if (SensitiveNames.Contains(name))
+        {
             return true;
+        }
 
         if (SensitiveFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+        {
             return true;
+        }
 
         return property.PropertyInfo?.GetCustomAttribute<AuditIgnoreAttribute>() is not null;
     }

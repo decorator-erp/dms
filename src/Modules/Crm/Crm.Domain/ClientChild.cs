@@ -25,16 +25,22 @@ internal sealed class ClientChild
 
     public static Result<ClientChild> Create(char gender, short age)
     {
-        var validation = Validate(gender, age);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(gender, age);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new ClientChild(Guid.CreateVersion7(), gender, age);
     }
 
     public Result Update(char gender, short age)
     {
-        var validation = Validate(gender, age);
-        if (validation.IsFailure) return validation;
+        Result validation = Validate(gender, age);
+        if (validation.IsFailure)
+        {
+            return validation;
+        }
 
         Gender = gender;
         Age = age;
@@ -44,9 +50,15 @@ internal sealed class ClientChild
     private static Result Validate(char gender, short age)
     {
         if (gender is not ('M' or 'F'))
+        {
             return ClientChildErrors.InvalidGender;
+        }
+
         if (age is < 0 or > 120)
+        {
             return ClientChildErrors.InvalidAge;
+        }
+
         return Result.Success();
     }
 }

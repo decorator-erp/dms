@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Finance.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Domain = Projects.Domain;
 
@@ -31,29 +32,35 @@ internal sealed class TaskBudgetCoverageChangedIntegrationEventHandler(ProjectsD
     {
         if (@event.IsCovered)
         {
-            var pending = await db.GateConditions
+            List<GateCondition> pending = await db.GateConditions
                 .Where(g => g.ProjectTaskId == @event.ProjectTaskId
                             && g.ConditionType == Domain.ConditionType.Budget
                             && g.Status == Domain.GateStatus.Pending)
                 .ToListAsync(ct);
 
-            foreach (var gate in pending)
+            foreach (GateCondition? gate in pending)
+            {
                 gate.MarkSatisfied(null, "Task budget covered.");
+            }
 
             return;
         }
 
-        var satisfied = await db.GateConditions
+        List<GateCondition> satisfied = await db.GateConditions
             .Where(g => g.ProjectTaskId == @event.ProjectTaskId
                         && g.ConditionType == Domain.ConditionType.Budget
                         && g.Status == Domain.GateStatus.Satisfied)
             .ToListAsync(ct);
 
         if (satisfied.Count == 0)
+        {
             return;
+        }
 
-        foreach (var gate in satisfied)
+        foreach (GateCondition? gate in satisfied)
+        {
             gate.MarkPending("Task is over budget without a signed difference.");
+        }
 
         await RelockTaskAsync(db, @event.ProjectTaskId, satisfied, ct);
     }
@@ -77,13 +84,17 @@ internal sealed class TaskBudgetCoverageChangedIntegrationEventHandler(ProjectsD
         ProjectsDbContext db, Guid taskId, List<Domain.GateCondition> rePended, CancellationToken ct)
     {
         if (!rePended.Any(g => g.Trigger == Domain.GateTrigger.Unlock))
+        {
             return;
+        }
 
-        var task = await db.ProjectTasks
+        ProjectTask? task = await db.ProjectTasks
             .FirstOrDefaultAsync(t => t.Id == taskId && t.IsActive, ct);
 
         if (task is not null && task.Status == Domain.ProjectTaskStatus.Open)
+        {
             task.Lock();
+        }
     }
 }
 
@@ -102,38 +113,48 @@ internal sealed class StageFundingChangedIntegrationEventHandler(ProjectsDbConte
     {
         if (@event.IsFunded)
         {
-            var pending = await db.GateConditions
+            List<GateCondition> pending = await db.GateConditions
                 .Where(g => g.ProjectStageId == @event.ProjectStageId
                             && g.ConditionType == Domain.ConditionType.Budget
                             && g.Status == Domain.GateStatus.Pending)
                 .ToListAsync(ct);
 
-            foreach (var gate in pending)
+            foreach (GateCondition? gate in pending)
+            {
                 gate.MarkSatisfied(null, "Stage funding reached.");
+            }
 
             return;
         }
 
-        var satisfied = await db.GateConditions
+        List<GateCondition> satisfied = await db.GateConditions
             .Where(g => g.ProjectStageId == @event.ProjectStageId
                         && g.ConditionType == Domain.ConditionType.Budget
                         && g.Status == Domain.GateStatus.Satisfied)
             .ToListAsync(ct);
 
         if (satisfied.Count == 0)
+        {
             return;
+        }
 
-        foreach (var gate in satisfied)
+        foreach (GateCondition? gate in satisfied)
+        {
             gate.MarkPending("Stage funding no longer met.");
+        }
 
         // In-memory, not a re-query -- see RelockTaskAsync above for the stale-read this avoids.
         if (!satisfied.Any(g => g.Trigger == Domain.GateTrigger.Unlock))
+        {
             return;
+        }
 
-        var stage = await db.ProjectStages
+        ProjectStage? stage = await db.ProjectStages
             .FirstOrDefaultAsync(s => s.Id == @event.ProjectStageId && s.IsActive, ct);
 
         if (stage is not null && stage.Status == Domain.StageStatus.Active)
+        {
             stage.Lock();
+        }
     }
 }

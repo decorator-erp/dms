@@ -25,7 +25,7 @@ internal sealed class LoggingDecorator
             }
             else
             {
-                logger.LogWarning(LogMessages.Command_Failed, requestName, result.Error.Description);
+                logger.LogWarning(LogMessages.Command_Failed, requestName, result.Error.Code);
             }
             return result;
         }
@@ -49,7 +49,7 @@ internal sealed class LoggingDecorator
             }
             else
             {
-                logger.LogWarning(LogMessages.Command_Failed, requestName, result.Error.Description);
+                logger.LogWarning(LogMessages.Command_Failed, requestName, result.Error.Code);
             }
             return result;
         }
@@ -73,7 +73,7 @@ internal sealed class LoggingDecorator
             }
             else
             {
-                logger.LogWarning(LogMessages.Query_Failed, requestName, result.Error.Description);
+                logger.LogWarning(LogMessages.Query_Failed, requestName, result.Error.Code);
             }
             return result;
         }

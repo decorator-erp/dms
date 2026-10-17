@@ -27,40 +27,52 @@ internal sealed class DeclineCrmMeetingSlotCommandHandler(CrmDbContext db, IProj
 {
     public async Task<Result> HandleAsync(DeclineCrmMeetingSlotCommand command, CancellationToken ct = default)
     {
-        var slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
+        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
         if (slot is null)
+        {
             return CrmMeetingErrors.SlotNotFound;
+        }
 
         if (!MeetingSupport.IsCounterpartyKind(slot, command.ActingEmployeeId, command.ActingContactId))
+        {
             return CrmMeetingErrors.NotCounterparty;
+        }
 
-        var meetingProjectId = await db.CrmMeetings.AsNoTracking()
+        Guid? meetingProjectId = await db.CrmMeetings.AsNoTracking()
             .Where(m => m.Id == slot.MeetingId)
             .Select(m => (Guid?)m.ProjectId)
             .FirstOrDefaultAsync(ct);
         if (meetingProjectId is null)
+        {
             return CrmMeetingErrors.NotFound;
+        }
 
-        var scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
+        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
             db, projectDirectory, meetingProjectId.Value, command.ActingEmployeeId, command.ActingContactId, ct);
         if (scoped.IsFailure)
+        {
             return scoped.Error;
+        }
 
-        var declined = slot.Decline();
+        Result declined = slot.Decline();
         if (declined.IsFailure)
+        {
             return declined.Error;
+        }
 
         if (command.CounterSlots is { Count: > 0 })
         {
-            var now = DateTime.UtcNow;
-            foreach (var s in command.CounterSlots)
+            DateTime now = DateTime.UtcNow;
+            foreach (CrmMeetingSlotRequest s in command.CounterSlots)
             {
-                var counterResult = CrmMeetingSlot.Create(
+                Result<CrmMeetingSlot> counterResult = CrmMeetingSlot.Create(
                     slot.MeetingId, s.StartsAtUtc, s.EndsAtUtc,
                     proposedByEmployeeId: command.ActingEmployeeId, proposedByContactId: command.ActingContactId,
                     nowUtc: now);
                 if (counterResult.IsFailure)
+                {
                     return counterResult.Error;
+                }
 
                 db.CrmMeetingSlots.Add(counterResult.Value!);
             }

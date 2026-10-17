@@ -39,7 +39,7 @@ internal sealed class DocumentsModule : IModule
         // roughly the configured ceiling, rejecting a wildly oversized body before a form value provider
         // spends any time on it - SaveAsync's own chunk-by-chunk enforcement (G7-05) remains the
         // authoritative backstop regardless of what this allows through.
-        var maxUploadBytes = long.TryParse(cfg["FileStorage:MaxUploadBytes"], out var configuredMax) && configuredMax > 0
+        long maxUploadBytes = long.TryParse(cfg["FileStorage:MaxUploadBytes"], out long configuredMax) && configuredMax > 0
             ? configuredMax
             : 52_428_800;
         services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxUploadBytes);

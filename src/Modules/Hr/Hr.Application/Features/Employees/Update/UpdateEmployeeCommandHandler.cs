@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts.Employees;
 using Hr.Domain;
+using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using SharedKernel;
 
@@ -23,15 +24,16 @@ internal sealed class UpdateEmployeeCommandHandler(HrDbContext db) : ICommandHan
 {
     public async Task<Result> HandleAsync(UpdateEmployeeCommand command, CancellationToken ct = default)
     {
-        var employee = await db.Employees.FindAsync([command.EmployeeId], ct);
+        Employee? employee = await db.Employees.FindAsync([command.EmployeeId], ct);
         if (employee is null)
+        {
             return EmployeeErrors.NotFound;
+        }
 
         employee.Update(
             jobTitle: command.JobTitle,
             contractType: command.ContractType is null ? null : Enum.Parse<ContractType>(command.ContractType),
             phoneNumber: command.PhoneNumber,
-            emergencyContactName: command.EmergencyContactName,
             emergencyContactPhone: command.EmergencyContactPhone,
             notes: command.Notes,
             endDate: command.EndDate);

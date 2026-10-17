@@ -10,7 +10,7 @@ internal sealed class CrmDbContextFactory : IDesignTimeDbContextFactory<CrmDbCon
 {
     public CrmDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<CrmDbContext>()
+        DbContextOptionsBuilder<CrmDbContext> builder = new DbContextOptionsBuilder<CrmDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new CrmDbContext(builder.Options);

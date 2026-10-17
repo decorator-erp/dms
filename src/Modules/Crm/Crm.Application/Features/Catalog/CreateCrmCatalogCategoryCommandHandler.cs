@@ -33,21 +33,27 @@ internal sealed class CreateCrmCatalogCategoryCommandHandler(CrmDbContext db)
         {
             parent = await db.CrmCatalogCategories.FirstOrDefaultAsync(c => c.Id == parentId, ct);
             if (parent is null)
+            {
                 return Result.Failure<Guid>(CrmCatalogErrors.CategoryNotFound);
+            }
         }
 
-        var depth = (parent?.Depth ?? -1) + 1;
+        int depth = (parent?.Depth ?? -1) + 1;
         if (depth > CrmCatalogCategory.MaxDepth)
+        {
             return Result.Failure<Guid>(CrmCatalogErrors.MaxDepthExceeded);
+        }
 
-        var categoryResult = CrmCatalogCategory.Create(
+        Result<CrmCatalogCategory> categoryResult = CrmCatalogCategory.Create(
             command.ParentId, command.Code, command.NameEn, command.NameAr,
             CrmEnumMapping.ToDomain(command.SelectionMode), command.IsRequired, command.SortOrder,
             command.DescriptionEn, command.DescriptionAr, command.ImageUri);
         if (categoryResult.IsFailure)
+        {
             return Result.Failure<Guid>(categoryResult.Error);
+        }
 
-        var category = categoryResult.Value!;
+        CrmCatalogCategory category = categoryResult.Value!;
         category.SetPath(CategoryPathHelper.ChildPath(parent?.Path, category.Id), depth);
 
         db.CrmCatalogCategories.Add(category);

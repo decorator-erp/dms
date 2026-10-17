@@ -18,10 +18,10 @@ internal static class SiteScopeRegistration
 {
     public static IServiceCollection AddSiteScopeDecorator(this IServiceCollection services, Assembly assembly)
     {
-        var scopedTypes = assembly.GetTypes()
+        IEnumerable<Type> scopedTypes = assembly.GetTypes()
             .Where(t => t is { IsAbstract: false, IsInterface: false } && typeof(ISiteScoped).IsAssignableFrom(t));
 
-        foreach (var type in scopedTypes)
+        foreach (Type? type in scopedTypes)
         {
             if (typeof(ICommand).IsAssignableFrom(type))
             {
@@ -30,21 +30,21 @@ internal static class SiteScopeRegistration
                 continue;
             }
 
-            var commandInterface = type.GetInterfaces()
+            Type? commandInterface = type.GetInterfaces()
                 .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
             if (commandInterface is not null)
             {
-                var tResponse = commandInterface.GetGenericArguments()[0];
+                Type tResponse = commandInterface.GetGenericArguments()[0];
                 DecorateIfRegistered(services, typeof(ICommandHandler<,>).MakeGenericType(type, tResponse),
                     typeof(SiteScopeDecorator.CommandHandler<,>).MakeGenericType(type, tResponse));
                 continue;
             }
 
-            var queryInterface = type.GetInterfaces()
+            Type? queryInterface = type.GetInterfaces()
                 .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IQuery<>));
             if (queryInterface is not null)
             {
-                var tResponse = queryInterface.GetGenericArguments()[0];
+                Type tResponse = queryInterface.GetGenericArguments()[0];
                 DecorateIfRegistered(services, typeof(IQueryHandler<,>).MakeGenericType(type, tResponse),
                     typeof(SiteScopeDecorator.QueryHandler<,>).MakeGenericType(type, tResponse));
             }
@@ -60,6 +60,8 @@ internal static class SiteScopeRegistration
     private static void DecorateIfRegistered(IServiceCollection services, Type serviceType, Type decoratorType)
     {
         if (services.Any(d => d.ServiceType == serviceType))
+        {
             services.Decorate(serviceType, decoratorType);
+        }
     }
 }

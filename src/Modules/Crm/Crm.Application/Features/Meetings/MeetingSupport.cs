@@ -23,7 +23,9 @@ internal static class MeetingSupport
         CrmDbContext db, Guid projectId, Guid? periodId, CancellationToken ct)
     {
         if (periodId is not { } pid)
+        {
             return Result.Success();
+        }
 
         var period = await db.CrmRequirementPeriods.AsNoTracking()
             .Where(p => p.Id == pid)
@@ -31,10 +33,14 @@ internal static class MeetingSupport
             .FirstOrDefaultAsync(ct);
 
         if (period is null || period.ProjectId != projectId)
+        {
             return CrmPeriodErrors.NotFound;
+        }
 
         if (period.Status != RequirementPeriodStatus.Open)
+        {
             return CrmPeriodErrors.NotOpen;
+        }
 
         return Result.Success();
     }
@@ -63,9 +69,11 @@ internal static class MeetingSupport
             .FirstOrDefaultAsync(ct);
 
         if (meeting is null)
+        {
             return null;
+        }
 
-        var slots = await db.CrmMeetingSlots.AsNoTracking()
+        List<CrmMeetingSlot> slots = await db.CrmMeetingSlots.AsNoTracking()
             .Where(s => s.MeetingId == meetingId)
             .OrderBy(s => s.StartsAtUtc)
             .ToListAsync(ct);
@@ -90,10 +98,14 @@ internal static class MeetingSupport
     public static bool IsCounterpartyKind(CrmMeetingSlot slot, Guid? actingEmployeeId, Guid? actingContactId)
     {
         if (slot.ProposedByEmployeeId is not null)
+        {
             return actingContactId is not null && actingEmployeeId is null;
+        }
 
         if (slot.ProposedByContactId is not null)
+        {
             return actingEmployeeId is not null && actingContactId is null;
+        }
 
         return false;
     }
@@ -118,21 +130,29 @@ internal static class MeetingSupport
         Guid projectId, Guid? actingEmployeeId, Guid? actingContactId, CancellationToken ct)
     {
         if (actingEmployeeId is not null)
+        {
             return Result.Success();
+        }
 
         if (actingContactId is not { } contactId)
+        {
             return CrmMeetingErrors.NotCounterparty;
+        }
 
-        var contactClientId = await db.CrmContacts.AsNoTracking()
+        Guid? contactClientId = await db.CrmContacts.AsNoTracking()
             .Where(c => c.Id == contactId)
             .Select(c => (Guid?)c.ClientId)
             .FirstOrDefaultAsync(ct);
         if (contactClientId is null)
+        {
             return CrmMeetingErrors.NotCounterparty;
+        }
 
-        var project = await projectDirectory.GetProjectAsync(projectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
         if (project is null || project.ClientId != contactClientId)
+        {
             return CrmMeetingErrors.NotCounterparty;
+        }
 
         return Result.Success();
     }

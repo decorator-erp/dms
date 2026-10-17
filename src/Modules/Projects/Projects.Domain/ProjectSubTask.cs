@@ -32,7 +32,9 @@ internal sealed class ProjectSubTask : Entity, IAuditable
     public Result Complete(Guid completedById)
     {
         if (IsDone)
+        {
             return SubTaskErrors.AlreadyDone;
+        }
 
         IsDone = true;
         CompletedById = completedById;

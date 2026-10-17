@@ -11,7 +11,7 @@ public class EmployeeTests
         var hireDate = DateOnly.FromDateTime(DateTime.UtcNow);
         var employee = Employee.Create(
             appUserId: "user-1", jobTitle: "Engineer", hireDate: hireDate, contractType: ContractType.FullTime,
-            phoneNumber: "555-0100", emergencyContactName: "Jane", emergencyContactPhone: "555-0200", notes: "n");
+            phoneNumber: "555-0100", emergencyContactPhone: "555-0200", notes: "n");
 
         Assert.Equal("user-1", employee.AppUserId);
         Assert.Equal("Engineer", employee.JobTitle);

@@ -7,14 +7,7 @@ namespace Identity.Domain;
 /// not match the class name; this one does).</summary>
 internal sealed class ApplicationRole : IdentityRole<string>, IAuditable
 {
-    public string? Description { get; private set; }
-    public bool IsActive { get; private set; } = true;
-    public DateTime CreatedAt { get; private set; }
-
-    private ApplicationRole()
-    {
-        // EF materialization.
-    }
+    private ApplicationRole() { }
 
     public static ApplicationRole Create(string id, string name, string? description = null) =>
         new()
@@ -27,6 +20,10 @@ internal sealed class ApplicationRole : IdentityRole<string>, IAuditable
             CreatedAt = DateTime.UtcNow,
             ConcurrencyStamp = Guid.NewGuid().ToString(),
         };
+    
+    public string? Description { get; private set; }
+    public bool IsActive { get; private set; } = true;
+    public DateTime CreatedAt { get; private set; }
 
     public void Rename(string name)
     {

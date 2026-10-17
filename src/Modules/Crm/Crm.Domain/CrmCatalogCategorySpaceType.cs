@@ -17,8 +17,15 @@ internal sealed class CrmCatalogCategorySpaceType : Entity, IAuditable
 
     public static Result<CrmCatalogCategorySpaceType> Create(Guid categoryId, Guid spaceTypeId)
     {
-        if (categoryId == Guid.Empty) return CrmCatalogErrors.CategoryNotFound;
-        if (spaceTypeId == Guid.Empty) return CrmCatalogErrors.SpaceTypeNotFound;
+        if (categoryId == Guid.Empty)
+        {
+            return CrmCatalogErrors.CategoryNotFound;
+        }
+
+        if (spaceTypeId == Guid.Empty)
+        {
+            return CrmCatalogErrors.SpaceTypeNotFound;
+        }
 
         return new CrmCatalogCategorySpaceType { CategoryId = categoryId, SpaceTypeId = spaceTypeId };
     }

@@ -58,9 +58,9 @@ public class EnumParityTests
         where TDomain : struct, Enum
         where TContracts : struct, Enum
     {
-        var domain = Enum.GetValues<TDomain>()
+        Dictionary<string, int> domain = Enum.GetValues<TDomain>()
             .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v, System.Globalization.CultureInfo.InvariantCulture));
-        var contracts = Enum.GetValues<TContracts>()
+        Dictionary<string, int> contracts = Enum.GetValues<TContracts>()
             .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v, System.Globalization.CultureInfo.InvariantCulture));
 
         // Liveness: an enum with no members would make every assertion below trivially true.
@@ -68,7 +68,7 @@ public class EnumParityTests
 
         Assert.Equal(domain.Keys.OrderBy(k => k, StringComparer.Ordinal), contracts.Keys.OrderBy(k => k, StringComparer.Ordinal));
 
-        foreach (var (name, value) in domain)
+        foreach ((string? name, int value) in domain)
         {
             Assert.True(
                 contracts[name] == value,

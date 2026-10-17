@@ -6,6 +6,7 @@ using Crm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Notifications.Contracts;
 using Projects.Contracts;
+using SharedKernel;
 using RequirementPeriodStatus = Crm.Domain.RequirementPeriodStatus;
 
 namespace Crm.Application.Features.Jobs;
@@ -41,19 +42,21 @@ internal sealed class CrmPeriodCloseJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
 
-        var due = await db.CrmRequirementPeriods
+        List<CrmRequirementPeriod> due = await db.CrmRequirementPeriods
             .Where(p => p.IsActive
                         && p.Status == RequirementPeriodStatus.Open
                         && p.ClosesAtUtc <= now)
             .ToListAsync(ct);
 
-        foreach (var period in due)
+        foreach (CrmRequirementPeriod? period in due)
         {
-            var closed = period.Close(now);
+            Result closed = period.Close(now);
             if (closed.IsFailure)
+            {
                 continue; // already closed by another actor between the read and here.
+            }
 
             if (period.ProjectStageId is { } stageId)
             {
@@ -63,8 +66,8 @@ internal sealed class CrmPeriodCloseJob(
 
             await db.SaveChangesAsync(ct);
 
-            var project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
-            var client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
+            ProjectSummary? project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
+            ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
 
             if (!string.IsNullOrEmpty(client?.AppUserId))
             {

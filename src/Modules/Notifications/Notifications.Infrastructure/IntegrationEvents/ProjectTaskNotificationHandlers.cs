@@ -27,9 +27,11 @@ internal sealed class ProjectTaskAssignedNotificationHandler(
 {
     public async Task HandleAsync(ProjectTaskAssignedIntegrationEvent @event, CancellationToken ct)
     {
-        var assignee = await hrDirectory.GetAsync(@event.AssigneeEmployeeId, ct);
+        EmployeeSummary? assignee = await hrDirectory.GetAsync(@event.AssigneeEmployeeId, ct);
         if (string.IsNullOrEmpty(assignee?.AppUserId))
+        {
             return;
+        }
 
         await notifications.NotifyAsync(
             assignee.AppUserId,
@@ -93,11 +95,15 @@ internal static class TaskNotifier
         CancellationToken ct)
     {
         if (assigneeEmployeeId is not { } employeeId)
+        {
             return;
+        }
 
-        var assignee = await hrDirectory.GetAsync(employeeId, ct);
+        EmployeeSummary? assignee = await hrDirectory.GetAsync(employeeId, ct);
         if (string.IsNullOrEmpty(assignee?.AppUserId))
+        {
             return;
+        }
 
         await notifications.NotifyAsync(
             assignee.AppUserId, type, title, body,

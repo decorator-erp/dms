@@ -1,3 +1,5 @@
+using Identity.Contracts;
+
 namespace Identity.Infrastructure.Persistence.Seeders;
 
 /// <summary>
@@ -27,8 +29,12 @@ internal static class DefaultRoles
 {
     public const string Admin = "admin";
     public const string Manager = "manager";
-    public const string Employee = "employee";
-    public const string Client = "client";
+
+    // The two provisionable roles are defined in Identity.Contracts, not here — other modules must be
+    // able to name them and this class is internal. Aliased rather than re-spelled so the seeded role
+    // and the one a caller asks for cannot drift apart into a silent RoleErrors.NotFound.
+    public const string Employee = IdentityRoles.Employee;
+    public const string Client = IdentityRoles.Client;
 
     public static readonly string[] All = [Admin, Manager, Employee, Client];
 

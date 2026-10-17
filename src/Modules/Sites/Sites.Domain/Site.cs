@@ -135,7 +135,9 @@ internal sealed class Site : Entity, IAuditable
     public static Result<Site> Create(Guid projectId, string code, Guid createdById, SiteData data)
     {
         if (projectId == Guid.Empty || createdById == Guid.Empty || string.IsNullOrWhiteSpace(code))
+        {
             return SiteErrors.InvalidData;
+        }
 
         var site = new Site
         {
@@ -145,8 +147,11 @@ internal sealed class Site : Entity, IAuditable
             Status = SiteStatus.Draft,
         };
 
-        var applied = site.Apply(data);
-        if (applied.IsFailure) return applied.Error;
+        Result applied = site.Apply(data);
+        if (applied.IsFailure)
+        {
+            return applied.Error;
+        }
 
         return site;
     }
@@ -158,7 +163,11 @@ internal sealed class Site : Entity, IAuditable
     /// </summary>
     public Result Update(SiteData data)
     {
-        if (!IsEditable) return SiteErrors.SiteLocked;
+        if (!IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
+
         return Apply(data);
     }
 
@@ -168,8 +177,15 @@ internal sealed class Site : Entity, IAuditable
     /// </summary>
     public Result Submit(DateTime submittedAtUtc)
     {
-        if (Status != SiteStatus.Draft) return SiteErrors.InvalidTransition;
-        if (string.IsNullOrWhiteSpace(Address)) return SiteErrors.AddressRequiredToSubmit;
+        if (Status != SiteStatus.Draft)
+        {
+            return SiteErrors.InvalidTransition;
+        }
+
+        if (string.IsNullOrWhiteSpace(Address))
+        {
+            return SiteErrors.AddressRequiredToSubmit;
+        }
 
         Status = SiteStatus.Submitted;
         SubmittedAtUtc = submittedAtUtc;
@@ -180,8 +196,15 @@ internal sealed class Site : Entity, IAuditable
     /// row's own status/stamp check constraint.</summary>
     public Result Decide(bool approved, Guid decidedById, DateTime decidedAtUtc, string? note = null)
     {
-        if (Status != SiteStatus.Submitted) return SiteErrors.InvalidTransition;
-        if (decidedById == Guid.Empty) return SiteErrors.InvalidData;
+        if (Status != SiteStatus.Submitted)
+        {
+            return SiteErrors.InvalidTransition;
+        }
+
+        if (decidedById == Guid.Empty)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         Status = approved ? SiteStatus.Approved : SiteStatus.Rejected;
         DecidedById = decidedById;
@@ -196,7 +219,10 @@ internal sealed class Site : Entity, IAuditable
     /// </summary>
     public Result ReopenForRework()
     {
-        if (Status != SiteStatus.Rejected) return SiteErrors.InvalidTransition;
+        if (Status != SiteStatus.Rejected)
+        {
+            return SiteErrors.InvalidTransition;
+        }
 
         Status = SiteStatus.Draft;
         SubmittedAtUtc = null;
@@ -212,9 +238,20 @@ internal sealed class Site : Entity, IAuditable
 
     private Result Apply(SiteData d)
     {
-        if (d.AreaSqm is <= 0) return SiteErrors.InvalidData;
-        if (d.FloorNo is < -5 or > 200) return SiteErrors.InvalidData;
-        if (d.UnitsPerFloor is < 1 or > 100) return SiteErrors.InvalidData;
+        if (d.AreaSqm is <= 0)
+        {
+            return SiteErrors.InvalidData;
+        }
+
+        if (d.FloorNo is < -5 or > 200)
+        {
+            return SiteErrors.InvalidData;
+        }
+
+        if (d.UnitsPerFloor is < 1 or > 100)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         Address = Normalize(d.Address);
         UnitType = d.UnitType;
@@ -235,7 +272,7 @@ internal sealed class Site : Entity, IAuditable
 
     private static string? Normalize(string? value)
     {
-        var trimmed = value?.Trim();
+        string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

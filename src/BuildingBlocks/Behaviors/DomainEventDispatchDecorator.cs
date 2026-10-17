@@ -2,6 +2,7 @@ using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SharedKernel;
 
 namespace BuildingBlocks.Behaviors;
@@ -41,7 +42,7 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+            await using IDbContextTransaction transaction = await dbContext.Database.BeginTransactionAsync(ct);
 
             Result<TResponse> result = await innerHandler.HandleAsync(command, ct);
 
@@ -74,7 +75,7 @@ internal static class DomainEventDispatchDecorator<TContext> where TContext : Db
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+            await using IDbContextTransaction transaction = await dbContext.Database.BeginTransactionAsync(ct);
 
             Result result = await innerHandler.HandleAsync(command, ct);
 

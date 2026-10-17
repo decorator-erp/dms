@@ -18,9 +18,12 @@ namespace Identity.Application.Tests;
 /// Boots the same DI graph <see cref="Identity.Infrastructure.IdentityModule.Register"/> builds against
 /// a real Postgres (Testcontainers) — including <c>AddModuleCqrs&lt;IdentityModuleDbContext&gt;</c> over
 /// the real <c>Identity.Application</c> assembly, so handlers resolve wrapped in their actual
-/// Validation → Logging → DomainEventDispatch chain, not a hand-wired substitute. Also migrates
-/// <see cref="SharedDbContext"/> first, since <c>RegisterCommandHandler</c> stages a row in
-/// <c>shared.outbox_messages</c> in the same <c>SaveChangesAsync</c> as the new user.
+/// Validation → Logging → DomainEventDispatch chain, not a hand-wired substitute.
+///
+/// <para><see cref="SharedDbContext"/> is migrated first. The original reason was the register handler
+/// staging an outbox row in the same <c>SaveChangesAsync</c> as the new user; that handler is deleted
+/// and <c>UserProvisioning</c> enqueues nothing. It is still required, because <c>ApplicationUser</c> is
+/// <c>IAuditable</c> and the interceptor writes to <c>shared.audit_logs</c> on every user write.</para>
 /// </summary>
 public sealed class IdentityApplicationFixture : IAsyncLifetime
 {
@@ -32,7 +35,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["JwtSettings:Key"] = "test-signing-key-at-least-32-characters-long-000000",
@@ -60,6 +63,8 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IUserProvisioning, UserProvisioning>();
+        services.AddScoped<IUserAdministration, UserAdministration>();
 
         // Mirrors IdentityModule.Register: a single fixed IModulePermissions registration (this module's
         // own set) is enough to exercise the catalog union logic without needing a second fake module.
@@ -75,7 +80,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddSingleton<ICurrentUser>(new TestCurrentUser("test-caller-id"));
 
         services.AddModuleCqrs<IdentityModuleDbContext>(
-            typeof(Identity.Application.Features.Auths.Register.RegisterCommandHandler).Assembly);
+            typeof(Identity.Application.Features.Auths.Login.LoginCommandHandler).Assembly);
 
         _provider = services.BuildServiceProvider();
 
@@ -85,7 +90,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
-        await using var scope = _provider.CreateAsyncScope();
+        await using AsyncServiceScope scope = _provider.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
     }
 

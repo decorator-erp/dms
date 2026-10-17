@@ -63,7 +63,9 @@ internal sealed class Invoice : Entity, IAuditable
         // FluentValidation rule at the edge -- so any handler constructing an invoice directly can
         // persist one with an empty natural key, which is also what DuplicatedNumber keys on.
         if (string.IsNullOrWhiteSpace(number))
+        {
             return InvoiceErrors.NumberRequired;
+        }
 
         var invoice = new Invoice
         {
@@ -98,15 +100,21 @@ internal sealed class Invoice : Entity, IAuditable
     public Result ApplyPayment(decimal amount)
     {
         if (!IsPayable)
+        {
             return InvoiceErrors.NotPayable;
+        }
 
         if (amount <= 0 || amount > Balance)
+        {
             return InvoiceErrors.OverAllocation;
+        }
 
         PaidAmount += amount;
 
         if (Balance <= 0)
+        {
             Status = InvoiceStatus.Paid;
+        }
 
         return Result.Success();
     }
@@ -117,7 +125,9 @@ internal sealed class Invoice : Entity, IAuditable
     public Result Cancel()
     {
         if (Status is InvoiceStatus.Paid or InvoiceStatus.Cancelled || PaidAmount > 0)
+        {
             return InvoiceErrors.InvalidStatusTransition;
+        }
 
         Status = InvoiceStatus.Cancelled;
         return Result.Success();

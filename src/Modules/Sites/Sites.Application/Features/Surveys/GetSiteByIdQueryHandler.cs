@@ -56,11 +56,14 @@ internal sealed class GetSiteByIdQueryHandler(SitesDbContext db)
             })
             .FirstOrDefaultAsync(ct);
 
-        if (site is null) return SiteErrors.NotFound;
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
         // A second query rather than a correlated subquery per module: the record counts are a GROUP BY
         // over this site's own rows, joined to the module for its code.
-        var recordCounts = await (
+        List<SiteModuleRecordCountResponse> recordCounts = await (
             from record in db.SiteRecords.AsNoTracking()
             join module in db.SiteModules.AsNoTracking() on record.ModuleId equals module.Id
             where record.SiteId == query.SiteId

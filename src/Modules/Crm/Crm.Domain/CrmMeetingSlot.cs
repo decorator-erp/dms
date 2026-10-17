@@ -29,13 +29,19 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
         DateTime? nowUtc = null)
     {
         if (proposedByEmployeeId.HasValue == proposedByContactId.HasValue)
+        {
             return CrmMeetingErrors.InvalidProposer;
+        }
 
         if (endsAtUtc <= startsAtUtc)
+        {
             return CrmMeetingErrors.InvalidSlotRange;
+        }
 
         if (nowUtc is { } now && startsAtUtc <= now)
+        {
             return CrmMeetingErrors.InvalidSlotRange;
+        }
 
         return new CrmMeetingSlot
         {
@@ -51,7 +57,9 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
     public Result Accept()
     {
         if (Status != MeetingSlotStatus.Proposed)
+        {
             return CrmMeetingErrors.SlotNotProposed;
+        }
 
         Status = MeetingSlotStatus.Accepted;
         return Result.Success();
@@ -60,7 +68,9 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
     public Result Decline()
     {
         if (Status != MeetingSlotStatus.Proposed)
+        {
             return CrmMeetingErrors.SlotNotProposed;
+        }
 
         Status = MeetingSlotStatus.Declined;
         return Result.Success();

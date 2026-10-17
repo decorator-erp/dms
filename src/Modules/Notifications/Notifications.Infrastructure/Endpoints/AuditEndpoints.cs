@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Notifications.Contracts;
+using SharedKernel;
 
 namespace Notifications.Infrastructure.Endpoints;
 
@@ -36,7 +37,7 @@ internal sealed class AuditEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/audit")
+        RouteGroupBuilder group = app.MapGroup("/api/audit")
             .WithTags("Audit")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -56,7 +57,7 @@ internal sealed class AuditEndpoints : IEndpoint
             int pageNumber = 1,
             int pageSize = 25) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<AuditLogResponse>> result = await handler.HandleAsync(
                 new GetAuditLogsQuery(userId, module, action, entityName, entityId, from, to, pageNumber, pageSize),
                 ct);
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -72,7 +73,7 @@ internal sealed class AuditEndpoints : IEndpoint
             int pageNumber = 1,
             int pageSize = 25) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<AuditLogResponse>> result = await handler.HandleAsync(
                 new GetEntityAuditHistoryQuery(entityName, entityId, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         })
@@ -88,7 +89,7 @@ internal sealed class AuditEndpoints : IEndpoint
             int pageNumber = 1,
             int pageSize = 25) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<AuditLogResponse>> result = await handler.HandleAsync(
                 new GetAuditLogsQuery(userId, null, null, null, null, null, null, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         })
@@ -105,9 +106,11 @@ internal sealed class AuditEndpoints : IEndpoint
             int pageSize = 25) =>
         {
             if (currentUser.UserId is not { Length: > 0 } userId)
+            {
                 return Results.Unauthorized();
+            }
 
-            var result = await handler.HandleAsync(new GetMyAuditActivityQuery(userId, pageNumber, pageSize), ct);
+            Result<PagedResult<AuditLogResponse>> result = await handler.HandleAsync(new GetMyAuditActivityQuery(userId, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         })
         .RequirePermission(NotificationsPermissions.AuditViewOwn)
@@ -119,25 +122,22 @@ internal sealed class AuditEndpoints : IEndpoint
 /// field-level trail because they answer different questions for different audiences.</summary>
 internal sealed class ActivityEndpoints : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/api/activities", async (
-            IQueryHandler<GetActivitiesQuery, PagedResult<ActivityResponse>> handler,
-            CancellationToken ct,
-            string? entityName = null,
-            string? entityId = null,
-            Guid? projectId = null,
-            int pageNumber = 1,
-            int pageSize = 25) =>
-        {
-            var result = await handler.HandleAsync(
-                new GetActivitiesQuery(entityName, entityId, projectId, pageNumber, pageSize), ct);
-            return result.Match(Results.Ok, r => r.ToProblem());
-        })
+    public void MapEndpoint(IEndpointRouteBuilder app) => app.MapGet("/api/activities", async (
+                                                                   IQueryHandler<GetActivitiesQuery, PagedResult<ActivityResponse>> handler,
+                                                                   CancellationToken ct,
+                                                                   string? entityName = null,
+                                                                   string? entityId = null,
+                                                                   Guid? projectId = null,
+                                                                   int pageNumber = 1,
+                                                                   int pageSize = 25) =>
+                                                               {
+                                                                   Result<PagedResult<ActivityResponse>> result = await handler.HandleAsync(
+                                                                       new GetActivitiesQuery(entityName, entityId, projectId, pageNumber, pageSize), ct);
+                                                                   return result.Match(Results.Ok, r => r.ToProblem());
+                                                               })
         .WithTags("Activities")
         .RequirePermission(NotificationsPermissions.ActivitiesRead)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .Produces<PagedResult<ActivityResponse>>();
-    }
 }

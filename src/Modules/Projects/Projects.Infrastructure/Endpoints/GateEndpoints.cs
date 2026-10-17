@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Projects.Contracts;
 using Projects.Contracts.Gates;
+using SharedKernel;
 
 namespace Projects.Infrastructure.Endpoints;
 
@@ -17,13 +18,13 @@ internal sealed class GateEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var project = app.MapGroup("/api/projects/{projectId:guid}").WithTags("GateConditions");
+        RouteGroupBuilder project = app.MapGroup("/api/projects/{projectId:guid}").WithTags("GateConditions");
 
         project.MapGet("/stages/{stageId:guid}/gates", async (
             Guid projectId, Guid stageId, ICurrentUser currentUser,
             IQueryHandler<GetStageGateConditionsQuery, IReadOnlyList<GateConditionResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetStageGateConditionsQuery(projectId, stageId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<GateConditionResponse>> result = await handler.HandleAsync(new GetStageGateConditionsQuery(projectId, stageId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.ManageGates);
 
@@ -31,7 +32,7 @@ internal sealed class GateEndpoints : IEndpoint
             Guid projectId, Guid stageId, CreateGateRequest request, ICurrentUser currentUser,
             ICommandHandler<CreateStageGateConditionCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateStageGateConditionCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateStageGateConditionCommand(
                 projectId, stageId, currentUser.UserId!, request.ConditionType, request.Trigger, request.Label,
                 request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType, request.ReferencedDocumentId), ct);
             return result.Match(id => Results.Ok(new { GateConditionId = id }), r => r.ToProblem());
@@ -41,7 +42,7 @@ internal sealed class GateEndpoints : IEndpoint
             Guid projectId, Guid taskId, ICurrentUser currentUser,
             IQueryHandler<GetTaskGateConditionsQuery, IReadOnlyList<GateConditionResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetTaskGateConditionsQuery(projectId, taskId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<GateConditionResponse>> result = await handler.HandleAsync(new GetTaskGateConditionsQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.ManageGates);
 
@@ -49,7 +50,7 @@ internal sealed class GateEndpoints : IEndpoint
             Guid projectId, Guid taskId, CreateGateRequest request, ICurrentUser currentUser,
             ICommandHandler<CreateTaskGateConditionCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateTaskGateConditionCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateTaskGateConditionCommand(
                 projectId, taskId, currentUser.UserId!, request.ConditionType, request.Trigger, request.Label,
                 request.ReferencedTaskId, request.ReferencedStageId, request.ApprovalType, request.ReferencedDocumentId), ct);
             return result.Match(id => Results.Ok(new { GateConditionId = id }), r => r.ToProblem());
@@ -59,7 +60,7 @@ internal sealed class GateEndpoints : IEndpoint
             Guid projectId, Guid gateConditionId, ICurrentUser currentUser,
             ICommandHandler<DeleteGateConditionCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new DeleteGateConditionCommand(projectId, gateConditionId, currentUser.UserId!), ct);
+            Result result = await handler.HandleAsync(new DeleteGateConditionCommand(projectId, gateConditionId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.ManageGates);
 
@@ -67,7 +68,7 @@ internal sealed class GateEndpoints : IEndpoint
             Guid projectId, Guid gateConditionId, SatisfyGateRequest request, ICurrentUser currentUser,
             ICommandHandler<SatisfyGateConditionCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new SatisfyGateConditionCommand(projectId, gateConditionId, currentUser.UserId!, request.Note), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.ManageGates);

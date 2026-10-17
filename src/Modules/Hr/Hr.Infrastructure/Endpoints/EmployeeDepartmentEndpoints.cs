@@ -7,6 +7,7 @@ using Hr.Contracts.Departments;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Hr.Infrastructure.Endpoints;
 
@@ -17,13 +18,13 @@ internal sealed class EmployeeDepartmentEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/employees/{employeeId:guid}/department").WithTags("EmployeeDepartments");
+        RouteGroupBuilder group = app.MapGroup("/api/employees/{employeeId:guid}/department").WithTags("EmployeeDepartments");
 
         group.MapPost("/{newDepartmentId:guid}/move", async (
             Guid employeeId, Guid newDepartmentId,
             ICommandHandler<MoveEmployeeToDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new MoveEmployeeToDepartmentCommand(employeeId, newDepartmentId), ct);
+            Result result = await handler.HandleAsync(new MoveEmployeeToDepartmentCommand(employeeId, newDepartmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsMoveUser);
 
@@ -31,7 +32,7 @@ internal sealed class EmployeeDepartmentEndpoints : IEndpoint
             Guid employeeId, Guid departmentId,
             ICommandHandler<RemoveEmployeeFromDepartmentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new RemoveEmployeeFromDepartmentCommand(employeeId, departmentId), ct);
+            Result result = await handler.HandleAsync(new RemoveEmployeeFromDepartmentCommand(employeeId, departmentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRemoveFromUser);
     }

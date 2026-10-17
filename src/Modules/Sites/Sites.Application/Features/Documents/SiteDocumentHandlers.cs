@@ -36,14 +36,24 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
     public async Task<Result<Guid>> HandleAsync(
         LinkSiteDocumentCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
+
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
 
         // Belt and braces with fk_site_documents_document: the FK proves the row exists, this proves it
         // belongs to the same project as the survey.
-        var document = await documents.GetAsync(command.Request.DocumentId, ct);
-        if (document is null || document.ProjectId != site.ProjectId) return SiteErrors.DocumentNotFound;
+        DocumentSummary? document = await documents.GetAsync(command.Request.DocumentId, ct);
+        if (document is null || document.ProjectId != site.ProjectId)
+        {
+            return SiteErrors.DocumentNotFound;
+        }
 
         Guid? siteId = command.Request.RecordId is null ? command.SiteId : null;
 
@@ -54,18 +64,23 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
             // "exists but isn't yours" from "doesn't exist", the exact oracle the unlink handler's own
             // comment says it avoids. Both are RecordNotFound here.
             if (!await db.SiteRecords.AnyAsync(r => r.Id == recordId && r.SiteId == command.SiteId, ct))
+            {
                 return SiteErrors.RecordNotFound;
+            }
         }
 
-        var link = SiteDocument.Create(
+        Result<SiteDocument> link = SiteDocument.Create(
             command.Request.DocumentId, SiteEnumMapping.ToDomain(command.Request.Kind),
             command.AddedById, siteId, command.Request.RecordId);
 
-        if (link.IsFailure) return link.Error;
+        if (link.IsFailure)
+        {
+            return link.Error;
+        }
 
         db.SiteDocuments.Add(link.Value!);
 
-        var saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveAsync(db, ct);
         return saved.IsFailure ? saved.Error : link.Value!.Id;
     }
 }
@@ -76,22 +91,35 @@ internal sealed class UnlinkSiteDocumentCommandHandler(SitesDbContext db)
     public async Task<Result> HandleAsync(
         UnlinkSiteDocumentCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var link = await db.SiteDocuments
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
+
+        SiteDocument? link = await db.SiteDocuments
             .FirstOrDefaultAsync(d => d.Id == command.DocumentLinkId, ct);
 
-        if (link is null) return SiteErrors.DocumentNotFound;
+        if (link is null)
+        {
+            return SiteErrors.DocumentNotFound;
+        }
 
         // Not-found rather than forbidden: a caller reaching the wrong site is not told the link exists.
-        var belongs = link.SiteId == command.SiteId
-                      || (link.RecordId is { } recordId
+        bool belongs = link.SiteId == command.SiteId
+                      || link.RecordId is { } recordId
                           && await db.SiteRecords.AnyAsync(
-                              r => r.Id == recordId && r.SiteId == command.SiteId, ct));
+                              r => r.Id == recordId && r.SiteId == command.SiteId, ct);
 
-        if (!belongs) return SiteErrors.DocumentNotFound;
+        if (!belongs)
+        {
+            return SiteErrors.DocumentNotFound;
+        }
 
         // Unlinks only. The document and its bytes keep their own lifecycle.
         link.Deactivate();
@@ -110,13 +138,13 @@ internal sealed class GetSiteDocumentsQueryHandler(SitesDbContext db)
     public async Task<Result<IReadOnlyList<SiteDocumentResponse>>> HandleAsync(
         GetSiteDocumentsQuery query, CancellationToken ct = default)
     {
-        var recordIds = db.SiteRecords.AsNoTracking()
+        IQueryable<Guid> recordIds = db.SiteRecords.AsNoTracking()
             .Where(r => r.SiteId == query.SiteId)
             .Select(r => r.Id);
 
         IReadOnlyList<SiteDocumentResponse> documents = await db.SiteDocuments.AsNoTracking()
             .Where(d => d.SiteId == query.SiteId
-                        || (d.RecordId != null && recordIds.Contains(d.RecordId.Value)))
+                        || d.RecordId != null && recordIds.Contains(d.RecordId.Value))
             .OrderBy(d => d.Kind).ThenBy(d => d.CreatedAtUtc)
             .Select(d => new SiteDocumentResponse(
                 d.Id, d.DocumentId, d.SiteId, d.RecordId,

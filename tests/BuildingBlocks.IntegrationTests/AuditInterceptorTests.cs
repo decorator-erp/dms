@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BuildingBlocks.Auditing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -44,25 +45,25 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task AuditRow_TakesEntityNameAndModule_FromEfMetadata_NotFromLiterals()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
 
         var defaultSchemaThing = new AuditedThing("metadata-probe", "hash", "confidential");
         var otherSchemaThing = new OtherSchemaAuditedThing("metadata-probe");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Add(defaultSchemaThing);
             db.OtherSchemaAuditedThings.Add(otherSchemaThing);
             await db.SaveChangesAsync();
         }
 
-        var defaultSchemaRow = Assert.Single(await ReadAuditRowsAsync(provider, defaultSchemaThing.Id));
+        AuditLog defaultSchemaRow = Assert.Single(await ReadAuditRowsAsync(provider, defaultSchemaThing.Id));
         Assert.Equal(typeof(AuditedThing).Name, defaultSchemaRow.EntityName);
         Assert.Equal("test_module", defaultSchemaRow.Module);
         Assert.Equal(AuditAction.Create, defaultSchemaRow.Action);
 
-        var otherSchemaRow = Assert.Single(await ReadAuditRowsAsync(provider, otherSchemaThing.Id));
+        AuditLog otherSchemaRow = Assert.Single(await ReadAuditRowsAsync(provider, otherSchemaThing.Id));
         Assert.Equal(typeof(OtherSchemaAuditedThing).Name, otherSchemaRow.EntityName);
         // The falsifying half: a Module read from the DbContext's default schema — or from the
         // backend's hand-maintained entity-to-module dictionary — would say "test_module" here.
@@ -79,14 +80,14 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task EntityWithoutTheAuditableMarker_ProducesNoAuditRow()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
 
         var unaudited = new UnauditedThing("marker-probe");
         var audited = new AuditedThing("marker-probe", "hash", "confidential");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.UnauditedThings.Add(unaudited);
             db.AuditedThings.Add(audited);
             await db.SaveChangesAsync();
@@ -108,13 +109,13 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task AuditRow_AndTheChangeItAudits_RollBackTogether()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
         var thing = new AuditedThing("rollback-probe", "hash", "confidential");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
-            await using var transaction = await db.Database.BeginTransactionAsync();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync();
 
             db.AuditedThings.Add(thing);
             await db.SaveChangesAsync();
@@ -127,9 +128,9 @@ public class AuditInterceptorTests(OutboxFixture fixture)
         }
 
         // ...and neither survives it.
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             Assert.Equal(0, await db.AuditedThings.CountAsync(t => t.Id == thing.Id));
         }
 
@@ -148,17 +149,17 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task SensitiveValues_AreRedacted_ByNameAndByAttribute()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
         var thing = new AuditedThing("redaction-probe", "super-secret-hash", "classified");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Add(thing);
             await db.SaveChangesAsync();
         }
 
-        var row = Assert.Single(await ReadAuditRowsAsync(provider, thing.Id));
+        AuditLog row = Assert.Single(await ReadAuditRowsAsync(provider, thing.Id));
 
         // Redacted by NAME - this is the ApplicationUser.PasswordHash path.
         Assert.Equal("***", ReadString(row.NewValues, nameof(AuditedThing.PasswordHash)));
@@ -176,26 +177,26 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task Update_RecordsOnlyTheChangedColumns_WithBeforeAndAfter()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
         var thing = new AuditedThing("before", "hash", "confidential");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Add(thing);
             await db.SaveChangesAsync();
         }
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
-            var tracked = await db.AuditedThings.SingleAsync(t => t.Id == thing.Id);
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            AuditedThing tracked = await db.AuditedThings.SingleAsync(t => t.Id == thing.Id);
             tracked.Rename("after");
             await db.SaveChangesAsync();
         }
 
-        var rows = await ReadAuditRowsAsync(provider, thing.Id);
-        var updateRow = Assert.Single(rows, r => r.Action == AuditAction.Update);
+        List<AuditLog> rows = await ReadAuditRowsAsync(provider, thing.Id);
+        AuditLog updateRow = Assert.Single(rows, r => r.Action == AuditAction.Update);
 
         Assert.Equal(thing.Id.ToString(), updateRow.EntityId);
         Assert.Equal(
@@ -208,33 +209,33 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task Delete_RecordsTheOldValues_AndTheAuditRowOutlivesTheEntity()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
         var thing = new AuditedThing("delete-probe", "hash", "confidential");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Add(thing);
             await db.SaveChangesAsync();
         }
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Remove(await db.AuditedThings.SingleAsync(t => t.Id == thing.Id));
             await db.SaveChangesAsync();
         }
 
-        var rows = await ReadAuditRowsAsync(provider, thing.Id);
-        var deleteRow = Assert.Single(rows, r => r.Action == AuditAction.Delete);
+        List<AuditLog> rows = await ReadAuditRowsAsync(provider, thing.Id);
+        AuditLog deleteRow = Assert.Single(rows, r => r.Action == AuditAction.Delete);
 
         Assert.Equal(thing.Id.ToString(), deleteRow.EntityId);
         Assert.Equal("delete-probe", ReadString(deleteRow.OldValues, nameof(AuditedThing.Label)));
         Assert.Null(deleteRow.NewValues);
 
         // The entity is gone and its trail is not - the property that makes an audit log worth having.
-        await using var verifyScope = provider.CreateAsyncScope();
-        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+        await using AsyncServiceScope verifyScope = provider.CreateAsyncScope();
+        TestModuleDbContext verifyDb = verifyScope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
         Assert.Equal(0, await verifyDb.AuditedThings.CountAsync(t => t.Id == thing.Id));
     }
 
@@ -250,20 +251,20 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     {
         // No AddApi here, so the TryAdd'd NullAuditContextAccessor is what resolves - exactly the
         // situation of a background scope.
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
         var thing = new AuditedThing("no-actor-probe", "hash", "confidential");
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             Assert.IsType<NullAuditContextAccessor>(
                 scope.ServiceProvider.GetRequiredService<IAuditContextAccessor>());
 
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.AuditedThings.Add(thing);
             await db.SaveChangesAsync();
         }
 
-        var row = Assert.Single(await ReadAuditRowsAsync(provider, thing.Id));
+        AuditLog row = Assert.Single(await ReadAuditRowsAsync(provider, thing.Id));
 
         Assert.Null(row.UserId);
         Assert.Null(row.UserEmail);
@@ -283,10 +284,10 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     [Fact]
     public async Task AuditInterceptor_IsTheSameInstanceAcrossScopes()
     {
-        await using var provider = BuildProvider();
+        await using ServiceProvider provider = BuildProvider();
 
-        await using var first = provider.CreateAsyncScope();
-        await using var second = provider.CreateAsyncScope();
+        await using AsyncServiceScope first = provider.CreateAsyncScope();
+        await using AsyncServiceScope second = provider.CreateAsyncScope();
 
         Assert.Same(
             first.ServiceProvider.GetRequiredService<AuditSaveChangesInterceptor>(),
@@ -295,7 +296,7 @@ public class AuditInterceptorTests(OutboxFixture fixture)
 
     private ServiceProvider BuildProvider()
     {
-        var cfg = new ConfigurationBuilder()
+        IConfigurationRoot cfg = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = fixture.ConnectionString,
@@ -309,10 +310,10 @@ public class AuditInterceptorTests(OutboxFixture fixture)
 
     private static async Task<List<AuditLog>> ReadAuditRowsAsync(IServiceProvider provider, Guid entityId)
     {
-        await using var scope = provider.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+        await using AsyncServiceScope scope = provider.CreateAsyncScope();
+        TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
 
-        var key = entityId.ToString();
+        string key = entityId.ToString();
         return await db.Set<AuditLog>()
             .AsNoTracking()
             .Where(a => a.EntityId == key)
@@ -324,7 +325,7 @@ public class AuditInterceptorTests(OutboxFixture fixture)
     /// timestamps <c>Entity</c> contributes.</summary>
     private static string? ReadString(string? json, string propertyName)
     {
-        var values = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json!)!;
+        Dictionary<string, JsonElement> values = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json!)!;
         return values[propertyName].GetString();
     }
 }

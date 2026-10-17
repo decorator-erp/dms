@@ -25,13 +25,15 @@ internal sealed class ChangePasswordCommandHandler(UserManager<ApplicationUser> 
 {
     public async Task<Result> HandleAsync(ChangePasswordCommand command, CancellationToken ct = default)
     {
-        var request = command.Request;
+        ChangePasswordRequest request = command.Request;
 
-        var user = await userManager.FindByIdAsync(request.UserId);
+        ApplicationUser? user = await userManager.FindByIdAsync(request.UserId);
         if (user is null)
+        {
             return UserErrors.NotFound;
+        }
 
-        var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        IdentityResult result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
 
         return result.Succeeded
             ? Result.Success()

@@ -8,6 +8,7 @@ using BuildingBlocks.Web.Results;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Approvals.Infrastructure.Endpoints;
 
@@ -18,14 +19,14 @@ internal sealed class ApprovalEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/approvals").WithTags("Approvals");
+        RouteGroupBuilder group = app.MapGroup("/api/approvals").WithTags("Approvals");
 
         group.MapGet("/pending", async (
             int pageNumber, int pageSize,
             IQueryHandler<GetMyPendingApprovalsQuery, PagedResult<PendingApprovalResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetMyPendingApprovalsQuery(pageNumber, pageSize), ct);
+            Result<PagedResult<PendingApprovalResponse>> result = await handler.HandleAsync(new GetMyPendingApprovalsQuery(pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ApprovalsPermissions.Read);
 
@@ -34,7 +35,7 @@ internal sealed class ApprovalEndpoints : IEndpoint
             IQueryHandler<GetApprovalsBySubjectQuery, IReadOnlyList<ApprovalTrailItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetApprovalsBySubjectQuery(subjectType, subjectId), ct);
+            Result<IReadOnlyList<ApprovalTrailItemResponse>> result = await handler.HandleAsync(new GetApprovalsBySubjectQuery(subjectType, subjectId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ApprovalsPermissions.Read);
 
@@ -42,7 +43,7 @@ internal sealed class ApprovalEndpoints : IEndpoint
             Guid approvalId, DecideApprovalRequest request,
             ICommandHandler<DecideApprovalCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new DecideApprovalCommand(approvalId, request.Decision, request.Comment), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ApprovalsPermissions.Decide);

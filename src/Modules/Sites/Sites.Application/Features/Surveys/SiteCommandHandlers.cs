@@ -34,8 +34,11 @@ internal sealed class CreateSiteCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateSiteCommand command, CancellationToken ct = default)
     {
-        var scope = await access.EnsureProjectAccessAsync(command.Request.ProjectId, command.AppUserId, ct);
-        if (scope.IsFailure) return scope.Error;
+        Result scope = await access.EnsureProjectAccessAsync(command.Request.ProjectId, command.AppUserId, ct);
+        if (scope.IsFailure)
+        {
+            return scope.Error;
+        }
 
         // Defect B1's fix. The backend's only guard is the access check above -- and a caller holding
         // Projects.ReadAll short-circuits it WITHOUT touching the projects table, so a garbage project id
@@ -43,19 +46,27 @@ internal sealed class CreateSiteCommandHandler(
         // up in SaveChanges as an unexplained 500. SiteErrors.ProjectNotFound existed for exactly this
         // and was referenced nowhere in the backend.
         if (await projects.GetProjectAsync(command.Request.ProjectId, ct) is null)
+        {
             return SiteErrors.ProjectNotFound;
+        }
 
-        var code = await NextCodeAsync(db, ct);
-        if (code.IsFailure) return code.Error;
+        Result<string> code = await NextCodeAsync(db, ct);
+        if (code.IsFailure)
+        {
+            return code.Error;
+        }
 
-        var site = Site.Create(
+        Result<Site> site = Site.Create(
             command.Request.ProjectId, code.Value!, command.CreatedById, ToData(command.Request.Data));
 
-        if (site.IsFailure) return site.Error;
+        if (site.IsFailure)
+        {
+            return site.Error;
+        }
 
         db.Sites.Add(site.Value!);
 
-        var saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveAsync(db, ct);
         return saved.IsFailure ? saved.Error : site.Value!.Id;
     }
 
@@ -72,7 +83,7 @@ internal sealed class CreateSiteCommandHandler(
         // and projects a column literally named Value. Without it this fails at runtime with
         // 42703: column s.Value does not exist -- and only ever on an API-created site, since every read
         // path and every seeded row avoids this line entirely.
-        var next = await db.Database
+        long next = await db.Database
             .SqlQuery<long>($"""SELECT nextval('sites.site_code_seq') AS "Value" """)
             .SingleOrDefaultAsync(ct);
 
@@ -107,11 +118,17 @@ internal sealed class UpdateSiteCommandHandler(SitesDbContext db) : ICommandHand
 {
     public async Task<Result> HandleAsync(UpdateSiteCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var updated = site.Update(CreateSiteCommandHandler.ToData(command.Request.Data));
-        if (updated.IsFailure) return updated;
+        Result updated = site.Update(CreateSiteCommandHandler.ToData(command.Request.Data));
+        if (updated.IsFailure)
+        {
+            return updated;
+        }
 
         return await SiteWrites.SaveAsync(db, ct);
     }
@@ -121,14 +138,20 @@ internal sealed class DeleteSiteCommandHandler(SitesDbContext db) : ICommandHand
 {
     public async Task<Result> HandleAsync(DeleteSiteCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
         // Defect B13's fix. The backend soft-deletes at any status, including Approved -- while
         // Site.Update refuses on Approved. Since the query filter then hides the row from every read AND
         // from SiteScopeDecorator's own resolution, an approved engineering record could be made to
         // vanish with no lifecycle check at all. The asymmetry with Update has no stated reason.
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
 
         site.Deactivate();
 
@@ -141,11 +164,17 @@ internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider t
 {
     public async Task<Result> HandleAsync(SubmitSiteCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime);
-        if (submitted.IsFailure) return submitted;
+        Result submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime);
+        if (submitted.IsFailure)
+        {
+            return submitted;
+        }
 
         // Enqueued in the SAME SaveChanges as the status change -- the outbox row and the write commit
         // together or not at all.
@@ -176,15 +205,21 @@ internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider t
 {
     public async Task<Result> HandleAsync(DecideSiteCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var now = timeProvider.GetUtcNow();
+        DateTimeOffset now = timeProvider.GetUtcNow();
 
-        var decided = site.Decide(
+        Result decided = site.Decide(
             command.Request.Approved, command.DecidedById, now.UtcDateTime, command.Request.Note);
 
-        if (decided.IsFailure) return decided;
+        if (decided.IsFailure)
+        {
+            return decided;
+        }
 
         // One event carrying the decision rather than two event types -- every plausible subscriber
         // cares that a survey was decided and branches on the outcome.
@@ -200,11 +235,17 @@ internal sealed class ReopenSiteCommandHandler(SitesDbContext db) : ICommandHand
 {
     public async Task<Result> HandleAsync(ReopenSiteCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var reopened = site.ReopenForRework();
-        if (reopened.IsFailure) return reopened;
+        Result reopened = site.ReopenForRework();
+        if (reopened.IsFailure)
+        {
+            return reopened;
+        }
 
         return await SiteWrites.SaveAsync(db, ct);
     }

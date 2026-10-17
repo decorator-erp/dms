@@ -33,13 +33,17 @@ internal sealed class CrmArtifactDocument : Entity, IAuditable
         Guid documentId, Guid? briefId, Guid? spaceId, Guid? requirementItemId, Guid? meetingId,
         Guid? addedByEmployeeId, Guid? addedByContactId)
     {
-        var subjects = (briefId is null ? 0 : 1) + (spaceId is null ? 0 : 1)
+        int subjects = (briefId is null ? 0 : 1) + (spaceId is null ? 0 : 1)
             + (requirementItemId is null ? 0 : 1) + (meetingId is null ? 0 : 1);
         if (subjects != 1)
+        {
             return CrmArtifactErrors.InvalidSubject;
+        }
 
         if (addedByEmployeeId.HasValue == addedByContactId.HasValue)
+        {
             return CrmArtifactErrors.InvalidAuthor;
+        }
 
         return new CrmArtifactDocument
         {

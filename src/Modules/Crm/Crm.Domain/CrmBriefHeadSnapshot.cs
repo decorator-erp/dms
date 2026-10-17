@@ -98,7 +98,9 @@ internal sealed class CrmBriefHeadSnapshot : Entity
         void Compare<T>(string name, T mine, T theirs)
         {
             if (!EqualityComparer<T>.Default.Equals(mine, theirs))
+            {
                 changed.Add(name);
+            }
         }
 
         Compare(nameof(UnitType), UnitType, previous.UnitType);

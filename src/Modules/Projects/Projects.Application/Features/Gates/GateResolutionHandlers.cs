@@ -1,6 +1,7 @@
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -21,19 +22,21 @@ internal sealed class StageCompletedGateResolutionHandler(ProjectsDbContext db)
 {
     public async Task Handle(Domain.ProjectStageCompletedDomainEvent domainEvent, CancellationToken cancellationToken)
     {
-        var completedById = await db.ProjectStages.AsNoTracking()
+        Guid? completedById = await db.ProjectStages.AsNoTracking()
             .Where(s => s.Id == domainEvent.StageId)
             .Select(s => s.CompletedById)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.ConditionType == Domain.ConditionType.Stage
                 && g.ReferencedStageId == domainEvent.StageId
                 && g.Status == Domain.GateStatus.Pending)
             .ToListAsync(cancellationToken);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(completedById);
+        }
     }
 }
 
@@ -44,16 +47,18 @@ internal sealed class TaskCompletedGateResolutionHandler(ProjectsDbContext db)
 {
     public async Task Handle(Domain.ProjectTaskCompletedDomainEvent domainEvent, CancellationToken cancellationToken)
     {
-        var completedById = domainEvent.AssigneeEmployeeId;
+        Guid? completedById = domainEvent.AssigneeEmployeeId;
 
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.ConditionType == Domain.ConditionType.Task
                 && g.ReferencedTaskId == domainEvent.TaskId
                 && g.Status == Domain.GateStatus.Pending)
             .ToListAsync(cancellationToken);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(completedById);
+        }
     }
 }
 
@@ -73,7 +78,7 @@ internal sealed class GateConditionSatisfiedDomainEventHandler(ProjectsDbContext
 {
     public async Task Handle(Domain.GateConditionSatisfiedDomainEvent domainEvent, CancellationToken cancellationToken)
     {
-        var trigger = await db.GateConditions.AsNoTracking()
+        Domain.GateTrigger? trigger = await db.GateConditions.AsNoTracking()
             .Where(g => g.Id == domainEvent.GateConditionId)
             .Select(g => (Domain.GateTrigger?)g.Trigger)
             .FirstOrDefaultAsync(cancellationToken);
@@ -81,17 +86,21 @@ internal sealed class GateConditionSatisfiedDomainEventHandler(ProjectsDbContext
         Guid projectId;
         if (domainEvent.OwnerKind == Domain.GateOwnerKind.Stage)
         {
-            var stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == domainEvent.OwnerId, cancellationToken);
+            ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == domainEvent.OwnerId, cancellationToken);
             projectId = stage?.ProjectId ?? Guid.Empty;
             if (trigger == Domain.GateTrigger.Unlock)
+            {
                 stage?.Unlock();
+            }
         }
         else
         {
-            var task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == domainEvent.OwnerId, cancellationToken);
+            ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == domainEvent.OwnerId, cancellationToken);
             projectId = task?.ProjectId ?? Guid.Empty;
             if (trigger == Domain.GateTrigger.Unlock)
+            {
                 task?.Unlock();
+            }
         }
 
         db.Outbox().Enqueue(new GateConditionSatisfiedIntegrationEvent(

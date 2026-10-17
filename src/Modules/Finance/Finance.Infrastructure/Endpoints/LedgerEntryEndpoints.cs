@@ -10,6 +10,7 @@ using Hr.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Finance.Infrastructure.Endpoints;
 
@@ -26,16 +27,19 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/ledger-entries").WithTags("LedgerEntries");
+        RouteGroupBuilder group = app.MapGroup("/api/ledger-entries").WithTags("LedgerEntries");
 
         group.MapPost("/", async (
             PostLedgerEntryRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<PostLedgerEntryCommand, Guid> handler, CancellationToken ct) =>
         {
-            var recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (recordedById.IsFailure) return recordedById.ToProblem();
+            Result<Guid> recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (recordedById.IsFailure)
+            {
+                return recordedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new PostLedgerEntryCommand(request, recordedById.Value), ct);
 
             return result.Match(
@@ -47,10 +51,13 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
             Guid id, ReverseLedgerEntryRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<ReverseLedgerEntryCommand, Guid> handler, CancellationToken ct) =>
         {
-            var recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (recordedById.IsFailure) return recordedById.ToProblem();
+            Result<Guid> recordedById = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (recordedById.IsFailure)
+            {
+                return recordedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new ReverseLedgerEntryCommand(id, recordedById.Value, request.Note), ct);
 
             return result.Match(
@@ -62,10 +69,13 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
             Guid id, AllocateLedgerEntryRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<AllocateLedgerEntryCommand> handler, CancellationToken ct) =>
         {
-            var actorId = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (actorId.IsFailure) return actorId.ToProblem();
+            Result<Guid> actorId = await FinanceEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (actorId.IsFailure)
+            {
+                return actorId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new AllocateLedgerEntryCommand(id, request.InvoiceId, request.Amount, actorId.Value), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -75,7 +85,7 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
             Guid id, IQueryHandler<GetLedgerEntryByIdQuery, LedgerEntryResponse> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetLedgerEntryByIdQuery(id), ct);
+            Result<LedgerEntryResponse> result = await handler.HandleAsync(new GetLedgerEntryByIdQuery(id), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.Read);
@@ -87,7 +97,7 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
             IQueryHandler<GetLedgerEntriesByProjectQuery, PagedResult<LedgerEntryListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<LedgerEntryListItemResponse>> result = await handler.HandleAsync(
                 new GetLedgerEntriesByProjectQuery(
                     projectId, direction, type, projectStageId, projectTaskId,
                     fromDate, toDate, skip ?? 0, take ?? 50),
@@ -101,7 +111,7 @@ internal sealed class LedgerEntryEndpoints : IEndpoint
             IQueryHandler<GetUnallocatedLedgerEntriesQuery, PagedResult<UnallocatedLedgerEntryResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<UnallocatedLedgerEntryResponse>> result = await handler.HandleAsync(
                 new GetUnallocatedLedgerEntriesQuery(projectId, skip ?? 0, take ?? 50), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());

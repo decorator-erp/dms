@@ -37,12 +37,16 @@ internal sealed class DenyPermissionOverrideCommandHandler(IdentityModuleDbConte
     public async Task<Result> HandleAsync(DenyPermissionOverrideCommand command, CancellationToken ct = default)
     {
         if (currentUser.UserId is null)
+        {
             return AuthErrors.UnAuthorization;
+        }
 
-        var alreadyExists = await db.UserPermissionOverrides.AnyAsync(
+        bool alreadyExists = await db.UserPermissionOverrides.AnyAsync(
             o => o.UserId == command.TargetUserId && o.Permission == command.Permission, ct);
         if (alreadyExists)
+        {
             return PermissionErrors.PermissionOverrideAlreadyExists(command.Permission);
+        }
 
         db.UserPermissionOverrides.Add(UserPermissionOverride.Deny(
             command.TargetUserId, command.Permission, currentUser.UserId, command.Reason, command.ExpiresAtUtc));

@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using Finance.Application.Common;
 using Finance.Contracts.Financial;
+using Finance.Domain;
 using Finance.Infrastructure.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
@@ -33,21 +34,25 @@ internal sealed class GetTaskFinancialMovementsQueryHandler(
     public async Task<Result<IReadOnlyList<LedgerMovementResponse>>> HandleAsync(
         GetTaskFinancialMovementsQuery query, CancellationToken ct = default)
     {
-        var scoped = new LedgerScopes(db, projects).ForTask(query.ProjectTaskId);
+        IQueryable<LedgerEntry> scoped = new LedgerScopes(db, projects).ForTask(query.ProjectTaskId);
 
         if (query.FromDate is { } from)
+        {
             scoped = scoped.Where(e => e.OccurredOn >= from);
+        }
 
         if (query.ToDate is { } to)
+        {
             scoped = scoped.Where(e => e.OccurredOn <= to);
+        }
 
         if (query.Type is { } type)
         {
-            var value = FinanceEnumMapping.ToDomain(type);
+            LedgerEntryType value = FinanceEnumMapping.ToDomain(type);
             scoped = scoped.Where(e => e.Type == value);
         }
 
-        var ordered = scoped
+        IOrderedQueryable<LedgerEntry> ordered = scoped
             .OrderByDescending(e => e.OccurredOn)
             .ThenByDescending(e => e.CreatedAtUtc);
 
@@ -69,17 +74,17 @@ internal sealed class GetTaskInvoiceLinesQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<TaskInvoiceLineResponse>>> HandleAsync(
         GetTaskInvoiceLinesQuery query, CancellationToken ct = default)
     {
-        var taskId = query.ProjectTaskId;
+        Guid taskId = query.ProjectTaskId;
 
-        var budgetLineIds = db.BudgetLines
+        IQueryable<Guid> budgetLineIds = db.BudgetLines
             .Where(b => b.ProjectTaskId == taskId && b.IsActive)
             .Select(b => b.Id);
 
-        var items = await db.InvoiceLines
+        List<TaskInvoiceLineResponse> items = await db.InvoiceLines
             .AsNoTracking()
             .Where(l => l.IsActive
                         && (l.ProjectTaskId == taskId
-                            || (l.BudgetLineId != null && budgetLineIds.Contains(l.BudgetLineId.Value))))
+                            || l.BudgetLineId != null && budgetLineIds.Contains(l.BudgetLineId.Value)))
             .Join(
                 db.Invoices.Where(i => i.IsActive),
                 l => l.InvoiceId,
@@ -117,16 +122,16 @@ internal sealed class GetTaskVariationsQueryHandler(FinanceDbContext db)
     public async Task<Result<IReadOnlyList<VariationListItemResponse>>> HandleAsync(
         GetTaskVariationsQuery query, CancellationToken ct = default)
     {
-        var q = db.Variations.AsNoTracking()
+        IQueryable<Variation> q = db.Variations.AsNoTracking()
             .Where(v => v.IsActive && v.ProjectTaskId == query.ProjectTaskId);
 
         if (query.Status is { } status)
         {
-            var value = FinanceEnumMapping.ToDomain(status);
+            VariationStatus value = FinanceEnumMapping.ToDomain(status);
             q = q.Where(v => v.Status == value);
         }
 
-        var items = await q
+        List<VariationListItemResponse> items = await q
             .OrderByDescending(v => v.CreatedAtUtc)
             .Select(FinancialProjections.VariationRow())
             .ToListAsync(ct);
@@ -161,15 +166,19 @@ internal sealed class GetTaskBoqLinesQueryHandler(FinanceDbContext db, IProjectD
     public async Task<Result<IReadOnlyList<TaskBoqLineResponse>>> HandleAsync(
         GetTaskBoqLinesQuery query, CancellationToken ct = default)
     {
-        var task = await projects.GetTaskAsync(query.ProjectTaskId, ct);
+        TaskSummary? task = await projects.GetTaskAsync(query.ProjectTaskId, ct);
         if (task is null)
+        {
             return Array.Empty<TaskBoqLineResponse>();
+        }
 
-        var snapshotQuery = db.BoqSnapshots.AsNoTracking()
+        IQueryable<BoqSnapshot> snapshotQuery = db.BoqSnapshots.AsNoTracking()
             .Where(s => s.ProjectId == task.ProjectId && s.IsActive);
 
         if (query.SnapshotVersion is { } version)
+        {
             snapshotQuery = snapshotQuery.Where(s => s.Version == version);
+        }
 
         var snapshots = await snapshotQuery
             .Select(s => new { s.Id, s.Version, s.Type, s.GeneratedAt })
@@ -183,10 +192,12 @@ internal sealed class GetTaskBoqLinesQueryHandler(FinanceDbContext db, IProjectD
         }
 
         if (snapshots.Count == 0)
+        {
             return Array.Empty<TaskBoqLineResponse>();
+        }
 
         var byId = snapshots.ToDictionary(s => s.Id);
-        var ids = byId.Keys.ToArray();
+        Guid[] ids = byId.Keys.ToArray();
 
         var lines = await db.BoqSnapshotLines
             .AsNoTracking()

@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Reflection;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
@@ -77,10 +78,12 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             new DbContextOptionsBuilder<SharedDbContext>().UseNpgsql(_container.GetConnectionString()).Options);
         await shared.Database.MigrateAsync();
 
-        foreach (var schema in ModuleDependencyOrder.SchemaOrder)
+        foreach (string schema in ModuleDependencyOrder.SchemaOrder)
         {
-            if (!Modules.TryGetValue(schema, out var module))
+            if (!Modules.TryGetValue(schema, out (string AssemblyName, string ContextTypeName) module))
+            {
                 continue;
+            }
 
             await MigrateModuleSchemaAsync(module.AssemblyName, module.ContextTypeName);
         }
@@ -104,25 +107,27 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
             WHERE con.contype = 'f' AND src_ns.nspname <> tgt_ns.nspname;
             """;
 
-        await using var connection = shared.Database.GetDbConnection();
+        await using DbConnection connection = shared.Database.GetDbConnection();
         await connection.OpenAsync();
 
-        await using var command = connection.CreateCommand();
+        await using DbCommand command = connection.CreateCommand();
         command.CommandText = sql;
 
-        await using var reader = await command.ExecuteReaderAsync();
+        await using DbDataReader reader = await command.ExecuteReaderAsync();
 
         var found = new List<(string From, string To, string Name)>();
         var violations = new List<string>();
         while (await reader.ReadAsync())
         {
-            var from = reader.GetString(0);
-            var to = reader.GetString(1);
-            var name = reader.GetString(2);
+            string from = reader.GetString(0);
+            string to = reader.GetString(1);
+            string name = reader.GetString(2);
             found.Add((from, to, name));
 
             if (!AllowedPairs.Contains((from, to)))
+            {
                 violations.Add($"{name}: {from} -> {to}");
+            }
         }
 
         Assert.True(violations.Count == 0,
@@ -229,9 +234,9 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
 
     private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -242,12 +247,12 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

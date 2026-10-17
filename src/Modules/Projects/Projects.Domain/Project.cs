@@ -65,31 +65,57 @@ internal sealed class Project : Entity, IAuditable
         DateTime? estimatedStartDate = null, DateTime? estimatedEndDate = null)
     {
         if (name is not null)
+        {
             Name = name;
+        }
+
         if (description is not null)
+        {
             Description = description;
+        }
+
         if (address is not null)
+        {
             Address = address;
+        }
+
         if (notes is not null)
+        {
             Notes = notes;
+        }
+
         if (estimatedStartDate is not null)
+        {
             EstimatedStartDate = estimatedStartDate;
+        }
+
         if (estimatedEndDate is not null)
+        {
             EstimatedEndDate = estimatedEndDate;
+        }
     }
 
     public Result ChangeStatus(ProjectStatus status)
     {
         if (Status == status)
+        {
             return Result.Success();
+        }
 
         if (!AllowedTransitions[Status].Contains(status))
+        {
             return ProjectErrors.InvalidStatusTransition;
+        }
 
         if (status == ProjectStatus.InProgress && ActualStartDate is null)
+        {
             ActualStartDate = DateTime.UtcNow;
+        }
+
         if (status is ProjectStatus.Completed or ProjectStatus.Cancelled)
+        {
             ActualEndDate = DateTime.UtcNow;
+        }
 
         Status = status;
         return Result.Success();

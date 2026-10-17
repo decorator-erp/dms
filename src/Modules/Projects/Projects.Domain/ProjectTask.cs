@@ -40,9 +40,14 @@ internal sealed class ProjectTask : Entity, IAuditable
         string? description = null, int totalSubTasks = 0, Guid? departmentId = null, DateTime? dueDate = null)
     {
         if (workflowType == WorkflowType.Stage && projectStageId is null)
+        {
             return TaskErrors.StageRequired;
+        }
+
         if (workflowType == WorkflowType.FreeStyle && projectStageId is not null)
+        {
             return TaskErrors.StageNotAllowed;
+        }
 
         return new ProjectTask
         {
@@ -64,7 +69,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result SetCost(decimal? cost)
     {
         if (cost is < 0)
+        {
             return TaskErrors.NegativeCost;
+        }
 
         Cost = cost;
         return Result.Success();
@@ -73,7 +80,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Assign(Guid employeeId)
     {
         if (Status is ProjectTaskStatus.Completed or ProjectTaskStatus.Cancelled)
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
 
         AssignedToId = employeeId;
         AddDomainEvent(new ProjectTaskAssignedDomainEvent(Id, ProjectId, Name, employeeId));
@@ -83,7 +92,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Start()
     {
         if (Status != ProjectTaskStatus.Open)
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
 
         Status = ProjectTaskStatus.InProgress;
         StartedAtUtc = DateTime.UtcNow;
@@ -94,9 +105,14 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Complete()
     {
         if (Status != ProjectTaskStatus.InProgress)
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
+
         if (CompletedSubTasks < TotalSubTasks)
+        {
             return TaskErrors.SubTasksIncomplete;
+        }
 
         Status = ProjectTaskStatus.Completed;
         CompletedAtUtc = DateTime.UtcNow;
@@ -107,7 +123,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Reject(string reason)
     {
         if (Status is not (ProjectTaskStatus.InProgress or ProjectTaskStatus.PendingApproval))
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
 
         Status = ProjectTaskStatus.Rejected;
         Notes = reason;
@@ -118,7 +136,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Cancel()
     {
         if (Status is ProjectTaskStatus.Completed or ProjectTaskStatus.Cancelled)
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
 
         Status = ProjectTaskStatus.Cancelled;
         AddDomainEvent(new ProjectTaskCancelledDomainEvent(Id, ProjectId, Name, AssignedToId));
@@ -128,7 +148,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Reopen()
     {
         if (Status is not (ProjectTaskStatus.Completed or ProjectTaskStatus.Rejected or ProjectTaskStatus.Cancelled))
+        {
             return TaskErrors.InvalidStatusTransition;
+        }
 
         Status = ProjectTaskStatus.Open;
         CompletedAtUtc = null;
@@ -144,7 +166,9 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Result Unlock()
     {
         if (Status != ProjectTaskStatus.Locked)
+        {
             return Result.Success();
+        }
 
         Status = ProjectTaskStatus.Open;
         return Result.Success();

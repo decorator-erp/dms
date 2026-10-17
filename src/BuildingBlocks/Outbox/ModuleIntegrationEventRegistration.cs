@@ -50,7 +50,7 @@ public static class ModuleIntegrationEventRegistration
         // reasoning as the two TryAdd calls above, and as AddModuleCqrs's identical TryAdd.
         services.TryAddSingleton<OutboxSignal>();
 
-        var countBeforeScan = services.Count;
+        int countBeforeScan = services.Count;
 
         services.Scan(scan => scan.FromAssemblies(assembly)
             .AddClasses(classes => classes.AssignableTo(typeof(IIntegrationEventHandler<>)), publicOnly: false)
@@ -59,23 +59,25 @@ public static class ModuleIntegrationEventRegistration
 
         // Only the descriptors THIS Scan call just added - see the type-level remarks on why the
         // alternative (Scrutor's blanket Decorate) is wrong once a second module shares an event type.
-        for (var i = countBeforeScan; i < services.Count; i++)
+        for (int i = countBeforeScan; i < services.Count; i++)
         {
-            var descriptor = services[i];
+            ServiceDescriptor descriptor = services[i];
             if (!descriptor.ServiceType.IsGenericType ||
                 descriptor.ServiceType.GetGenericTypeDefinition() != typeof(IIntegrationEventHandler<>) ||
                 descriptor.ImplementationType is null)
+            {
                 continue;
+            }
 
-            var tEvent = descriptor.ServiceType.GetGenericArguments()[0];
-            var decoratorType = typeof(InboxDedupeDecorator<,>).MakeGenericType(typeof(TContext), tEvent);
-            var implementationType = descriptor.ImplementationType;
+            Type tEvent = descriptor.ServiceType.GetGenericArguments()[0];
+            Type decoratorType = typeof(InboxDedupeDecorator<,>).MakeGenericType(typeof(TContext), tEvent);
+            Type implementationType = descriptor.ImplementationType;
 
             services[i] = ServiceDescriptor.Describe(
                 descriptor.ServiceType,
                 sp =>
                 {
-                    var innerHandler = ActivatorUtilities.CreateInstance(sp, implementationType);
+                    object innerHandler = ActivatorUtilities.CreateInstance(sp, implementationType);
                     return ActivatorUtilities.CreateInstance(sp, decoratorType, innerHandler);
                 },
                 descriptor.Lifetime);

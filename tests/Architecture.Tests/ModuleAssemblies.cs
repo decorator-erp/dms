@@ -28,7 +28,7 @@ internal static class ModuleAssemblies
     /// <summary>The module prefix of an assembly name — "Identity" from "Identity.Domain".</summary>
     public static string ModuleOf(string assemblyName)
     {
-        var dot = assemblyName.IndexOf('.');
+        int dot = assemblyName.IndexOf('.');
         return dot < 0 ? assemblyName : assemblyName[..dot];
     }
 
@@ -46,7 +46,7 @@ internal static class ModuleAssemblies
 
     private static IReadOnlyList<Assembly> LoadAll()
     {
-        var baseDir = AppContext.BaseDirectory;
+        string baseDir = AppContext.BaseDirectory;
 
         return [.. Directory.GetFiles(baseDir, "*.dll")
             .Select(Path.GetFileNameWithoutExtension)

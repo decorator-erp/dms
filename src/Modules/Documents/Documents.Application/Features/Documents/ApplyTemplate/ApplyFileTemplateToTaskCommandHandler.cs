@@ -31,29 +31,37 @@ internal sealed class ApplyFileTemplateToTaskCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(ApplyFileTemplateToTaskCommand command, CancellationToken ct = default)
     {
-        var task = await projectDirectory.GetTaskAsync(command.ProjectTaskId, ct);
+        TaskSummary? task = await projectDirectory.GetTaskAsync(command.ProjectTaskId, ct);
         if (task is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
+        FileTemplate? template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
         if (template is null || !template.IsActive)
+        {
             return FileTemplateErrors.NotFound;
+        }
 
-        var uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
+        Guid? uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
         if (uploadedById is null)
+        {
             return ProjectDocumentErrors.UploaderNotFound;
+        }
 
-        await using var templateContent = await fileStorage.OpenReadAsync(template.StoragePath, ct);
+        await using Stream? templateContent = await fileStorage.OpenReadAsync(template.StoragePath, ct);
         if (templateContent is null)
+        {
             return FileTemplateErrors.NotFound;
+        }
 
-        var folderId = await DefaultFolderResolver.EnsureForTaskAsync(
+        Guid folderId = await DefaultFolderResolver.EnsureForTaskAsync(
             db, task.ProjectId, command.ProjectTaskId, task.Name, ct);
 
-        var storagePath = await fileStorage.SaveAsync(
+        string storagePath = await fileStorage.SaveAsync(
             templateContent, template.FileName, $"projects/{task.ProjectId}", ct);
 
-        var documentResult = ProjectDocument.Create(
+        Result<ProjectDocument> documentResult = ProjectDocument.Create(
             task.ProjectId, template.FileName, storagePath, template.ContentType, template.FileSizeBytes,
             uploadedById.Value, folderId, projectStageId: task.ProjectStageId,
             projectTaskId: command.ProjectTaskId);
@@ -63,7 +71,7 @@ internal sealed class ApplyFileTemplateToTaskCommandHandler(
             return Result.Failure<Guid>(documentResult.Error);
         }
 
-        var document = documentResult.Value!;
+        ProjectDocument document = documentResult.Value!;
         await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, document, ct);
 
         return document.Id;

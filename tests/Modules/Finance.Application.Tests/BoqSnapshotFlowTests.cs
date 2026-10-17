@@ -16,7 +16,7 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
 {
     private async Task<Guid> CategoryAsync()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return (await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(
@@ -27,8 +27,8 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     private async Task<Guid> BudgetLineAsync(
         Guid projectId, Guid categoryId, decimal amount, Guid? stageId = null, Guid? taskId = null)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
             .HandleAsync(new CreateBudgetLineCommand(new CreateBudgetLineRequest(
                 "BQ", projectId, categoryId, "Budget", amount, stageId, taskId)));
@@ -40,7 +40,7 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     private async Task<Result<Guid>> GenerateAsync(
         Guid projectId, Guid generatedById, Guid? stageId = null)
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<GenerateBoqSnapshotCommand, Guid>>()
             .HandleAsync(new GenerateBoqSnapshotCommand(
@@ -49,8 +49,8 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
 
     private async Task<BoqSnapshotResponse> ReadAsync(Guid id)
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<BoqSnapshotResponse> read = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetBoqSnapshotByIdQuery, BoqSnapshotResponse>>()
             .HandleAsync(new GetBoqSnapshotByIdQuery(id));
 
@@ -66,18 +66,18 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_ProducesOneBudgetItemLinePerAllocatedTask()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
-        var lineId = await BudgetLineAsync(scope.ProjectId, categoryId, 1000m, scope.StageId, scope.TaskId);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, categoryId, 1000m, scope.StageId, scope.TaskId);
         await FinanceTestData.PostActualCostAsync(
             fixture, scope.ProjectId, scope.TaskId, lineId, 250m, owner.EmployeeId);
 
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
-        var snapshot = await ReadAsync(snapshotId);
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        BoqSnapshotResponse snapshot = await ReadAsync(snapshotId);
 
-        var budgetItem = Assert.Single(snapshot.Lines, l => l.ProjectTaskId == scope.TaskId
+        BoqSnapshotLineResponse budgetItem = Assert.Single(snapshot.Lines, l => l.ProjectTaskId == scope.TaskId
                                                             && l.InvoiceLineId is null
                                                             && l.VariationId is null);
 
@@ -92,20 +92,20 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_ReportsAnOverrunAsTheDifference()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
-        var lineId = await BudgetLineAsync(
+        Guid lineId = await BudgetLineAsync(
             scope.ProjectId, categoryId, 100m, scope.OtherStageId, scope.OtherTaskId);
 
         await FinanceTestData.PostActualCostAsync(
             fixture, scope.ProjectId, scope.OtherTaskId, lineId, 175m, owner.EmployeeId);
 
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
-        var snapshot = await ReadAsync(snapshotId);
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        BoqSnapshotResponse snapshot = await ReadAsync(snapshotId);
 
-        var line = Assert.Single(snapshot.Lines, l => l.ProjectTaskId == scope.OtherTaskId
+        BoqSnapshotLineResponse line = Assert.Single(snapshot.Lines, l => l.ProjectTaskId == scope.OtherTaskId
                                                       && l.InvoiceLineId is null
                                                       && l.VariationId is null);
 
@@ -120,14 +120,14 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_SkipsTasksWithNoAllocation()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 400m, scope.StageId, scope.TaskId);
 
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
-        var snapshot = await ReadAsync(snapshotId);
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        BoqSnapshotResponse snapshot = await ReadAsync(snapshotId);
 
         // Liveness first: the allocated task IS present, so the absence below is exclusion rather than
         // an empty snapshot.
@@ -146,16 +146,16 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_SumsTotalsExactly_WithoutRounding()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 0.3333m, scope.StageId, scope.TaskId);
         await BudgetLineAsync(scope.ProjectId, categoryId, 0.3333m, scope.StageId, scope.TaskId);
         await BudgetLineAsync(scope.ProjectId, categoryId, 0.3335m, scope.StageId, scope.TaskId);
 
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
-        var snapshot = await ReadAsync(snapshotId);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        BoqSnapshotResponse snapshot = await ReadAsync(snapshotId);
 
         Assert.Equal(1.0001m, snapshot.BudgetedTotal);
     }
@@ -165,14 +165,14 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_AllocatesTheNextVersionPerProject()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 10m, scope.StageId, scope.TaskId);
 
-        var first = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
-        var second = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
+        BoqSnapshotResponse first = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
+        BoqSnapshotResponse second = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
 
         Assert.Equal(1, first.Version);
         Assert.Equal(2, second.Version);
@@ -181,17 +181,17 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetLatest_ReturnsTheHighestVersion()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 10m, scope.StageId, scope.TaskId);
 
         await GenerateAsync(scope.ProjectId, owner.EmployeeId);
-        var secondId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        Guid secondId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
 
-        await using var dbScope = fixture.CreateScope();
-        var latest = await dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<BoqSnapshotResponse> latest = await dbScope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetLatestBoqSnapshotQuery, BoqSnapshotResponse>>()
             .HandleAsync(new GetLatestBoqSnapshotQuery(scope.ProjectId));
 
@@ -202,10 +202,10 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetLatest_ForAProjectWithNoSnapshots_FailsWithNotFound()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
-        await using var dbScope = fixture.CreateScope();
-        var latest = await dbScope.ServiceProvider
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<BoqSnapshotResponse> latest = await dbScope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetLatestBoqSnapshotQuery, BoqSnapshotResponse>>()
             .HandleAsync(new GetLatestBoqSnapshotQuery(scope.ProjectId));
 
@@ -216,24 +216,24 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task GetByProject_PagesAndFiltersByType()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 10m, scope.StageId, scope.TaskId);
         await GenerateAsync(scope.ProjectId, owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var list = dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IQueryHandler<GetBoqSnapshotsByProjectQuery, PagedResult<BoqSnapshotListItemResponse>> list = dbScope.ServiceProvider.GetRequiredService<
             IQueryHandler<GetBoqSnapshotsByProjectQuery, PagedResult<BoqSnapshotListItemResponse>>>();
 
-        var manual = await list.HandleAsync(
+        Result<PagedResult<BoqSnapshotListItemResponse>> manual = await list.HandleAsync(
             new GetBoqSnapshotsByProjectQuery(scope.ProjectId, BoqSnapshotType.Manual));
         Assert.Single(manual.Value!.Items);
 
         // Liveness on the filter's other side: the same query with a type nothing was generated under
         // must come back empty, or the filter is not filtering.
-        var stageClose = await list.HandleAsync(
+        Result<PagedResult<BoqSnapshotListItemResponse>> stageClose = await list.HandleAsync(
             new GetBoqSnapshotsByProjectQuery(scope.ProjectId, BoqSnapshotType.StageClose));
         Assert.Empty(stageClose.Value!.Items);
     }
@@ -243,9 +243,9 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_ForAnUnknownProject_FailsWithProjectNotFound()
     {
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var generated = await GenerateAsync(Guid.NewGuid(), owner.EmployeeId);
+        Result<Guid> generated = await GenerateAsync(Guid.NewGuid(), owner.EmployeeId);
 
         Assert.True(generated.IsFailure);
         Assert.Equal("boq_snapshots.ProjectNotFound", generated.Error.Code);
@@ -260,13 +260,13 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_WithNothingToReport_ProducesAnEmptyButValidSnapshot()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var generated = await GenerateAsync(scope.ProjectId, owner.EmployeeId);
+        Result<Guid> generated = await GenerateAsync(scope.ProjectId, owner.EmployeeId);
         Assert.True(generated.IsSuccess, generated.IsFailure ? generated.Error.ToString() : null);
 
-        var snapshot = await ReadAsync(generated.Value);
+        BoqSnapshotResponse snapshot = await ReadAsync(generated.Value);
 
         Assert.Empty(snapshot.Lines);
         Assert.Equal(0m, snapshot.BudgetedTotal);
@@ -285,7 +285,7 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public void NoUpdateOrDeleteCommandExistsForBoqSnapshots()
     {
-        var messageTypes = typeof(GenerateBoqSnapshotCommand).Assembly.GetTypes()
+        string[] messageTypes = typeof(GenerateBoqSnapshotCommand).Assembly.GetTypes()
             .Where(t => t.Namespace == typeof(GenerateBoqSnapshotCommand).Namespace)
             .Select(t => t.Name)
             .ToArray();
@@ -306,9 +306,9 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_ForOneStage_NarrowsBudgetItemsToThatStage()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         // Both stages of the SAME project are allocated, so the narrowing under test is the stage
         // filter rather than the project filter -- two different projects would exclude the second task
@@ -316,8 +316,8 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
         await BudgetLineAsync(scope.ProjectId, categoryId, 600m, scope.StageId, scope.TaskId);
         await BudgetLineAsync(scope.ProjectId, categoryId, 900m, scope.OtherStageId, scope.OtherTaskId);
 
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId, scope.StageId)).Value;
-        var snapshot = await ReadAsync(snapshotId);
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId, scope.StageId)).Value;
+        BoqSnapshotResponse snapshot = await ReadAsync(snapshotId);
 
         Assert.Equal(scope.StageId, snapshot.ProjectStageId);
         Assert.Contains(snapshot.Lines, l => l.ProjectTaskId == scope.TaskId);
@@ -333,17 +333,17 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_HeaderTotalsAgreeWithTheLinesTheySummarise()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
-        var lineId = await BudgetLineAsync(scope.ProjectId, categoryId, 800m, scope.StageId, scope.TaskId);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, categoryId, 800m, scope.StageId, scope.TaskId);
         await FinanceTestData.PostActualCostAsync(
             fixture, scope.ProjectId, scope.TaskId, lineId, 950m, owner.EmployeeId);
 
-        var snapshot = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
+        BoqSnapshotResponse snapshot = await ReadAsync((await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value);
 
-        var budgetItems = snapshot.Lines
+        BoqSnapshotLineResponse[] budgetItems = snapshot.Lines
             .Where(l => l.InvoiceLineId is null && l.VariationId is null)
             .ToArray();
 
@@ -360,12 +360,12 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Generate_PersistsTheLines()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var categoryId = await CategoryAsync();
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid categoryId = await CategoryAsync();
 
         await BudgetLineAsync(scope.ProjectId, categoryId, 42m, scope.StageId, scope.TaskId);
-        var snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
+        Guid snapshotId = (await GenerateAsync(scope.ProjectId, owner.EmployeeId)).Value;
 
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();

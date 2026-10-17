@@ -27,8 +27,8 @@ internal sealed class GetFreeMeetingSlotsQueryHandler(ICrmSchedulerService sched
     public async Task<Result<IReadOnlyList<FreeSlotResponse>>> HandleAsync(
         GetFreeMeetingSlotsQuery query, CancellationToken ct = default)
     {
-        var slots = await scheduler.GetFreeSlotsAsync(query.FromUtc, query.ToUtc, ct);
-        List<FreeSlotResponse> items = slots
+        IReadOnlyList<CrmFreeSlot> slots = await scheduler.GetFreeSlotsAsync(query.FromUtc, query.ToUtc, ct);
+        var items = slots
             .Select(s => new FreeSlotResponse(s.StartsAtUtc, s.EndsAtUtc))
             .ToList();
 

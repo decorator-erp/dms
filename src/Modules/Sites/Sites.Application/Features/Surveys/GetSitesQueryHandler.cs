@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
 using Sites.Contracts.Surveys;
+using Sites.Domain;
 using Sites.Infrastructure.Persistence;
 
 namespace Sites.Application.Features.Surveys;
@@ -18,25 +19,28 @@ internal sealed class GetSitesQueryHandler(SitesDbContext db, IProjectAccessGuar
     public async Task<Result<PagedResult<SiteListItemResponse>>> HandleAsync(
         GetSitesQuery query, CancellationToken ct = default)
     {
-        var scope = await access.EnsureProjectAccessAsync(query.ProjectId, query.AppUserId, ct);
-        if (scope.IsFailure) return scope.Error;
+        Result scope = await access.EnsureProjectAccessAsync(query.ProjectId, query.AppUserId, ct);
+        if (scope.IsFailure)
+        {
+            return scope.Error;
+        }
 
-        var status = query.Status is { } s ? SiteEnumMapping.ToDomain(s) : (Domain.SiteStatus?)null;
+        SiteStatus? status = query.Status is { } s ? SiteEnumMapping.ToDomain(s) : (Domain.SiteStatus?)null;
 
-        var filtered = db.Sites.AsNoTracking()
+        IQueryable<Site> filtered = db.Sites.AsNoTracking()
             .Where(x => x.ProjectId == query.ProjectId)
             .Where(x => status == null || x.Status == status);
 
-        var total = await filtered.CountAsync(ct);
+        int total = await filtered.CountAsync(ct);
 
         // Clamped rather than trusted: an unbounded page size is a denial-of-service on a large project,
         // and a zero or negative page is a caller error that should still answer.
-        var page = Math.Max(1, query.PageIndex);
-        var size = Math.Clamp(query.PageSize, 1, 200);
+        int page = Math.Max(1, query.PageIndex);
+        int size = Math.Clamp(query.PageSize, 1, 200);
 
         // Ordered by creation, projected to exactly the columns ix_sites_project_status INCLUDEs -- the
         // covering set is why this is an index-only scan. Adding a field here means revisiting that index.
-        var items = await filtered
+        List<SiteListItemResponse> items = await filtered
             .OrderByDescending(x => x.CreatedAtUtc)
             .Skip((page - 1) * size)
             .Take(size)

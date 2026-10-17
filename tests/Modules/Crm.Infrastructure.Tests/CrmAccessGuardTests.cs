@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using SharedKernel;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -36,7 +37,7 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
             "Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
         await MigrateModuleAsync("Hr.Infrastructure", "Hr.Infrastructure.Persistence.HrDbContext, Hr.Infrastructure");
 
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         await db.Database.MigrateAsync();
     }
 
@@ -46,10 +47,10 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     public async Task ResolveActorAsync_WhenHrDirectoryResolvesAnEmployee_ReturnsEmployeeActor()
     {
         var employeeId = Guid.NewGuid();
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory(("emp-user", employeeId)));
 
-        var result = await guard.ResolveActorAsync("emp-user", CancellationToken.None);
+        Result<Contracts.CrmActor> result = await guard.ResolveActorAsync("emp-user", CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(Contracts.CrmActorKind.Employee, result.Value!.Kind);
@@ -61,13 +62,13 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task ResolveActorAsync_WhenNoEmployee_ButAClientRowExists_ReturnsClientActor()
     {
-        var appUserId = await SeedIdentityUserAsync();
-        var clientId = await SeedClientAsync(appUserId);
+        string appUserId = await SeedIdentityUserAsync();
+        Guid clientId = await SeedClientAsync(appUserId);
 
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory());
 
-        var result = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
+        Result<Contracts.CrmActor> result = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(Contracts.CrmActorKind.Client, result.Value!.Kind);
@@ -79,10 +80,10 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task ResolveActorAsync_WhenNeitherEmployeeNorClient_ReturnsNoStanding()
     {
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory());
 
-        var result = await guard.ResolveActorAsync("nobody", CancellationToken.None);
+        Result<Contracts.CrmActor> result = await guard.ResolveActorAsync("nobody", CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmAccessErrors.NoStanding, result.Error);
@@ -91,14 +92,14 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task ResolveActorAsync_ForClientWithAPrimaryContact_IncludesTheContactId()
     {
-        var appUserId = await SeedIdentityUserAsync();
-        var clientId = await SeedClientAsync(appUserId);
-        var contactId = await SeedContactAsync(clientId);
+        string appUserId = await SeedIdentityUserAsync();
+        Guid clientId = await SeedClientAsync(appUserId);
+        Guid contactId = await SeedContactAsync(clientId);
 
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory());
 
-        var result = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
+        Result<Contracts.CrmActor> result = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(contactId, result.Value!.ContactId);
@@ -108,14 +109,14 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     public async Task ResolveActorsAsync_BatchResolvesEmployeeAndClientActorsCorrectly()
     {
         var employeeId = Guid.NewGuid();
-        var employeeAppUserId = "batch-emp-user";
-        var clientAppUserId = await SeedIdentityUserAsync();
-        var clientId = await SeedClientAsync(clientAppUserId);
+        string employeeAppUserId = "batch-emp-user";
+        string clientAppUserId = await SeedIdentityUserAsync();
+        Guid clientId = await SeedClientAsync(clientAppUserId);
 
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory((employeeAppUserId, employeeId)));
 
-        var result = await guard.ResolveActorsAsync(
+        IReadOnlyDictionary<string, Contracts.CrmActor> result = await guard.ResolveActorsAsync(
             [employeeAppUserId, clientAppUserId, "nobody-at-all"], CancellationToken.None);
 
         Assert.Equal(2, result.Count);
@@ -129,21 +130,21 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task ResolveActorsAsync_EmptyList_ReturnsEmpty()
     {
-        await using var db = CreateContext();
+        await using CrmDbContext db = CreateContext();
         var guard = new CrmAccessGuard(db, new StubHrDirectory());
 
-        var result = await guard.ResolveActorsAsync([], CancellationToken.None);
+        IReadOnlyDictionary<string, Contracts.CrmActor> result = await guard.ResolveActorsAsync([], CancellationToken.None);
 
         Assert.Empty(result);
     }
 
     private async Task<string> SeedIdentityUserAsync()
     {
-        var appUserId = $"user-{Guid.NewGuid():N}";
+        string appUserId = $"user-{Guid.NewGuid():N}";
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
+        await using NpgsqlCommand command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO identity.users
                 ("Id", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",
@@ -158,8 +159,8 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
 
     private async Task<Guid> SeedClientAsync(string appUserId)
     {
-        await using var db = CreateContext();
-        var client = Client.Create(appUserId, "123 Main St").Value!;
+        await using CrmDbContext db = CreateContext();
+        Client client = Client.Create(appUserId, "123 Main St").Value!;
         db.Clients.Add(client);
         await db.SaveChangesAsync();
         return client.Id;
@@ -167,8 +168,8 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
 
     private async Task<Guid> SeedContactAsync(Guid clientId)
     {
-        await using var db = CreateContext();
-        var contact = CrmContact.Create(clientId, "Jane", "Doe", (ContactRole)1, isPrimary: true).Value!;
+        await using CrmDbContext db = CreateContext();
+        CrmContact contact = CrmContact.Create(clientId, "Jane", "Doe", (ContactRole)1, isPrimary: true).Value!;
         db.CrmContacts.Add(contact);
         await db.SaveChangesAsync();
         return contact.Id;
@@ -176,9 +177,9 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
 
     private async Task MigrateModuleAsync(string assemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -189,19 +190,19 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }
 
     private CrmDbContext CreateContext()
     {
-        var builder = new DbContextOptionsBuilder<CrmDbContext>().UseNpgsql(_container.GetConnectionString());
+        DbContextOptionsBuilder<CrmDbContext> builder = new DbContextOptionsBuilder<CrmDbContext>().UseNpgsql(_container.GetConnectionString());
         return new CrmDbContext(builder.Options);
     }
 
@@ -213,7 +214,7 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
             _employeesByAppUserId = employees.ToDictionary(e => e.AppUserId, e => e.EmployeeId);
 
         public Task<Guid?> ResolveEmployeeIdAsync(string appUserId, CancellationToken ct) =>
-            Task.FromResult(_employeesByAppUserId.TryGetValue(appUserId, out var id) ? id : (Guid?)null);
+            Task.FromResult(_employeesByAppUserId.TryGetValue(appUserId, out Guid id) ? id : (Guid?)null);
 
         public Task<EmployeeSummary?> GetAsync(Guid id, CancellationToken ct) =>
             throw new NotImplementedException("Not used by CrmAccessGuard.");

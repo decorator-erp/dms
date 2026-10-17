@@ -58,9 +58,9 @@ public class EnumMappingParityTests
             .ToDictionary(v => v.ToString()!, v => Convert.ToInt32(v));
 
         Assert.Equal(contractsValues.Count, domainValues.Count);
-        foreach (var (name, value) in contractsValues)
+        foreach ((string? name, int value) in contractsValues)
         {
-            Assert.True(domainValues.TryGetValue(name, out var domainValue),
+            Assert.True(domainValues.TryGetValue(name, out int domainValue),
                 $"{domainType.Name} has no member named '{name}' (present in {contractsType.Name}).");
             Assert.Equal(value, domainValue);
         }

@@ -21,16 +21,27 @@ internal sealed class UserDirectory(UserManager<ApplicationUser> userManager) : 
     /// tracked, now-stale snapshot instead of re-querying. Found via a test that deactivated a user
     /// through a completely different scope and then couldn't see it through this one.
     /// </summary>
-    public async Task<UserSummary?> GetAsync(string userId, CancellationToken ct)
-    {
-        var user = await userManager.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
-        return user is null ? null : ToSummary(user);
-    }
+    /// <remarks>Filter BEFORE the projection. Filtering after it puts the predicate on
+    /// <see cref="UserSummary"/>, which is not an entity type, and EF cannot translate that — it throws
+    /// at runtime rather than failing to compile, so every caller breaks at once.
+    /// <see cref="GetManyAsync"/> below has always had the clauses in this order.</remarks>
+    public Task<UserSummary?> GetAsync(string userId, CancellationToken ct) =>
+        userManager.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new UserSummary(
+                u.Id,
+                u.Email!,
+                u.FirstName + " " + u.LastName,
+                u.IsActive))
+            .FirstOrDefaultAsync(ct);
 
     public async Task<IReadOnlyList<UserSummary>> GetManyAsync(IReadOnlyCollection<string> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await userManager.Users
             .AsNoTracking()
@@ -38,7 +49,4 @@ internal sealed class UserDirectory(UserManager<ApplicationUser> userManager) : 
             .Select(u => new UserSummary(u.Id, u.Email!, u.FirstName + " " + u.LastName, u.IsActive))
             .ToListAsync(ct);
     }
-
-    private static UserSummary ToSummary(ApplicationUser user) =>
-        new(user.Id, user.Email!, $"{user.FirstName} {user.LastName}", user.IsActive);
 }

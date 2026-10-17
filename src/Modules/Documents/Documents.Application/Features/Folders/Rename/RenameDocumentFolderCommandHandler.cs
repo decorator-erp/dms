@@ -21,19 +21,25 @@ internal sealed class RenameDocumentFolderCommandHandler(DocumentsDbContext db) 
 {
     public async Task<Result> HandleAsync(RenameDocumentFolderCommand command, CancellationToken ct = default)
     {
-        var folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
+        DocumentFolder? folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
         if (folder is null)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
-        var nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
+        bool nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
             f => f.Id != folder.Id && f.ProjectId == folder.ProjectId
                 && f.ParentFolderId == folder.ParentFolderId && f.Name == command.Name, ct);
         if (nameTaken)
+        {
             return DocumentFolderErrors.NameCollision;
+        }
 
-        var renameResult = folder.Rename(command.Name);
+        Result renameResult = folder.Rename(command.Name);
         if (renameResult.IsFailure)
+        {
             return renameResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

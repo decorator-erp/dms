@@ -32,41 +32,55 @@ internal sealed class AcceptCrmMeetingSlotCommandHandler(CrmDbContext db, IProje
 {
     public async Task<Result> HandleAsync(AcceptCrmMeetingSlotCommand command, CancellationToken ct = default)
     {
-        var slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
+        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
         if (slot is null)
-            return CrmMeetingErrors.SlotNotFound;
-
-        if (!MeetingSupport.IsCounterpartyKind(slot, command.ActingEmployeeId, command.ActingContactId))
-            return CrmMeetingErrors.NotCounterparty;
-
-        var meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId, ct);
-        if (meeting is null)
-            return CrmMeetingErrors.NotFound;
-
-        var scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
-        if (scoped.IsFailure)
-            return scoped.Error;
-
-        var accepted = slot.Accept();
-        if (accepted.IsFailure)
-            return accepted.Error;
-
-        // One accepted slot per meeting - decline every other still-proposed slot in the same SaveChanges.
-        var siblings = await db.CrmMeetingSlots
-            .Where(s => s.MeetingId == slot.MeetingId && s.Id != slot.Id && s.Status == Domain.MeetingSlotStatus.Proposed)
-            .ToListAsync(ct);
-        foreach (var sibling in siblings)
         {
-            var declined = sibling.Decline();
-            if (declined.IsFailure)
-                return declined.Error;
+            return CrmMeetingErrors.SlotNotFound;
         }
 
-        var duration = meeting.DurationMinutes ?? (int)Math.Ceiling((slot.EndsAtUtc - slot.StartsAtUtc).TotalMinutes);
-        var scheduled = meeting.Schedule(slot.StartsAtUtc, duration);
+        if (!MeetingSupport.IsCounterpartyKind(slot, command.ActingEmployeeId, command.ActingContactId))
+        {
+            return CrmMeetingErrors.NotCounterparty;
+        }
+
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId, ct);
+        if (meeting is null)
+        {
+            return CrmMeetingErrors.NotFound;
+        }
+
+        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
+            db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
+        if (scoped.IsFailure)
+        {
+            return scoped.Error;
+        }
+
+        Result accepted = slot.Accept();
+        if (accepted.IsFailure)
+        {
+            return accepted.Error;
+        }
+
+        // One accepted slot per meeting - decline every other still-proposed slot in the same SaveChanges.
+        List<CrmMeetingSlot> siblings = await db.CrmMeetingSlots
+            .Where(s => s.MeetingId == slot.MeetingId && s.Id != slot.Id && s.Status == Domain.MeetingSlotStatus.Proposed)
+            .ToListAsync(ct);
+        foreach (CrmMeetingSlot? sibling in siblings)
+        {
+            Result declined = sibling.Decline();
+            if (declined.IsFailure)
+            {
+                return declined.Error;
+            }
+        }
+
+        int duration = meeting.DurationMinutes ?? (int)Math.Ceiling((slot.EndsAtUtc - slot.StartsAtUtc).TotalMinutes);
+        Result scheduled = meeting.Schedule(slot.StartsAtUtc, duration);
         if (scheduled.IsFailure)
+        {
             return scheduled.Error;
+        }
 
         db.Outbox().Enqueue(new MeetingScheduledIntegrationEvent(
             Guid.NewGuid(), meeting.Id, meeting.ProjectId, slot.StartsAtUtc, DateTimeOffset.UtcNow));

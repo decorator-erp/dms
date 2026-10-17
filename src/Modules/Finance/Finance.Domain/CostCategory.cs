@@ -23,10 +23,14 @@ internal sealed class CostCategory : Entity, IAuditable
     public static Result<CostCategory> Create(string code, string name, string? description = null)
     {
         if (string.IsNullOrWhiteSpace(code))
+        {
             return CostCategoryErrors.CodeRequired;
+        }
 
         if (string.IsNullOrWhiteSpace(name))
+        {
             return CostCategoryErrors.NameRequired;
+        }
 
         return new CostCategory { Code = code, Name = name, Description = description };
     }
@@ -36,7 +40,9 @@ internal sealed class CostCategory : Entity, IAuditable
     public Result Update(string name, string? description)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return CostCategoryErrors.NameRequired;
+        }
 
         Name = name;
         Description = description;

@@ -8,7 +8,7 @@ public class RefreshTokenTests
     [Fact]
     public void Issue_BeforeExpiry_IsActive()
     {
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
         var token = RefreshToken.Issue("t1", now, TimeSpan.FromDays(14));
 
         Assert.False(token.IsExpired);
@@ -18,7 +18,7 @@ public class RefreshTokenTests
     [Fact]
     public void IsExpired_AfterExpiresOn_IsTrue()
     {
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
         var token = RefreshToken.Issue("t1", now, TimeSpan.FromSeconds(-1));
 
         Assert.True(token.IsExpired);
@@ -28,7 +28,7 @@ public class RefreshTokenTests
     [Fact]
     public void Revoke_MakesTokenInactive()
     {
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
         var token = RefreshToken.Issue("t1", now, TimeSpan.FromDays(14));
 
         token.Revoke(now);
@@ -40,7 +40,7 @@ public class RefreshTokenTests
     [Fact]
     public void Revoke_AlreadyRevoked_Throws()
     {
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
         var token = RefreshToken.Issue("t1", now, TimeSpan.FromDays(14));
         token.Revoke(now);
 

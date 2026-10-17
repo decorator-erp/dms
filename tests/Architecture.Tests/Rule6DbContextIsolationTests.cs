@@ -20,7 +20,7 @@ public class Rule6DbContextIsolationTests
     [Fact]
     public void NoTypeReferencesADbContextOutsideItsOwnModule()
     {
-        var allModuleAssemblies = ModuleAssemblies.All;
+        IReadOnlyList<Assembly> allModuleAssemblies = ModuleAssemblies.All;
 
         var dbContextsByModule = allModuleAssemblies
             .SelectMany(a => ModuleAssemblies.SafeGetTypes(a)
@@ -36,20 +36,24 @@ public class Rule6DbContextIsolationTests
             + "Reflection is not seeing them, so this rule checks nothing.");
 
         if (dbContextsByModule.Count == 0)
-            return;
-
-        foreach (var assembly in allModuleAssemblies)
         {
-            var ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
+            return;
+        }
+
+        foreach (Assembly assembly in allModuleAssemblies)
+        {
+            string ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
             var foreignDbContexts = dbContextsByModule
                 .Where(x => x.Module != ownModule)
                 .Select(x => x.Type)
                 .ToHashSet();
 
             if (foreignDbContexts.Count == 0)
+            {
                 continue;
+            }
 
-            foreach (var type in ModuleAssemblies.SafeGetTypes(assembly))
+            foreach (Type type in ModuleAssemblies.SafeGetTypes(assembly))
             {
                 Assert.True(!ReferencesAny(type, foreignDbContexts),
                     $"{type.FullName} in {assembly.GetName().Name} references a DbContext outside its own module");
@@ -62,13 +66,19 @@ public class Rule6DbContextIsolationTests
         const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
 
         if (owner.GetConstructors(flags).SelectMany(c => c.GetParameters()).Any(p => targets.Contains(p.ParameterType)))
+        {
             return true;
+        }
 
         if (owner.GetFields(flags | BindingFlags.Static).Any(f => targets.Contains(f.FieldType)))
+        {
             return true;
+        }
 
         if (owner.GetProperties(flags).Any(p => targets.Contains(p.PropertyType)))
+        {
             return true;
+        }
 
         return false;
     }

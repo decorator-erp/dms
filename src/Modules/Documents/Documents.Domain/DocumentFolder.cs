@@ -49,13 +49,19 @@ internal sealed class DocumentFolder : Entity, IAuditable
         bool defaultAlreadyExistsForScope = false)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return DocumentFolderErrors.NameRequired;
+        }
 
         if (projectStageId.HasValue && projectTaskId.HasValue)
+        {
             return DocumentFolderErrors.InvalidScope;
+        }
 
         if (isDefault && defaultAlreadyExistsForScope)
+        {
             return DocumentFolderErrors.DefaultAlreadyExists;
+        }
 
         return new DocumentFolder
         {
@@ -71,7 +77,9 @@ internal sealed class DocumentFolder : Entity, IAuditable
     public Result Rename(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             return DocumentFolderErrors.NameRequired;
+        }
 
         Name = name;
         return Result.Success();
@@ -92,14 +100,18 @@ internal sealed class DocumentFolder : Entity, IAuditable
         }
 
         if (newParentFolderId == Id)
+        {
             return DocumentFolderErrors.CyclicMove;
+        }
 
-        var current = newParentFolderId;
-        var steps = 0;
-        while (current is { } folderId && ancestorChain.TryGetValue(folderId, out var parent))
+        Guid? current = newParentFolderId;
+        int steps = 0;
+        while (current is { } folderId && ancestorChain.TryGetValue(folderId, out Guid? parent))
         {
             if (parent == Id)
+            {
                 return DocumentFolderErrors.CyclicMove;
+            }
 
             current = parent;
 
@@ -107,7 +119,9 @@ internal sealed class DocumentFolder : Entity, IAuditable
             // a caller-supplied map that is itself already cyclic (a pre-existing data bug) rather than
             // looping forever.
             if (++steps > ancestorChain.Count)
+            {
                 return DocumentFolderErrors.CyclicMove;
+            }
         }
 
         ParentFolderId = newParentFolderId;

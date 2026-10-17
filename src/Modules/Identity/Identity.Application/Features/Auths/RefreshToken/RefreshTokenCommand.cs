@@ -35,28 +35,34 @@ internal sealed class RefreshTokenCommandHandler(
 {
     public async Task<Result<AuthResponse>> HandleAsync(RefreshTokenCommand command, CancellationToken ct = default)
     {
-        var request = command.Request;
+        RefreshTokenRequest request = command.Request;
 
-        var userId = jwtProvider.ValidateToken(request.Token, validateLifetime: false);
+        string? userId = jwtProvider.ValidateToken(request.Token, validateLifetime: false);
         if (userId is null)
+        {
             return AuthErrors.InvalidToken;
+        }
 
-        var user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
         if (user is null || !user.IsActive)
+        {
             return AuthErrors.InvalidUser;
+        }
 
-        var utcNow = DateTime.UtcNow;
-        var rotateResult = user.RotateRefreshToken(
+        DateTime utcNow = DateTime.UtcNow;
+        Result<Domain.RefreshToken> rotateResult = user.RotateRefreshToken(
             request.RefreshToken,
             GenerateRefreshTokenValue(),
             utcNow,
             TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
 
         if (rotateResult.IsFailure)
+        {
             return rotateResult.Error;
+        }
 
-        var roles = await userManager.GetRolesAsync(user);
-        var (newAccessToken, expireMinutes) = await jwtProvider.GenerateTokenAsync(user, roles, ct);
+        IList<string> roles = await userManager.GetRolesAsync(user);
+        (string? newAccessToken, int expireMinutes) = await jwtProvider.GenerateTokenAsync(user, roles, ct);
 
         await db.SaveChangesAsync(ct);
 

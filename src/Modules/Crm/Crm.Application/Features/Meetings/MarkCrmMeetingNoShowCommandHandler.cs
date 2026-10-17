@@ -10,10 +10,7 @@ namespace Crm.Application.Features.Meetings;
 
 internal sealed class MarkCrmMeetingNoShowCommandValidator : AbstractValidator<MarkCrmMeetingNoShowCommand>
 {
-    public MarkCrmMeetingNoShowCommandValidator()
-    {
-        RuleFor(x => x.MeetingId).NotEmpty();
-    }
+    public MarkCrmMeetingNoShowCommandValidator() => RuleFor(x => x.MeetingId).NotEmpty();
 }
 
 /// <summary>Office-only — gated by <c>crm.meetings.mark_no_show</c>. Byte-for-byte the same shape as
@@ -22,13 +19,17 @@ internal sealed class MarkCrmMeetingNoShowCommandHandler(CrmDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(MarkCrmMeetingNoShowCommand command, CancellationToken ct = default)
     {
-        var meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
         if (meeting is null)
+        {
             return CrmMeetingErrors.NotFound;
+        }
 
-        var noShow = meeting.MarkNoShow(DateTime.UtcNow);
+        Result noShow = meeting.MarkNoShow(DateTime.UtcNow);
         if (noShow.IsFailure)
+        {
             return noShow.Error;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();

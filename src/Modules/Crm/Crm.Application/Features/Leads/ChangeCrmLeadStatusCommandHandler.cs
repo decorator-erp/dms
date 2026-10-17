@@ -16,13 +16,17 @@ internal sealed class ChangeCrmLeadStatusCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(ChangeCrmLeadStatusCommand command, CancellationToken ct = default)
     {
-        var lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
         if (lead is null)
+        {
             return CrmLeadErrors.NotFound;
+        }
 
-        var result = lead.ChangeStatus(CrmEnumMapping.ToDomain(command.Status));
+        Result result = lead.ChangeStatus(CrmEnumMapping.ToDomain(command.Status));
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

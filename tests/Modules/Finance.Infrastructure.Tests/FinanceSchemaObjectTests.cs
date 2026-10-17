@@ -137,7 +137,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     {
         await _postgres.StartAsync();
 
-        var options = new DbContextOptionsBuilder<FinanceDbContext>()
+        DbContextOptions<FinanceDbContext> options = new DbContextOptionsBuilder<FinanceDbContext>()
             .UseNpgsql(_postgres.GetConnectionString())
             .Options;
 
@@ -166,7 +166,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedTable_Exists()
     {
-        var actual = await TablesAsync();
+        string[] actual = await TablesAsync();
 
         Assert.Empty(ExpectedTables.Except(actual));
     }
@@ -174,7 +174,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NoUnexpectedFinanceTables()
     {
-        var actual = await TablesAsync();
+        string[] actual = await TablesAsync();
 
         // Liveness: this direction goes green on an empty result, so the query has to be proven to
         // return something before "nothing unexpected" means anything.
@@ -186,7 +186,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedCheckConstraint_Exists()
     {
-        var actual = await CheckConstraintsAsync();
+        string[] actual = await CheckConstraintsAsync();
 
         Assert.Empty(ExpectedCheckConstraints.Except(actual));
     }
@@ -194,7 +194,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NoUnexpectedFinanceCheckConstraints()
     {
-        var actual = await CheckConstraintsAsync();
+        string[] actual = await CheckConstraintsAsync();
 
         Assert.NotEmpty(actual);
 
@@ -204,7 +204,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedIndex_Exists()
     {
-        var actual = await IndexesAsync();
+        string[] actual = await IndexesAsync();
 
         Assert.Empty(ExpectedIndexes.Except(actual));
     }
@@ -215,11 +215,11 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NoUnexpectedFinanceIndexes()
     {
-        var actual = await IndexesAsync();
+        string[] actual = await IndexesAsync();
 
         Assert.NotEmpty(actual);
 
-        var unexpected = actual
+        string[] unexpected = actual
             .Where(name => !ExpectedIndexes.Contains(name))
             .Where(name => !name.StartsWith("PK_", StringComparison.Ordinal))
             .ToArray();
@@ -236,7 +236,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheThreeUniqueIndexes_AreActuallyUnique()
     {
-        var actual = await ListAsync("""
+        string[] actual = await ListAsync("""
             SELECT c.relname FROM pg_index i
             JOIN pg_class c ON c.oid = i.indexrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -259,7 +259,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task All22MoneyColumns_AreNumeric19And4InTheDatabase()
     {
-        var actual = await ListAsync("""
+        string[] actual = await ListAsync("""
             SELECT table_name || '.' || column_name
             FROM information_schema.columns
             WHERE table_schema = 'finance'
@@ -281,7 +281,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheClientDifferenceConstraint_ActuallyRejectsAVariationMissingItsAmounts()
     {
-        var ex = await Assert.ThrowsAsync<PostgresException>(async () =>
+        PostgresException ex = await Assert.ThrowsAsync<PostgresException>(async () =>
             await ExecuteAsync("""
                 INSERT INTO finance.variations
                     ("Id","Kind","ProjectId","Reason","Amount","Status","RequestedById","IsActive","CreatedAtUtc")
@@ -298,7 +298,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task TheInternalChangeConstraint_ActuallyRejectsSignatureFields()
     {
-        var ex = await Assert.ThrowsAsync<PostgresException>(async () =>
+        PostgresException ex = await Assert.ThrowsAsync<PostgresException>(async () =>
             await ExecuteAsync("""
                 INSERT INTO finance.variations
                     ("Id","Kind","ProjectId","BudgetLineId","Reason","Amount","Status","RequestedById",
@@ -364,7 +364,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
                     now() AT TIME ZONE 'utc');
             """);
 
-        var zeroed = await ScalarAsync("""
+        long zeroed = await ScalarAsync("""
             SELECT count(*) FROM finance.budget_lines
             WHERE "Id" = '00000000-0000-0000-0000-0000000000d0'
               AND "AllocatedAmount" = 0 AND "AdjustmentAllocation" = 0
@@ -406,10 +406,14 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     private async Task<string[]> ListAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection);
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
 
         var results = new List<string>();
-        while (await reader.ReadAsync()) results.Add(reader.GetString(0));
+        while (await reader.ReadAsync())
+        {
+            results.Add(reader.GetString(0));
+        }
+
         return [.. results];
     }
 }

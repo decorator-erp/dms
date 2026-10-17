@@ -29,17 +29,21 @@ internal sealed class CreateFileTemplateCommandHandler(DocumentsDbContext db, IF
 {
     public async Task<Result<Guid>> HandleAsync(CreateFileTemplateCommand command, CancellationToken ct = default)
     {
-        var nameExists = await db.FileTemplates.AsNoTracking().AnyAsync(t => t.Name == command.Name, ct);
+        bool nameExists = await db.FileTemplates.AsNoTracking().AnyAsync(t => t.Name == command.Name, ct);
         if (nameExists)
+        {
             return FileTemplateErrors.NameAlreadyExists;
+        }
 
         if (command.FileSizeBytes <= 0)
+        {
             return FileTemplateErrors.InvalidFileSize;
+        }
 
-        var category = Enum.Parse<FileTemplateCategory>(command.Category);
-        var storagePath = await fileStorage.SaveAsync(command.Content, command.FileName, "file-templates", ct);
+        FileTemplateCategory category = Enum.Parse<FileTemplateCategory>(command.Category);
+        string storagePath = await fileStorage.SaveAsync(command.Content, command.FileName, "file-templates", ct);
 
-        var templateResult = FileTemplate.Create(
+        Result<FileTemplate> templateResult = FileTemplate.Create(
             command.Name, category, command.FileName, storagePath, command.ContentType,
             command.FileSizeBytes, command.Description);
         if (templateResult.IsFailure)
@@ -48,7 +52,7 @@ internal sealed class CreateFileTemplateCommandHandler(DocumentsDbContext db, IF
             return Result.Failure<Guid>(templateResult.Error);
         }
 
-        var template = templateResult.Value!;
+        FileTemplate template = templateResult.Value!;
         db.FileTemplates.Add(template);
 
         try

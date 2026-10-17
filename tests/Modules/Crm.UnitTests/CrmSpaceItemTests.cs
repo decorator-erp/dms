@@ -1,4 +1,5 @@
 using Crm.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Crm.UnitTests;
@@ -8,7 +9,7 @@ public class CrmSpaceItemTests
     [Fact]
     public void CreateFromItem_WithValidData_Succeeds()
     {
-        var result = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid());
+        Result<CrmSpaceItem> result = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid());
 
         Assert.True(result.IsSuccess);
         Assert.False(result.Value!.IsCustom);
@@ -17,7 +18,7 @@ public class CrmSpaceItemTests
     [Fact]
     public void CreateFromItem_WithEmptySpaceId_Fails()
     {
-        var result = CrmSpaceItem.CreateFromItem(Guid.Empty, Guid.NewGuid());
+        Result<CrmSpaceItem> result = CrmSpaceItem.CreateFromItem(Guid.Empty, Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmSpaceErrors.SpaceNotFound, result.Error);
@@ -26,7 +27,7 @@ public class CrmSpaceItemTests
     [Fact]
     public void CreateCustom_WithValidData_Succeeds()
     {
-        var result = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "custom sofa");
+        Result<CrmSpaceItem> result = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "custom sofa");
 
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.IsCustom);
@@ -36,7 +37,7 @@ public class CrmSpaceItemTests
     [Fact]
     public void CreateCustom_WithoutName_Fails()
     {
-        var result = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "");
+        Result<CrmSpaceItem> result = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "");
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmCatalogErrors.CustomNameRequired, result.Error);
@@ -45,10 +46,10 @@ public class CrmSpaceItemTests
     [Fact]
     public void PromoteToItem_OnCustomEntry_SwapsShape()
     {
-        var item = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "custom sofa").Value!;
+        CrmSpaceItem item = CrmSpaceItem.CreateCustom(Guid.NewGuid(), Guid.NewGuid(), "custom sofa").Value!;
         var catalogId = Guid.NewGuid();
 
-        var result = item.PromoteToItem(catalogId);
+        Result result = item.PromoteToItem(catalogId);
 
         Assert.True(result.IsSuccess);
         Assert.False(item.IsCustom);
@@ -60,9 +61,9 @@ public class CrmSpaceItemTests
     [Fact]
     public void PromoteToItem_OnCatalogEntry_Fails()
     {
-        var item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
+        CrmSpaceItem item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
 
-        var result = item.PromoteToItem(Guid.NewGuid());
+        Result result = item.PromoteToItem(Guid.NewGuid());
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmCatalogErrors.NotACustomEntry, result.Error);
@@ -71,9 +72,9 @@ public class CrmSpaceItemTests
     [Fact]
     public void Rename_OnCatalogEntry_Fails()
     {
-        var item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
+        CrmSpaceItem item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
 
-        var result = item.Rename("new name");
+        Result result = item.Rename("new name");
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmCatalogErrors.NotACustomEntry, result.Error);
@@ -82,7 +83,7 @@ public class CrmSpaceItemTests
     [Fact]
     public void Remove_Then_Restore_TogglesIsActive()
     {
-        var item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
+        CrmSpaceItem item = CrmSpaceItem.CreateFromItem(Guid.NewGuid(), Guid.NewGuid()).Value!;
 
         item.Remove();
         Assert.False(item.IsActive);
@@ -97,7 +98,7 @@ public class CrmSpaceItemAttributeValueTests
     [Fact]
     public void Create_TextType_WithText_Succeeds()
     {
-        var result = CrmSpaceItemAttributeValue.Create(
+        Result<CrmSpaceItemAttributeValue> result = CrmSpaceItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Text, valueText: "matte");
 
         Assert.True(result.IsSuccess);
@@ -107,7 +108,7 @@ public class CrmSpaceItemAttributeValueTests
     [Fact]
     public void Create_TextType_WithWrongColumnPopulated_Fails()
     {
-        var result = CrmSpaceItemAttributeValue.Create(
+        Result<CrmSpaceItemAttributeValue> result = CrmSpaceItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Text, valueNumber: 5);
 
         Assert.True(result.IsFailure);
@@ -117,7 +118,7 @@ public class CrmSpaceItemAttributeValueTests
     [Fact]
     public void Create_WithNoValuePopulated_Fails()
     {
-        var result = CrmSpaceItemAttributeValue.Create(Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Number);
+        Result<CrmSpaceItemAttributeValue> result = CrmSpaceItemAttributeValue.Create(Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Number);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmCatalogErrors.AttributeTypeMismatch, result.Error);
@@ -126,7 +127,7 @@ public class CrmSpaceItemAttributeValueTests
     [Fact]
     public void Create_WithTwoValuesPopulated_Fails()
     {
-        var result = CrmSpaceItemAttributeValue.Create(
+        Result<CrmSpaceItemAttributeValue> result = CrmSpaceItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Number, valueNumber: 5, valueBool: true);
 
         Assert.True(result.IsFailure);
@@ -138,7 +139,7 @@ public class CrmSpaceItemAttributeValueTests
     {
         var optionId = Guid.NewGuid();
 
-        var result = CrmSpaceItemAttributeValue.Create(
+        Result<CrmSpaceItemAttributeValue> result = CrmSpaceItemAttributeValue.Create(
             Guid.NewGuid(), Guid.NewGuid(), CatalogAttributeType.Select, optionId: optionId);
 
         Assert.True(result.IsSuccess);

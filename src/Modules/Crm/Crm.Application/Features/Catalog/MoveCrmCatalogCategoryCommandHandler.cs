@@ -25,41 +25,51 @@ internal sealed class MoveCrmCatalogCategoryCommandHandler(CrmDbContext db)
 {
     public async Task<Result> HandleAsync(MoveCrmCatalogCategoryCommand command, CancellationToken ct = default)
     {
-        var target = await db.CrmCatalogCategories.FirstOrDefaultAsync(c => c.Id == command.CategoryId, ct);
+        CrmCatalogCategory? target = await db.CrmCatalogCategories.FirstOrDefaultAsync(c => c.Id == command.CategoryId, ct);
         if (target is null)
+        {
             return CrmCatalogErrors.CategoryNotFound;
+        }
 
         CrmCatalogCategory? newParent = null;
         if (command.NewParentId is { } newParentId)
         {
             if (newParentId == target.Id)
+            {
                 return CrmCatalogErrors.CyclicMove;
+            }
 
             newParent = await db.CrmCatalogCategories.FirstOrDefaultAsync(c => c.Id == newParentId, ct);
             if (newParent is null)
+            {
                 return CrmCatalogErrors.CategoryNotFound;
+            }
 
             // A move under one of the target's own descendants is a cycle - the new parent's path
             // would start with the target's own path.
             if (newParent.Path.StartsWith(target.Path, StringComparison.Ordinal))
+            {
                 return CrmCatalogErrors.CyclicMove;
+            }
         }
 
-        var oldPrefix = target.Path;
-        var newDepth = (newParent?.Depth ?? -1) + 1;
-        var depthDelta = newDepth - target.Depth;
-        var newPrefix = CategoryPathHelper.ChildPath(newParent?.Path, target.Id);
+        string oldPrefix = target.Path;
+        int newDepth = (newParent?.Depth ?? -1) + 1;
+        int depthDelta = newDepth - target.Depth;
+        string newPrefix = CategoryPathHelper.ChildPath(newParent?.Path, target.Id);
 
-        var subtree = await db.CrmCatalogCategories
+        List<CrmCatalogCategory> subtree = await db.CrmCatalogCategories
             .Where(c => c.Path.StartsWith(oldPrefix))
             .ToListAsync(ct);
 
         if (subtree.Count > 0 && subtree.Max(c => c.Depth) + depthDelta > CrmCatalogCategory.MaxDepth)
-            return CrmCatalogErrors.MaxDepthExceeded;
-
-        foreach (var descendant in subtree)
         {
-            var rebasedPath = CategoryPathHelper.Rebase(descendant.Path, oldPrefix, newPrefix);
+            return CrmCatalogErrors.MaxDepthExceeded;
+        }
+
+        foreach (CrmCatalogCategory? descendant in subtree)
+        {
+            string rebasedPath = CategoryPathHelper.Rebase(descendant.Path, oldPrefix, newPrefix);
             descendant.SetPath(rebasedPath, descendant.Depth + depthDelta);
         }
 

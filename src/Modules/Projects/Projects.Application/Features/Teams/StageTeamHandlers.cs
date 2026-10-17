@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts.Teams;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -22,17 +23,23 @@ internal sealed class AddStageTeamMemberCommandHandler(ProjectsDbContext db, IHr
 {
     public async Task<Result<Guid>> HandleAsync(AddStageTeamMemberCommand command, CancellationToken ct = default)
     {
-        var team = await db.StageTeams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
+        StageTeam? team = await db.StageTeams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
+        {
             return Result.Failure<Guid>(Domain.TeamErrors.NotFound);
+        }
 
-        var employee = await hrDirectory.GetAsync(command.EmployeeId, ct);
+        EmployeeSummary? employee = await hrDirectory.GetAsync(command.EmployeeId, ct);
         if (employee is null || !employee.IsActive)
+        {
             return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
+        }
 
-        var result = team.AddMember(command.EmployeeId, ProjectsEnumMapping.ToDomain(command.Role));
+        Result<StageTeamMember> result = team.AddMember(command.EmployeeId, ProjectsEnumMapping.ToDomain(command.Role));
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
         await db.SaveChangesAsync(ct);
         return result.Value!.Id;
@@ -43,13 +50,17 @@ internal sealed class ChangeStageTeamMemberRoleCommandHandler(ProjectsDbContext 
 {
     public async Task<Result> HandleAsync(ChangeStageTeamMemberRoleCommand command, CancellationToken ct = default)
     {
-        var member = await db.StageTeamMembers.FindAsync([command.StageTeamMemberId], ct);
+        StageTeamMember? member = await db.StageTeamMembers.FindAsync([command.StageTeamMemberId], ct);
         if (member is null)
+        {
             return Domain.TeamErrors.MemberNotFound;
+        }
 
-        var team = await db.StageTeams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == member.StageTeamId, ct);
+        StageTeam? team = await db.StageTeams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == member.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
+        {
             return Domain.TeamErrors.NotFound;
+        }
 
         member.ChangeRole(ProjectsEnumMapping.ToDomain(command.Role));
         await db.SaveChangesAsync(ct);
@@ -62,13 +73,17 @@ internal sealed class ChangeStageTeamHeadCommandHandler(ProjectsDbContext db, IH
 {
     public async Task<Result> HandleAsync(ChangeStageTeamHeadCommand command, CancellationToken ct = default)
     {
-        var team = await db.StageTeams.FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
+        StageTeam? team = await db.StageTeams.FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
+        {
             return Domain.TeamErrors.NotFound;
+        }
 
-        var employee = await hrDirectory.GetAsync(command.HeadId, ct);
+        EmployeeSummary? employee = await hrDirectory.GetAsync(command.HeadId, ct);
         if (employee is null || !employee.IsActive)
+        {
             return Domain.ProjectErrors.AccessDenied;
+        }
 
         team.ChangeHead(command.HeadId);
         await db.SaveChangesAsync(ct);
@@ -80,13 +95,15 @@ internal sealed class GetStageTeamQueryHandler(ProjectsDbContext db) : IQueryHan
 {
     public async Task<Result<StageTeamResponse>> HandleAsync(GetStageTeamQuery query, CancellationToken ct = default)
     {
-        var response = await db.StageTeams.AsNoTracking()
+        StageTeamResponse? response = await db.StageTeams.AsNoTracking()
             .Where(t => t.Id == query.StageTeamId)
             .Select(t => new StageTeamResponse(t.Id, t.ProjectStageId, t.DepartmentId, t.HeadId))
             .FirstOrDefaultAsync(ct);
 
         if (response is null)
+        {
             return Result.Failure<StageTeamResponse>(Domain.TeamErrors.NotFound);
+        }
 
         return await StageTeamAccess.BelongsToProjectAsync(db, response.ProjectStageId, query.ProjectId, ct)
             ? response
@@ -100,9 +117,11 @@ internal sealed class GetStageTeamMembersQueryHandler(ProjectsDbContext db)
     public async Task<Result<IReadOnlyList<StageTeamMemberResponse>>> HandleAsync(
         GetStageTeamMembersQuery query, CancellationToken ct = default)
     {
-        var team = await db.StageTeams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == query.StageTeamId, ct);
+        StageTeam? team = await db.StageTeams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == query.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, query.ProjectId, ct))
+        {
             return Result.Failure<IReadOnlyList<StageTeamMemberResponse>>(Domain.TeamErrors.NotFound);
+        }
 
         List<StageTeamMemberResponse> members = await db.StageTeamMembers.AsNoTracking()
             .Where(m => m.StageTeamId == query.StageTeamId)

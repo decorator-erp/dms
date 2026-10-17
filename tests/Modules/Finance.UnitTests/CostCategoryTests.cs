@@ -1,4 +1,5 @@
 using Finance.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.UnitTests;
@@ -10,7 +11,7 @@ public class CostCategoryTests
     [InlineData("   ")]
     public void Create_WithoutACode_FailsWithCodeRequired(string code)
     {
-        var result = CostCategory.Create(code, "Joinery");
+        Result<CostCategory> result = CostCategory.Create(code, "Joinery");
 
         Assert.True(result.IsFailure);
         Assert.Equal(CostCategoryErrors.CodeRequired, result.Error);
@@ -21,7 +22,7 @@ public class CostCategoryTests
     [InlineData("   ")]
     public void Create_WithoutAName_FailsWithNameRequired(string name)
     {
-        var result = CostCategory.Create("CC-1", name);
+        Result<CostCategory> result = CostCategory.Create("CC-1", name);
 
         // Specifically NameRequired: the code IS present here, so a guard that checked the wrong field
         // would surface as CodeRequired rather than passing.
@@ -32,7 +33,7 @@ public class CostCategoryTests
     [Fact]
     public void Create_StartsActive()
     {
-        var category = CostCategory.Create("CC-1", "Joinery", "Carpentry work").Value!;
+        CostCategory category = CostCategory.Create("CC-1", "Joinery", "Carpentry work").Value!;
 
         Assert.True(category.IsActive);
         Assert.Equal("CC-1", category.Code);
@@ -43,9 +44,9 @@ public class CostCategoryTests
     [Fact]
     public void Update_RejectsAnEmptyName_AndLeavesTheCategoryUntouched()
     {
-        var category = CostCategory.Create("CC-1", "Joinery").Value!;
+        CostCategory category = CostCategory.Create("CC-1", "Joinery").Value!;
 
-        var result = category.Update("  ", "new description");
+        Result result = category.Update("  ", "new description");
 
         Assert.True(result.IsFailure);
         Assert.Equal(CostCategoryErrors.NameRequired, result.Error);
@@ -58,7 +59,7 @@ public class CostCategoryTests
     [Fact]
     public void Update_ChangesNameAndDescription_ButNeverTheCode()
     {
-        var category = CostCategory.Create("CC-1", "Joinery").Value!;
+        CostCategory category = CostCategory.Create("CC-1", "Joinery").Value!;
 
         Assert.True(category.Update("Carpentry", "Renamed").IsSuccess);
 
@@ -70,7 +71,7 @@ public class CostCategoryTests
     [Fact]
     public void DeactivateAndActivate_RoundTripIsActive()
     {
-        var category = CostCategory.Create("CC-1", "Joinery").Value!;
+        CostCategory category = CostCategory.Create("CC-1", "Joinery").Value!;
 
         category.Deactivate();
         Assert.False(category.IsActive);

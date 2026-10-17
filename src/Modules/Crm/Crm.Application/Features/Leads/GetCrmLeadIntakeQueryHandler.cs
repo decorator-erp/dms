@@ -14,16 +14,18 @@ internal sealed class GetCrmLeadIntakeQueryHandler(CrmDbContext db)
     {
         // No .Include(i => i.Residential) - CrmLeadIntakeConfiguration.Ignore(i => i.Residential)
         // means EF has no navigation to traverse there; fetched as a separate query below instead.
-        var intake = await db.CrmLeadIntakes.AsNoTracking()
+        CrmLeadIntake? intake = await db.CrmLeadIntakes.AsNoTracking()
             .FirstOrDefaultAsync(i => i.LeadId == query.LeadId, ct);
 
         if (intake is null)
+        {
             return Result.Failure<CrmLeadIntakeResponse>(CrmLeadErrors.NotFound);
+        }
 
-        var residentialRow = await db.CrmLeadIntakeResidentials.AsNoTracking()
+        CrmLeadIntakeResidential? residentialRow = await db.CrmLeadIntakeResidentials.AsNoTracking()
             .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
 
-        var residential = residentialRow is { } r
+        CrmLeadIntakeResidentialData? residential = residentialRow is { } r
             ? new CrmLeadIntakeResidentialData(
                 r.UnitType is { } ut ? CrmEnumMapping.ToContracts(ut) : null,
                 r.UnitCondition is { } uc ? CrmEnumMapping.ToContracts(uc) : null,

@@ -45,27 +45,35 @@ internal sealed class RequestDocumentReviewCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(RequestDocumentReviewCommand command, CancellationToken ct = default)
     {
-        var referenced = await db.ProjectDocuments.AsNoTracking()
+        ProjectDocument? referenced = await db.ProjectDocuments.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == command.DocumentId, ct);
         if (referenced is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var latest = await db.ProjectDocuments.AsNoTracking()
+        ProjectDocument latest = await db.ProjectDocuments.AsNoTracking()
             .Where(d => d.RootDocumentId == referenced.RootDocumentId)
             .OrderByDescending(d => d.Version)
             .FirstAsync(ct);
 
         if (latest.Id != command.DocumentId)
+        {
             return ProjectDocumentErrors.NotLatestVersion;
+        }
 
         if (latest.IsLocked)
+        {
             return ProjectDocumentErrors.Locked;
+        }
 
-        var approver = await hrDirectory.GetAsync(command.ApproverEmployeeId, ct);
+        EmployeeSummary? approver = await hrDirectory.GetAsync(command.ApproverEmployeeId, ct);
         if (approver is null)
+        {
             return ProjectDocumentErrors.UploaderNotFound;
+        }
 
-        var requestResult = await approvalRequester.RequestAsync(
+        Result<Guid> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
                 ApprovalSubjectType.ProjectDocument, latest.Id, ApprovalType.ClientReview,
                 command.RequestedByUserId, [new ApproverSpec(ApproverKind.Employee, approver.AppUserId)],

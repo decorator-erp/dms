@@ -57,7 +57,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
-        var connectionString = _postgres.GetConnectionString();
+        string connectionString = _postgres.GetConnectionString();
 
         // SchemaOrder's own order, and all three links are needed: shared owns audit_logs (which every
         // module's context maps), identity owns the users table both FKs target, notify is what is
@@ -89,7 +89,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedForeignKeyExists()
     {
-        var actual = await QueryNamesAsync("""
+        List<string> actual = await QueryNamesAsync("""
             SELECT c.conname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -112,7 +112,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
         // pg_constraint.confdeltype: 'r' = RESTRICT, 'c' = CASCADE, 'a' = NO ACTION, 'n' = SET NULL.
         // Asserted positively (both are 'r') rather than only negatively (none is 'c'), because a
         // negative-only check would also pass if a constraint were silently dropped altogether.
-        var restricting = await QueryNamesAsync("""
+        List<string> restricting = await QueryNamesAsync("""
             SELECT c.conname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -126,7 +126,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task EveryExpectedIndexExists()
     {
-        var actual = await QueryNamesAsync("""
+        List<string> actual = await QueryNamesAsync("""
             SELECT indexname FROM pg_indexes
             WHERE schemaname = 'notify' AND indexname NOT LIKE 'PK_%'
             """);
@@ -148,7 +148,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
             WHERE schemaname = 'notify' AND indexname = 'ux_notifications_dedupe_key'
             """, _connection);
 
-        var definition = (string?)await command.ExecuteScalarAsync();
+        string? definition = (string?)await command.ExecuteScalarAsync();
 
         Assert.NotNull(definition);
         Assert.Contains("CREATE UNIQUE INDEX", definition);
@@ -159,12 +159,12 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NoUnexpectedNotifyConstraints()
     {
-        var tables = await QueryNamesAsync("""
+        List<string> tables = await QueryNamesAsync("""
             SELECT tablename FROM pg_tables WHERE schemaname = 'notify'
             """);
         Assert.Equal(["activities", "notifications"], tables);
 
-        var checkConstraints = await QueryNamesAsync("""
+        List<string> checkConstraints = await QueryNamesAsync("""
             SELECT c.conname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -183,7 +183,7 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     [Fact]
     public async Task NotifySchema_DoesNotContainTheSharedOutboxOrAuditTables()
     {
-        var tables = await QueryNamesAsync("""
+        List<string> tables = await QueryNamesAsync("""
             SELECT tablename FROM pg_tables WHERE schemaname = 'notify'
             """);
 
@@ -201,11 +201,13 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     private async Task<List<string>> QueryNamesAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection);
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
 
         var names = new List<string>();
         while (await reader.ReadAsync())
+        {
             names.Add(reader.GetString(0));
+        }
 
         names.Sort(StringComparer.Ordinal);
         return names;
@@ -220,9 +222,9 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
     /// </summary>
     private static async Task MigrateIdentityAsync(string connectionString)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load("Identity.Infrastructure")).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load("Identity.Infrastructure")).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = connectionString,
@@ -234,12 +236,12 @@ public sealed class NotificationsSchemaObjectTests : IAsyncLifetime
         services.AddDataProtection();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
-        var contextType = Type.GetType(
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        Type contextType = Type.GetType(
             "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure")
             ?? throw new InvalidOperationException("IdentityModuleDbContext could not be resolved.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }

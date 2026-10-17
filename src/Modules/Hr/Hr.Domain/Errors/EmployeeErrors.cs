@@ -1,6 +1,6 @@
 using SharedKernel;
 
-namespace Hr.Domain;
+namespace Hr.Domain.Errors;
 
 internal static class EmployeeErrors
 {
@@ -11,4 +11,10 @@ internal static class EmployeeErrors
 
     public static readonly Error AlreadyActive =
         Error.Conflict("employees.AlreadyActive", "Employee is already active.");
+
+    public static readonly Error FailedToActivate =
+        Error.BadRequest("employees.FailedToActivate", "Failed to activate employee.");
+
+    public static readonly Error InvalidUserId =
+        Error.BadRequest("employees.InvalidUserId", "Invalid user ID for employee.");
 }

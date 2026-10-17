@@ -24,18 +24,24 @@ internal sealed class DocumentApprovedHandler(DocumentsDbContext db) : IGateCond
     public async Task<Result> ValidateAsync(GateConditionContext context, CancellationToken ct = default)
     {
         if (context.ReferencedDocumentId is not { } rootDocumentId)
+        {
             return GateReferenceErrors.InvalidReference;
+        }
 
-        var referencedProjectId = await db.ProjectDocuments.AsNoTracking()
+        Guid? referencedProjectId = await db.ProjectDocuments.AsNoTracking()
             .Where(d => d.RootDocumentId == rootDocumentId)
             .Select(d => (Guid?)d.ProjectId)
             .FirstOrDefaultAsync(ct);
 
         if (referencedProjectId is null)
+        {
             return GateReferenceErrors.DocumentNotFound;
+        }
 
         if (referencedProjectId != context.OwnerProjectId)
+        {
             return GateReferenceErrors.CrossProjectReference;
+        }
 
         return Result.Success();
     }

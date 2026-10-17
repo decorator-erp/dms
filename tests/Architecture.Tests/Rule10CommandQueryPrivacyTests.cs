@@ -1,3 +1,4 @@
+using System.Reflection;
 using BuildingBlocks.Messaging;
 using NetArchTest.Rules;
 using Xunit;
@@ -27,38 +28,40 @@ public class Rule10CommandQueryPrivacyTests
     [Fact]
     public void Modules_MustNotDependOnAnotherModulesCommandOrQueryTypes()
     {
-        var contractsAssemblies = ModuleAssemblies.WithSuffix(".Contracts");
-        var allModuleAssemblies = ModuleAssemblies.All;
+        IReadOnlyList<Assembly> contractsAssemblies = ModuleAssemblies.WithSuffix(".Contracts");
+        IReadOnlyList<Assembly> allModuleAssemblies = ModuleAssemblies.All;
 
         // PC-03 liveness. This rule has TWO independent ways to pass without checking anything, and the
         // summary above claims non-vacuity that nothing verified: the `continue` below skips any
         // Contracts assembly whose command/query set is empty, and NetArchTest's Types.InAssembly
         // returns IsSuccessful == true for an empty type set. Counting the pairs actually evaluated —
         // and asserting the count at the end — is what makes the summary's claim checkable.
-        var pairsChecked = 0;
-        var commandsAndQueriesFound = 0;
+        int pairsChecked = 0;
+        int commandsAndQueriesFound = 0;
 
-        foreach (var contractsAssembly in contractsAssemblies)
+        foreach (Assembly contractsAssembly in contractsAssemblies)
         {
-            var ownModule = ModuleAssemblies.ModuleOf(contractsAssembly.GetName().Name!);
+            string ownModule = ModuleAssemblies.ModuleOf(contractsAssembly.GetName().Name!);
 
-            var commandAndQueryTypeNames = ModuleAssemblies.SafeGetTypes(contractsAssembly)
-                .Where(t => t is { IsClass: true, IsAbstract: false } || (t.IsValueType && !t.IsEnum))
+            string[] commandAndQueryTypeNames = ModuleAssemblies.SafeGetTypes(contractsAssembly)
+                .Where(t => t is { IsClass: true, IsAbstract: false } || t.IsValueType && !t.IsEnum)
                 .Where(t => typeof(IBaseCommand).IsAssignableFrom(t) || typeof(IBaseQuery).IsAssignableFrom(t))
                 .Select(t => t.FullName!)
                 .ToArray();
 
             if (commandAndQueryTypeNames.Length == 0)
+            {
                 continue;
+            }
 
             commandsAndQueriesFound += commandAndQueryTypeNames.Length;
 
-            var otherModuleAssemblies = allModuleAssemblies
+            IEnumerable<Assembly> otherModuleAssemblies = allModuleAssemblies
                 .Where(a => ModuleAssemblies.ModuleOf(a.GetName().Name!) != ownModule);
 
-            foreach (var assembly in otherModuleAssemblies)
+            foreach (Assembly? assembly in otherModuleAssemblies)
             {
-                var result = Types.InAssembly(assembly)
+                TestResult result = Types.InAssembly(assembly)
                     .ShouldNot()
                     .HaveDependencyOnAny(commandAndQueryTypeNames)
                     .GetResult();

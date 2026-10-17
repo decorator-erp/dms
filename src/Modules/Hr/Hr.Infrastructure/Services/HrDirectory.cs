@@ -23,10 +23,12 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
     /// </summary>
     public async Task<Guid?> ResolveEmployeeIdAsync(string appUserId, CancellationToken ct)
     {
-        if (_resolveCache.TryGetValue(appUserId, out var cached))
+        if (_resolveCache.TryGetValue(appUserId, out Guid? cached))
+        {
             return cached;
+        }
 
-        var employeeId = await db.Employees
+        Guid? employeeId = await db.Employees
             .Where(e => e.AppUserId == appUserId)
             .Select(e => (Guid?)e.Id)
             .FirstOrDefaultAsync(ct);
@@ -44,7 +46,9 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
     public async Task<IReadOnlyList<EmployeeSummary>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await db.Employees
             .Where(e => ids.Contains(e.Id))
@@ -62,7 +66,9 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
         IReadOnlyCollection<Guid> departmentIds, CancellationToken ct)
     {
         if (departmentIds.Count == 0)
+        {
             return [];
+        }
 
         return await db.Departments
             .Where(d => departmentIds.Contains(d.Id))
@@ -75,20 +81,22 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
     public async Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
-        var summaries = await db.Employees
+        List<EmployeeSummary> summaries = await db.Employees
             .Where(e => ids.Contains(e.Id))
             .Select(ToSummary())
             .ToListAsync(ct);
 
-        var appUserIds = summaries.Select(s => s.AppUserId).ToArray();
-        var users = await userDirectory.GetManyAsync(appUserIds, ct);
+        string[] appUserIds = summaries.Select(s => s.AppUserId).ToArray();
+        IReadOnlyList<UserSummary> users = await userDirectory.GetManyAsync(appUserIds, ct);
         var usersById = users.ToDictionary(u => u.Id);
 
         return [.. summaries.Select(s =>
         {
-            usersById.TryGetValue(s.AppUserId, out var user);
+            usersById.TryGetValue(s.AppUserId, out UserSummary? user);
             return new EmployeeProfile(
                 s.Id, s.AppUserId, user?.DisplayName ?? string.Empty, user?.Email,
                 s.JobTitle, s.PrimaryDepartmentId, s.IsActive);

@@ -24,30 +24,38 @@ internal sealed class CreateTaskFolderCommandHandler(DocumentsDbContext db, IPro
 {
     public async Task<Result<Guid>> HandleAsync(CreateTaskFolderCommand command, CancellationToken ct = default)
     {
-        var task = await projectDirectory.GetTaskAsync(command.ProjectTaskId, ct);
+        TaskSummary? task = await projectDirectory.GetTaskAsync(command.ProjectTaskId, ct);
         if (task is null)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
         if (command.ParentFolderId is { } parentFolderId)
         {
-            var parentExists = await db.DocumentFolders.AsNoTracking()
+            bool parentExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == parentFolderId && f.ProjectId == task.ProjectId, ct);
             if (!parentExists)
+            {
                 return DocumentFolderErrors.NotFound;
+            }
         }
 
-        var nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
+        bool nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
             f => f.ProjectId == task.ProjectId && f.ParentFolderId == command.ParentFolderId
                 && f.Name == command.Name, ct);
         if (nameTaken)
+        {
             return DocumentFolderErrors.NameCollision;
+        }
 
-        var folderResult = DocumentFolder.Create(
+        Result<DocumentFolder> folderResult = DocumentFolder.Create(
             task.ProjectId, command.Name, command.ParentFolderId, projectTaskId: command.ProjectTaskId);
         if (folderResult.IsFailure)
+        {
             return Result.Failure<Guid>(folderResult.Error);
+        }
 
-        var folder = folderResult.Value!;
+        DocumentFolder folder = folderResult.Value!;
         db.DocumentFolders.Add(folder);
         await db.SaveChangesAsync(ct);
 

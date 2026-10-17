@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Identity.Contracts.Permissions;
+using Identity.Domain;
 using Identity.Infrastructure.Services;
 using SharedKernel;
 
@@ -24,7 +25,7 @@ internal sealed class GetUserPermissionsQueryHandler(IPermissionService permissi
     public async Task<Result<IReadOnlyList<PermissionResponse>>> HandleAsync(
         GetUserPermissionsQuery query, CancellationToken ct = default)
     {
-        var claims = await permissionService.GetUserPermissionsAsync(query.UserId, ct);
+        IReadOnlyList<ApplicationRoleClaim> claims = await permissionService.GetUserPermissionsAsync(query.UserId, ct);
         return Result.Success<IReadOnlyList<PermissionResponse>>([.. claims.Select(c => c.ToResponse())]);
     }
 }

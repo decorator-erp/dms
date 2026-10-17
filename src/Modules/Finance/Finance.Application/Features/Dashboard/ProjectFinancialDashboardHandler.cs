@@ -57,20 +57,22 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
     public async Task<Result<ProjectFinancialDashboardResponse>> HandleAsync(
         GetProjectFinancialDashboardQuery query, CancellationToken ct = default)
     {
-        var projectId = query.ProjectId;
+        Guid projectId = query.ProjectId;
 
         if (await projects.GetProjectAsync(projectId, ct) is null)
+        {
             return FinanceDashboardErrors.ProjectNotFound;
+        }
 
-        var budget = await BudgetSummaryAsync(projectId, ct);
-        var collection = await CollectionSummaryAsync(projectId, budget.EffectiveCap, ct);
-        var earnings = await EarningsSummaryAsync(projectId, budget.EffectiveCap, ct);
-        var budgetLines = await BudgetLineRowsAsync(projectId, ct);
-        var invoices = await InvoiceSummaryAsync(projectId, ct);
-        var variations = await VariationSummaryAsync(projectId, ct);
-        var overBudgetTasks = await OverBudgetTasksAsync(projectId, ct);
-        var boq = await BoqSummaryAsync(projectId, ct);
-        var recent = await RecentActivityAsync(projectId, query.RecentActivityCount, ct);
+        BudgetSummary budget = await BudgetSummaryAsync(projectId, ct);
+        CollectionSummary collection = await CollectionSummaryAsync(projectId, budget.EffectiveCap, ct);
+        EarningsSummary earnings = await EarningsSummaryAsync(projectId, budget.EffectiveCap, ct);
+        List<BudgetLineRow> budgetLines = await BudgetLineRowsAsync(projectId, ct);
+        InvoiceSummary invoices = await InvoiceSummaryAsync(projectId, ct);
+        VariationSummary variations = await VariationSummaryAsync(projectId, ct);
+        List<OverBudgetTaskRow> overBudgetTasks = await OverBudgetTasksAsync(projectId, ct);
+        BoqSummary? boq = await BoqSummaryAsync(projectId, ct);
+        List<RecentLedgerRow> recent = await RecentActivityAsync(projectId, query.RecentActivityCount, ct);
 
         return new ProjectFinancialDashboardResponse(
             projectId, Currency, budget, collection, earnings, budgetLines, invoices, variations,
@@ -91,11 +93,11 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             })
             .SingleOrDefaultAsync(ct);
 
-        var allocated = totals?.Allocated ?? 0m;
-        var adjustment = totals?.Adjustment ?? 0m;
-        var committed = totals?.Committed ?? 0m;
-        var actual = totals?.Actual ?? 0m;
-        var effective = allocated + adjustment;
+        decimal allocated = totals?.Allocated ?? 0m;
+        decimal adjustment = totals?.Adjustment ?? 0m;
+        decimal committed = totals?.Committed ?? 0m;
+        decimal actual = totals?.Actual ?? 0m;
+        decimal effective = allocated + adjustment;
 
         // ActualBudget is null in the backend too -- the column it once projected is gone, and the field
         // is kept on the wire rather than removed from a published contract.
@@ -107,21 +109,21 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
     private async Task<CollectionSummary> CollectionSummaryAsync(
         Guid projectId, decimal effectiveCap, CancellationToken ct)
     {
-        var clientPaymentsTotal = await db.LedgerEntries
+        decimal clientPaymentsTotal = await db.LedgerEntries
             .Where(e => e.ProjectId == projectId
                         && e.IsActive
                         && e.Type == LedgerEntryType.ClientPayment
                         && e.Direction == LedgerDirection.In)
             .SumAsync(e => (decimal?)e.Amount, ct) ?? 0m;
 
-        var invoicesByStage = await db.Invoices
+        Dictionary<Guid, decimal> invoicesByStage = await db.Invoices
             .Where(i => i.ProjectId == projectId && i.IsActive
                         && i.Type == InvoiceType.ClientInvoice && i.ProjectStageId != null)
             .GroupBy(i => i.ProjectStageId!.Value)
             .Select(g => new { StageId = g.Key, Sum = g.Sum(i => i.TotalAmount) })
             .ToDictionaryAsync(x => x.StageId, x => x.Sum, ct);
 
-        var paymentsByStage = await db.LedgerEntries
+        Dictionary<Guid, decimal> paymentsByStage = await db.LedgerEntries
             .Where(e => e.ProjectId == projectId && e.IsActive
                         && e.Type == LedgerEntryType.ClientPayment && e.ProjectStageId != null)
             .GroupBy(e => e.ProjectStageId!.Value)
@@ -132,27 +134,27 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             })
             .ToDictionaryAsync(x => x.StageId, x => x.Sum, ct);
 
-        var budgetStages = await db.BudgetLines
+        List<Guid> budgetStages = await db.BudgetLines
             .Where(b => b.ProjectId == projectId && b.IsActive && b.ProjectStageId != null)
             .Select(b => b.ProjectStageId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
-        var stageIds = invoicesByStage.Keys
+        Guid[] stageIds = invoicesByStage.Keys
             .Concat(paymentsByStage.Keys)
             .Concat(budgetStages)
             .Distinct()
             .ToArray();
 
-        var names = stageIds.Length == 0
+        Dictionary<Guid, string> names = stageIds.Length == 0
             ? []
             : (await projects.GetStagesAsync(stageIds, ct)).ToDictionary(s => s.Id, s => s.Name);
 
         var stages = stageIds
             .Select(id =>
             {
-                var invoiced = invoicesByStage.GetValueOrDefault(id);
-                var paid = paymentsByStage.GetValueOrDefault(id);
+                decimal invoiced = invoicesByStage.GetValueOrDefault(id);
+                decimal paid = paymentsByStage.GetValueOrDefault(id);
 
                 // IsFunded, stated once here and identically in the Budget gate at F1-08. The
                 // `invoiced > 0` half is load-bearing: without it a stage that has never been invoiced
@@ -164,7 +166,7 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             .OrderBy(s => s.Name, StringComparer.Ordinal)
             .ToList();
 
-        var percent = effectiveCap > 0 ? clientPaymentsTotal / effectiveCap * 100m : 0m;
+        decimal percent = effectiveCap > 0 ? clientPaymentsTotal / effectiveCap * 100m : 0m;
 
         return new CollectionSummary(clientPaymentsTotal, percent, stages);
     }
@@ -182,9 +184,9 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             })
             .SingleOrDefaultAsync(ct);
 
-        var totalIn = totals?.In ?? 0m;
-        var totalOut = totals?.Out ?? 0m;
-        var net = totalIn - totalOut;
+        decimal totalIn = totals?.In ?? 0m;
+        decimal totalOut = totals?.Out ?? 0m;
+        decimal net = totalIn - totalOut;
 
         return new EarningsSummary(
             totalIn, totalOut, net, effectiveCap > 0 ? net / effectiveCap * 100m : 0m);
@@ -219,7 +221,7 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             .Select(g => new { g.Key, Count = g.Count(), Total = g.Sum(i => i.TotalAmount) })
             .ToListAsync(ct);
 
-        var outstanding = await db.Invoices
+        decimal outstanding = await db.Invoices
             .Where(i => i.ProjectId == projectId
                         && i.IsActive
                         && i.Status == InvoiceStatus.Open
@@ -240,7 +242,7 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
             .Select(g => new { g.Key.Kind, g.Key.Status, Count = g.Count(), Total = g.Sum(v => v.Amount) })
             .ToListAsync(ct);
 
-        var signedTotal = await db.Variations
+        decimal signedTotal = await db.Variations
             .Where(v => v.ProjectId == projectId
                         && v.IsActive
                         && v.Kind == VariationKind.ClientDifference
@@ -258,23 +260,25 @@ internal sealed class GetProjectFinancialDashboardQueryHandler(FinanceDbContext 
     {
         // Candidate tasks are those Finance knows about at all: a task-scoped budget line, or a ledger
         // entry naming the task. Anything else has zero on both sides and cannot be over budget.
-        var fromBudgetLines = await db.BudgetLines
+        List<Guid> fromBudgetLines = await db.BudgetLines
             .Where(b => b.ProjectId == projectId && b.IsActive && b.ProjectTaskId != null)
             .Select(b => b.ProjectTaskId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
-        var fromLedger = await db.LedgerEntries
+        List<Guid> fromLedger = await db.LedgerEntries
             .Where(e => e.ProjectId == projectId && e.IsActive && e.ProjectTaskId != null)
             .Select(e => e.ProjectTaskId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
-        var taskIds = fromBudgetLines.Concat(fromLedger).Distinct().ToArray();
+        Guid[] taskIds = fromBudgetLines.Concat(fromLedger).Distinct().ToArray();
         if (taskIds.Length == 0)
+        {
             return [];
+        }
 
-        var blocks = await FinancialBlocks.BuildTaskBlocksAsync(db, taskIds, ct);
+        Dictionary<Guid, FinancialBlocks.TaskBlock> blocks = await FinancialBlocks.BuildTaskBlocksAsync(db, taskIds, ct);
         var names = (await projects.GetTasksAsync(taskIds, ct)).ToDictionary(t => t.Id, t => t.Name);
 
         return [.. blocks

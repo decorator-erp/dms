@@ -10,7 +10,7 @@ internal sealed class HrDbContextFactory : IDesignTimeDbContextFactory<HrDbConte
 {
     public HrDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<HrDbContext>()
+        DbContextOptionsBuilder<HrDbContext> builder = new DbContextOptionsBuilder<HrDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new HrDbContext(builder.Options);

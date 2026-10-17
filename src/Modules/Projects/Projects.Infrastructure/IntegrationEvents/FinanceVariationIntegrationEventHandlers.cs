@@ -1,7 +1,9 @@
 using BuildingBlocks.Events;
 using Finance.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
+using SharedKernel;
 using Domain = Projects.Domain;
 
 namespace Projects.Infrastructure.IntegrationEvents;
@@ -31,9 +33,11 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
         // Already linked -- a redelivery. The inbox dedupes, but this keeps the handler correct even if
         // the same variation is announced twice for any other reason.
         if (await db.GateConditions.AnyAsync(g => g.VariationId == @event.VariationId, ct))
+        {
             return;
+        }
 
-        var existing = await db.GateConditions
+        GateCondition? existing = await db.GateConditions
             .FirstOrDefaultAsync(
                 g => g.ConditionType == Domain.ConditionType.Budget
                      && g.VariationId == null
@@ -48,26 +52,28 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
             return;
         }
 
-        var created = Domain.GateCondition.Create(
+        Result<GateCondition> created = Domain.GateCondition.Create(
             @event.ProjectStageId, @event.ProjectTaskId,
             Domain.ConditionType.Budget, Domain.GateTrigger.Unlock,
             label: $"Variation {@event.VariationId}",
             variationId: @event.VariationId);
 
         if (created.IsFailure)
+        {
             return;
+        }
 
         db.GateConditions.Add(created.Value!);
 
         // An Unlock-trigger gate locks its owner the moment it exists.
         if (@event.ProjectTaskId is Guid taskId)
         {
-            var task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct);
+            ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct);
             task?.Lock();
         }
         else if (@event.ProjectStageId is Guid stageId)
         {
-            var stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
+            ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
             stage?.Lock();
         }
     }
@@ -91,12 +97,14 @@ internal sealed class VariationApprovedIntegrationEventHandler(ProjectsDbContext
 {
     public async Task HandleAsync(VariationApprovedIntegrationEvent @event, CancellationToken ct)
     {
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.VariationId == @event.VariationId && g.Status == Domain.GateStatus.Pending)
             .ToListAsync(ct);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(@event.ApprovedById, "Variation approved.");
+        }
     }
 }
 
@@ -118,13 +126,15 @@ internal sealed class VariationClosedIntegrationEventHandler(ProjectsDbContext d
 {
     public async Task HandleAsync(VariationClosedIntegrationEvent @event, CancellationToken ct)
     {
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.VariationId == @event.VariationId && g.Status != Domain.GateStatus.Satisfied)
             .ToListAsync(ct);
 
-        var note = @event.Cancelled ? "Variation cancelled." : "Variation rejected.";
+        string note = @event.Cancelled ? "Variation cancelled." : "Variation rejected.";
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkRejected(null, note);
+        }
     }
 }

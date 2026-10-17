@@ -17,14 +17,18 @@ internal sealed class GetProjectDocumentDownloadQueryHandler(DocumentsDbContext 
     public async Task<Result<ProjectDocumentDownloadResponse>> HandleAsync(
         GetProjectDocumentDownloadQuery query, CancellationToken ct = default)
     {
-        var document = await db.ProjectDocuments.AsNoTracking()
+        ProjectDocument? document = await db.ProjectDocuments.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == query.DocumentId && d.IsActive, ct);
         if (document is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var content = await fileStorage.OpenReadAsync(document.StoragePath, ct);
+        Stream? content = await fileStorage.OpenReadAsync(document.StoragePath, ct);
         if (content is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
         return new ProjectDocumentDownloadResponse(document.FileName, document.ContentType, content);
     }

@@ -25,25 +25,31 @@ internal sealed class CreateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmContactCommand command, CancellationToken ct = default)
     {
-        var clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
+        bool clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
         if (!clientExists)
+        {
             return Result.Failure<Guid>(ClientErrors.NotFound);
+        }
 
-        var contactResult = CrmContact.Create(
+        Result<CrmContact> contactResult = CrmContact.Create(
             command.ClientId, command.FirstName, command.LastName, CrmEnumMapping.ToDomain(command.Role),
             command.IsPrimary, command.Email, command.Phone, command.Mobile, command.Notes);
         if (contactResult.IsFailure)
+        {
             return Result.Failure<Guid>(contactResult.Error);
+        }
 
-        var contact = contactResult.Value!;
+        CrmContact contact = contactResult.Value!;
 
         if (command.IsPrimary)
         {
-            var previousPrimary = await db.CrmContacts
+            List<CrmContact> previousPrimary = await db.CrmContacts
                 .Where(c => c.ClientId == command.ClientId && c.IsPrimary)
                 .ToListAsync(ct);
-            foreach (var previous in previousPrimary)
+            foreach (CrmContact? previous in previousPrimary)
+            {
                 previous.ClearPrimary();
+            }
         }
 
         db.CrmContacts.Add(contact);

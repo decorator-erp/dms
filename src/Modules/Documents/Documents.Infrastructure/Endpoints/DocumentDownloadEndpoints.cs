@@ -7,6 +7,7 @@ using Documents.Contracts.Documents;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Documents.Infrastructure.Endpoints;
 
@@ -17,16 +18,13 @@ namespace Documents.Infrastructure.Endpoints;
 /// upload.</summary>
 internal sealed class DocumentDownloadEndpoints : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/api/project-documents/{documentId:guid}/download", async (
-            Guid documentId, IQueryHandler<GetProjectDocumentDownloadQuery, ProjectDocumentDownloadResponse> handler,
-            CancellationToken ct) =>
-        {
-            var result = await handler.HandleAsync(new GetProjectDocumentDownloadQuery(documentId), ct);
-            return result.Match(
-                response => Results.Stream(response.Content, response.ContentType, response.FileName),
-                r => r.ToProblem());
-        }).RequirePermission(DocumentsPermissions.Read).WithTags("Documents");
-    }
+    public void MapEndpoint(IEndpointRouteBuilder app) => app.MapGet("/api/project-documents/{documentId:guid}/download", async (
+                                                                   Guid documentId, IQueryHandler<GetProjectDocumentDownloadQuery, ProjectDocumentDownloadResponse> handler,
+                                                                   CancellationToken ct) =>
+                                                               {
+                                                                   Result<ProjectDocumentDownloadResponse> result = await handler.HandleAsync(new GetProjectDocumentDownloadQuery(documentId), ct);
+                                                                   return result.Match(
+                                                                       response => Results.Stream(response.Content, response.ContentType, response.FileName),
+                                                                       r => r.ToProblem());
+                                                               }).RequirePermission(DocumentsPermissions.Read).WithTags("Documents");
 }

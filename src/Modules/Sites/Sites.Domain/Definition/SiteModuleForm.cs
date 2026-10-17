@@ -36,15 +36,24 @@ internal static class SiteModuleForm
         var byItemId = links.ToDictionary(l => l.ItemId);
 
         // Pass 1 -- prove the whole request is applicable. No mutation yet.
-        foreach (var (itemId, sortOrder) in order)
+        foreach ((Guid itemId, int sortOrder) in order)
         {
-            if (!byItemId.ContainsKey(itemId)) return SiteErrors.LinkNotFound;
-            if (sortOrder < 0) return SiteErrors.InvalidData;
+            if (!byItemId.ContainsKey(itemId))
+            {
+                return SiteErrors.LinkNotFound;
+            }
+
+            if (sortOrder < 0)
+            {
+                return SiteErrors.InvalidData;
+            }
         }
 
         // Pass 2 -- apply. Cannot fail: every key resolved above and every value is in range.
-        foreach (var (itemId, sortOrder) in order)
+        foreach ((Guid itemId, int sortOrder) in order)
+        {
             byItemId[itemId].SetSortOrder(sortOrder);
+        }
 
         return Result.Success();
     }

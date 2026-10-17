@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -31,7 +32,7 @@ internal sealed class CrmPublicEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/crm/public").WithTags("Crm Public");
+        RouteGroupBuilder group = app.MapGroup("/api/crm/public").WithTags("Crm Public");
 
         group.MapPost("/leads", async (
             HttpContext httpContext, PublicLeadRequest request, IConfiguration cfg,
@@ -43,16 +44,18 @@ internal sealed class CrmPublicEndpoints : IEndpoint
             // different server, or a test harness that binds the body itself) stops reading endpoint
             // metadata the way Kestrel does.
             if (httpContext.Request.ContentLength is > 4_096)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, detail: "Request body too large.");
+            }
 
-            if (!Guid.TryParse(cfg["Crm:PublicLeadIntakeOwnerId"], out var ownerId))
+            if (!Guid.TryParse(cfg["Crm:PublicLeadIntakeOwnerId"], out Guid ownerId))
             {
                 return Results.Problem(
                     statusCode: StatusCodes.Status503ServiceUnavailable,
                     detail: "Public lead intake is not configured.");
             }
 
-            var result = await handler.HandleAsync(new CreateCrmLeadCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateCrmLeadCommand(
                 request.FirstName, request.LastName, LeadSource.Website, ownerId,
                 request.Email, request.Phone, request.Notes), ct);
 

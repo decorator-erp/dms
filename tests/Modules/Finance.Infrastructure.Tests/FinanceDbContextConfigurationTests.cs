@@ -1,6 +1,7 @@
 using System.Reflection;
 using Finance.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Xunit;
 
 namespace Finance.Infrastructure.Tests;
@@ -31,7 +32,7 @@ public class FinanceDbContextConfigurationTests
     private static FinanceDbContext CreateContext()
     {
         // Syntactically valid but never connected to -- building the model opens no connection.
-        var options = new DbContextOptionsBuilder<FinanceDbContext>()
+        DbContextOptions<FinanceDbContext> options = new DbContextOptionsBuilder<FinanceDbContext>()
             .UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused")
             .Options;
         return new FinanceDbContext(options);
@@ -51,8 +52,8 @@ public class FinanceDbContextConfigurationTests
     [Fact]
     public void EveryDbSet_HasExactlyOneEntityTypeConfiguration()
     {
-        var dbSets = DbSetPropertyCount();
-        var configurations = ConfigurationCount();
+        int dbSets = DbSetPropertyCount();
+        int configurations = ConfigurationCount();
 
         // Liveness. Both sides are reflection results, and both go to zero the same way — a renamed
         // assembly, a moved namespace, a DbSet expressed some other way. Zero equals zero, so the
@@ -81,9 +82,9 @@ public class FinanceDbContextConfigurationTests
     [Fact]
     public void Model_ContainsExactlyTheNineFinanceEntities()
     {
-        using var context = CreateContext();
+        using FinanceDbContext context = CreateContext();
 
-        var entityNames = context.Model.GetEntityTypes()
+        string[] entityNames = context.Model.GetEntityTypes()
             .Select(e => e.ClrType.Name)
             .Where(n => !SharedSchemaEntities.Contains(n))
             .OrderBy(n => n, StringComparer.Ordinal)
@@ -104,32 +105,36 @@ public class FinanceDbContextConfigurationTests
     [Fact]
     public void TheSharedTables_AreMappedButLiveInTheSharedSchema()
     {
-        using var context = CreateContext();
+        using FinanceDbContext context = CreateContext();
 
-        var shared = context.Model.GetEntityTypes()
+        IEntityType[] shared = context.Model.GetEntityTypes()
             .Where(e => SharedSchemaEntities.Contains(e.ClrType.Name))
             .ToArray();
 
         Assert.Equal(SharedSchemaEntities.Length, shared.Length);
 
-        foreach (var entity in shared)
+        foreach (IEntityType? entity in shared)
+        {
             Assert.Equal("shared", entity.GetSchema());
+        }
     }
 
     [Fact]
     public void EveryFinanceTable_LivesInTheFinanceSchema()
     {
-        using var context = CreateContext();
+        using FinanceDbContext context = CreateContext();
 
-        var financeEntities = context.Model.GetEntityTypes()
+        IEntityType[] financeEntities = context.Model.GetEntityTypes()
             .Where(e => ExpectedEntities.Contains(e.ClrType.Name))
             .ToArray();
 
         // Liveness: an empty match set would make the loop below assert nothing at all.
         Assert.Equal(ExpectedEntities.Length, financeEntities.Length);
 
-        foreach (var entity in financeEntities)
+        foreach (IEntityType? entity in financeEntities)
+        {
             Assert.Equal("finance", entity.GetSchema());
+        }
     }
 
     /// <summary>
@@ -147,9 +152,9 @@ public class FinanceDbContextConfigurationTests
     [Fact]
     public void EveryMoneyColumn_IsExplicitlyNumeric19And4()
     {
-        using var context = CreateContext();
+        using FinanceDbContext context = CreateContext();
 
-        var decimalProperties = context.Model.GetEntityTypes()
+        (string? Table, string Column, string Type)[] decimalProperties = context.Model.GetEntityTypes()
             .Where(e => ExpectedEntities.Contains(e.ClrType.Name))
             .SelectMany(e => e.GetProperties()
                 .Where(p => p.ClrType == typeof(decimal) || p.ClrType == typeof(decimal?))
@@ -161,7 +166,7 @@ public class FinanceDbContextConfigurationTests
         // deleted by an unrelated edit is as visible as one added without precision.
         Assert.Equal(22, decimalProperties.Length);
 
-        var wrong = decimalProperties
+        string[] wrong = decimalProperties
             .Where(p => p.Type != "numeric(19,4)")
             .Select(p => $"{p.Table}.{p.Column} is {p.Type ?? "convention-typed"}")
             .ToArray();

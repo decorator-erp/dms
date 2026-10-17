@@ -69,12 +69,12 @@ public static class ModuleCqrsRegistration
                 .AsImplementedInterfaces()
                 .WithScopedLifetime());
 
-        foreach (var implementationType in assembly.GetTypes().Where(t => t is { IsAbstract: false, IsInterface: false }))
+        foreach (Type? implementationType in assembly.GetTypes().Where(t => t is { IsAbstract: false, IsInterface: false }))
         {
-            foreach (var handlerInterface in implementationType.GetInterfaces().Where(i => i.IsGenericType))
+            foreach (Type? handlerInterface in implementationType.GetInterfaces().Where(i => i.IsGenericType))
             {
-                var definition = handlerInterface.GetGenericTypeDefinition();
-                var genericArgs = handlerInterface.GetGenericArguments();
+                Type definition = handlerInterface.GetGenericTypeDefinition();
+                Type[] genericArgs = handlerInterface.GetGenericArguments();
 
                 if (definition == typeof(ICommandHandler<>))
                 {
@@ -97,7 +97,7 @@ public static class ModuleCqrsRegistration
     private static void DecorateCommandHandlerNoResponse<TContext>(IServiceCollection services, Type tCommand)
         where TContext : DbContext
     {
-        var serviceType = typeof(ICommandHandler<>).MakeGenericType(tCommand);
+        Type serviceType = typeof(ICommandHandler<>).MakeGenericType(tCommand);
 
         services.Decorate(serviceType, typeof(ValidationDecorator.CommandHandler<>).MakeGenericType(tCommand));
         services.Decorate(serviceType, typeof(LoggingDecorator.CommandHandler<>).MakeGenericType(tCommand));
@@ -110,7 +110,7 @@ public static class ModuleCqrsRegistration
         IServiceCollection services, Type tCommand, Type tResponse)
         where TContext : DbContext
     {
-        var serviceType = typeof(ICommandHandler<,>).MakeGenericType(tCommand, tResponse);
+        Type serviceType = typeof(ICommandHandler<,>).MakeGenericType(tCommand, tResponse);
 
         services.Decorate(serviceType, typeof(ValidationDecorator.CommandHandler<,>).MakeGenericType(tCommand, tResponse));
         services.Decorate(serviceType, typeof(LoggingDecorator.CommandHandler<,>).MakeGenericType(tCommand, tResponse));
@@ -121,7 +121,7 @@ public static class ModuleCqrsRegistration
 
     private static void DecorateQueryHandler(IServiceCollection services, Type tQuery, Type tResponse)
     {
-        var serviceType = typeof(IQueryHandler<,>).MakeGenericType(tQuery, tResponse);
+        Type serviceType = typeof(IQueryHandler<,>).MakeGenericType(tQuery, tResponse);
 
         services.Decorate(serviceType, typeof(LoggingDecorator.QueryHandler<,>).MakeGenericType(tQuery, tResponse));
     }

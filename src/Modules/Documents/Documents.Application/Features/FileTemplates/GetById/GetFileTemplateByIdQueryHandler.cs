@@ -13,7 +13,7 @@ internal sealed class GetFileTemplateByIdQueryHandler(DocumentsDbContext db)
     public async Task<Result<FileTemplateResponse>> HandleAsync(
         GetFileTemplateByIdQuery query, CancellationToken ct = default)
     {
-        var template = await db.FileTemplates.AsNoTracking()
+        FileTemplateResponse? template = await db.FileTemplates.AsNoTracking()
             .Where(t => t.Id == query.FileTemplateId)
             .Select(ToResponse())
             .FirstOrDefaultAsync(ct);

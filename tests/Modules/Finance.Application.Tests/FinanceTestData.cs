@@ -1,7 +1,6 @@
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Clients;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
@@ -13,7 +12,7 @@ namespace Finance.Application.Tests;
 /// The cross-module rows Finance's foreign keys demand, created once per fixture.
 ///
 /// <para><b>The project, client and employee go through the REAL commands of the modules that own
-/// them</b> — Identity's <c>RegisterCommand</c>, CRM's <c>CreateClientCommand</c>, HR's
+/// them</b> — Identity's <c>IUserProvisioning</c>, CRM's <c>CreateClientCommand</c>, HR's
 /// <c>CreateEmployeeCommand</c>, Projects' <c>CreateProjectCommand</c> — exactly as
 /// <c>SiteTestData</c> does. Hand-writing an <c>identity.users</c> row means reproducing a dozen NOT
 /// NULL columns of ASP.NET Identity's own table, which is not this module's business and would rot the
@@ -44,30 +43,24 @@ internal static class FinanceTestData
         await Gate.WaitAsync();
         try
         {
-            if (_scope is { } existing) return existing;
+            if (_scope is { } existing)
+            {
+                return existing;
+            }
 
-            await using var dbScope = fixture.CreateScope();
-            var sp = dbScope.ServiceProvider;
-            var suffix = Guid.NewGuid().ToString("N");
+            await using AsyncServiceScope dbScope = fixture.CreateScope();
+            IServiceProvider sp = dbScope.ServiceProvider;
+            string suffix = Guid.NewGuid().ToString("N");
 
-            var register = sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>();
+            (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+                sp, $"fin-client-{suffix}@example.com", address: "1 Finance Way");
 
-            var clientUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
-                $"fin-client-{suffix}@example.com", "P@ssw0rd123!", "Test", "Client", null, "employee")))).Value!;
-
-            var clientId = (await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
-                .HandleAsync(new CreateClientCommand(clientUserId, "1 Finance Way"))).Value;
-
-            var ownerUserId = (await register.HandleAsync(new RegisterCommand(new RegisterRequest(
-                $"fin-owner-{suffix}@example.com", "P@ssw0rd123!", "Owner", "Test", null, "employee")))).Value!;
-
-            var employeeId = (await sp.GetRequiredService<ICommandHandler<CreateEmployeeCommand, Guid>>()
-                .HandleAsync(new CreateEmployeeCommand(
-                    ownerUserId, "Accountant", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"))).Value;
+            (Guid employeeId, string ownerUserId) = await HrTestSeeding.HireEmployeeAsync(
+                sp, $"fin-owner-{suffix}@example.com", jobTitle: "Accountant", firstName: "Owner");
 
             sp.GetRequiredService<TestCurrentUser>().UserId = ownerUserId;
 
-            var projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
+            Guid projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
                 .HandleAsync(new CreateProjectCommand(
                     $"F-{suffix}"[..12], "Finance Project", "12 Nasr Road", WorkflowType.Stage, clientId))).Value;
 
@@ -122,20 +115,16 @@ internal static class FinanceTestData
     /// </summary>
     public static async Task<Isolated> IsolatedProjectAsync(FinanceApplicationFixture fixture)
     {
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var suffix = Guid.NewGuid().ToString("N");
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        string suffix = Guid.NewGuid().ToString("N");
 
         sp.GetRequiredService<TestCurrentUser>().UserId = (await ScopeAsync(fixture)).AppUserId;
 
-        var clientUserId = (await sp.GetRequiredService<ICommandHandler<RegisterCommand, string>>()
-            .HandleAsync(new RegisterCommand(new RegisterRequest(
-                $"fin-other-{suffix}@example.com", "P@ssw0rd123!", "Other", "Client", null, "employee")))).Value!;
+        (Guid clientId, _) = await CrmClientSeeding.CreateClientAsync(
+            sp, $"fin-other-{suffix}@example.com", address: "2 Other Way", firstName: "Other");
 
-        var clientId = (await sp.GetRequiredService<ICommandHandler<CreateClientCommand, Guid>>()
-            .HandleAsync(new CreateClientCommand(clientUserId, "2 Other Way"))).Value;
-
-        var projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
+        Guid projectId = (await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
             .HandleAsync(new CreateProjectCommand(
                 $"O-{suffix}"[..12], "Other Project", "9 Other St", WorkflowType.Stage, clientId))).Value;
 

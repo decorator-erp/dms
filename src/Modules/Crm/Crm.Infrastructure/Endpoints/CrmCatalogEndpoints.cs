@@ -7,6 +7,7 @@ using Crm.Contracts.Catalog;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -21,34 +22,34 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var catalog = app.MapGroup("/api/crm/catalog").WithTags("Crm Catalog");
+        RouteGroupBuilder catalog = app.MapGroup("/api/crm/catalog").WithTags("Crm Catalog");
 
         catalog.MapPost("/categories", async (
             CreateCrmCatalogCategoryCommand command, ICommandHandler<CreateCrmCatalogCategoryCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Created($"/api/crm/catalog/categories/{id}", new { CategoryId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
         catalog.MapPut("/categories/{categoryId:guid}/parent", async (
             Guid categoryId, MoveCategoryRequest request, ICommandHandler<MoveCrmCatalogCategoryCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new MoveCrmCatalogCategoryCommand(categoryId, request.NewParentId), ct);
+            Result result = await handler.HandleAsync(new MoveCrmCatalogCategoryCommand(categoryId, request.NewParentId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
         catalog.MapPost("/categories/{categoryId:guid}/space-types/{spaceTypeId:guid}", async (
             Guid categoryId, Guid spaceTypeId, ICommandHandler<MapCrmCatalogCategoryToSpaceTypeCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new MapCrmCatalogCategoryToSpaceTypeCommand(categoryId, spaceTypeId), ct);
+            Result result = await handler.HandleAsync(new MapCrmCatalogCategoryToSpaceTypeCommand(categoryId, spaceTypeId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
         catalog.MapPost("/items", async (
             CreateCrmCatalogItemCommand command, ICommandHandler<CreateCrmCatalogItemCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Created($"/api/crm/catalog/items/{id}", new { ItemId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
@@ -56,7 +57,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             Guid itemId, SetItemAttributeValuesRequest request,
             ICommandHandler<SetCrmCatalogItemAttributeValuesCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(itemId, request.Values), ct);
+            Result result = await handler.HandleAsync(new SetCrmCatalogItemAttributeValuesCommand(itemId, request.Values), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
@@ -64,7 +65,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             CreateCrmCatalogAttributeCommand command, ICommandHandler<CreateCrmCatalogAttributeCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(command, ct);
+            Result<Guid> result = await handler.HandleAsync(command, ct);
             return result.Match(id => Results.Created($"/api/crm/catalog/attributes/{id}", new { AttributeId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
@@ -72,7 +73,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             Guid attributeId, CreateAttributeOptionRequest request,
             ICommandHandler<CreateCrmCatalogAttributeOptionCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateCrmCatalogAttributeOptionCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateCrmCatalogAttributeOptionCommand(
                 attributeId, request.Code, request.NameEn, request.NameAr, request.SortOrder, request.ImageUri), ct);
             return result.Match(
                 id => Results.Created($"/api/crm/catalog/attributes/{attributeId}/options/{id}", new { OptionId = id }),
@@ -82,7 +83,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
         catalog.MapGet("/tree", async (
             IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmCatalogTreeQuery(), ct);
+            Result<IReadOnlyList<CrmCatalogCategoryResponse>> result = await handler.HandleAsync(new GetCrmCatalogTreeQuery(), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Read);
 
@@ -90,7 +91,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             Guid categoryId, IQueryHandler<GetCrmCatalogItemsByCategoryQuery, IReadOnlyList<CrmCatalogItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmCatalogItemsByCategoryQuery(categoryId), ct);
+            Result<IReadOnlyList<CrmCatalogItemResponse>> result = await handler.HandleAsync(new GetCrmCatalogItemsByCategoryQuery(categoryId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Read);
 
@@ -98,7 +99,7 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             Guid categoryId, IQueryHandler<GetCrmCatalogAttributesByCategoryQuery, IReadOnlyList<CrmCatalogAttributeResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmCatalogAttributesByCategoryQuery(categoryId), ct);
+            Result<IReadOnlyList<CrmCatalogAttributeResponse>> result = await handler.HandleAsync(new GetCrmCatalogAttributesByCategoryQuery(categoryId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Read);
     }

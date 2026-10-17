@@ -1,5 +1,6 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using Api.Jobs;
 using BuildingBlocks;
 using BuildingBlocks.Auditing;
 using BuildingBlocks.Jobs;
@@ -8,8 +9,8 @@ using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Api;
@@ -29,7 +30,7 @@ public static class DI
         // real host resolves this one.
         services.AddSingleton<IAuditContextAccessor, HttpAuditContextAccessor>();
 
-        var jwtKey = cfg["JwtSettings:Key"];
+        string? jwtKey = cfg["JwtSettings:Key"];
         if (string.IsNullOrWhiteSpace(jwtKey))
         {
             throw new InvalidOperationException(
@@ -70,7 +71,7 @@ public static class DI
                 {
                     OnMessageReceived = context =>
                     {
-                        var accessToken = context.Request.Query["access_token"];
+                        StringValues accessToken = context.Request.Query["access_token"];
                         if (!string.IsNullOrEmpty(accessToken)
                             && context.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
                         {
@@ -88,11 +89,13 @@ public static class DI
         services.AddExceptionHandler<GlobalExceptionHandler>();
         services.AddProblemDetails();
 
-        services.AddOpenApi();
+        services.AddOpenApi(options =>
+            options.AddDocumentTransformer<BearerSecuritySchemeTransformer>()
+        );
 
         services.AddCors(corsOptions =>
         {
-            var allowedOrigins = cfg.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+            string[] allowedOrigins = cfg.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
             corsOptions.AddPolicy(CorsPolicies.Default, policy =>
                 policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
         });
@@ -121,7 +124,7 @@ public static class DI
         });
 
         // SharedDbContext + AddOutbox() were never wired into the composition root before this - every
-        // module's outbox writes (UserRegisteredIntegrationEvent, EmployeeHiredIntegrationEvent, etc.) landed
+        // module's outbox writes (EmployeeHiredIntegrationEvent, ClientCreatedIntegrationEvent, etc.) landed
         // in shared.outbox_messages successfully (each module maps that table on its own DbContext), but
         // nothing was ever registered to poll and publish them. Found while wiring G2-04's deactivate -> outbox
         // -> Identity flow, which is the first feature that actually depends on a message getting delivered.
@@ -134,6 +137,12 @@ public static class DI
         // registered yet this is a clean no-op. Nine backgrounded loops in the old backend become one
         // here; see docs/low-resource-hosting.md §3.
         services.AddPeriodicJobs();
+
+        // The one job the Api owns. It reads Identity, HR and CRM contracts together to decide whether a
+        // provisioned login was ever claimed, which no single module may do - Identity is a sink and
+        // cannot see the other two. See UnlinkedUserReaperJob's own remarks, and
+        // IdentityContractsIsolationTests for the boundary this placement respects.
+        services.AddScoped<IPeriodicJob, UnlinkedUserReaperJob>();
 
         return services;
     }

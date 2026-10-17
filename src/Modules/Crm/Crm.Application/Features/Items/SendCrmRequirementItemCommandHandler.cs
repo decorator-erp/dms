@@ -26,23 +26,31 @@ internal sealed class SendCrmRequirementItemCommandHandler(CrmDbContext db, IPro
 {
     public async Task<Result> HandleAsync(SendCrmRequirementItemCommand command, CancellationToken ct = default)
     {
-        var item = await db.CrmRequirementItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
+        CrmRequirementItem? item = await db.CrmRequirementItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
         if (item is null)
+        {
             return CrmItemErrors.NotFound;
+        }
 
-        var sendResult = item.Send();
+        Result sendResult = item.Send();
         if (sendResult.IsFailure)
+        {
             return sendResult;
+        }
 
-        var project = await projectDirectory.GetProjectAsync(item.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(item.ProjectId, ct);
         if (project is null)
+        {
             return CrmItemErrors.NotFound;
+        }
 
-        var client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == project.ClientId, ct);
+        Client? client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == project.ClientId, ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
-        var requestResult = await approvalRequester.RequestAsync(
+        Result<Guid> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
                 ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
                 RequestedByUserId: client.AppUserId,
@@ -50,7 +58,9 @@ internal sealed class SendCrmRequirementItemCommandHandler(CrmDbContext db, IPro
                 DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
+        {
             return requestResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

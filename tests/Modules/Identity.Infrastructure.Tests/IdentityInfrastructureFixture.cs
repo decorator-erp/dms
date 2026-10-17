@@ -1,3 +1,4 @@
+using Identity.Contracts;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
@@ -29,7 +30,7 @@ public sealed class IdentityInfrastructureFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["JwtSettings:Key"] = "test-signing-key-at-least-32-characters-long-000000",
@@ -55,10 +56,11 @@ public sealed class IdentityInfrastructureFixture : IAsyncLifetime
 
         services.AddScoped<IJwtProvider, JwtProvider>();
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
+        services.AddScoped<IUserProvisioning, UserProvisioning>();
 
         _provider = services.BuildServiceProvider();
 
-        await using var scope = _provider.CreateAsyncScope();
+        await using AsyncServiceScope scope = _provider.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
     }
 

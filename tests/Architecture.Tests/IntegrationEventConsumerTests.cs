@@ -51,23 +51,19 @@ public class IntegrationEventConsumerTests
         // event exists for a future subscriber that wants the fact without the mechanism.
         "GateConditionSatisfiedIntegrationEvent",
 
-        // Identity announces registration; Notifications' welcome path is not built.
-        "UserRegisteredIntegrationEvent",
-
-        // WORSE THAN UNCONSUMED: defined and never published either -- grep finds exactly one
-        // occurrence in src, its own declaration. It has neither a producer nor a consumer, which makes
-        // it the one entry here that docs/adding-a-module.md's "a contract with no consumer is not
-        // shipped" already condemns outright. Left in place only because X-02's agreed scope was
-        // Finance's two events plus this guard, not a sweep of four other modules' Contracts. It is the
-        // first thing to delete for whoever sweeps next.
-        "UserDeactivatedIntegrationEvent",
+        // UserRegisteredIntegrationEvent and UserDeactivatedIntegrationEvent used to be listed here.
+        // Both are deleted: the first went with self-registration (nothing announces registration
+        // because nothing registers), and the second was the entry this list itself called "the first
+        // thing to delete for whoever sweeps next" -- defined, never published, never consumed.
+        // Identity.Contracts now declares no integration events at all, which is what a sink should
+        // look like.
     ];
 
     [Fact]
     public void EveryIntegrationEvent_HasAHandler_OrIsDeclaredUnconsumed()
     {
-        var events = IntegrationEventNames();
-        var handled = HandledEventNames();
+        HashSet<string> events = IntegrationEventNames();
+        HashSet<string> handled = HandledEventNames();
 
         // LIVENESS (Shape 1). Both collectors are reflection scans, so both fail silent: an empty
         // `events` set makes direction A vacuous, and an empty `handled` set makes every event look

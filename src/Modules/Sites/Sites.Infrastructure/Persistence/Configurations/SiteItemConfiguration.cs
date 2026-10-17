@@ -9,10 +9,7 @@ internal sealed class SiteItemConfiguration : IEntityTypeConfiguration<SiteItem>
 {
     public void Configure(EntityTypeBuilder<SiteItem> builder)
     {
-        builder.ToTable("site_items", t =>
-        {
-            t.HasCheckConstraint("ck_site_items_type_range", "\"DataType\" BETWEEN 1 AND 5");
-        });
+        builder.ToTable("site_items", t => t.HasCheckConstraint("ck_site_items_type_range", "\"DataType\" BETWEEN 1 AND 5"));
 
         builder.HasKey(x => x.Id);
         builder.ConfigureEntityConventions();

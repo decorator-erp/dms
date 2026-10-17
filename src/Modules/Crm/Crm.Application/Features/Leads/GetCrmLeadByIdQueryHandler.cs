@@ -15,9 +15,11 @@ internal sealed class GetCrmLeadByIdQueryHandler(CrmDbContext db) : IQueryHandle
 
     public async Task<Result<CrmLeadResponse>> HandleAsync(GetCrmLeadByIdQuery query, CancellationToken ct = default)
     {
-        var lead = await db.CrmLeads.AsNoTracking().FirstOrDefaultAsync(l => l.Id == query.LeadId, ct);
+        CrmLead? lead = await db.CrmLeads.AsNoTracking().FirstOrDefaultAsync(l => l.Id == query.LeadId, ct);
         if (lead is null)
+        {
             return Result.Failure<CrmLeadResponse>(CrmLeadErrors.NotFound);
+        }
 
         return ToResponse()(lead);
     }

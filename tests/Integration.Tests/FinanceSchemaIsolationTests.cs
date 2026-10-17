@@ -34,7 +34,7 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
 
     private HttpClient FinanceReader()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", fixture.IssueTestToken(Guid.NewGuid().ToString(), FinancePermissions.Read));
         return client;
@@ -47,7 +47,7 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task ReadingFinanceOwnedRoutes_IssuesNoSqlAgainstAnotherModulesSchema()
     {
-        var client = FinanceReader();
+        HttpClient client = FinanceReader();
         var projectId = Guid.NewGuid();
 
         // Warm both routes so first-request model building and JIT are not what gets captured.
@@ -81,7 +81,7 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task ReadingProjectScopedFinancialRoutes_TouchesFinance_AndOnlyProjectsBesides()
     {
-        var client = FinanceReader();
+        HttpClient client = FinanceReader();
         var projectId = Guid.NewGuid();
 
         await client.GetAsync($"/api/projects/{projectId}/financial/summary");
@@ -118,7 +118,7 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
     [Fact]
     public async Task WritingAFinanceRow_TouchesFinanceAndTheOutbox_AndNoOtherModulesSchema()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", fixture.IssueTestToken(
                 Guid.NewGuid().ToString(), FinancePermissions.ManageCostCategory));
@@ -130,7 +130,7 @@ public sealed class FinanceSchemaIsolationTests(ApiFixture fixture)
 
         fixture.ClearCapturedSql();
 
-        var response = await client.PostAsJsonAsync(
+        HttpResponseMessage response = await client.PostAsJsonAsync(
             "/api/cost-categories",
             new { Code = $"IS{Guid.NewGuid().ToString("N")[..8]}", Name = "Isolation probe" });
 

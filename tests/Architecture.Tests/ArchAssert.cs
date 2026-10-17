@@ -7,7 +7,7 @@ internal static class ArchAssert
 {
     public static void Passes(System.Reflection.Assembly assembly, TestResult result)
     {
-        var failing = result.FailingTypeNames ?? [];
+        IReadOnlyList<string> failing = result.FailingTypeNames ?? [];
         Assert.True(result.IsSuccessful,
             $"{assembly.GetName().Name}: {string.Join(", ", failing)}");
     }

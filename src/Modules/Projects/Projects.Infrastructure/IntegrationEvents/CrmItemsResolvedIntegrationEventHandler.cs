@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Crm.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Domain = Projects.Domain;
 
@@ -21,14 +22,16 @@ internal sealed class CrmItemsResolvedIntegrationEventHandler(ProjectsDbContext 
 {
     public async Task HandleAsync(CrmItemsResolvedIntegrationEvent @event, CancellationToken ct)
     {
-        var gates = await db.GateConditions
+        List<GateCondition> gates = await db.GateConditions
             .Where(g => g.ConditionType == Domain.ConditionType.CrmItemsResolved && g.Status == Domain.GateStatus.Pending)
             .Where(g =>
-                (@event.ProjectStageId != null && g.ProjectStageId == @event.ProjectStageId) ||
-                (@event.ProjectTaskId != null && g.ProjectTaskId == @event.ProjectTaskId))
+                @event.ProjectStageId != null && g.ProjectStageId == @event.ProjectStageId ||
+                @event.ProjectTaskId != null && g.ProjectTaskId == @event.ProjectTaskId)
             .ToListAsync(ct);
 
-        foreach (var gate in gates)
+        foreach (GateCondition? gate in gates)
+        {
             gate.MarkSatisfied(null);
+        }
     }
 }

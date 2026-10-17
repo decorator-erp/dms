@@ -25,9 +25,11 @@ internal sealed class HttpAuditContextAccessor(IHttpContextAccessor httpContextA
     public AuditContext GetCurrent()
     {
         if (httpContextAccessor.HttpContext is not { } context)
+        {
             return AuditContext.None;
+        }
 
-        var user = context.User;
+        ClaimsPrincipal user = context.User;
 
         return new AuditContext(
             UserId: user.FindFirstValue(ClaimTypes.NameIdentifier),

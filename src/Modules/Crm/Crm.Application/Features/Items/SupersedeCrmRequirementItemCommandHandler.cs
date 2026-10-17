@@ -22,19 +22,23 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
 {
     public async Task<Result<Guid>> HandleAsync(SupersedeCrmRequirementItemCommand command, CancellationToken ct = default)
     {
-        var original = await db.CrmRequirementItems.FindAsync([command.OriginalItemId], ct);
+        CrmRequirementItem? original = await db.CrmRequirementItems.FindAsync([command.OriginalItemId], ct);
         if (original is null)
+        {
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
 
-        var result = CrmRequirementItem.CreateSuperseding(
+        Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
             original, command.EmployeeId, CrmEnumMapping.ToDomain(command.Category), command.Title,
             CrmEnumMapping.ToDomain(command.Priority), command.SpaceTypeId, command.Room, command.Description,
             command.SourceType is { } st ? CrmEnumMapping.ToDomain(st) : null,
             command.MeetingId, command.BriefId, command.NoteId, command.ProjectTaskId);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var superseding = result.Value!;
+        CrmRequirementItem superseding = result.Value!;
         db.CrmRequirementItems.Add(superseding);
         await db.SaveChangesAsync(ct);
 

@@ -1,4 +1,5 @@
 using Projects.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.UnitTests;
@@ -11,7 +12,7 @@ public class ProjectTests
     [Fact]
     public void Create_StartsInDraft()
     {
-        var project = CreateProject();
+        Project project = CreateProject();
 
         Assert.Equal(ProjectStatus.Draft, project.Status);
         Assert.True(project.IsActive);
@@ -21,7 +22,7 @@ public class ProjectTests
     /// <summary>Drives a fresh project through zero or more real transitions to reach <paramref name="from"/>.</summary>
     private static Project CreateProjectAt(ProjectStatus from)
     {
-        var project = CreateProject();
+        Project project = CreateProject();
         switch (from)
         {
             case ProjectStatus.Draft:
@@ -65,21 +66,25 @@ public class ProjectTests
     {
         var from = (ProjectStatus)fromValue;
         var to = (ProjectStatus)toValue;
-        var project = CreateProjectAt(from);
+        Project project = CreateProjectAt(from);
 
-        var result = project.ChangeStatus(to);
+        Result result = project.ChangeStatus(to);
 
         Assert.Equal(allowed, result.IsSuccess);
         if (allowed)
+        {
             Assert.Equal(to, project.Status);
+        }
         else
+        {
             Assert.Equal(from, project.Status);
+        }
     }
 
     [Fact]
     public void ChangeStatus_ToInProgress_SetsActualStartDate()
     {
-        var project = CreateProject();
+        Project project = CreateProject();
 
         project.ChangeStatus(ProjectStatus.InProgress);
 
@@ -89,7 +94,7 @@ public class ProjectTests
     [Fact]
     public void ChangeStatus_ToCompleted_SetsActualEndDate()
     {
-        var project = CreateProject();
+        Project project = CreateProject();
         project.ChangeStatus(ProjectStatus.InProgress);
 
         project.ChangeStatus(ProjectStatus.Completed);
@@ -100,9 +105,9 @@ public class ProjectTests
     [Fact]
     public void ChangeStatus_ToSameStatus_IsNoOpSuccess()
     {
-        var project = CreateProject();
+        Project project = CreateProject();
 
-        var result = project.ChangeStatus(ProjectStatus.Draft);
+        Result result = project.ChangeStatus(ProjectStatus.Draft);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectStatus.Draft, project.Status);
@@ -111,7 +116,7 @@ public class ProjectTests
     [Fact]
     public void Update_ChangesOnlyProvidedFields()
     {
-        var project = CreateProject();
+        Project project = CreateProject();
 
         project.Update(name: "Renamed");
 

@@ -41,7 +41,9 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
         Guid? noteId = null, Guid? projectTaskId = null)
     {
         if (!SourceMatches(sourceType, meetingId, briefId, noteId))
+        {
             return CrmItemErrors.InvalidSource;
+        }
 
         return new CrmRequirementItem
         {
@@ -67,9 +69,7 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     /// source FKs.</summary>
     public static CrmRequirementItem CreateByClient(
         Guid projectId, Guid periodId, Guid contactId, RequirementCategory category, string title,
-        TaskPriority priority, Guid? spaceTypeId = null, string? room = null, string? description = null)
-    {
-        return new CrmRequirementItem
+        TaskPriority priority, Guid? spaceTypeId = null, string? room = null, string? description = null) => new CrmRequirementItem
         {
             ProjectId = projectId,
             PeriodId = periodId,
@@ -83,7 +83,6 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
             CreatedByContactId = contactId,
             ApprovalStatus = ApprovalState.NotRequired,
         };
-    }
 
     /// <summary>Ledger rule: only a locked (Approved/NotRequired) item can be superseded.</summary>
     public static Result<CrmRequirementItem> CreateSuperseding(
@@ -93,12 +92,17 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
         Guid? noteId = null, Guid? projectTaskId = null)
     {
         if (!original.IsLocked)
+        {
             return CrmItemErrors.OnlyLockedSuperseded;
+        }
 
-        var created = CreateByEmployee(
+        Result<CrmRequirementItem> created = CreateByEmployee(
             original.ProjectId, original.PeriodId, employeeId, category, title, priority,
             spaceTypeId, room, description, sourceType, meetingId, briefId, noteId, projectTaskId);
-        if (created.IsFailure) return created.Error;
+        if (created.IsFailure)
+        {
+            return created.Error;
+        }
 
         created.Value!.SupersedesItemId = original.Id;
         return created;
@@ -110,10 +114,14 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
         Guid? briefId, Guid? noteId, Guid? projectTaskId)
     {
         if (ApprovalStatus is not (ApprovalState.Draft or ApprovalState.Rejected))
+        {
             return CrmItemErrors.ItemLocked;
+        }
 
         if (!SourceMatches(sourceType, meetingId, briefId, noteId))
+        {
             return CrmItemErrors.InvalidSource;
+        }
 
         Category = category;
         Title = title;
@@ -132,10 +140,14 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     public Result Send()
     {
         if (CreatedByEmployeeId is null)
+        {
             return CrmItemErrors.SendRequiresEmployeeAuthor;
+        }
 
         if (ApprovalStatus is not (ApprovalState.Draft or ApprovalState.Rejected))
+        {
             return CrmItemErrors.ItemLocked;
+        }
 
         ApprovalStatus = ApprovalState.PendingApproval;
         return Result.Success();
@@ -144,7 +156,9 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     internal Result MarkApproved()
     {
         if (ApprovalStatus != ApprovalState.PendingApproval)
+        {
             return CrmItemErrors.NotPending;
+        }
 
         ApprovalStatus = ApprovalState.Approved;
         return Result.Success();
@@ -153,7 +167,9 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     internal Result MarkRejected()
     {
         if (ApprovalStatus != ApprovalState.PendingApproval)
+        {
             return CrmItemErrors.NotPending;
+        }
 
         ApprovalStatus = ApprovalState.Rejected;
         return Result.Success();
@@ -163,7 +179,7 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     /// none when null/ClientDirect.</summary>
     private static bool SourceMatches(RequirementSource? sourceType, Guid? meetingId, Guid? briefId, Guid? noteId)
     {
-        var setCount = (meetingId is null ? 0 : 1) + (briefId is null ? 0 : 1) + (noteId is null ? 0 : 1);
+        int setCount = (meetingId is null ? 0 : 1) + (briefId is null ? 0 : 1) + (noteId is null ? 0 : 1);
 
         return sourceType switch
         {

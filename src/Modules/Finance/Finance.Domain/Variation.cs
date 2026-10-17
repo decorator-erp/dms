@@ -87,7 +87,9 @@ internal sealed class Variation : Entity, IAuditable
         Guid? projectStageId = null)
     {
         if (string.IsNullOrWhiteSpace(reason))
+        {
             return VariationErrors.ReasonRequired;
+        }
 
         var variation = new Variation
         {
@@ -109,7 +111,9 @@ internal sealed class Variation : Entity, IAuditable
                 // cover, so a non-positive difference is not a variation at all.
                 if (projectTaskId is null || budgetedAmount is null || chosenAmount is null
                     || chosenAmount <= budgetedAmount)
+                {
                     return VariationErrors.MissingClientDifferenceFields;
+                }
 
                 variation.BudgetedAmount = budgetedAmount;
                 variation.ChosenAmount = chosenAmount;
@@ -118,10 +122,14 @@ internal sealed class Variation : Entity, IAuditable
 
             case VariationKind.InternalChange:
                 if (budgetLineId is null)
+                {
                     return VariationErrors.MissingBudgetLine;
+                }
 
                 if (amount is null or <= 0)
+                {
                     return VariationErrors.AmountMustBePositive;
+                }
 
                 variation.Amount = amount.Value;
                 break;
@@ -136,13 +144,17 @@ internal sealed class Variation : Entity, IAuditable
     public Result Submit()
     {
         if (Status != VariationStatus.Draft)
+        {
             return VariationErrors.InvalidStatusTransition;
+        }
 
         Status = VariationStatus.Submitted;
 
         // Only a client difference goes out for signature; an internal change never leaves the office.
         if (Kind == VariationKind.ClientDifference)
+        {
             SentToClientAt = DateTime.UtcNow;
+        }
 
         return Result.Success();
     }
@@ -157,13 +169,17 @@ internal sealed class Variation : Entity, IAuditable
     public Result Approve(Guid approvedById, Guid? signedByClientId = null, string? signedDocumentPath = null)
     {
         if (Status != VariationStatus.Submitted)
+        {
             return VariationErrors.InvalidStatusTransition;
+        }
 
         switch (Kind)
         {
             case VariationKind.ClientDifference:
                 if (signedByClientId is null)
+                {
                     return VariationErrors.SignatureRequired;
+                }
 
                 SignedByClientId = signedByClientId;
                 SignedAt = DateTime.UtcNow;
@@ -172,7 +188,10 @@ internal sealed class Variation : Entity, IAuditable
 
             case VariationKind.InternalChange:
                 if (signedByClientId is not null || signedDocumentPath is not null)
+                {
                     return VariationErrors.SignatureFieldsNotAllowed;
+                }
+
                 break;
         }
 
@@ -185,7 +204,9 @@ internal sealed class Variation : Entity, IAuditable
     public Result Reject(Guid rejectedById, string? note = null)
     {
         if (Status is not (VariationStatus.Draft or VariationStatus.Submitted))
+        {
             return VariationErrors.InvalidStatusTransition;
+        }
 
         Status = VariationStatus.Rejected;
         ApprovedById = rejectedById;
@@ -197,7 +218,9 @@ internal sealed class Variation : Entity, IAuditable
     public Result Cancel(string? note = null)
     {
         if (Status is not (VariationStatus.Draft or VariationStatus.Submitted))
+        {
             return VariationErrors.InvalidStatusTransition;
+        }
 
         Status = VariationStatus.Cancelled;
         ResolutionNote = note;
@@ -209,7 +232,9 @@ internal sealed class Variation : Entity, IAuditable
     public Result MarkApplied()
     {
         if (Status != VariationStatus.Approved)
+        {
             return VariationErrors.NotApproved;
+        }
 
         Status = VariationStatus.Applied;
         return Result.Success();

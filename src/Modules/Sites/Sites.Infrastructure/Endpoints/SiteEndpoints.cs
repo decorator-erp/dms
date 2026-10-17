@@ -8,6 +8,7 @@ using Hr.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 using Sites.Contracts;
 using Sites.Contracts.Documents;
 using Sites.Contracts.Records;
@@ -33,7 +34,7 @@ internal sealed class SiteEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var sites = app.MapGroup("/api/sites").WithTags("Sites");
+        RouteGroupBuilder sites = app.MapGroup("/api/sites").WithTags("Sites");
 
         // projectId is REQUIRED, not optional. A Guid cannot carry a metadata default, so making it
         // optional throws "Argument types do not match" at route enumeration -- at startup, not on the
@@ -46,7 +47,7 @@ internal sealed class SiteEndpoints : IEndpoint
             IQueryHandler<GetSitesQuery, PagedResult<SiteListItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<PagedResult<SiteListItemResponse>> result = await handler.HandleAsync(
                 new GetSitesQuery(
                     projectId, status, currentUser.UserId ?? string.Empty,
                     pageIndex ?? 1, pageSize ?? 25),
@@ -59,23 +60,26 @@ internal sealed class SiteEndpoints : IEndpoint
             CreateSiteRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<CreateSiteCommand, Guid> handler, CancellationToken ct) =>
         {
-            var createdById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (createdById.IsFailure) return createdById.ToProblem();
+            Result<Guid> createdById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (createdById.IsFailure)
+            {
+                return createdById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new CreateSiteCommand(request, createdById.Value, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(
                 id => Results.Created($"/api/sites/{id}", new { SiteId = id }), r => r.ToProblem());
         }).RequirePermission(SitesPermissions.Create);
 
-        var site = app.MapGroup("/api/sites/{siteId:guid}").WithTags("Sites");
+        RouteGroupBuilder site = app.MapGroup("/api/sites/{siteId:guid}").WithTags("Sites");
 
         site.MapGet("/", async (
             Guid siteId, ICurrentUser currentUser,
             IQueryHandler<GetSiteByIdQuery, SiteDetailResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<SiteDetailResponse> result = await handler.HandleAsync(
                 new GetSiteByIdQuery(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -85,7 +89,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, UpdateSiteRequest request, ICurrentUser currentUser,
             ICommandHandler<UpdateSiteCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateSiteCommand(siteId, request, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -95,7 +99,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, ICurrentUser currentUser,
             ICommandHandler<DeleteSiteCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new DeleteSiteCommand(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -105,7 +109,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, ICurrentUser currentUser,
             ICommandHandler<SubmitSiteCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new SubmitSiteCommand(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -115,10 +119,13 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, DecideSiteRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<DecideSiteCommand> handler, CancellationToken ct) =>
         {
-            var decidedById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (decidedById.IsFailure) return decidedById.ToProblem();
+            Result<Guid> decidedById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (decidedById.IsFailure)
+            {
+                return decidedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new DecideSiteCommand(
                     siteId, request, decidedById.Value, currentUser.UserId ?? string.Empty), ct);
 
@@ -130,7 +137,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, ICurrentUser currentUser,
             ICommandHandler<ReopenSiteCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new ReopenSiteCommand(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -142,7 +149,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid moduleId, ICurrentUser currentUser,
             IQueryHandler<GetSitePivotQuery, SitePivotResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<SitePivotResponse> result = await handler.HandleAsync(
                 new GetSitePivotQuery(siteId, moduleId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -152,7 +159,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, CreateSiteRecordRequest request, ICurrentUser currentUser,
             ICommandHandler<AddSiteRecordCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new AddSiteRecordCommand(siteId, request, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(
@@ -164,7 +171,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, BulkSaveSiteRecordsRequest request, ICurrentUser currentUser,
             ICommandHandler<BulkSaveSiteRecordsCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new BulkSaveSiteRecordsCommand(siteId, request, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -174,7 +181,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, ICurrentUser currentUser,
             IQueryHandler<GetSiteRecordsGroupedQuery, SiteGroupedResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<SiteGroupedResponse> result = await handler.HandleAsync(
                 new GetSiteRecordsGroupedQuery(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -184,7 +191,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid recordId, UpdateSiteRecordRequest request, ICurrentUser currentUser,
             ICommandHandler<UpdateSiteRecordCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateSiteRecordCommand(
                     siteId, recordId, request, currentUser.UserId ?? string.Empty), ct);
 
@@ -195,7 +202,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid recordId, ICurrentUser currentUser,
             ICommandHandler<DeleteSiteRecordCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new DeleteSiteRecordCommand(siteId, recordId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
@@ -205,7 +212,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid recordId, SetSiteRecordValuesRequest request, ICurrentUser currentUser,
             ICommandHandler<SetSiteRecordValuesCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new SetSiteRecordValuesCommand(
                     siteId, recordId, request, currentUser.UserId ?? string.Empty), ct);
 
@@ -218,7 +225,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid moduleId, string? groupBy, ICurrentUser currentUser,
             IQueryHandler<GetSiteFamiliesQuery, SiteFamiliesResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<SiteFamiliesResponse> result = await handler.HandleAsync(
                 new GetSiteFamiliesQuery(siteId, moduleId, groupBy, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -228,7 +235,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, ICurrentUser currentUser,
             IQueryHandler<GetSiteBoqQuery, SiteBoqResponse> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<SiteBoqResponse> result = await handler.HandleAsync(
                 new GetSiteBoqQuery(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -241,7 +248,7 @@ internal sealed class SiteEndpoints : IEndpoint
             IQueryHandler<GetSiteDocumentsQuery, IReadOnlyList<SiteDocumentResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<IReadOnlyList<SiteDocumentResponse>> result = await handler.HandleAsync(
                 new GetSiteDocumentsQuery(siteId, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.Ok, r => r.ToProblem());
@@ -251,10 +258,13 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, LinkSiteDocumentRequest request, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<LinkSiteDocumentCommand, Guid> handler, CancellationToken ct) =>
         {
-            var addedById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
-            if (addedById.IsFailure) return addedById.ToProblem();
+            Result<Guid> addedById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (addedById.IsFailure)
+            {
+                return addedById.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new LinkSiteDocumentCommand(
                     siteId, request, addedById.Value, currentUser.UserId ?? string.Empty), ct);
 
@@ -267,7 +277,7 @@ internal sealed class SiteEndpoints : IEndpoint
             Guid siteId, Guid documentLinkId, ICurrentUser currentUser,
             ICommandHandler<UnlinkSiteDocumentCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UnlinkSiteDocumentCommand(
                     siteId, documentLinkId, currentUser.UserId ?? string.Empty), ct);
 

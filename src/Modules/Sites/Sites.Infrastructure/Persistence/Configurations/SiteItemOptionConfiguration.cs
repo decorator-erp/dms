@@ -9,10 +9,7 @@ internal sealed class SiteItemOptionConfiguration : IEntityTypeConfiguration<Sit
 {
     public void Configure(EntityTypeBuilder<SiteItemOption> builder)
     {
-        builder.ToTable("site_item_options", t =>
-        {
-            t.HasCheckConstraint("ck_site_item_options_sort", "\"SortOrder\" >= 0");
-        });
+        builder.ToTable("site_item_options", t => t.HasCheckConstraint("ck_site_item_options_sort", "\"SortOrder\" >= 0"));
 
         builder.HasKey(x => x.Id);
         builder.ConfigureEntityConventions();

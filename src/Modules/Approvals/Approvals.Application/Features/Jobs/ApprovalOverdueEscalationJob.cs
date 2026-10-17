@@ -40,7 +40,7 @@ internal sealed class ApprovalOverdueEscalationJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var cutoff = timeProvider.GetUtcNow().AddDays(-GraceDays);
+        DateTimeOffset cutoff = timeProvider.GetUtcNow().AddDays(-GraceDays);
 
         var stuck = await db.Approvals
             .AsNoTracking()
@@ -53,7 +53,9 @@ internal sealed class ApprovalOverdueEscalationJob(
         foreach (var approval in stuck)
         {
             if (string.IsNullOrEmpty(approval.RequestedByUserId))
+            {
                 continue;
+            }
 
             await notifications.NotifyAsync(
                 approval.RequestedByUserId,

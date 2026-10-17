@@ -8,8 +8,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Projects.Contracts;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Projects.Infrastructure.Services;
+using SharedKernel;
 using Testcontainers.PostgreSql;
 using Xunit;
 using Domain = Projects.Domain;
@@ -43,7 +45,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
             "Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
         await MigrateModuleAsync("Crm.Infrastructure", "Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
 
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
         await db.Database.MigrateAsync();
     }
 
@@ -51,9 +53,9 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
     private async Task MigrateModuleAsync(string assemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -64,12 +66,12 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }
@@ -77,13 +79,13 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task EnsureProjectAccessAsync_NoPermission_NotAMember_IsDenied()
     {
-        var (appUserId, employeeId) = await SeedEmployeeAsync();
-        var projectId = await SeedProjectAsync(employeeId);
+        (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
+        Guid projectId = await SeedProjectAsync(employeeId);
 
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
 
-        var result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
+        Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Equal(Domain.ProjectErrors.AccessDenied, result.Error);
@@ -92,13 +94,13 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task EnsureProjectAccessAsync_ReadAllPermission_IsAllowedRegardlessOfMembership()
     {
-        var (appUserId, employeeId) = await SeedEmployeeAsync();
-        var projectId = await SeedProjectAsync(employeeId);
+        (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
+        Guid projectId = await SeedProjectAsync(employeeId);
 
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: true));
 
-        var result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
+        Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
     }
@@ -106,14 +108,14 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task EnsureProjectAccessAsync_StageTeamMember_IsAllowed()
     {
-        var (appUserId, employeeId) = await SeedEmployeeAsync();
-        var projectId = await SeedProjectAsync(employeeId);
+        (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
+        Guid projectId = await SeedProjectAsync(employeeId);
         await SeedStageTeamMembershipAsync(projectId, employeeId);
 
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
 
-        var result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
+        Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
     }
@@ -121,23 +123,23 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task FilterAccessibleProjectsAsync_Over50Projects_IssuesExactlyOneMembershipQuery()
     {
-        var (appUserId, employeeId) = await SeedEmployeeAsync();
+        (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
         var accessibleIds = new List<Guid>();
-        for (var i = 0; i < 50; i++)
+        for (int i = 0; i < 50; i++)
         {
-            var projectId = await SeedProjectAsync(employeeId);
+            Guid projectId = await SeedProjectAsync(employeeId);
             await SeedStageTeamMembershipAsync(projectId, employeeId);
             accessibleIds.Add(projectId);
         }
 
-        var inaccessibleId = await SeedProjectAsync(employeeId);
+        Guid inaccessibleId = await SeedProjectAsync(employeeId);
 
-        var commandCount = 0;
-        await using var db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        int commandCount = 0;
+        await using ProjectsDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
 
         var allIds = new List<Guid>(accessibleIds) { inaccessibleId };
-        var result = await guard.FilterAccessibleProjectsAsync(allIds, appUserId, CancellationToken.None);
+        IReadOnlyList<Guid> result = await guard.FilterAccessibleProjectsAsync(allIds, appUserId, CancellationToken.None);
 
         Assert.Equal(50, result.Count);
         Assert.DoesNotContain(inaccessibleId, result);
@@ -147,11 +149,11 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     [Fact]
     public async Task FilterAccessibleProjectsAsync_EmptyList_ReturnsEmpty_NoQuery()
     {
-        var commandCount = 0;
-        await using var db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        int commandCount = 0;
+        await using ProjectsDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(Guid.NewGuid()), new StubCurrentUser(hasReadAll: false));
 
-        var result = await guard.FilterAccessibleProjectsAsync([], "some-user", CancellationToken.None);
+        IReadOnlyList<Guid> result = await guard.FilterAccessibleProjectsAsync([], "some-user", CancellationToken.None);
 
         Assert.Empty(result);
         Assert.Equal(0, commandCount);
@@ -165,13 +167,13 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     /// </summary>
     private async Task<(string AppUserId, Guid EmployeeId)> SeedEmployeeAsync()
     {
-        var appUserId = $"user-{Guid.NewGuid():N}";
+        string appUserId = $"user-{Guid.NewGuid():N}";
         var employeeId = Guid.NewGuid();
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
 
-        await using (var userCommand = connection.CreateCommand())
+        await using (NpgsqlCommand userCommand = connection.CreateCommand())
         {
             userCommand.CommandText = """
                 INSERT INTO identity.users
@@ -183,7 +185,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
             await userCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var employeeCommand = connection.CreateCommand())
+        await using (NpgsqlCommand employeeCommand = connection.CreateCommand())
         {
             employeeCommand.CommandText = """
                 INSERT INTO hr.employees
@@ -200,11 +202,11 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
     private async Task<Guid> SeedProjectAsync(Guid ownerId)
     {
-        var clientId = await SeedClientAsync();
+        Guid clientId = await SeedClientAsync();
         var project = Domain.Project.Create(
             $"P-{Guid.NewGuid():N}", "Test Project", "123 Main St", Domain.WorkflowType.Stage, clientId, ownerId);
 
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
         db.Projects.Add(project);
         await db.SaveChangesAsync();
 
@@ -220,13 +222,13 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     /// with its project's employee would prove nothing extra and cost an unnecessary parameter thread.</summary>
     private async Task<Guid> SeedClientAsync()
     {
-        var clientAppUserId = $"client-{Guid.NewGuid():N}";
+        string clientAppUserId = $"client-{Guid.NewGuid():N}";
         var clientId = Guid.NewGuid();
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
 
-        await using (var userCommand = connection.CreateCommand())
+        await using (NpgsqlCommand userCommand = connection.CreateCommand())
         {
             userCommand.CommandText = """
                 INSERT INTO identity.users
@@ -238,7 +240,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
             await userCommand.ExecuteNonQueryAsync();
         }
 
-        await using (var clientCommand = connection.CreateCommand())
+        await using (NpgsqlCommand clientCommand = connection.CreateCommand())
         {
             clientCommand.CommandText = """
                 INSERT INTO crm.clients ("Id", "AppUserId", "Address", "IsActive", "CreatedAtUtc")
@@ -254,14 +256,14 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
     private async Task SeedStageTeamMembershipAsync(Guid projectId, Guid employeeId)
     {
-        await using var db = CreateContext(_ => { });
+        await using ProjectsDbContext db = CreateContext(_ => { });
 
         var stage = Domain.ProjectStage.Create("Design", 1, projectId);
         db.ProjectStages.Add(stage);
         await db.SaveChangesAsync();
 
         var team = Domain.StageTeam.CreateProjectStandaloneTeam(stage.Id, employeeId);
-        var addResult = team.AddMember(employeeId, Domain.StageTeamMemberRole.Responsible);
+        Result<StageTeamMember> addResult = team.AddMember(employeeId, Domain.StageTeamMemberRole.Responsible);
         Assert.True(addResult.IsSuccess);
         db.StageTeams.Add(team);
         await db.SaveChangesAsync();
@@ -269,7 +271,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
     private ProjectsDbContext CreateContext(Action<string> onCommandExecuted)
     {
-        var builder = new DbContextOptionsBuilder<ProjectsDbContext>()
+        DbContextOptionsBuilder<ProjectsDbContext> builder = new DbContextOptionsBuilder<ProjectsDbContext>()
             .UseNpgsql(_container.GetConnectionString())
             .LogTo(
                 message => onCommandExecuted(message),

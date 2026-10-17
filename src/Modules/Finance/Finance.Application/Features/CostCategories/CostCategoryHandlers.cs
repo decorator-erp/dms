@@ -37,13 +37,17 @@ internal sealed class CreateCostCategoryCommandHandler(FinanceDbContext db)
         // over lower("Code"), so a case-insensitive check here would reject codes the database is
         // willing to store and the two would disagree about what "duplicate" means.
         if (await db.CostCategories.AnyAsync(c => c.Code == command.Request.Code, ct))
+        {
             return CostCategoryErrors.DuplicatedCode;
+        }
 
-        var category = CostCategory.Create(
+        Result<CostCategory> category = CostCategory.Create(
             command.Request.Code, command.Request.Name, command.Request.Description);
 
         if (category.IsFailure)
+        {
             return category.Error;
+        }
 
         db.CostCategories.Add(category.Value!);
         await db.SaveChangesAsync(ct);
@@ -70,15 +74,19 @@ internal sealed class UpdateCostCategoryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(UpdateCostCategoryCommand command, CancellationToken ct = default)
     {
-        var category = await db.CostCategories
+        CostCategory? category = await db.CostCategories
             .FirstOrDefaultAsync(c => c.Id == command.Id && c.IsActive, ct);
 
         if (category is null)
+        {
             return CostCategoryErrors.NotFound;
+        }
 
-        var updated = category.Update(command.Request.Name, command.Request.Description);
+        Result updated = category.Update(command.Request.Name, command.Request.Description);
         if (updated.IsFailure)
+        {
             return updated.Error;
+        }
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -92,9 +100,11 @@ internal sealed class ActivateCostCategoryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(ActivateCostCategoryCommand command, CancellationToken ct = default)
     {
-        var category = await db.CostCategories.FirstOrDefaultAsync(c => c.Id == command.Id, ct);
+        CostCategory? category = await db.CostCategories.FirstOrDefaultAsync(c => c.Id == command.Id, ct);
         if (category is null)
+        {
             return CostCategoryErrors.NotFound;
+        }
 
         category.Activate();
         await db.SaveChangesAsync(ct);
@@ -114,9 +124,11 @@ internal sealed class DeactivateCostCategoryCommandHandler(FinanceDbContext db)
 {
     public async Task<Result> HandleAsync(DeactivateCostCategoryCommand command, CancellationToken ct = default)
     {
-        var category = await db.CostCategories.FirstOrDefaultAsync(c => c.Id == command.Id, ct);
+        CostCategory? category = await db.CostCategories.FirstOrDefaultAsync(c => c.Id == command.Id, ct);
         if (category is null)
+        {
             return CostCategoryErrors.NotFound;
+        }
 
         category.Deactivate();
         await db.SaveChangesAsync(ct);
@@ -132,7 +144,7 @@ internal sealed class GetCostCategoryByIdQueryHandler(FinanceDbContext db)
     {
         // No IsActive filter, matching the backend: a deactivated category must still be readable, or
         // every budget line pointing at one becomes unexplainable in the UI.
-        var response = await db.CostCategories
+        CostCategoryResponse? response = await db.CostCategories
             .Where(c => c.Id == query.Id)
             .Select(c => new CostCategoryResponse(
                 c.Id, c.Code, c.Name, c.Description, c.IsActive, c.CreatedAtUtc, c.UpdatedAtUtc))
@@ -157,20 +169,22 @@ internal sealed class GetCostCategoryListQueryHandler(FinanceDbContext db)
     public async Task<Result<PagedResult<CostCategoryListItemResponse>>> HandleAsync(
         GetCostCategoryListQuery query, CancellationToken ct = default)
     {
-        var q = db.CostCategories.AsQueryable();
+        IQueryable<CostCategory> q = db.CostCategories.AsQueryable();
 
         if (query.IsActive.HasValue)
+        {
             q = q.Where(c => c.IsActive == query.IsActive.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var search = query.Search.Trim();
+            string search = query.Search.Trim();
             q = q.Where(c => c.Code.Contains(search) || c.Name.Contains(search));
         }
 
-        var total = await q.CountAsync(ct);
+        int total = await q.CountAsync(ct);
 
-        var items = await q
+        List<CostCategoryListItemResponse> items = await q
             .OrderBy(c => c.Code)
             .Skip(query.Skip)
             .Take(query.Take)

@@ -1,6 +1,7 @@
 using BuildingBlocks.DomainEvents;
 using BuildingBlocks.Events;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace BuildingBlocks.Outbox;
 
@@ -49,15 +50,17 @@ internal sealed class InboxDedupeDecorator<TContext, TEvent>(
 {
     public async Task HandleAsync(TEvent @event, CancellationToken ct)
     {
-        var handlerName = innerHandler.GetType().FullName ?? innerHandler.GetType().Name;
+        string handlerName = innerHandler.GetType().FullName ?? innerHandler.GetType().Name;
 
-        var alreadyProcessed = await dbContext.Set<InboxMessage>()
+        bool alreadyProcessed = await dbContext.Set<InboxMessage>()
             .AnyAsync(m => m.EventId == @event.EventId && m.HandlerName == handlerName, ct);
 
         if (alreadyProcessed)
+        {
             return;
+        }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+        await using IDbContextTransaction transaction = await dbContext.Database.BeginTransactionAsync(ct);
 
         await innerHandler.HandleAsync(@event, ct);
         await dispatcher.DispatchAsync(ct);

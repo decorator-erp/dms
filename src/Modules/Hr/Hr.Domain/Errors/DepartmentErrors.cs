@@ -1,6 +1,6 @@
 using SharedKernel;
 
-namespace Hr.Domain;
+namespace Hr.Domain.Errors;
 
 internal static class DepartmentErrors
 {
@@ -27,4 +27,7 @@ internal static class DepartmentErrors
 
     public static readonly Error AlreadyHaveHead =
         Error.BadRequest("departments.AlreadyHaveHead", "This department already has a head assigned.");
+
+    public static readonly Error DepartmentAlreadyDeleted =
+        Error.BadRequest("departments.DepartmentAlreadyDeleted", "This department is already deleted.");
 }

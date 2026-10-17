@@ -31,21 +31,27 @@ internal sealed class UploadStageDocumentCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(UploadStageDocumentCommand command, CancellationToken ct = default)
     {
-        var stage = await projectDirectory.GetStageAsync(command.ProjectStageId, ct);
+        StageSummary? stage = await projectDirectory.GetStageAsync(command.ProjectStageId, ct);
         if (stage is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
+        Guid? uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
         if (uploadedById is null)
+        {
             return ProjectDocumentErrors.UploaderNotFound;
+        }
 
         Guid folderId;
         if (command.FolderId is { } explicitFolderId)
         {
-            var folderMatchesScope = await db.DocumentFolders.AsNoTracking()
+            bool folderMatchesScope = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == explicitFolderId && f.ProjectStageId == command.ProjectStageId, ct);
             if (!folderMatchesScope)
+            {
                 return ProjectDocumentErrors.FolderScopeMismatch;
+            }
 
             folderId = explicitFolderId;
         }
@@ -55,10 +61,10 @@ internal sealed class UploadStageDocumentCommandHandler(
                 db, stage.ProjectId, command.ProjectStageId, stage.Name, ct);
         }
 
-        var storagePath = await fileStorage.SaveAsync(
+        string storagePath = await fileStorage.SaveAsync(
             command.Content, command.FileName, $"projects/{stage.ProjectId}", ct);
 
-        var documentResult = ProjectDocument.Create(
+        Result<ProjectDocument> documentResult = ProjectDocument.Create(
             stage.ProjectId, command.FileName, storagePath, command.ContentType, command.FileSizeBytes,
             uploadedById.Value, folderId, command.ProjectStageId, description: command.Description);
         if (documentResult.IsFailure)
@@ -67,7 +73,7 @@ internal sealed class UploadStageDocumentCommandHandler(
             return Result.Failure<Guid>(documentResult.Error);
         }
 
-        var document = documentResult.Value!;
+        ProjectDocument document = documentResult.Value!;
         await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, document, ct);
 
         return document.Id;

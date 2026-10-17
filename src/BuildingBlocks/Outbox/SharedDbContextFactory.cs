@@ -12,7 +12,7 @@ internal sealed class SharedDbContextFactory : IDesignTimeDbContextFactory<Share
 {
     public SharedDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<SharedDbContext>()
+        DbContextOptionsBuilder<SharedDbContext> builder = new DbContextOptionsBuilder<SharedDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new SharedDbContext(builder.Options);

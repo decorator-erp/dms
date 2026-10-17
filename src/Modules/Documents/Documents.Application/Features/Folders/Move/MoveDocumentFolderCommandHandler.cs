@@ -25,32 +25,40 @@ internal sealed class MoveDocumentFolderCommandHandler(DocumentsDbContext db) : 
 {
     public async Task<Result> HandleAsync(MoveDocumentFolderCommand command, CancellationToken ct = default)
     {
-        var folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
+        DocumentFolder? folder = await db.DocumentFolders.FindAsync([command.FolderId], ct);
         if (folder is null)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
         if (command.NewParentFolderId is { } newParentFolderId)
         {
-            var newParentExists = await db.DocumentFolders.AsNoTracking()
+            bool newParentExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == newParentFolderId && f.ProjectId == folder.ProjectId, ct);
             if (!newParentExists)
+            {
                 return DocumentFolderErrors.NotFound;
+            }
         }
 
-        var nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
+        bool nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
             f => f.Id != folder.Id && f.ProjectId == folder.ProjectId
                 && f.ParentFolderId == command.NewParentFolderId && f.Name == folder.Name, ct);
         if (nameTaken)
+        {
             return DocumentFolderErrors.NameCollision;
+        }
 
-        var ancestorChain = await db.DocumentFolders.AsNoTracking()
+        Dictionary<Guid, Guid?> ancestorChain = await db.DocumentFolders.AsNoTracking()
             .Where(f => f.ProjectId == folder.ProjectId && f.Id != folder.Id)
             .Select(f => new { f.Id, f.ParentFolderId })
             .ToDictionaryAsync(f => f.Id, f => f.ParentFolderId, ct);
 
-        var moveResult = folder.MoveTo(command.NewParentFolderId, ancestorChain);
+        Result moveResult = folder.MoveTo(command.NewParentFolderId, ancestorChain);
         if (moveResult.IsFailure)
+        {
             return moveResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

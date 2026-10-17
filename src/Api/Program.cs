@@ -5,7 +5,7 @@ using BuildingBlocks.Web;
 using Scalar.AspNetCore;
 using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // writeToProviders: true is not decoration - N1-08 found it missing the hard way.
 //
@@ -31,7 +31,7 @@ builder.Services.AddApi(builder.Configuration);
 // internal (only *.Contracts is public), so Api can never name one directly even though it references
 // the project. HR joins this list at G2-03. The composition root is the only place that ever sees
 // every module.
-var moduleAssemblies = new[]
+Assembly[] moduleAssemblies = new[]
 {
     Assembly.Load("Identity.Infrastructure"),
     Assembly.Load("Hr.Infrastructure"),
@@ -49,12 +49,14 @@ var moduleAssemblies = new[]
     // from this container. CrmSmokeTests.Boot_RegistersExactlyEightModules moves in the same commit.
     Assembly.Load("Notifications.Infrastructure"),
 };
-var modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
+IReadOnlyList<IModule> modules = ModuleDiscovery.DiscoverModules(moduleAssemblies);
 
-foreach (var module in modules)
+foreach (IModule module in modules)
+{
     module.Register(builder.Services, builder.Configuration);
+}
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
@@ -77,14 +79,18 @@ app.MapHealthChecks("/health");
 app.MapGet("/api/me", (ICurrentUser currentUser) => Results.Ok(new { currentUser.UserId }))
     .RequireAuthorization();
 
-foreach (var module in modules)
+foreach (IModule module in modules)
+{
     module.MapEndpoints(app);
+}
 
 // Idempotent by contract (see IModule.SeedAsync) — safe to run on every startup, not just the first.
-using (var seedScope = app.Services.CreateScope())
+using (IServiceScope seedScope = app.Services.CreateScope())
 {
-    foreach (var module in modules)
+    foreach (IModule module in modules)
+    {
         await module.SeedAsync(seedScope.ServiceProvider);
+    }
 }
 
 app.Run();

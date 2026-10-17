@@ -23,7 +23,7 @@ internal static class CrmScopeDecorator
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var actor = await guard.ResolveActorAsync(command.AppUserId, ct);
+            Result<CrmActor> actor = await guard.ResolveActorAsync(command.AppUserId, ct);
             return actor.IsFailure ? Result.Failure(actor.Error) : await innerHandler.HandleAsync(command, ct);
         }
     }
@@ -35,7 +35,7 @@ internal static class CrmScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var actor = await guard.ResolveActorAsync(command.AppUserId, ct);
+            Result<CrmActor> actor = await guard.ResolveActorAsync(command.AppUserId, ct);
             return actor.IsFailure
                 ? Result.Failure<TResponse>(actor.Error)
                 : await innerHandler.HandleAsync(command, ct);
@@ -49,7 +49,7 @@ internal static class CrmScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TQuery query, CancellationToken ct = default)
         {
-            var actor = await guard.ResolveActorAsync(query.AppUserId, ct);
+            Result<CrmActor> actor = await guard.ResolveActorAsync(query.AppUserId, ct);
             return actor.IsFailure
                 ? Result.Failure<TResponse>(actor.Error)
                 : await innerHandler.HandleAsync(query, ct);

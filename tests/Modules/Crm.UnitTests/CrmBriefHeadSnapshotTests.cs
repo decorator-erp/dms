@@ -13,7 +13,7 @@ public class CrmBriefHeadSnapshotTests
     [Fact]
     public void Create_CapturesCurrentHeadState()
     {
-        var brief = CreateBrief(address: "123 Main St", areaSqm: 120m);
+        CrmDesignBrief brief = CreateBrief(address: "123 Main St", areaSqm: 120m);
 
         var snapshot = CrmBriefHeadSnapshot.Create(brief, round: 1);
 
@@ -27,11 +27,11 @@ public class CrmBriefHeadSnapshotTests
     [Fact]
     public void DiffFrom_WithNoChanges_ReturnsEmpty()
     {
-        var brief = CreateBrief(address: "Same");
+        CrmDesignBrief brief = CreateBrief(address: "Same");
         var round1 = CrmBriefHeadSnapshot.Create(brief, 1);
         var round2 = CrmBriefHeadSnapshot.Create(brief, 2);
 
-        var diff = round2.DiffFrom(round1);
+        IReadOnlyList<string> diff = round2.DiffFrom(round1);
 
         Assert.Empty(diff);
     }
@@ -39,14 +39,14 @@ public class CrmBriefHeadSnapshotTests
     [Fact]
     public void DiffFrom_DetectsChangedFields_AndOnlyThose()
     {
-        var brief = CreateBrief(address: "Old Addr", areaSqm: 100m);
+        CrmDesignBrief brief = CreateBrief(address: "Old Addr", areaSqm: 100m);
         var round1 = CrmBriefHeadSnapshot.Create(brief, 1);
 
         brief.UpdateHead(
             new CrmBriefHeadData((UnitType)1, (UnitCondition)1, Address: "New Addr", AreaSqm: 100m), null);
         var round2 = CrmBriefHeadSnapshot.Create(brief, 2);
 
-        var diff = round2.DiffFrom(round1);
+        IReadOnlyList<string> diff = round2.DiffFrom(round1);
 
         Assert.Contains(nameof(CrmBriefHeadSnapshot.Address), diff);
         Assert.DoesNotContain(nameof(CrmBriefHeadSnapshot.AreaSqm), diff);
@@ -55,14 +55,14 @@ public class CrmBriefHeadSnapshotTests
     [Fact]
     public void DiffFrom_DetectsMultipleChangedFields()
     {
-        var brief = CreateBrief(address: "Old", areaSqm: 100m);
+        CrmDesignBrief brief = CreateBrief(address: "Old", areaSqm: 100m);
         var round1 = CrmBriefHeadSnapshot.Create(brief, 1);
 
         brief.UpdateHead(
             new CrmBriefHeadData((UnitType)2, (UnitCondition)2, Address: "New", AreaSqm: 200m), null);
         var round2 = CrmBriefHeadSnapshot.Create(brief, 2);
 
-        var diff = round2.DiffFrom(round1);
+        IReadOnlyList<string> diff = round2.DiffFrom(round1);
 
         Assert.Contains(nameof(CrmBriefHeadSnapshot.UnitType), diff);
         Assert.Contains(nameof(CrmBriefHeadSnapshot.UnitCondition), diff);

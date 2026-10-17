@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Identity.Contracts;
-using Identity.Contracts.Auth;
 using Xunit;
 
 namespace Integration.Tests;
@@ -19,17 +18,17 @@ public sealed class DocumentsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_ContainsDocumentsModulePermissionStrings()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/permissions");
+        HttpResponseMessage response = await client.GetAsync("/api/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        List<ModulePermissionSet>? modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
         Assert.NotNull(modules);
 
-        var documentsModule = Assert.Single(modules!, m => m.Module == "Documents");
+        ModulePermissionSet documentsModule = Assert.Single(modules!, m => m.Module == "Documents");
         Assert.Contains("documents.read", documentsModule.Permissions);
         Assert.Contains("documents.upload", documentsModule.Permissions);
         Assert.Contains("documents.update", documentsModule.Permissions);
@@ -41,9 +40,9 @@ public sealed class DocumentsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task CreateDocumentFolder_Unauthenticated_Returns401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/document-folders", new
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/document-folders", new
         {
             ProjectId = Guid.NewGuid(),
             Name = "Smoke",
@@ -55,11 +54,11 @@ public sealed class DocumentsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task CreateDocumentFolder_AuthenticatedWithoutPermission_Returns403()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString());
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.PostAsJsonAsync("/api/document-folders", new
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/document-folders", new
         {
             ProjectId = Guid.NewGuid(),
             Name = "Smoke",
@@ -88,30 +87,27 @@ public sealed class DocumentsSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task Upload_OversizedMultipartBody_Returns400()
     {
-        var client = fixture.CreateClient();
-        var suffix = Guid.NewGuid().ToString("N");
+        HttpClient client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"oversized-{suffix}@example.com", "P@ssw0rd123!", "Test", "User", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
-        var appUserId = (await registerResponse.Content.ReadFromJsonAsync<RegisterResponseBody>())!.UserId;
+        string appUserId = await IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"oversized-{suffix}@example.com");
 
-        var token = fixture.IssueTestToken(appUserId, "documents.upload");
+        string token = fixture.IssueTestToken(appUserId, "documents.upload");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // ApiFixture configures FileStorage:MaxUploadBytes to 5 MB for this whole test collection -
         // DocumentsModule's own FormOptions.MultipartBodyLengthLimit wiring (G7-08) is what this payload
         // must trip.
-        var oversized = new byte[6 * 1024 * 1024];
+        byte[] oversized = new byte[6 * 1024 * 1024];
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(oversized);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         content.Add(fileContent, "file", "huge.bin");
 
-        var response = await client.PostAsync($"/api/projects/{Guid.NewGuid()}/documents", content);
+        HttpResponseMessage response = await client.PostAsync($"/api/projects/{Guid.NewGuid()}/documents", content);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    private sealed record RegisterResponseBody(string UserId);
 }

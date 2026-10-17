@@ -16,9 +16,11 @@ internal sealed class DeleteCrmClientNoteCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(DeleteCrmClientNoteCommand command, CancellationToken ct = default)
     {
-        var note = await db.CrmClientNotes.FindAsync([command.NoteId], ct);
+        CrmClientNote? note = await db.CrmClientNotes.FindAsync([command.NoteId], ct);
         if (note is null)
+        {
             return CrmClientNoteErrors.NotFound;
+        }
 
         db.CrmClientNotes.Remove(note);
         await db.SaveChangesAsync(ct);

@@ -33,7 +33,10 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
                 item.RegexPattern,
             }).ToListAsync(ct);
 
-        if (fields.Count == 0) return SiteErrors.ModuleNotFound;
+        if (fields.Count == 0)
+        {
+            return SiteErrors.ModuleNotFound;
+        }
 
         var byItem = fields.ToDictionary(f => f.ItemId);
 
@@ -47,7 +50,7 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
             .Distinct()
             .ToList();
 
-        var activeOptionsByItem = optionIds.Count == 0
+        Dictionary<Guid, HashSet<Guid>> activeOptionsByItem = optionIds.Count == 0
             ? []
             : (await db.SiteItemOptions.AsNoTracking()
                     .Where(o => optionIds.Contains(o.ItemId) && o.IsActive)
@@ -59,7 +62,7 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
         var supplied = new HashSet<Guid>();
         var errors = new List<Error>();
 
-        foreach (var value in values)
+        foreach (SiteValueRequest value in values)
         {
             if (!byItem.TryGetValue(value.ItemId, out var field))
             {
@@ -77,9 +80,9 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
                 continue;
             }
 
-            var text = string.IsNullOrWhiteSpace(value.ValueText) ? null : value.ValueText.Trim();
+            string? text = string.IsNullOrWhiteSpace(value.ValueText) ? null : value.ValueText.Trim();
 
-            var populated = (value.ValueNumber.HasValue ? 1 : 0)
+            int populated = (value.ValueNumber.HasValue ? 1 : 0)
                           + (text is not null ? 1 : 0)
                           + (value.ValueBool.HasValue ? 1 : 0)
                           + (value.ValueDate.HasValue ? 1 : 0)
@@ -97,7 +100,7 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
 
             // The populated column must be the one the item's type demands. No CHECK can express this:
             // it would have to read the site_items row.
-            var matchesType = field.DataType switch
+            bool matchesType = field.DataType switch
             {
                 Sites.Domain.SiteItemDataType.Number => value.ValueNumber.HasValue,
                 Sites.Domain.SiteItemDataType.Text => text is not null,
@@ -118,38 +121,48 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
             if (value.ValueNumber is { } number)
             {
                 if (field.MinValue is { } min && number < min)
+                {
                     errors.Add(Error.BadRequest(
                         $"{Prefix}.{field.Code}.Min", $"'{field.Code}' must be at least {min}."));
+                }
 
                 if (field.MaxValue is { } max && number > max)
+                {
                     errors.Add(Error.BadRequest(
                         $"{Prefix}.{field.Code}.Max", $"'{field.Code}' must be at most {max}."));
+                }
             }
 
             if (text is not null)
             {
                 if (field.MaxLength is { } maxLength && text.Length > maxLength)
+                {
                     errors.Add(Error.BadRequest(
                         $"{Prefix}.{field.Code}.MaxLength",
                         $"'{field.Code}' must be {maxLength} characters or fewer."));
+                }
 
                 // .NET regex, never a Postgres CHECK -- the dialects differ, so a database-side ~ would
                 // reject strings this accepted.
                 if (field.RegexPattern is { } pattern && !SafeIsMatch(text, pattern))
+                {
                     errors.Add(Error.BadRequest(
                         $"{Prefix}.{field.Code}.Pattern",
                         $"'{field.Code}' is not in the expected format."));
+                }
             }
 
             if (value.OptionId is { } optionId)
             {
-                var belongs = activeOptionsByItem.TryGetValue(value.ItemId, out var options)
+                bool belongs = activeOptionsByItem.TryGetValue(value.ItemId, out HashSet<Guid>? options)
                               && options.Contains(optionId);
 
                 if (!belongs)
+                {
                     errors.Add(Error.BadRequest(
                         $"{Prefix}.{field.Code}.Option",
                         $"That option does not belong to '{field.Code}', or is no longer active."));
+                }
             }
         }
 

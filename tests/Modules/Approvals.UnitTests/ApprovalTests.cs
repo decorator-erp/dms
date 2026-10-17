@@ -1,4 +1,5 @@
 using Approvals.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Approvals.UnitTests;
@@ -17,7 +18,7 @@ public class ApprovalTests
     public void Create_SetsAllProvidedFields()
     {
         var subjectId = Guid.NewGuid();
-        var dueAt = DateTimeOffset.UtcNow.AddDays(3);
+        DateTimeOffset dueAt = DateTimeOffset.UtcNow.AddDays(3);
 
         var approval = Approval.Create(
             ApprovalSubjectType.GateCondition, subjectId, ApprovalType.ManagerApproval,
@@ -38,9 +39,9 @@ public class ApprovalTests
     [Fact]
     public void Decide_ByEligibleApprover_Approved_Succeeds()
     {
-        var approval = CreateApproval("approver-1", "approver-2");
+        Approval approval = CreateApproval("approver-1", "approver-2");
 
-        var result = approval.Decide("approver-2", ApprovalDecision.Approved, comment: null);
+        Result result = approval.Decide("approver-2", ApprovalDecision.Approved, comment: null);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ApprovalDecision.Approved, approval.Decision);
@@ -52,14 +53,14 @@ public class ApprovalTests
     [Fact]
     public void Decide_Rejected_RequiresComment()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
 
-        var withoutComment = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: null);
+        Result withoutComment = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: null);
         Assert.True(withoutComment.IsFailure);
         Assert.Equal(ApprovalErrors.CommentRequired, withoutComment.Error);
         Assert.Null(approval.Decision);
 
-        var withComment = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: "not acceptable");
+        Result withComment = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: "not acceptable");
         Assert.True(withComment.IsSuccess);
         Assert.Equal(ApprovalDecision.Rejected, approval.Decision);
         Assert.Equal(ApprovalState.Rejected, approval.State);
@@ -68,9 +69,9 @@ public class ApprovalTests
     [Fact]
     public void Decide_ChangesRequested_RequiresComment_AndMapsToNonTerminalState()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
 
-        var result = approval.Decide("approver-1", ApprovalDecision.ChangesRequested, comment: "please revise");
+        Result result = approval.Decide("approver-1", ApprovalDecision.ChangesRequested, comment: "please revise");
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ApprovalDecision.ChangesRequested, approval.Decision);
@@ -81,9 +82,9 @@ public class ApprovalTests
     [Fact]
     public void Decide_ByNonApprover_WithoutOverride_IsRejected()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
 
-        var result = approval.Decide("stranger", ApprovalDecision.Approved, comment: null);
+        Result result = approval.Decide("stranger", ApprovalDecision.Approved, comment: null);
 
         Assert.True(result.IsFailure);
         Assert.Equal(ApprovalErrors.NotAssignedApprover, result.Error);
@@ -93,9 +94,9 @@ public class ApprovalTests
     [Fact]
     public void Decide_ByNonApprover_WithOverride_Succeeds()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
 
-        var result = approval.Decide("admin-user", ApprovalDecision.Approved, comment: null, isOverride: true);
+        Result result = approval.Decide("admin-user", ApprovalDecision.Approved, comment: null, isOverride: true);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("admin-user", approval.DecidedByUserId);
@@ -104,10 +105,10 @@ public class ApprovalTests
     [Fact]
     public void Decide_Twice_SecondCallIsRejected()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
         approval.Decide("approver-1", ApprovalDecision.Approved, comment: null);
 
-        var result = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: "changed my mind");
+        Result result = approval.Decide("approver-1", ApprovalDecision.Rejected, comment: "changed my mind");
 
         Assert.True(result.IsFailure);
         Assert.Equal(ApprovalErrors.AlreadyDecided, result.Error);
@@ -118,12 +119,12 @@ public class ApprovalTests
     [Fact]
     public void Decide_RaisesApprovalDecidedDomainEvent()
     {
-        var approval = CreateApproval("approver-1");
+        Approval approval = CreateApproval("approver-1");
 
         approval.Decide("approver-1", ApprovalDecision.Approved, comment: null);
 
-        var raised = Assert.Single(approval.DomainEvents);
-        var domainEvent = Assert.IsType<ApprovalDecidedDomainEvent>(raised);
+        IDomainEvent raised = Assert.Single(approval.DomainEvents);
+        ApprovalDecidedDomainEvent domainEvent = Assert.IsType<ApprovalDecidedDomainEvent>(raised);
         Assert.Equal(approval.Id, domainEvent.ApprovalId);
         Assert.Equal(ApprovalDecision.Approved, domainEvent.Decision);
         Assert.Equal("approver-1", domainEvent.DecidedByUserId);

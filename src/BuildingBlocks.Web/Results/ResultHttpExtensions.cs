@@ -25,7 +25,9 @@ public static class ResultHttpExtensions
     public static IResult ToProblem(this Result result)
     {
         if (result.IsSuccess)
+        {
             throw new InvalidOperationException("Cannot convert a successful result to a problem.");
+        }
 
         Dictionary<string, object?> errors = result.Error is ValidationError validationError
             ? validationError.Errors

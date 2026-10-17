@@ -86,7 +86,9 @@ internal sealed class GateCondition : Entity, IAuditable
         Guid? referencedDocumentId = null, Guid? variationId = null)
     {
         if (projectStageId.HasValue == projectTaskId.HasValue)
+        {
             return GateConditionErrors.InvalidScope;
+        }
 
         return new GateCondition
         {
@@ -137,7 +139,9 @@ internal sealed class GateCondition : Entity, IAuditable
     public Result MarkSatisfied(Guid? satisfiedById, string? note = null)
     {
         if (Status == GateStatus.Satisfied)
+        {
             return Result.Success();
+        }
 
         Status = GateStatus.Satisfied;
         ResolvedById = satisfiedById;

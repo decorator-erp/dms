@@ -21,7 +21,10 @@ internal sealed class CrmSpaceReader(CrmDbContext db) : ICrmSpaceReader
     public async Task<IReadOnlyList<CrmSpaceSummary>> GetManyAsync(
         IReadOnlyCollection<Guid> spaceIds, CancellationToken ct = default)
     {
-        if (spaceIds.Count == 0) return [];
+        if (spaceIds.Count == 0)
+        {
+            return [];
+        }
 
         return await db.CrmSpaces.AsNoTracking()
             .Where(s => spaceIds.Contains(s.Id))

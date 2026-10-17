@@ -35,7 +35,7 @@ public class VariationStateMachineTests
     [InlineData("   ")]
     public void Create_WithoutAReason_FailsWithReasonRequired(string reason)
     {
-        var result = Variation.Create(
+        Result<Variation> result = Variation.Create(
             VariationKind.InternalChange, ProjectId, reason, ActorId, budgetLineId: BudgetLineId, amount: 500m);
 
         Assert.True(result.IsFailure);
@@ -45,7 +45,7 @@ public class VariationStateMachineTests
     [Fact]
     public void ClientDifference_DerivesAmountFromTheTwoPrices_AndNeverTakesItDirectly()
     {
-        var variation = ClientDifference();
+        Variation variation = ClientDifference();
 
         Assert.Equal(750m, variation.Amount);
         Assert.Equal(1000m, variation.BudgetedAmount);
@@ -58,9 +58,9 @@ public class VariationStateMachineTests
     [Fact]
     public void ClientDifference_RequiresChosenToExceedBudgeted()
     {
-        foreach (var (budgeted, chosen) in new[] { (1000m, 1000m), (1000m, 999.9999m) })
+        foreach ((decimal budgeted, decimal chosen) in new[] { (1000m, 1000m), (1000m, 999.9999m) })
         {
-            var result = Variation.Create(
+            Result<Variation> result = Variation.Create(
                 VariationKind.ClientDifference, ProjectId, "x", ActorId,
                 projectTaskId: TaskId, budgetedAmount: budgeted, chosenAmount: chosen);
 
@@ -69,7 +69,7 @@ public class VariationStateMachineTests
         }
 
         // One ten-thousandth above IS a variation - the boundary is strict, not rounded.
-        var justAbove = Variation.Create(
+        Result<Variation> justAbove = Variation.Create(
             VariationKind.ClientDifference, ProjectId, "x", ActorId,
             projectTaskId: TaskId, budgetedAmount: 1000m, chosenAmount: 1000.0001m);
 
@@ -80,7 +80,7 @@ public class VariationStateMachineTests
     [Fact]
     public void ClientDifference_WithoutATask_Fails()
     {
-        var result = Variation.Create(
+        Result<Variation> result = Variation.Create(
             VariationKind.ClientDifference, ProjectId, "x", ActorId,
             budgetedAmount: 1000m, chosenAmount: 1750m);
 
@@ -91,7 +91,7 @@ public class VariationStateMachineTests
     [Fact]
     public void InternalChange_WithoutABudgetLine_FailsWithMissingBudgetLine()
     {
-        var result = Variation.Create(
+        Result<Variation> result = Variation.Create(
             VariationKind.InternalChange, ProjectId, "x", ActorId, amount: 500m);
 
         Assert.True(result.IsFailure);
@@ -102,9 +102,9 @@ public class VariationStateMachineTests
     [Fact]
     public void InternalChange_WithNonPositiveAmount_FailsWithAmountMustBePositive()
     {
-        foreach (var amount in new decimal?[] { null, 0m, -1m })
+        foreach (decimal? amount in new decimal?[] { null, 0m, -1m })
         {
-            var result = Variation.Create(
+            Result<Variation> result = Variation.Create(
                 VariationKind.InternalChange, ProjectId, "x", ActorId,
                 budgetLineId: BudgetLineId, amount: amount);
 
@@ -118,12 +118,12 @@ public class VariationStateMachineTests
     [Fact]
     public void Submit_FromDraft_Succeeds_AndOnlyAClientDifferenceIsSentToTheClient()
     {
-        var clientDifference = ClientDifference();
+        Variation clientDifference = ClientDifference();
         Assert.True(clientDifference.Submit().IsSuccess);
         Assert.Equal(VariationStatus.Submitted, clientDifference.Status);
         Assert.NotNull(clientDifference.SentToClientAt);
 
-        var internalChange = InternalChange();
+        Variation internalChange = InternalChange();
         Assert.True(internalChange.Submit().IsSuccess);
         Assert.Equal(VariationStatus.Submitted, internalChange.Status);
         // An internal change never leaves the office.
@@ -133,10 +133,10 @@ public class VariationStateMachineTests
     [Fact]
     public void Submit_IsNotRepeatable()
     {
-        var variation = InternalChange();
+        Variation variation = InternalChange();
         Assert.True(variation.Submit().IsSuccess);
 
-        var again = variation.Submit();
+        Result again = variation.Submit();
         Assert.True(again.IsFailure);
         Assert.Equal(VariationErrors.InvalidStatusTransition, again.Error);
     }
@@ -146,9 +146,9 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_FromDraft_IsRejected_SubmitIsMandatory()
     {
-        var variation = InternalChange();
+        Variation variation = InternalChange();
 
-        var result = variation.Approve(ActorId);
+        Result result = variation.Approve(ActorId);
 
         Assert.True(result.IsFailure);
         Assert.Equal(VariationErrors.InvalidStatusTransition, result.Error);
@@ -160,10 +160,10 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_ClientDifference_WithoutTheSigningClient_FailsWithSignatureRequired()
     {
-        var variation = ClientDifference();
+        Variation variation = ClientDifference();
         variation.Submit();
 
-        var result = variation.Approve(ActorId);
+        Result result = variation.Approve(ActorId);
 
         Assert.True(result.IsFailure);
         Assert.Equal(VariationErrors.SignatureRequired, result.Error);
@@ -174,7 +174,7 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_ClientDifference_WithTheSigningClient_StampsTheSignature()
     {
-        var variation = ClientDifference();
+        Variation variation = ClientDifference();
         variation.Submit();
 
         Assert.True(variation.Approve(ActorId, ClientId, "s3://signed.pdf").IsSuccess);
@@ -193,12 +193,12 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_InternalChange_WithSignatureFields_FailsWithSignatureFieldsNotAllowed()
     {
-        foreach (var (client, path) in new (Guid?, string?)[] { (ClientId, null), (null, "s3://x.pdf") })
+        foreach ((Guid? client, string? path) in new (Guid?, string?)[] { (ClientId, null), (null, "s3://x.pdf") })
         {
-            var variation = InternalChange();
+            Variation variation = InternalChange();
             variation.Submit();
 
-            var result = variation.Approve(ActorId, client, path);
+            Result result = variation.Approve(ActorId, client, path);
 
             Assert.True(result.IsFailure);
             Assert.Equal(VariationErrors.SignatureFieldsNotAllowed, result.Error);
@@ -209,7 +209,7 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_InternalChange_WithoutSignatureFields_Succeeds_AndLeavesSignatureNull()
     {
-        var variation = InternalChange();
+        Variation variation = InternalChange();
         variation.Submit();
 
         Assert.True(variation.Approve(ActorId).IsSuccess);
@@ -226,22 +226,22 @@ public class VariationStateMachineTests
     public void RejectAndCancel_AreAvailableFromDraftAndSubmittedOnly()
     {
         // Legal from Draft.
-        var draftReject = InternalChange();
+        Variation draftReject = InternalChange();
         Assert.True(draftReject.Reject(ActorId, "no").IsSuccess);
         Assert.Equal(VariationStatus.Rejected, draftReject.Status);
         Assert.Equal(ActorId, draftReject.ApprovedById);
         Assert.Equal("no", draftReject.ResolutionNote);
 
-        var draftCancel = InternalChange();
+        Variation draftCancel = InternalChange();
         Assert.True(draftCancel.Cancel("withdrawn").IsSuccess);
         Assert.Equal(VariationStatus.Cancelled, draftCancel.Status);
 
         // Legal from Submitted.
-        var submittedReject = InternalChange();
+        Variation submittedReject = InternalChange();
         submittedReject.Submit();
         Assert.True(submittedReject.Reject(ActorId).IsSuccess);
 
-        var submittedCancel = InternalChange();
+        Variation submittedCancel = InternalChange();
         submittedCancel.Submit();
         Assert.True(submittedCancel.Cancel().IsSuccess);
     }
@@ -251,15 +251,15 @@ public class VariationStateMachineTests
     [Fact]
     public void RejectAndCancel_AreRefusedFromEveryTerminalState()
     {
-        foreach (var makeTerminal in TerminalFactories())
+        foreach (Func<Variation> makeTerminal in TerminalFactories())
         {
-            var forReject = makeTerminal();
-            var reject = forReject.Reject(ActorId);
+            Variation forReject = makeTerminal();
+            Result reject = forReject.Reject(ActorId);
             Assert.True(reject.IsFailure);
             Assert.Equal(VariationErrors.InvalidStatusTransition, reject.Error);
 
-            var forCancel = makeTerminal();
-            var cancel = forCancel.Cancel();
+            Variation forCancel = makeTerminal();
+            Result cancel = forCancel.Cancel();
             Assert.True(cancel.IsFailure);
             Assert.Equal(VariationErrors.InvalidStatusTransition, cancel.Error);
         }
@@ -270,7 +270,7 @@ public class VariationStateMachineTests
     [Fact]
     public void MarkApplied_FromApproved_Succeeds()
     {
-        var variation = InternalChange();
+        Variation variation = InternalChange();
         variation.Submit();
         variation.Approve(ActorId);
 
@@ -283,12 +283,12 @@ public class VariationStateMachineTests
     [Fact]
     public void MarkApplied_IsNotRepeatable()
     {
-        var variation = InternalChange();
+        Variation variation = InternalChange();
         variation.Submit();
         variation.Approve(ActorId);
         variation.MarkApplied();
 
-        var again = variation.MarkApplied();
+        Result again = variation.MarkApplied();
 
         Assert.True(again.IsFailure);
         Assert.Equal(VariationErrors.NotApproved, again.Error);
@@ -298,18 +298,18 @@ public class VariationStateMachineTests
     [Fact]
     public void MarkApplied_FromAnyNonApprovedState_FailsWithNotApproved()
     {
-        var draft = InternalChange();
+        Variation draft = InternalChange();
         Assert.Equal(VariationErrors.NotApproved, draft.MarkApplied().Error);
 
-        var submitted = InternalChange();
+        Variation submitted = InternalChange();
         submitted.Submit();
         Assert.Equal(VariationErrors.NotApproved, submitted.MarkApplied().Error);
 
-        var rejected = InternalChange();
+        Variation rejected = InternalChange();
         rejected.Reject(ActorId);
         Assert.Equal(VariationErrors.NotApproved, rejected.MarkApplied().Error);
 
-        var cancelled = InternalChange();
+        Variation cancelled = InternalChange();
         cancelled.Cancel();
         Assert.Equal(VariationErrors.NotApproved, cancelled.MarkApplied().Error);
     }
@@ -319,10 +319,10 @@ public class VariationStateMachineTests
     [Fact]
     public void Approve_IsRefusedFromEveryTerminalState()
     {
-        foreach (var makeTerminal in TerminalFactories())
+        foreach (Func<Variation> makeTerminal in TerminalFactories())
         {
-            var variation = makeTerminal();
-            var result = variation.Approve(ActorId, ClientId, "s3://x.pdf");
+            Variation variation = makeTerminal();
+            Result result = variation.Approve(ActorId, ClientId, "s3://x.pdf");
 
             Assert.True(result.IsFailure);
             Assert.Equal(VariationErrors.InvalidStatusTransition, result.Error);
@@ -333,14 +333,14 @@ public class VariationStateMachineTests
     {
         yield return () =>
         {
-            var v = InternalChange();
+            Variation v = InternalChange();
             v.Submit();
             v.Approve(ActorId);
             return v;                       // Approved
         };
         yield return () =>
         {
-            var v = InternalChange();
+            Variation v = InternalChange();
             v.Submit();
             v.Approve(ActorId);
             v.MarkApplied();
@@ -348,13 +348,13 @@ public class VariationStateMachineTests
         };
         yield return () =>
         {
-            var v = InternalChange();
+            Variation v = InternalChange();
             v.Reject(ActorId);
             return v;                       // Rejected
         };
         yield return () =>
         {
-            var v = InternalChange();
+            Variation v = InternalChange();
             v.Cancel();
             return v;                       // Cancelled
         };

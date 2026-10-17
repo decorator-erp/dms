@@ -18,20 +18,22 @@ public sealed class SeedingTests(ApiFixture fixture)
         // Force the host (and its startup SeedAsync loop) to have run - ApiFixture.InitializeAsync
         // already builds Services, but issuing a real request is the least assumption-laden way to be
         // certain the host is fully up before querying its database directly.
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
         await client.GetAsync("/health");
 
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
 
-        await using var command = connection.CreateCommand();
+        await using NpgsqlCommand command = connection.CreateCommand();
         command.CommandText = "SELECT \"Name\" FROM identity.roles;";
 
         var seededRoles = new HashSet<string>();
-        await using (var reader = await command.ExecuteReaderAsync())
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync())
         {
             while (await reader.ReadAsync())
+            {
                 seededRoles.Add(reader.GetString(0));
+            }
         }
 
         // G9-14: "client" joins the other three - DefaultRoles.All's own remarks record why (CRM's

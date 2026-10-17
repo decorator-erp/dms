@@ -19,7 +19,7 @@ internal sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> log
         // Result to fail with. That exception type carries the framework's own correct StatusCode (413 for
         // a too-large body); forcing 500 for every exception, as this handler did before, was overriding a
         // status the framework had already determined correctly. Everything else still maps to 500.
-        var statusCode = exception is Microsoft.AspNetCore.Http.BadHttpRequestException badHttpRequest
+        int statusCode = exception is Microsoft.AspNetCore.Http.BadHttpRequestException badHttpRequest
             ? badHttpRequest.StatusCode
             : StatusCodes.Status500InternalServerError;
 

@@ -21,30 +21,32 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task GetPermissions_ContainsAllCrmModulePermissionStrings()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/permissions");
+        HttpResponseMessage response = await client.GetAsync("/api/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        List<ModulePermissionSet>? modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
         Assert.NotNull(modules);
 
-        var crmModule = Assert.Single(modules!, m => m.Module == "Crm");
+        ModulePermissionSet crmModule = Assert.Single(modules!, m => m.Module == "Crm");
         // The full 56, not a sample - CrmPermissions.All is the one list CrmModule registers and this
         // is the assertion that number can never silently drift from the constants again.
         Assert.Equal(CrmPermissions.All.Count, crmModule.Permissions.Count);
-        foreach (var permission in CrmPermissions.All)
+        foreach (string permission in CrmPermissions.All)
+        {
             Assert.Contains(permission, crmModule.Permissions);
+        }
     }
 
     [Fact]
     public async Task GetLeads_Unauthenticated_Returns401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/api/crm/leads");
+        HttpResponseMessage response = await client.GetAsync("/api/crm/leads");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -72,14 +74,14 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task Boot_RegistersExactlyNineModules()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), IdentityPermissions.PermissionsManage);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/permissions");
+        HttpResponseMessage response = await client.GetAsync("/api/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
+        List<ModulePermissionSet>? modules = await response.Content.ReadFromJsonAsync<List<ModulePermissionSet>>();
         Assert.NotNull(modules);
 
         Assert.Equal(
@@ -98,12 +100,12 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task OpenApiDocument_ListsTheNewMeetingRoutes()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/openapi/v1.json");
+        HttpResponseMessage response = await client.GetAsync("/openapi/v1.json");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var document = await response.Content.ReadAsStringAsync();
+        string document = await response.Content.ReadAsStringAsync();
         Assert.Contains("/api/crm/meetings/propose", document);
         Assert.Contains("/api/crm/meetings/{meetingId}/reschedule", document);
         Assert.Contains("/api/crm/meetings/free-slots", document);
@@ -133,10 +135,10 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     [Fact]
     public async Task SubmitPublicLead_FirstOfSixIsReachable_SixthTripsTheRateLimit()
     {
-        var client = fixture.CreateClient();
-        var suffix = Guid.NewGuid().ToString("N");
+        HttpClient client = fixture.CreateClient();
+        string suffix = Guid.NewGuid().ToString("N");
 
-        var first = await client.PostAsJsonAsync("/api/crm/public/leads", new
+        HttpResponseMessage first = await client.PostAsJsonAsync("/api/crm/public/leads", new
         {
             FirstName = "Anon",
             LastName = $"Prospect-{suffix}",
@@ -145,7 +147,7 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
 
         HttpResponseMessage? last = null;
-        for (var i = 0; i < 5; i++)
+        for (int i = 0; i < 5; i++)
         {
             last = await client.PostAsJsonAsync("/api/crm/public/leads", new
             {

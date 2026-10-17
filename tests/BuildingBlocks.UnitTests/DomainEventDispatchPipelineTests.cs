@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SharedKernel;
 using Xunit;
 
 namespace BuildingBlocks.UnitTests;
@@ -34,11 +35,11 @@ public class DomainEventDispatchPipelineTests
     public async Task SuccessfulCommand_DispatchesRaisedDomainEvent()
     {
         var tracker = new CallTracker();
-        await using var provider = BuildProvider(tracker);
-        using var scope = provider.CreateScope();
-        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseEventCommand>>();
+        await using ServiceProvider provider = BuildProvider(tracker);
+        using IServiceScope scope = provider.CreateScope();
+        ICommandHandler<RaiseEventCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseEventCommand>>();
 
-        var result = await handler.HandleAsync(new RaiseEventCommand(ShouldSucceed: true));
+        Result result = await handler.HandleAsync(new RaiseEventCommand(ShouldSucceed: true));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, tracker.DomainEventHandlerCalls);
@@ -48,11 +49,11 @@ public class DomainEventDispatchPipelineTests
     public async Task FailedCommand_DoesNotDispatchTheEventItRaised()
     {
         var tracker = new CallTracker();
-        await using var provider = BuildProvider(tracker);
-        using var scope = provider.CreateScope();
-        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseEventCommand>>();
+        await using ServiceProvider provider = BuildProvider(tracker);
+        using IServiceScope scope = provider.CreateScope();
+        ICommandHandler<RaiseEventCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RaiseEventCommand>>();
 
-        var result = await handler.HandleAsync(new RaiseEventCommand(ShouldSucceed: false));
+        Result result = await handler.HandleAsync(new RaiseEventCommand(ShouldSucceed: false));
 
         Assert.True(result.IsFailure);
         Assert.Equal(0, tracker.DomainEventHandlerCalls);

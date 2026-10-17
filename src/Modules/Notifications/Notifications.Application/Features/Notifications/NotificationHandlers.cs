@@ -22,19 +22,21 @@ internal sealed class GetMyNotificationsQueryHandler(NotificationsDbContext db)
     public async Task<Result<PagedResult<NotificationResponse>>> HandleAsync(
         GetMyNotificationsQuery query, CancellationToken ct = default)
     {
-        var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
+        int pageSize = Math.Clamp(query.PageSize, 1, 100);
 
-        var rows = db.Notifications
+        IQueryable<Notification> rows = db.Notifications
             .AsNoTracking()
             .Where(n => n.RecipientUserId == query.RecipientUserId && n.IsActive);
 
         if (query.UnreadOnly)
+        {
             rows = rows.Where(n => n.ReadAtUtc == null);
+        }
 
-        var total = await rows.CountAsync(ct);
+        int total = await rows.CountAsync(ct);
 
-        var items = await rows
+        List<NotificationResponse> items = await rows
             .OrderByDescending(n => n.CreatedAtUtc)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
@@ -73,11 +75,13 @@ internal sealed class MarkNotificationReadCommandHandler(NotificationsDbContext 
 {
     public async Task<Result> HandleAsync(MarkNotificationReadCommand command, CancellationToken ct = default)
     {
-        var notification = await db.Notifications.FirstOrDefaultAsync(
+        Notification? notification = await db.Notifications.FirstOrDefaultAsync(
             n => n.Id == command.NotificationId && n.RecipientUserId == command.RecipientUserId, ct);
 
         if (notification is null)
+        {
             return NotificationErrors.NotFound;
+        }
 
         notification.MarkRead(timeProvider.GetUtcNow().UtcDateTime);
         await db.SaveChangesAsync(ct);
@@ -91,14 +95,16 @@ internal sealed class MarkAllNotificationsReadCommandHandler(NotificationsDbCont
 {
     public async Task<Result> HandleAsync(MarkAllNotificationsReadCommand command, CancellationToken ct = default)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
 
-        var unread = await db.Notifications
+        List<Notification> unread = await db.Notifications
             .Where(n => n.RecipientUserId == command.RecipientUserId && n.ReadAtUtc == null && n.IsActive)
             .ToListAsync(ct);
 
-        foreach (var notification in unread)
+        foreach (Notification? notification in unread)
+        {
             notification.MarkRead(now);
+        }
 
         await db.SaveChangesAsync(ct);
 

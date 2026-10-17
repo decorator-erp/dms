@@ -2,13 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BuildingBlocks.Events;
+using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Hr.Contracts;
 using Hr.Contracts.Employees;
-using Identity.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using SharedKernel;
 using Xunit;
 
 namespace Integration.Tests;
@@ -40,8 +41,7 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
     [Fact]
     public async Task EmployeeHired_PreviouslySilent_NowNotifiesTheNewEmployee_ThroughTheOutbox()
     {
-        var appUserId = await RegisterUserAsync();
-        var employeeId = await CreateEmployeeAsync(appUserId);
+        (Guid employeeId, string appUserId) = await CreateEmployeeAsync("consumer");
 
         Assert.Equal(0, await CountNotificationsAsync(appUserId));
         Assert.True(await HasUnprocessedOutboxMessageAsync(nameof(EmployeeHiredIntegrationEvent)),
@@ -65,14 +65,13 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
     [Fact]
     public async Task DrainingTheOutboxTwice_DoesNotDuplicateTheNotification()
     {
-        var appUserId = await RegisterUserAsync();
-        await CreateEmployeeAsync(appUserId);
+        (_, string appUserId) = await CreateEmployeeAsync("consumer-dedupe");
 
         await DrainOutboxAsync();
-        var afterFirstDrain = await CountNotificationsAsync(appUserId);
+        int afterFirstDrain = await CountNotificationsAsync(appUserId);
 
         await DrainOutboxAsync();
-        var afterSecondDrain = await CountNotificationsAsync(appUserId);
+        int afterSecondDrain = await CountNotificationsAsync(appUserId);
 
         Assert.Equal(1, afterFirstDrain);
         Assert.Equal(afterFirstDrain, afterSecondDrain);
@@ -102,9 +101,9 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
     [InlineData(typeof(Sites.Contracts.SiteApprovedIntegrationEvent))]
     public void EveryNotifyingEvent_HasAtLeastOneRegisteredHandler(Type eventType)
     {
-        using var scope = fixture.Services.CreateScope();
+        using IServiceScope scope = fixture.Services.CreateScope();
 
-        var handlerType = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
+        Type handlerType = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
         var handlers = scope.ServiceProvider.GetServices(handlerType).ToList();
 
         Assert.True(handlers.Count > 0,
@@ -133,13 +132,13 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
         //
         // The second failure mode was real: see NotificationHandlerNamesFor for what the DI route
         // actually returned, and why this now scans types instead.
-        var wiredHandlers = NotificationHandlerNamesFor(typeof(EmployeeHiredIntegrationEvent));
+        List<string> wiredHandlers = NotificationHandlerNamesFor(typeof(EmployeeHiredIntegrationEvent));
         Assert.True(wiredHandlers.Count > 0,
             "The positive control failed: EmployeeHiredIntegrationEvent has no handler class whose name "
             + "contains 'Notification', so the four absence assertions below prove nothing. Either the "
             + "assembly scan or the name filter is broken.");
 
-        var handlerNames = NotificationHandlerNamesFor(eventType);
+        List<string> handlerNames = NotificationHandlerNamesFor(eventType);
 
         Assert.True(handlerNames.Count == 0,
             $"{eventType.Name} was recorded as deliberately silent at N1-06 but now has a notification "
@@ -164,7 +163,7 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
     /// </summary>
     private static List<string> NotificationHandlerNamesFor(Type eventType)
     {
-        var handlerInterface = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
+        Type handlerInterface = typeof(IIntegrationEventHandler<>).MakeGenericType(eventType);
 
         return [.. HandlerAssemblies.Value
             .SelectMany(a => a.GetTypes())
@@ -188,32 +187,18 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
 
     private async Task DrainOutboxAsync()
     {
-        var processor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        OutboxProcessor processor = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
         await processor.ProcessPendingAsync(CancellationToken.None);
     }
 
-    private async Task<string> RegisterUserAsync()
-    {
-        var client = fixture.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
-            $"consumer-{Guid.NewGuid():N}@example.com", "P@ssw0rd123!", "Event", "Consumer", null, "employee"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    private Task<string> RegisterUserAsync() =>
+        IdentityTestSeeding.ProvisionActiveUserAsync(
+            fixture, $"consumer-{Guid.NewGuid():N}@example.com", firstName: "Event", lastName: "Consumer");
 
-        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("userId").GetString()!;
-    }
-
-    private async Task<Guid> CreateEmployeeAsync(string appUserId)
-    {
-        await using var scope = fixture.Services.CreateAsyncScope();
-        var handler = scope.ServiceProvider
-            .GetRequiredService<BuildingBlocks.Messaging.ICommandHandler<CreateEmployeeCommand, Guid>>();
-
-        var result = await handler.HandleAsync(
-            new CreateEmployeeCommand(appUserId, "Engineer", DateOnly.FromDateTime(DateTime.UtcNow), "FullTime"));
-
-        Assert.True(result.IsSuccess, $"Creating an employee failed: {result.Error?.Description}");
-        return result.Value;
-    }
+    /// <summary>Hiring provisions the login too, so this no longer takes an <c>appUserId</c> — it
+    /// returns the one HR created.</summary>
+    private Task<(Guid EmployeeId, string AppUserId)> CreateEmployeeAsync(string emailPrefix) =>
+        HrTestSeeding.HireEmployeeAsync(fixture, $"{emailPrefix}-{Guid.NewGuid():N}@example.com");
 
     private async Task<bool> HasUnprocessedOutboxMessageAsync(string eventTypeName)
     {
@@ -253,9 +238,11 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
         command.Parameters.AddWithValue("id", recipientUserId);
 
         var keys = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
+        {
             keys.Add(reader.GetString(0));
+        }
 
         keys.Sort(StringComparer.Ordinal);
         return keys;

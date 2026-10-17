@@ -20,9 +20,11 @@ internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result> HandleAsync(UpdateCrmClientNoteCommand command, CancellationToken ct = default)
     {
-        var note = await db.CrmClientNotes.FindAsync([command.NoteId], ct);
+        CrmClientNote? note = await db.CrmClientNotes.FindAsync([command.NoteId], ct);
         if (note is null)
+        {
             return CrmClientNoteErrors.NotFound;
+        }
 
         note.Update(command.Content);
         await db.SaveChangesAsync(ct);

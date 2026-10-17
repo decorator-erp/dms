@@ -1,4 +1,5 @@
 using Finance.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Finance.UnitTests;
@@ -22,7 +23,7 @@ public class InvoiceTests
     [InlineData("   ")]
     public void Create_WithoutANumber_FailsWithNumberRequired(string number)
     {
-        var result = Invoice.Create(number, ProjectId, InvoiceType.ClientInvoice, Issued, clientId: ClientId);
+        Result<Invoice> result = Invoice.Create(number, ProjectId, InvoiceType.ClientInvoice, Issued, clientId: ClientId);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceErrors.NumberRequired, result.Error);
@@ -31,7 +32,7 @@ public class InvoiceTests
     [Fact]
     public void ClientInvoice_RequiresAClient()
     {
-        var result = Invoice.Create("INV-1", ProjectId, InvoiceType.ClientInvoice, Issued);
+        Result<Invoice> result = Invoice.Create("INV-1", ProjectId, InvoiceType.ClientInvoice, Issued);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceErrors.ClientRequired, result.Error);
@@ -40,9 +41,9 @@ public class InvoiceTests
     [Fact]
     public void VendorInvoice_RequiresAVendorName()
     {
-        foreach (var vendor in new[] { null, "", "   " })
+        foreach (string? vendor in new[] { null, "", "   " })
         {
-            var result = Invoice.Create("INV-1", ProjectId, InvoiceType.VendorInvoice, Issued, vendorName: vendor);
+            Result<Invoice> result = Invoice.Create("INV-1", ProjectId, InvoiceType.VendorInvoice, Issued, vendorName: vendor);
 
             Assert.True(result.IsFailure);
             Assert.Equal(InvoiceErrors.VendorRequired, result.Error);
@@ -54,7 +55,7 @@ public class InvoiceTests
     [Fact]
     public void Create_StartsOpenAndUnpaid()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
 
         Assert.Equal(InvoiceStatus.Open, invoice.Status);
         Assert.Equal(0m, invoice.TotalAmount);
@@ -68,7 +69,7 @@ public class InvoiceTests
     [Fact]
     public void ApplyPayment_ReducesTheBalance_AndFlipsToPaidWhenItReachesZero()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(1000m);
 
         Assert.True(invoice.ApplyPayment(400m).IsSuccess);
@@ -92,10 +93,10 @@ public class InvoiceTests
     [InlineData(-1)]
     public void ApplyPayment_OutsideTheBalance_FailsWithOverAllocation(decimal amount)
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(1000m);
 
-        var result = invoice.ApplyPayment(amount);
+        Result result = invoice.ApplyPayment(amount);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceErrors.OverAllocation, result.Error);
@@ -105,11 +106,11 @@ public class InvoiceTests
     [Fact]
     public void ApplyPayment_ToAPaidInvoice_FailsWithNotPayable()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(100m);
         invoice.ApplyPayment(100m);
 
-        var result = invoice.ApplyPayment(1m);
+        Result result = invoice.ApplyPayment(1m);
 
         // NotPayable, not OverAllocation: the status guard runs first, and conflating the two would
         // hide a status bug behind an amount assertion.
@@ -120,7 +121,7 @@ public class InvoiceTests
     [Fact]
     public void ApplyPayment_ToACancelledInvoice_FailsWithNotPayable()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(100m);
         invoice.Cancel();
 
@@ -132,7 +133,7 @@ public class InvoiceTests
     [Fact]
     public void Cancel_AnUntouchedInvoice_Succeeds()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(100m);
 
         Assert.True(invoice.Cancel().IsSuccess);
@@ -144,11 +145,11 @@ public class InvoiceTests
     [Fact]
     public void Cancel_APartPaidInvoice_FailsWithInvalidStatusTransition()
     {
-        var invoice = ClientInvoice();
+        Invoice invoice = ClientInvoice();
         invoice.SetTotal(1000m);
         invoice.ApplyPayment(1m);
 
-        var result = invoice.Cancel();
+        Result result = invoice.Cancel();
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceErrors.InvalidStatusTransition, result.Error);
@@ -158,11 +159,11 @@ public class InvoiceTests
     [Fact]
     public void Cancel_IsNotRepeatable_AndAPaidInvoiceCannotBeCancelled()
     {
-        var cancelled = ClientInvoice();
+        Invoice cancelled = ClientInvoice();
         cancelled.Cancel();
         Assert.Equal(InvoiceErrors.InvalidStatusTransition, cancelled.Cancel().Error);
 
-        var paid = ClientInvoice();
+        Invoice paid = ClientInvoice();
         paid.SetTotal(50m);
         paid.ApplyPayment(50m);
         Assert.Equal(InvoiceErrors.InvalidStatusTransition, paid.Cancel().Error);
@@ -178,7 +179,7 @@ public class InvoiceLineTests
     [InlineData("   ")]
     public void Create_WithoutADescription_Fails(string description)
     {
-        var result = InvoiceLine.Create(InvoiceId, description, 1m, 10m);
+        Result<InvoiceLine> result = InvoiceLine.Create(InvoiceId, description, 1m, 10m);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceLineErrors.DescriptionRequired, result.Error);
@@ -189,7 +190,7 @@ public class InvoiceLineTests
     [InlineData(-1)]
     public void Create_WithNonPositiveQuantity_Fails(decimal quantity)
     {
-        var result = InvoiceLine.Create(InvoiceId, "Ply sheets", quantity, 10m);
+        Result<InvoiceLine> result = InvoiceLine.Create(InvoiceId, "Ply sheets", quantity, 10m);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceLineErrors.InvalidQuantity, result.Error);
@@ -201,7 +202,7 @@ public class InvoiceLineTests
     [Fact]
     public void Create_WithNegativeUnitPrice_FailsWithInvalidUnitPrice()
     {
-        var result = InvoiceLine.Create(InvoiceId, "Ply sheets", 1m, -0.0001m);
+        Result<InvoiceLine> result = InvoiceLine.Create(InvoiceId, "Ply sheets", 1m, -0.0001m);
 
         Assert.True(result.IsFailure);
         Assert.Equal(InvoiceLineErrors.InvalidUnitPrice, result.Error);
@@ -211,7 +212,7 @@ public class InvoiceLineTests
     [Fact]
     public void Create_WithZeroUnitPrice_Succeeds()
     {
-        var result = InvoiceLine.Create(InvoiceId, "Free sample", 2m, 0m);
+        Result<InvoiceLine> result = InvoiceLine.Create(InvoiceId, "Free sample", 2m, 0m);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(0m, result.Value!.LineTotal);
@@ -220,7 +221,7 @@ public class InvoiceLineTests
     [Fact]
     public void LineTotal_IsQuantityTimesUnitPrice()
     {
-        var line = InvoiceLine.Create(InvoiceId, "Ply sheets", 3m, 12.5m).Value!;
+        InvoiceLine line = InvoiceLine.Create(InvoiceId, "Ply sheets", 3m, 12.5m).Value!;
 
         Assert.Equal(37.5m, line.LineTotal);
     }
@@ -242,7 +243,7 @@ public class InvoiceLineTests
     [InlineData(0.00035, 0.0004)]
     public void LineTotal_RoundsToScale4_UsingBankersRounding(decimal unitPrice, decimal expected)
     {
-        var line = InvoiceLine.Create(InvoiceId, "Rounding probe", 1m, unitPrice).Value!;
+        InvoiceLine line = InvoiceLine.Create(InvoiceId, "Rounding probe", 1m, unitPrice).Value!;
 
         Assert.Equal(expected, line.LineTotal);
     }
@@ -251,7 +252,7 @@ public class InvoiceLineTests
     public void LineTotal_RoundsAProductThatExceedsScale4()
     {
         // 3 * 1.111111 = 3.333333 -> 3.3333
-        var line = InvoiceLine.Create(InvoiceId, "Ply sheets", 3m, 1.111111m).Value!;
+        InvoiceLine line = InvoiceLine.Create(InvoiceId, "Ply sheets", 3m, 1.111111m).Value!;
 
         Assert.Equal(3.3333m, line.LineTotal);
     }

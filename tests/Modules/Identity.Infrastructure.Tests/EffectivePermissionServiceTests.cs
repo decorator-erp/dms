@@ -14,10 +14,10 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
     [Fact]
     public async Task ResolveAsync_ReturnsRoleGrantedPermissions()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read", "departments.read");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read", "departments.read");
 
-        var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
+        IEnumerable<string> resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(user.Id);
 
         Assert.Equal(["employees.read", "departments.read"], resolved.ToHashSet());
@@ -26,14 +26,14 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
     [Fact]
     public async Task ResolveAsync_GrantOverride_AddsAPermissionNotOnTheRole()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
-        var db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
 
         db.UserPermissionOverrides.Add(UserPermissionOverride.Grant(user.Id, "roles.manage", "admin-1"));
         await db.SaveChangesAsync();
 
-        var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
+        IEnumerable<string> resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(user.Id);
 
         Assert.Contains("roles.manage", resolved);
@@ -43,15 +43,15 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
     [Fact]
     public async Task ResolveAsync_DenyOverride_RemovesAPermissionTheRoleGrants()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, _) = await TestDataBuilder.CreateUserInRoleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole _) = await TestDataBuilder.CreateUserInRoleAsync(
             scope.ServiceProvider, "employees.read", "employees.delete");
-        var db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
 
         db.UserPermissionOverrides.Add(UserPermissionOverride.Deny(user.Id, "employees.delete", "admin-1"));
         await db.SaveChangesAsync();
 
-        var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
+        IEnumerable<string> resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(user.Id);
 
         Assert.Contains("employees.read", resolved);
@@ -61,15 +61,15 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
     [Fact]
     public async Task ResolveAsync_ExpiredOverride_DoesNotApply()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
-        var db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole _) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
 
         db.UserPermissionOverrides.Add(
             UserPermissionOverride.Grant(user.Id, "roles.manage", "admin-1", expiresAt: DateTime.UtcNow.AddDays(-1)));
         await db.SaveChangesAsync();
 
-        var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
+        IEnumerable<string> resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(user.Id);
 
         // PC-03 liveness: the user's role grants employees.read, so an empty resolve would satisfy the
@@ -81,9 +81,9 @@ public sealed class EffectivePermissionServiceTests(IdentityInfrastructureFixtur
     [Fact]
     public async Task ResolveAsync_UnknownUser_ReturnsEmpty()
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
 
-        var resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
+        IEnumerable<string> resolved = await scope.ServiceProvider.GetRequiredService<IEffectivePermissionService>()
             .ResolveAsync(Guid.NewGuid().ToString());
 
         Assert.Empty(resolved);

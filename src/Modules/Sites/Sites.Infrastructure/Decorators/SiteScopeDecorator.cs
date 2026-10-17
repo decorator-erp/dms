@@ -35,15 +35,18 @@ internal static class SiteScopeDecorator
     private static async Task<Result> CheckAsync(
         ISiteScoped scoped, SitesDbContext db, IProjectAccessGuard guard, CancellationToken ct)
     {
-        var projectId = await db.Sites
+        Guid? projectId = await db.Sites
             .AsNoTracking()
             .Where(s => s.Id == scoped.SiteId)
             .Select(s => (Guid?)s.ProjectId)
             .FirstOrDefaultAsync(ct);
 
-        if (projectId is not { } project) return SiteErrors.NotFound;
+        if (projectId is not { } project)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var access = await guard.EnsureProjectAccessAsync(project, scoped.AppUserId, ct);
+        Result access = await guard.EnsureProjectAccessAsync(project, scoped.AppUserId, ct);
         return access.IsFailure ? SiteErrors.NotFound : Result.Success();
     }
 
@@ -54,7 +57,7 @@ internal static class SiteScopeDecorator
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var check = await CheckAsync(command, db, guard, ct);
+            Result check = await CheckAsync(command, db, guard, ct);
             return check.IsFailure ? check : await innerHandler.HandleAsync(command, ct);
         }
     }
@@ -66,7 +69,7 @@ internal static class SiteScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var check = await CheckAsync(command, db, guard, ct);
+            Result check = await CheckAsync(command, db, guard, ct);
             return check.IsFailure
                 ? Result.Failure<TResponse>(check.Error)
                 : await innerHandler.HandleAsync(command, ct);
@@ -80,7 +83,7 @@ internal static class SiteScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TQuery query, CancellationToken ct = default)
         {
-            var check = await CheckAsync(query, db, guard, ct);
+            Result check = await CheckAsync(query, db, guard, ct);
             return check.IsFailure
                 ? Result.Failure<TResponse>(check.Error)
                 : await innerHandler.HandleAsync(query, ct);

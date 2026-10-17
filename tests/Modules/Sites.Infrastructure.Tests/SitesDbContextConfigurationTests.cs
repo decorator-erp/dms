@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Sites.Infrastructure.Persistence;
 using Xunit;
 
@@ -20,7 +21,7 @@ public class SitesDbContextConfigurationTests
     private static SitesDbContext CreateContext()
     {
         // Syntactically valid but never connected to -- building the model opens no connection.
-        var options = new DbContextOptionsBuilder<SitesDbContext>()
+        DbContextOptions<SitesDbContext> options = new DbContextOptionsBuilder<SitesDbContext>()
             .UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused")
             .Options;
         return new SitesDbContext(options);
@@ -29,7 +30,7 @@ public class SitesDbContextConfigurationTests
     [Fact]
     public void SitesDbContext_HasExactlyEightDbSetProperties()
     {
-        var dbSetPropertyCount = typeof(SitesDbContext)
+        int dbSetPropertyCount = typeof(SitesDbContext)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Count(p => p.PropertyType.IsGenericType
                         && p.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
@@ -40,7 +41,7 @@ public class SitesDbContextConfigurationTests
     [Fact]
     public void Assembly_HasExactlyEightEntityTypeConfigurations()
     {
-        var configurationCount = typeof(SitesDbContext).Assembly.GetTypes()
+        int configurationCount = typeof(SitesDbContext).Assembly.GetTypes()
             .Count(t => t.GetInterfaces().Any(i =>
                 i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)));
 
@@ -55,9 +56,9 @@ public class SitesDbContextConfigurationTests
     [Fact]
     public void Model_ContainsExactlyTheEightSiteEntities()
     {
-        using var context = CreateContext();
+        using SitesDbContext context = CreateContext();
 
-        var entityNames = context.Model.GetEntityTypes()
+        string[] entityNames = context.Model.GetEntityTypes()
             .Select(e => e.ClrType.Name)
             .Where(n => n.StartsWith("Site", StringComparison.Ordinal))
             .OrderBy(n => n, StringComparer.Ordinal)
@@ -74,9 +75,9 @@ public class SitesDbContextConfigurationTests
     [Fact]
     public void EverySiteTableLivesInTheSitesSchema()
     {
-        using var context = CreateContext();
+        using SitesDbContext context = CreateContext();
 
-        var siteEntities = context.Model.GetEntityTypes()
+        IEntityType[] siteEntities = context.Model.GetEntityTypes()
             .Where(e => e.ClrType.Name.StartsWith("Site", StringComparison.Ordinal))
             .ToArray();
 
@@ -85,7 +86,7 @@ public class SitesDbContextConfigurationTests
         // compliance. The sibling test pins the exact eight; this one only needs to know it found them.
         Assert.Equal(EntityCount, siteEntities.Length);
 
-        var strays = siteEntities
+        string[] strays = siteEntities
             .Where(e => e.GetSchema() is not null and not "sites")
             .Select(e => $"{e.ClrType.Name} -> {e.GetSchema()}")
             .ToArray();
@@ -101,9 +102,9 @@ public class SitesDbContextConfigurationTests
     [Fact]
     public void SiteRecordValue_IsKeyedByTheRecordItemPair()
     {
-        using var context = CreateContext();
+        using SitesDbContext context = CreateContext();
 
-        var key = context.Model.FindEntityType(typeof(Domain.SiteRecordValue))!.FindPrimaryKey()!;
+        IKey key = context.Model.FindEntityType(typeof(Domain.SiteRecordValue))!.FindPrimaryKey()!;
 
         Assert.Equal(["RecordId", "ItemId"], key.Properties.Select(p => p.Name));
         Assert.Equal("pk_site_record_values", key.GetName());

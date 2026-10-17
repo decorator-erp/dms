@@ -29,30 +29,48 @@ internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceRe
     public async Task<Result<Guid>> HandleAsync(
         AddSiteRecordCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
+
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
 
         if (!await db.SiteModules.AnyAsync(m => m.Id == command.Request.ModuleId, ct))
+        {
             return SiteErrors.ModuleNotFound;
+        }
 
-        var space = await SiteWrites.ValidateSpaceAsync(
+        Result space = await SiteWrites.ValidateSpaceAsync(
             spaces, command.Request.SpaceId, site.ProjectId, ct);
-        if (space.IsFailure) return space.Error;
+        if (space.IsFailure)
+        {
+            return space.Error;
+        }
 
-        var label = await SiteRecordWrites.EnsureLabelFreeAsync(
+        Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
             db, command.SiteId, command.Request.ModuleId, command.Request.Label, null, ct);
-        if (label.IsFailure) return label.Error;
+        if (label.IsFailure)
+        {
+            return label.Error;
+        }
 
-        var record = SiteRecord.Create(
+        Result<SiteRecord> record = SiteRecord.Create(
             command.SiteId, command.Request.ModuleId, command.Request.Label, command.Request.SpaceId,
             command.Request.CatalogItemId, command.Request.SortOrder, command.Request.Note);
 
-        if (record.IsFailure) return record.Error;
+        if (record.IsFailure)
+        {
+            return record.Error;
+        }
 
         db.SiteRecords.Add(record.Value!);
 
-        var saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveAsync(db, ct);
         return saved.IsFailure ? saved.Error : record.Value!.Id;
     }
 }
@@ -76,23 +94,35 @@ internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpac
 {
     public async Task<Result> HandleAsync(UpdateSiteRecordCommand command, CancellationToken ct = default)
     {
-        var loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
-        if (loaded.IsFailure) return loaded.Error;
+        Result<(Site Site, SiteRecord Record)> loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
+        if (loaded.IsFailure)
+        {
+            return loaded.Error;
+        }
 
-        var (site, record) = loaded.Value;
+        (Site? site, SiteRecord? record) = loaded.Value;
 
-        var space = await SiteWrites.ValidateSpaceAsync(spaces, command.Request.SpaceId, site.ProjectId, ct);
-        if (space.IsFailure) return space;
+        Result space = await SiteWrites.ValidateSpaceAsync(spaces, command.Request.SpaceId, site.ProjectId, ct);
+        if (space.IsFailure)
+        {
+            return space;
+        }
 
-        var label = await SiteRecordWrites.EnsureLabelFreeAsync(
+        Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
             db, command.SiteId, record.ModuleId, command.Request.Label, record.Id, ct);
-        if (label.IsFailure) return label;
+        if (label.IsFailure)
+        {
+            return label;
+        }
 
-        var updated = record.Update(
+        Result updated = record.Update(
             command.Request.Label, command.Request.SpaceId, command.Request.CatalogItemId,
             command.Request.SortOrder, command.Request.Note);
 
-        if (updated.IsFailure) return updated;
+        if (updated.IsFailure)
+        {
+            return updated;
+        }
 
         return await SiteWrites.SaveAsync(db, ct);
     }
@@ -103,8 +133,11 @@ internal sealed class DeleteSiteRecordCommandHandler(SitesDbContext db)
 {
     public async Task<Result> HandleAsync(DeleteSiteRecordCommand command, CancellationToken ct = default)
     {
-        var loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
-        if (loaded.IsFailure) return loaded.Error;
+        Result<(Site Site, SiteRecord Record)> loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
+        if (loaded.IsFailure)
+        {
+            return loaded.Error;
+        }
 
         // Soft: the label frees for reuse because ux_site_records_label is partial on IsActive.
         loaded.Value.Record.Deactivate();
@@ -133,16 +166,22 @@ internal sealed class SetSiteRecordValuesCommandHandler(SitesDbContext db, ISite
     public async Task<Result> HandleAsync(
         SetSiteRecordValuesCommand command, CancellationToken ct = default)
     {
-        var loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
-        if (loaded.IsFailure) return loaded.Error;
+        Result<(Site Site, SiteRecord Record)> loaded = await SiteRecordWrites.LoadEditableAsync(db, command.SiteId, command.RecordId, ct);
+        if (loaded.IsFailure)
+        {
+            return loaded.Error;
+        }
 
-        var record = loaded.Value.Record;
+        SiteRecord record = loaded.Value.Record;
 
         // The module comes from the STORED record, never from the caller. Validating against a module the
         // caller named would answer someone who has no business knowing that module's shape -- and, worse,
         // would let them pick a module with no required fields to bypass required-field validation.
-        var validated = await validator.ValidateAsync(record.ModuleId, command.Request.Values, ct);
-        if (validated.IsFailure) return validated;
+        Result validated = await validator.ValidateAsync(record.ModuleId, command.Request.Values, ct);
+        if (validated.IsFailure)
+        {
+            return validated;
+        }
 
         return await SiteRecordWrites.ReplaceValuesAsync(db, record, command.Request.Values, ct);
     }
@@ -183,11 +222,18 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
     public async Task<Result> HandleAsync(
         BulkSaveSiteRecordsCommand command, CancellationToken ct = default)
     {
-        var site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
-        if (site is null) return SiteErrors.NotFound;
-        if (!site.IsEditable) return SiteErrors.SiteLocked;
+        Site? site = await SiteWrites.LoadForWriteAsync(db, command.SiteId, ct);
+        if (site is null)
+        {
+            return SiteErrors.NotFound;
+        }
 
-        var rows = command.Request.Records;
+        if (!site.IsEditable)
+        {
+            return SiteErrors.SiteLocked;
+        }
+
+        IReadOnlyList<BulkSiteRecordRequest> rows = command.Request.Records;
 
         // Defects B2 and B3. The backend validates each row against row.ModuleId -- the CLIENT's value --
         // and then writes against the stored record's module, because SiteRecord.Update cannot change it.
@@ -199,40 +245,52 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
         //
         // Resolved here, once: every row's module is the stored record's for updates and the request's
         // only for inserts. Everything downstream uses the resolved value.
-        var existingRecords = await LoadExistingAsync(db, command.SiteId, rows, ct);
+        Dictionary<Guid, SiteRecord> existingRecords = await LoadExistingAsync(db, command.SiteId, rows, ct);
 
         var resolved = new List<ResolvedRow>(rows.Count);
 
-        foreach (var row in rows)
+        foreach (BulkSiteRecordRequest row in rows)
         {
             if (row.RecordId is { } recordId)
             {
-                if (!existingRecords.TryGetValue(recordId, out var record))
+                if (!existingRecords.TryGetValue(recordId, out SiteRecord? record))
+                {
                     return SiteErrors.RecordNotFound;
+                }
 
                 resolved.Add(new ResolvedRow(row, record, record.ModuleId));
             }
             else
             {
-                if (row.ModuleId == Guid.Empty) return SiteErrors.InvalidData;
+                if (row.ModuleId == Guid.Empty)
+                {
+                    return SiteErrors.InvalidData;
+                }
+
                 resolved.Add(new ResolvedRow(row, null, row.ModuleId));
             }
         }
 
-        foreach (var row in resolved)
+        foreach (ResolvedRow row in resolved)
         {
-            var validated = await validator.ValidateAsync(row.ModuleId, row.Request.Values, ct);
-            if (validated.IsFailure) return validated;
+            Result validated = await validator.ValidateAsync(row.ModuleId, row.Request.Values, ct);
+            if (validated.IsFailure)
+            {
+                return validated;
+            }
         }
 
         // Two rows of one grid claiming the same label within a module. The stored-label check cannot see
         // it -- neither row is written yet -- so unguarded it reaches the unique index as an unhandled
         // write failure. Keyed on the RESOLVED module, per B3.
-        var duplicate = resolved
+        bool duplicate = resolved
             .GroupBy(r => (r.ModuleId, Label: r.Request.Label.Trim().ToLowerInvariant()))
             .Any(g => g.Count() > 1);
 
-        if (duplicate) return SiteErrors.LabelTaken;
+        if (duplicate)
+        {
+            return SiteErrors.LabelTaken;
+        }
 
         // No explicit transaction. Every record and every value is staged on the change tracker and
         // written by ONE SaveChangesAsync, which EF already wraps in a transaction -- so the grid is
@@ -242,31 +300,44 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
         // tracked entities removes the flush, the second pass, and the transaction together.
         var pending = new List<(SiteRecord Record, IReadOnlyList<SiteValueRequest> Values)>(resolved.Count);
 
-        foreach (var row in resolved)
+        foreach (ResolvedRow row in resolved)
         {
-            var space = await SiteWrites.ValidateSpaceAsync(spaces, row.Request.SpaceId, site.ProjectId, ct);
-            if (space.IsFailure) return space;
+            Result space = await SiteWrites.ValidateSpaceAsync(spaces, row.Request.SpaceId, site.ProjectId, ct);
+            if (space.IsFailure)
+            {
+                return space;
+            }
 
-            var stored = await SiteRecordWrites.EnsureLabelFreeAsync(
+            Result stored = await SiteRecordWrites.EnsureLabelFreeAsync(
                 db, command.SiteId, row.ModuleId, row.Request.Label, row.Existing?.Id, ct);
-            if (stored.IsFailure) return stored;
+            if (stored.IsFailure)
+            {
+                return stored;
+            }
 
             if (row.Existing is { } existing)
             {
-                var updated = existing.Update(
+                Result updated = existing.Update(
                     row.Request.Label, row.Request.SpaceId, row.Request.CatalogItemId,
                     row.Request.SortOrder, row.Request.Note);
 
-                if (updated.IsFailure) return updated;
+                if (updated.IsFailure)
+                {
+                    return updated;
+                }
+
                 pending.Add((existing, row.Request.Values));
             }
             else
             {
-                var created = SiteRecord.Create(
+                Result<SiteRecord> created = SiteRecord.Create(
                     command.SiteId, row.ModuleId, row.Request.Label, row.Request.SpaceId,
                     row.Request.CatalogItemId, row.Request.SortOrder, row.Request.Note);
 
-                if (created.IsFailure) return created.Error;
+                if (created.IsFailure)
+                {
+                    return created.Error;
+                }
 
                 db.SiteRecords.Add(created.Value!);
                 pending.Add((created.Value!, row.Request.Values));
@@ -275,10 +346,13 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
 
         // The records are tracked entities, so the value pass works from them directly. Ids are
         // client-generated UUIDv7, so a value can reference a record that has not been written yet.
-        foreach (var (record, values) in pending)
+        foreach ((SiteRecord? record, IReadOnlyList<SiteValueRequest>? values) in pending)
         {
-            var set = await SiteRecordWrites.StageValuesAsync(db, record, values, ct);
-            if (set.IsFailure) return set;
+            Result set = await SiteRecordWrites.StageValuesAsync(db, record, values, ct);
+            if (set.IsFailure)
+            {
+                return set;
+            }
         }
 
         // Nothing above this line has touched the database as a write. Every early return leaves the
@@ -292,7 +366,10 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
     {
         var ids = rows.Where(r => r.RecordId.HasValue).Select(r => r.RecordId!.Value).ToList();
 
-        if (ids.Count == 0) return [];
+        if (ids.Count == 0)
+        {
+            return [];
+        }
 
         // Scoped to the site: a record belonging to someone else's survey must not be findable here.
         return await db.SiteRecords

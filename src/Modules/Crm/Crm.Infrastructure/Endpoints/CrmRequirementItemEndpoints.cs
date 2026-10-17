@@ -8,6 +8,7 @@ using Crm.Contracts.Items;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -20,17 +21,19 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var byPeriod = app.MapGroup("/api/crm/periods/{periodId:guid}/items").WithTags("Crm Requirement Items");
+        RouteGroupBuilder byPeriod = app.MapGroup("/api/crm/periods/{periodId:guid}/items").WithTags("Crm Requirement Items");
 
         byPeriod.MapPost("/", async (
             Guid periodId, CreateItemRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<CreateCrmRequirementItemCommand, Guid> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(new CreateCrmRequirementItemCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateCrmRequirementItemCommand(
                 request.ProjectId, periodId, employeeId.Value, request.Category, request.Title, request.Priority,
                 request.SpaceTypeId, request.Room, request.Description, request.SourceType, request.MeetingId,
                 request.BriefId, request.NoteId, request.ProjectTaskId), ct);
@@ -41,7 +44,7 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
             Guid periodId, IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId), ct);
+            Result<IReadOnlyList<CrmRequirementItemResponse>> result = await handler.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Items.Read);
 
@@ -49,16 +52,16 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
             Guid taskId, IQueryHandler<GetCrmRequirementItemsByTaskQuery, IReadOnlyList<CrmRequirementItemResponse>> handler,
             CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmRequirementItemsByTaskQuery(taskId), ct);
+            Result<IReadOnlyList<CrmRequirementItemResponse>> result = await handler.HandleAsync(new GetCrmRequirementItemsByTaskQuery(taskId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).WithTags("Crm Requirement Items").RequirePermission(CrmPermissions.Items.Read);
 
-        var byId = app.MapGroup("/api/crm/requirement-items/{itemId:guid}").WithTags("Crm Requirement Items");
+        RouteGroupBuilder byId = app.MapGroup("/api/crm/requirement-items/{itemId:guid}").WithTags("Crm Requirement Items");
 
         byId.MapPut("/", async (
             Guid itemId, UpdateItemRequest request, ICommandHandler<UpdateCrmRequirementItemCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new UpdateCrmRequirementItemCommand(
+            Result result = await handler.HandleAsync(new UpdateCrmRequirementItemCommand(
                 itemId, request.Category, request.Title, request.Priority, request.SpaceTypeId, request.Room,
                 request.Description, request.SourceType, request.MeetingId, request.BriefId, request.NoteId,
                 request.ProjectTaskId), ct);
@@ -68,7 +71,7 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
         byId.MapPut("/send", async (
             Guid itemId, ICommandHandler<SendCrmRequirementItemCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SendCrmRequirementItemCommand(itemId), ct);
+            Result result = await handler.HandleAsync(new SendCrmRequirementItemCommand(itemId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Items.Send);
 
@@ -76,11 +79,13 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
             Guid itemId, SupersedeItemRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> handler, CancellationToken ct) =>
         {
-            var employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            Result<Guid> employeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
             if (employeeId.IsFailure)
+            {
                 return employeeId.ToProblem();
+            }
 
-            var result = await handler.HandleAsync(new SupersedeCrmRequirementItemCommand(
+            Result<Guid> result = await handler.HandleAsync(new SupersedeCrmRequirementItemCommand(
                 itemId, employeeId.Value, request.Category, request.Title, request.Priority, request.SpaceTypeId,
                 request.Room, request.Description, request.SourceType, request.MeetingId, request.BriefId,
                 request.NoteId, request.ProjectTaskId), ct);

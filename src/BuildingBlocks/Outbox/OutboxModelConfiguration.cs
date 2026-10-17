@@ -23,7 +23,9 @@ public static class OutboxModelConfiguration
             b.ToTable("outbox_messages", "shared", t =>
             {
                 if (!ownsMigration)
+                {
                     t.ExcludeFromMigrations();
+                }
             });
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
@@ -43,7 +45,9 @@ public static class OutboxModelConfiguration
             b.ToTable("inbox_messages", "shared", t =>
             {
                 if (!ownsMigration)
+                {
                     t.ExcludeFromMigrations();
+                }
             });
             b.HasKey(x => new { x.EventId, x.HandlerName });
             b.Property(x => x.EventId).HasColumnName("event_id");

@@ -13,9 +13,9 @@ public sealed class SmokeTests(ApiFixture fixture)
     [Fact]
     public async Task Health_Returns200()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/health");
+        HttpResponseMessage response = await client.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -23,9 +23,9 @@ public sealed class SmokeTests(ApiFixture fixture)
     [Fact]
     public async Task ProtectedRoute_WithoutToken_Returns401()
     {
-        var client = fixture.CreateClient();
+        HttpClient client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/api/me");
+        HttpResponseMessage response = await client.GetAsync("/api/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -33,11 +33,11 @@ public sealed class SmokeTests(ApiFixture fixture)
     [Fact]
     public async Task ProtectedRoute_WithValidTestToken_Returns200()
     {
-        var client = fixture.CreateClient();
-        var token = fixture.IssueTestToken("11111111-1111-1111-1111-111111111111");
+        HttpClient client = fixture.CreateClient();
+        string token = fixture.IssueTestToken("11111111-1111-1111-1111-111111111111");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var response = await client.GetAsync("/api/me");
+        HttpResponseMessage response = await client.GetAsync("/api/me");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

@@ -23,15 +23,18 @@ internal static class CatalogAttributeValueRules
         DateOnly? valueDate,
         Guid? optionId)
     {
-        var populated = (HasText(valueText) ? 1 : 0)
+        int populated = (HasText(valueText) ? 1 : 0)
             + (valueNumber.HasValue ? 1 : 0)
             + (valueBool.HasValue ? 1 : 0)
             + (valueDate.HasValue ? 1 : 0)
             + (optionId.HasValue ? 1 : 0);
 
-        if (populated != 1) return CrmCatalogErrors.AttributeTypeMismatch;
+        if (populated != 1)
+        {
+            return CrmCatalogErrors.AttributeTypeMismatch;
+        }
 
-        var matches = dataType switch
+        bool matches = dataType switch
         {
             CatalogAttributeType.Text => HasText(valueText),
             CatalogAttributeType.Number => valueNumber.HasValue,

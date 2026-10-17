@@ -19,9 +19,11 @@ internal sealed class DeleteClientCommandHandler(CrmDbContext db) : ICommandHand
 {
     public async Task<Result> HandleAsync(DeleteClientCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
         client.Deactivate();
         await db.SaveChangesAsync(ct);

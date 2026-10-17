@@ -30,13 +30,13 @@ internal sealed class LedgerScopes(FinanceDbContext db, IProjectDirectory projec
     /// <summary>Entries posted directly to the task, or to a budget line the task owns.</summary>
     public IQueryable<LedgerEntry> ForTask(Guid taskId)
     {
-        var budgetLineIds = db.BudgetLines
+        IQueryable<Guid> budgetLineIds = db.BudgetLines
             .Where(b => b.ProjectTaskId == taskId && b.IsActive)
             .Select(b => b.Id);
 
         return db.LedgerEntries.AsNoTracking().Where(e => e.IsActive && (
             e.ProjectTaskId == taskId
-            || (e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value))));
+            || e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value)));
     }
 
     /// <summary>
@@ -46,47 +46,51 @@ internal sealed class LedgerScopes(FinanceDbContext db, IProjectDirectory projec
     /// </summary>
     public async Task<IQueryable<LedgerEntry>?> ForStageAsync(Guid stageId, CancellationToken ct)
     {
-        var stage = await projects.GetStageAsync(stageId, ct);
+        StageSummary? stage = await projects.GetStageAsync(stageId, ct);
         if (stage is null)
+        {
             return null;
+        }
 
-        var stageTaskIds = await StageTaskIdsAsync(stage.ProjectId, stageId, ct);
+        Guid[] stageTaskIds = await StageTaskIdsAsync(stage.ProjectId, stageId, ct);
 
         // A task-scoped budget line always carries its task's stage -- CreateBudgetLineCommandHandler
         // refuses one that does not -- so the direct column covers both shapes here.
-        var budgetLineIds = db.BudgetLines
+        IQueryable<Guid> budgetLineIds = db.BudgetLines
             .Where(b => b.IsActive
                         && (b.ProjectStageId == stageId
-                            || (b.ProjectTaskId != null && stageTaskIds.Contains(b.ProjectTaskId.Value))))
+                            || b.ProjectTaskId != null && stageTaskIds.Contains(b.ProjectTaskId.Value)))
             .Select(b => b.Id);
 
         return db.LedgerEntries.AsNoTracking().Where(e => e.IsActive && (
             e.ProjectStageId == stageId
-            || (e.ProjectTaskId != null && stageTaskIds.Contains(e.ProjectTaskId.Value))
-            || (e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value))));
+            || e.ProjectTaskId != null && stageTaskIds.Contains(e.ProjectTaskId.Value)
+            || e.BudgetLineId != null && budgetLineIds.Contains(e.BudgetLineId.Value)));
     }
 
     /// <summary>The tasks of <paramref name="stageId"/> that Finance has any data for — see the
     /// type-level note for why that is the same set for every purpose here.</summary>
     public async Task<Guid[]> StageTaskIdsAsync(Guid projectId, Guid stageId, CancellationToken ct)
     {
-        var fromLedger = await db.LedgerEntries
+        List<Guid> fromLedger = await db.LedgerEntries
             .Where(e => e.ProjectId == projectId && e.IsActive && e.ProjectTaskId != null)
             .Select(e => e.ProjectTaskId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
-        var fromBudgetLines = await db.BudgetLines
+        List<Guid> fromBudgetLines = await db.BudgetLines
             .Where(b => b.ProjectId == projectId && b.IsActive && b.ProjectTaskId != null)
             .Select(b => b.ProjectTaskId!.Value)
             .Distinct()
             .ToListAsync(ct);
 
-        var candidates = fromLedger.Concat(fromBudgetLines).Distinct().ToArray();
+        Guid[] candidates = fromLedger.Concat(fromBudgetLines).Distinct().ToArray();
         if (candidates.Length == 0)
+        {
             return [];
+        }
 
-        var tasks = await projects.GetTasksAsync(candidates, ct);
+        IReadOnlyList<TaskSummary> tasks = await projects.GetTasksAsync(candidates, ct);
 
         return [.. tasks.Where(t => t.ProjectStageId == stageId).Select(t => t.Id)];
     }

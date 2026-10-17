@@ -11,7 +11,7 @@ internal sealed class IdentityModuleDbContextFactory : IDesignTimeDbContextFacto
 {
     public IdentityModuleDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<IdentityModuleDbContext>()
+        DbContextOptionsBuilder<IdentityModuleDbContext> builder = new DbContextOptionsBuilder<IdentityModuleDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new IdentityModuleDbContext(builder.Options);

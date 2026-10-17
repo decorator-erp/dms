@@ -7,6 +7,7 @@ using Crm.Contracts.Spaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Crm.Infrastructure.Endpoints;
 
@@ -18,12 +19,12 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var byProject = app.MapGroup("/api/crm/projects/{projectId:guid}/spaces").WithTags("Crm Spaces");
+        RouteGroupBuilder byProject = app.MapGroup("/api/crm/projects/{projectId:guid}/spaces").WithTags("Crm Spaces");
 
         byProject.MapPost("/", async (
             Guid projectId, CreateSpaceRequest request, ICommandHandler<CreateCrmSpaceCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new CreateCrmSpaceCommand(
+            Result<Guid> result = await handler.HandleAsync(new CreateCrmSpaceCommand(
                 projectId, request.SpaceTypeId, request.Name, request.SortOrder, request.Description), ct);
             return result.Match(id => Results.Created($"/api/crm/spaces/{id}", new { SpaceId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Manage);
@@ -31,16 +32,16 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
         byProject.MapGet("/", async (
             Guid projectId, IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new GetCrmSpacesByProjectQuery(projectId), ct);
+            Result<IReadOnlyList<CrmSpaceResponse>> result = await handler.HandleAsync(new GetCrmSpacesByProjectQuery(projectId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Read);
 
-        var byId = app.MapGroup("/api/crm/spaces/{spaceId:guid}").WithTags("Crm Spaces");
+        RouteGroupBuilder byId = app.MapGroup("/api/crm/spaces/{spaceId:guid}").WithTags("Crm Spaces");
 
         byId.MapPut("/", async (
             Guid spaceId, UpdateSpaceRequest request, ICommandHandler<UpdateCrmSpaceCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result result = await handler.HandleAsync(
                 new UpdateCrmSpaceCommand(spaceId, request.SpaceTypeId, request.Name, request.Description), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Manage);
@@ -48,7 +49,7 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
         byId.MapPut("/active", async (
             Guid spaceId, SetActiveRequest request, ICommandHandler<SetCrmSpaceActiveCommand> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(new SetCrmSpaceActiveCommand(spaceId, request.IsActive), ct);
+            Result result = await handler.HandleAsync(new SetCrmSpaceActiveCommand(spaceId, request.IsActive), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Manage);
     }

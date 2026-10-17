@@ -59,14 +59,16 @@ internal sealed class NotificationService(
         string? dedupeKey = null,
         CancellationToken ct = default)
     {
-        foreach (var recipientUserId in recipientUserIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal))
+        foreach (string? recipientUserId in recipientUserIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal))
         {
             // The SCOPED key -- "{logicalKey}:{recipientUserId}". Computed by the entity so this service
             // cannot scope it differently from Notification.Create, which is what actually stores it.
-            var storedKey = Notification.ScopeDedupeKey(dedupeKey, recipientUserId);
+            string? storedKey = Notification.ScopeDedupeKey(dedupeKey, recipientUserId);
 
             if (storedKey is not null && await dbContext.Notifications.AnyAsync(n => n.DedupeKey == storedKey, ct))
+            {
                 continue; // already delivered to this recipient - silently skip.
+            }
 
             var notification = Notification.Create(
                 recipientUserId, MapType(type), title, body, MapEntityType(entityType), entityId, dedupeKey);
@@ -98,7 +100,7 @@ internal sealed class NotificationService(
     {
         try
         {
-            var unreadCount = await dbContext.Notifications.CountAsync(
+            int unreadCount = await dbContext.Notifications.CountAsync(
                 n => n.RecipientUserId == notification.RecipientUserId && n.ReadAtUtc == null && n.IsActive, ct);
 
             await hubContext.Clients

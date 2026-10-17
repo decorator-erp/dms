@@ -30,9 +30,9 @@ internal sealed class StageDeadlineJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-        var windowStart = now.AddDays(-30);
-        var windowEnd = now.AddDays(5);
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime windowStart = now.AddDays(-30);
+        DateTime windowEnd = now.AddDays(5);
 
         var stages = await db.ProjectStages
             .AsNoTracking()
@@ -46,16 +46,18 @@ internal sealed class StageDeadlineJob(
         foreach (var stage in stages)
         {
             if (DeadlineTiers.MostRelevant(now, stage.Due, Tiers) is not { } tier)
+            {
                 continue;
+            }
 
-            var stageHeadId = await db.StageTeams
+            Guid? stageHeadId = await db.StageTeams
                 .AsNoTracking()
                 .Where(t => t.ProjectStageId == stage.Id && t.IsActive)
                 .OrderBy(t => t.CreatedAtUtc)
                 .Select(t => (Guid?)t.HeadId)
                 .FirstOrDefaultAsync(ct);
 
-            var ownerId = await db.Projects
+            Guid? ownerId = await db.Projects
                 .AsNoTracking()
                 .Where(p => p.Id == stage.ProjectId)
                 .Select(p => (Guid?)p.OwnerId)
@@ -63,15 +65,19 @@ internal sealed class StageDeadlineJob(
 
             Guid[] employeeIds = [.. new[] { stageHeadId, ownerId }.Where(id => id is not null).Select(id => id!.Value).Distinct()];
             if (employeeIds.Length == 0)
+            {
                 continue;
+            }
 
-            var employees = await hrDirectory.GetManyAsync(employeeIds, ct);
+            IReadOnlyList<EmployeeSummary> employees = await hrDirectory.GetManyAsync(employeeIds, ct);
             var targets = employees.Select(e => e.AppUserId)
                 .Where(id => !string.IsNullOrEmpty(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (targets.Count == 0)
+            {
                 continue;
+            }
 
             await notifications.NotifyManyAsync(
                 targets,

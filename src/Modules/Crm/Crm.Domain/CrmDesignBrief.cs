@@ -112,10 +112,14 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     {
         Apply(data);
         if (lastMeetingId is not null)
+        {
             LastMeetingId = lastMeetingId;
+        }
 
         if (Status != ApprovalState.Draft)
+        {
             Status = ApprovalState.PendingApproval;
+        }
 
         return Result.Success();
     }
@@ -123,7 +127,9 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     internal Result MarkPendingApproval()
     {
         if (Status == ApprovalState.PendingApproval)
+        {
             return Result.Success();
+        }
 
         Status = ApprovalState.PendingApproval;
         return Result.Success();
@@ -132,7 +138,9 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     internal Result MarkApproved()
     {
         if (Status != ApprovalState.PendingApproval)
+        {
             return CrmBriefErrors.NotPending;
+        }
 
         Status = ApprovalState.Approved;
         return Result.Success();
@@ -141,7 +149,9 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     internal Result MarkRejected()
     {
         if (Status != ApprovalState.PendingApproval)
+        {
             return CrmBriefErrors.NotPending;
+        }
 
         Status = ApprovalState.Rejected;
         return Result.Success();
@@ -155,7 +165,10 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         UnitType? residentialUnitType, UnitCondition? residentialUnitCondition,
         bool? residentialIsLicensed, bool? residentialIsRented, FinishingPurpose? residentialFinishingPurpose)
     {
-        if (Status != ApprovalState.Draft) return CrmBriefErrors.NotDraft;
+        if (Status != ApprovalState.Draft)
+        {
+            return CrmBriefErrors.NotDraft;
+        }
 
         Sector = sector;
         Address ??= unitAddress;
@@ -164,8 +177,16 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         DesignerExperience ??= designerExperience;
         DesignerExperienceReason ??= designerExperienceReason;
 
-        if (residentialUnitType is not null) UnitType = residentialUnitType.Value;
-        if (residentialUnitCondition is not null) UnitCondition = residentialUnitCondition.Value;
+        if (residentialUnitType is not null)
+        {
+            UnitType = residentialUnitType.Value;
+        }
+
+        if (residentialUnitCondition is not null)
+        {
+            UnitCondition = residentialUnitCondition.Value;
+        }
+
         IsLicensed ??= residentialIsLicensed;
         IsRented ??= residentialIsRented;
         FinishingPurpose ??= residentialFinishingPurpose;

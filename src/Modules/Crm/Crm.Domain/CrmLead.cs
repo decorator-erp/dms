@@ -41,7 +41,9 @@ internal sealed class CrmLead : Entity, IAuditable
         string? notes = null)
     {
         if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+        {
             return CrmLeadErrors.NameRequired;
+        }
 
         return new CrmLead
         {
@@ -61,10 +63,14 @@ internal sealed class CrmLead : Entity, IAuditable
         string? email, string? phone, string? notes)
     {
         if (Status == LeadStatus.Converted)
+        {
             return CrmLeadErrors.AlreadyConverted;
+        }
 
         if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+        {
             return CrmLeadErrors.NameRequired;
+        }
 
         FirstName = firstName;
         LastName = lastName;
@@ -79,11 +85,15 @@ internal sealed class CrmLead : Entity, IAuditable
     public Result ChangeStatus(LeadStatus status)
     {
         if (Status == LeadStatus.Converted)
+        {
             return CrmLeadErrors.AlreadyConverted;
+        }
 
         // Conversion happens only through Convert(), which links the client back.
         if (status == LeadStatus.Converted)
+        {
             return CrmLeadErrors.InvalidStatusTransition;
+        }
 
         Status = status;
         return Result.Success();
@@ -92,10 +102,14 @@ internal sealed class CrmLead : Entity, IAuditable
     public Result Convert(Guid clientId, DateTime? nowUtc = null)
     {
         if (Status == LeadStatus.Converted)
+        {
             return CrmLeadErrors.AlreadyConverted;
+        }
 
         if (clientId == Guid.Empty)
+        {
             return CrmLeadErrors.InvalidClientId;
+        }
 
         Status = LeadStatus.Converted;
         ConvertedClientId = clientId;

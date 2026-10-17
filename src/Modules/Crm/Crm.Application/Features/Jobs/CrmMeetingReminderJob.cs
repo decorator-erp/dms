@@ -38,10 +38,10 @@ internal sealed class CrmMeetingReminderJob(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-        var horizon = now.AddHours(24);
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        DateTime horizon = now.AddHours(24);
 
-        var upcoming = await db.CrmMeetings
+        List<CrmMeeting> upcoming = await db.CrmMeetings
             .Where(m => m.IsActive
                         && UpcomingStatuses.Contains(m.Status)
                         && m.ReminderSentAtUtc == null
@@ -50,9 +50,9 @@ internal sealed class CrmMeetingReminderJob(
                         && m.ScheduledAtUtc <= horizon)
             .ToListAsync(ct);
 
-        foreach (var meeting in upcoming)
+        foreach (CrmMeeting? meeting in upcoming)
         {
-            var targets = await ResolveRecipientsAsync(meeting, ct);
+            List<string> targets = await ResolveRecipientsAsync(meeting, ct);
 
             if (targets.Count > 0)
             {
@@ -77,12 +77,12 @@ internal sealed class CrmMeetingReminderJob(
 
     private async Task<List<string>> ResolveRecipientsAsync(CrmMeeting meeting, CancellationToken ct)
     {
-        var employee = meeting.RequestedByEmployeeId is { } employeeId
+        EmployeeSummary? employee = meeting.RequestedByEmployeeId is { } employeeId
             ? await hrDirectory.GetAsync(employeeId, ct)
             : null;
 
-        var project = await projectDirectory.GetProjectAsync(meeting.ProjectId, ct);
-        var client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(meeting.ProjectId, ct);
+        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
 
         string?[] candidates = [employee?.AppUserId, client?.AppUserId];
         return [.. candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!).Distinct(StringComparer.Ordinal)];

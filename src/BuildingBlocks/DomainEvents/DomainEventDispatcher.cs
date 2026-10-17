@@ -29,7 +29,7 @@ public sealed class DomainEventDispatcher<TContext>(
 
     public async Task DispatchAsync(CancellationToken ct = default)
     {
-        for (var iteration = 0; iteration < MaxIterations; iteration++)
+        for (int iteration = 0; iteration < MaxIterations; iteration++)
         {
             // Events come from two sources: aggregates tracked by EF (entity.AddDomainEvent) and the
             // scoped queue (set-based operations that don't load an aggregate instance).
@@ -39,34 +39,40 @@ public sealed class DomainEventDispatcher<TContext>(
                 .Select(e => e.Entity)
                 .ToList();
 
-            var queuedEvents = eventQueue.DrainAll();
+            IReadOnlyList<IDomainEvent> queuedEvents = eventQueue.DrainAll();
 
             if (entitiesWithEvents.Count == 0 && queuedEvents.Count == 0)
+            {
                 return;
+            }
 
             var domainEvents = entitiesWithEvents
                 .SelectMany(e => e.DomainEvents)
                 .Concat(queuedEvents)
                 .ToList();
 
-            foreach (var entity in entitiesWithEvents)
-                entity.ClearDomainEvents();
-
-            foreach (var domainEvent in domainEvents)
+            foreach (Entity? entity in entitiesWithEvents)
             {
-                var handlerType = typeof(IDomainEventHandler<>).MakeGenericType(domainEvent.GetType());
+                entity.ClearDomainEvents();
+            }
+
+            foreach (IDomainEvent? domainEvent in domainEvents)
+            {
+                Type handlerType = typeof(IDomainEventHandler<>).MakeGenericType(domainEvent.GetType());
 
                 // Invoke via the PUBLIC interface method, not `dynamic`: handlers commonly live as
                 // `internal` types in a module's Application assembly, and the dynamic binder (running
                 // from BuildingBlocks) can't see members on types it has no access to. Reflecting the
                 // interface method side-steps accessibility entirely.
-                var handleMethod = handlerType.GetMethod(nameof(IDomainEventHandler<IDomainEvent>.Handle))!;
-                var handlers = serviceProvider.GetServices(handlerType);
+                MethodInfo handleMethod = handlerType.GetMethod(nameof(IDomainEventHandler<IDomainEvent>.Handle))!;
+                IEnumerable<object?> handlers = serviceProvider.GetServices(handlerType);
 
-                foreach (var handler in handlers)
+                foreach (object? handler in handlers)
                 {
                     if (handler is null)
+                    {
                         continue;
+                    }
 
                     try
                     {
@@ -82,7 +88,9 @@ public sealed class DomainEventDispatcher<TContext>(
 
             // Handlers may resolve gates purely set-based (no tracked changes); skip the empty save.
             if (dbContext.ChangeTracker.HasChanges())
+            {
                 await dbContext.SaveChangesAsync(ct);
+            }
         }
 
         logger.LogWarning(

@@ -44,10 +44,10 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     public async Task PublishEvent_HandlerRunsOnce()
     {
         var counter = new CallCounter();
-        await using var provider = BuildProvider(counter, new FailureController());
+        await using ServiceProvider provider = BuildProvider(counter, new FailureController());
         var @event = new TestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IEventBus>()
                 .PublishAsync(@event, CancellationToken.None);
@@ -55,7 +55,7 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
 
         Assert.Equal(1, counter.Count);
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(1, await verify.SideEffects.CountAsync(x => x.EventId == @event.EventId));
     }
 
@@ -63,19 +63,19 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     public async Task PublishSameEventTwice_HandlerRunsOnce()
     {
         var counter = new CallCounter();
-        await using var provider = BuildProvider(counter, new FailureController());
+        await using ServiceProvider provider = BuildProvider(counter, new FailureController());
         var @event = new TestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        for (var i = 0; i < 2; i++)
+        for (int i = 0; i < 2; i++)
         {
-            await using var scope = provider.CreateAsyncScope();
+            await using AsyncServiceScope scope = provider.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<IEventBus>()
                 .PublishAsync(@event, CancellationToken.None);
         }
 
         Assert.Equal(1, counter.Count);
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(1, await verify.SideEffects.CountAsync(x => x.EventId == @event.EventId));
     }
 
@@ -92,16 +92,16 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     public async Task HandlerCommitsOwnWrite_RetryWithOutboxStillUnprocessed_DoesNotRepeatSideEffect()
     {
         var counter = new CallCounter();
-        await using var provider = BuildProvider(counter, new FailureController());
+        await using ServiceProvider provider = BuildProvider(counter, new FailureController());
         var @event = new TestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope1 = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope1 = provider.CreateAsyncScope())
         {
             await scope1.ServiceProvider.GetRequiredService<IEventBus>()
                 .PublishAsync(@event, CancellationToken.None);
         }
 
-        await using (var scope2 = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope2 = provider.CreateAsyncScope())
         {
             await scope2.ServiceProvider.GetRequiredService<IEventBus>()
                 .PublishAsync(@event, CancellationToken.None);
@@ -109,7 +109,7 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
 
         Assert.Equal(1, counter.Count);
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(1, await verify.SideEffects.CountAsync(x => x.EventId == @event.EventId));
     }
 
@@ -118,42 +118,42 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     {
         var counter = new CallCounter();
         var failure = new FailureController { FailNextCall = true };
-        await using var provider = BuildProvider(counter, failure);
+        await using ServiceProvider provider = BuildProvider(counter, failure);
         var @event = new TestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.Outbox().Enqueue(@event);
             await db.SaveChangesAsync();
         }
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<OutboxProcessor>()
                 .ProcessPendingAsync(CancellationToken.None);
         }
 
         Assert.Equal(1, counter.Count);
-        await using (var verify = OpenShared())
+        await using (SharedDbContext verify = OpenShared())
         {
-            var message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
+            OutboxMessage message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
             Assert.Null(message.ProcessedUtc);
             Assert.Equal(1, message.Attempts);
             Assert.NotNull(message.Error);
         }
 
         // FailNextCall was consumed (and reset) by the first, failing attempt — this one succeeds.
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<OutboxProcessor>()
                 .ProcessPendingAsync(CancellationToken.None);
         }
 
         Assert.Equal(2, counter.Count);
-        await using (var verify = OpenShared())
+        await using (SharedDbContext verify = OpenShared())
         {
-            var message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
+            OutboxMessage message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
             Assert.NotNull(message.ProcessedUtc);
         }
     }
@@ -161,24 +161,24 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     [Fact]
     public async Task EventWithNoHandler_MarkedProcessedOnFirstPass()
     {
-        await using var provider = BuildProvider(new CallCounter(), new FailureController());
+        await using ServiceProvider provider = BuildProvider(new CallCounter(), new FailureController());
         var @event = new UnhandledTestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
+            TestModuleDbContext db = scope.ServiceProvider.GetRequiredService<TestModuleDbContext>();
             db.Outbox().Enqueue(@event);
             await db.SaveChangesAsync();
         }
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<OutboxProcessor>()
                 .ProcessPendingAsync(CancellationToken.None);
         }
 
-        await using var verify = OpenShared();
-        var message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
+        await using SharedDbContext verify = OpenShared();
+        OutboxMessage message = await verify.OutboxMessages.SingleAsync(m => m.Id == @event.EventId);
         Assert.NotNull(message.ProcessedUtc);
         Assert.Equal(0, message.Attempts);
     }

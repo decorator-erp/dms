@@ -24,7 +24,7 @@ public class Rule3ModuleIsolationTests
     [Fact]
     public void Modules_MustNotReferenceEachOthersDomainApplicationOrInfrastructure()
     {
-        var layered = LayeredModuleAssemblies;
+        IReadOnlyList<Assembly> layered = LayeredModuleAssemblies;
 
         // PC-03 liveness: nine modules x three layered assemblies. An empty (or single-module) set
         // makes the `otherModuleAssemblyNames.Length == 0` continue below fire for every iteration,
@@ -32,19 +32,21 @@ public class Rule3ModuleIsolationTests
         Assert.True(layered.Count >= 27,
             $"Discovered only {layered.Count} layered module assemblies, expected at least 27.");
 
-        foreach (var assembly in layered)
+        foreach (Assembly assembly in layered)
         {
-            var ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
+            string ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
 
-            var otherModuleAssemblyNames = layered
+            string[] otherModuleAssemblyNames = layered
                 .Select(a => a.GetName().Name!)
                 .Where(name => ModuleAssemblies.ModuleOf(name) != ownModule)
                 .ToArray();
 
             if (otherModuleAssemblyNames.Length == 0)
+            {
                 continue;
+            }
 
-            var result = Types.InAssembly(assembly)
+            TestResult result = Types.InAssembly(assembly)
                 .ShouldNot()
                 .HaveDependencyOnAny(otherModuleAssemblyNames)
                 .GetResult();
@@ -60,9 +62,9 @@ public class Rule3ModuleIsolationTests
         Assert.True(LayeredModuleAssemblies.Count >= 27,
             $"Discovered only {LayeredModuleAssemblies.Count} layered module assemblies, expected at least 27.");
 
-        foreach (var assembly in LayeredModuleAssemblies)
+        foreach (Assembly assembly in LayeredModuleAssemblies)
         {
-            var ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
+            string ownModule = ModuleAssemblies.ModuleOf(assembly.GetName().Name!);
 
             var crossModuleGrants = assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
                 .Select(a => new AssemblyName(a.AssemblyName).Name!)

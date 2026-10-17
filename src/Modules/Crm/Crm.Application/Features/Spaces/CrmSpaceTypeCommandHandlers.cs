@@ -21,11 +21,13 @@ internal sealed class CreateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmSpaceTypeCommand command, CancellationToken ct = default)
     {
-        var result = CrmSpaceType.Create(command.Code, command.NameEn, command.NameAr, command.SortOrder);
+        Result<CrmSpaceType> result = CrmSpaceType.Create(command.Code, command.NameEn, command.NameAr, command.SortOrder);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var type = result.Value!;
+        CrmSpaceType type = result.Value!;
         db.CrmSpaceTypes.Add(type);
         await db.SaveChangesAsync(ct);
 
@@ -42,13 +44,17 @@ internal sealed class UpdateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(UpdateCrmSpaceTypeCommand command, CancellationToken ct = default)
     {
-        var type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
+        CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
+        {
             return CrmSpaceTypeErrors.CodeRequired;
+        }
 
-        var result = type.Update(command.NameEn, command.NameAr, command.SortOrder);
+        Result result = type.Update(command.NameEn, command.NameAr, command.SortOrder);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -65,11 +71,21 @@ internal sealed class SetCrmSpaceTypeActiveCommandHandler(CrmDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(SetCrmSpaceTypeActiveCommand command, CancellationToken ct = default)
     {
-        var type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
+        CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
+        {
             return CrmSpaceTypeErrors.CodeRequired;
+        }
 
-        if (command.IsActive) type.Activate(); else type.Deactivate();
+        if (command.IsActive)
+        {
+            type.Activate();
+        }
+        else
+        {
+            type.Deactivate();
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Result.Success();

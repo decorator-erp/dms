@@ -29,22 +29,26 @@ internal sealed class UploadProjectDocumentCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(UploadProjectDocumentCommand command, CancellationToken ct = default)
     {
-        var uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
+        Guid? uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
         if (uploadedById is null)
+        {
             return ProjectDocumentErrors.UploaderNotFound;
+        }
 
         if (command.FolderId is { } folderId)
         {
-            var folderExists = await db.DocumentFolders.AsNoTracking()
+            bool folderExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == folderId && f.ProjectId == command.ProjectId, ct);
             if (!folderExists)
+            {
                 return ProjectDocumentErrors.FolderScopeMismatch;
+            }
         }
 
-        var storagePath = await fileStorage.SaveAsync(
+        string storagePath = await fileStorage.SaveAsync(
             command.Content, command.FileName, $"projects/{command.ProjectId}", ct);
 
-        var documentResult = ProjectDocument.Create(
+        Result<ProjectDocument> documentResult = ProjectDocument.Create(
             command.ProjectId, command.FileName, storagePath, command.ContentType, command.FileSizeBytes,
             uploadedById.Value, command.FolderId, description: command.Description);
         if (documentResult.IsFailure)
@@ -53,7 +57,7 @@ internal sealed class UploadProjectDocumentCommandHandler(
             return Result.Failure<Guid>(documentResult.Error);
         }
 
-        var document = documentResult.Value!;
+        ProjectDocument document = documentResult.Value!;
         await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, document, ct);
 
         return document.Id;

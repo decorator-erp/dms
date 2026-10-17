@@ -21,7 +21,7 @@ public class PeriodicJobWorkerTests
     [Fact]
     public async Task RunAllJobs_WithNoRegisteredJobs_IsACleanNoOp()
     {
-        var worker = BuildWorker(new ServiceCollection());
+        PeriodicJobWorker worker = BuildWorker(new ServiceCollection());
 
         await worker.RunAllJobsAsync(CancellationToken.None);
     }
@@ -36,7 +36,7 @@ public class PeriodicJobWorkerTests
         services.AddScoped<IPeriodicJob, SecondJob>();
         services.AddScoped<IPeriodicJob, ThirdJob>();
 
-        var worker = BuildWorker(services);
+        PeriodicJobWorker worker = BuildWorker(services);
         await worker.RunAllJobsAsync(CancellationToken.None);
 
         // Ordinal-sorted so this asserts the SET, not the container's enumeration order — the ordering
@@ -62,7 +62,7 @@ public class PeriodicJobWorkerTests
         services.AddScoped<IPeriodicJob, ThrowingJob>();
         services.AddScoped<IPeriodicJob, SecondJob>();
 
-        var worker = BuildWorker(services);
+        PeriodicJobWorker worker = BuildWorker(services);
         await worker.RunAllJobsAsync(CancellationToken.None);
 
         Assert.Equal(
@@ -85,7 +85,7 @@ public class PeriodicJobWorkerTests
         services.AddScoped<IPeriodicJob, ScopeObservingJobA>();
         services.AddScoped<IPeriodicJob, ScopeObservingJobB>();
 
-        var worker = BuildWorker(services);
+        PeriodicJobWorker worker = BuildWorker(services);
         await worker.RunAllJobsAsync(CancellationToken.None);
 
         Assert.Equal(2, log.ObservedScopes.Count);
@@ -95,7 +95,7 @@ public class PeriodicJobWorkerTests
     [Fact]
     public void Interval_DefaultsToFifteenMinutes_WhenUnconfigured()
     {
-        var worker = BuildWorker(new ServiceCollection());
+        PeriodicJobWorker worker = BuildWorker(new ServiceCollection());
 
         Assert.Equal(TimeSpan.FromMinutes(15), worker.Interval);
     }
@@ -103,7 +103,7 @@ public class PeriodicJobWorkerTests
     [Fact]
     public void Interval_HonoursSweepMinutes_WhenConfiguredToAPositiveInteger()
     {
-        var worker = BuildWorker(new ServiceCollection(), sweepMinutes: "45");
+        PeriodicJobWorker worker = BuildWorker(new ServiceCollection(), sweepMinutes: "45");
 
         Assert.Equal(TimeSpan.FromMinutes(45), worker.Interval);
     }
@@ -121,7 +121,7 @@ public class PeriodicJobWorkerTests
     [InlineData("15.5")]
     public void Interval_FallsBackToTheDefault_WhenSweepMinutesIsNotAPositiveInteger(string configured)
     {
-        var worker = BuildWorker(new ServiceCollection(), sweepMinutes: configured);
+        PeriodicJobWorker worker = BuildWorker(new ServiceCollection(), sweepMinutes: configured);
 
         Assert.Equal(TimeSpan.FromMinutes(15), worker.Interval);
     }
@@ -129,9 +129,9 @@ public class PeriodicJobWorkerTests
     private static PeriodicJobWorker BuildWorker(IServiceCollection services, string? sweepMinutes = null)
     {
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
-        var provider = services.BuildServiceProvider();
+        ServiceProvider provider = services.BuildServiceProvider();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Notifications:SweepMinutes"] = sweepMinutes,
@@ -155,13 +155,17 @@ public class PeriodicJobWorkerTests
         public void Record(string jobName)
         {
             lock (_gate)
+            {
                 Ran.Add(jobName);
+            }
         }
 
         public void RecordScope(Guid scopeId)
         {
             lock (_gate)
+            {
                 ObservedScopes.Add(scopeId);
+            }
         }
     }
 

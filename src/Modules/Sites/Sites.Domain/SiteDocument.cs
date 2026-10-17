@@ -37,10 +37,16 @@ internal sealed class SiteDocument : Entity, IAuditable
         Guid documentId, SiteDocumentKind kind, Guid addedById,
         Guid? siteId = null, Guid? recordId = null)
     {
-        if (documentId == Guid.Empty || addedById == Guid.Empty) return SiteErrors.InvalidData;
+        if (documentId == Guid.Empty || addedById == Guid.Empty)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         // XOR: HasValue equality means both set or neither set, and both are wrong.
-        if (siteId.HasValue == recordId.HasValue) return SiteErrors.InvalidDocumentSubject;
+        if (siteId.HasValue == recordId.HasValue)
+        {
+            return SiteErrors.InvalidDocumentSubject;
+        }
 
         return new SiteDocument
         {

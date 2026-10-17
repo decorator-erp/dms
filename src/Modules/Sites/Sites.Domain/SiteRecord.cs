@@ -53,8 +53,14 @@ internal sealed class SiteRecord : Entity, IAuditable
         Guid? spaceId = null, Guid? catalogItemId = null, int sortOrder = 0, string? note = null)
     {
         if (siteId == Guid.Empty || moduleId == Guid.Empty || string.IsNullOrWhiteSpace(label))
+        {
             return SiteErrors.InvalidData;
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        }
+
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         return new SiteRecord
         {
@@ -75,8 +81,15 @@ internal sealed class SiteRecord : Entity, IAuditable
     /// </summary>
     public Result Update(string label, Guid? spaceId, Guid? catalogItemId, int sortOrder, string? note)
     {
-        if (string.IsNullOrWhiteSpace(label)) return SiteErrors.InvalidData;
-        if (sortOrder < 0) return SiteErrors.InvalidData;
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return SiteErrors.InvalidData;
+        }
+
+        if (sortOrder < 0)
+        {
+            return SiteErrors.InvalidData;
+        }
 
         Label = label.Trim();
         SpaceId = spaceId;
@@ -94,7 +107,7 @@ internal sealed class SiteRecord : Entity, IAuditable
 
     private static string? Normalize(string? value)
     {
-        var trimmed = value?.Trim();
+        string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

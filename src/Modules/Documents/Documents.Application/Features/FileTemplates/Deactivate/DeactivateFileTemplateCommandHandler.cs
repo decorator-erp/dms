@@ -16,9 +16,11 @@ internal sealed class DeactivateFileTemplateCommandHandler(DocumentsDbContext db
 {
     public async Task<Result> HandleAsync(DeactivateFileTemplateCommand command, CancellationToken ct = default)
     {
-        var template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
+        FileTemplate? template = await db.FileTemplates.FindAsync([command.FileTemplateId], ct);
         if (template is null)
+        {
             return FileTemplateErrors.NotFound;
+        }
 
         template.Deactivate();
         await db.SaveChangesAsync(ct);

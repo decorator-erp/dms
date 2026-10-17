@@ -16,13 +16,17 @@ internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHa
 {
     public async Task<Result<Guid>> HandleAsync(AddClientChildCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return Result.Failure<Guid>(ClientErrors.NotFound);
+        }
 
-        var result = client.AddChild(command.Gender, command.Age);
+        Result<Guid> result = client.AddChild(command.Gender, command.Age);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -43,13 +47,17 @@ internal sealed class UpdateClientChildCommandHandler(CrmDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(UpdateClientChildCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
-        var result = client.UpdateChild(command.ChildId, command.Gender, command.Age);
+        Result result = client.UpdateChild(command.ChildId, command.Gender, command.Age);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -70,13 +78,17 @@ internal sealed class RemoveClientChildCommandHandler(CrmDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(RemoveClientChildCommand command, CancellationToken ct = default)
     {
-        var client = await db.Clients.FindAsync([command.ClientId], ct);
+        Client? client = await db.Clients.FindAsync([command.ClientId], ct);
         if (client is null)
+        {
             return ClientErrors.NotFound;
+        }
 
-        var result = client.RemoveChild(command.ChildId);
+        Result result = client.RemoveChild(command.ChildId);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

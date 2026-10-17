@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Projects.Contracts;
 using Projects.Infrastructure.Persistence;
 using Projects.Infrastructure.Services;
 using Testcontainers.PostgreSql;
@@ -42,7 +43,7 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
             "Approvals.Infrastructure", "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure");
         await MigrateModuleAsync("Crm.Infrastructure", "Crm.Infrastructure.Persistence.CrmDbContext, Crm.Infrastructure");
 
-        await using var db = CreateContext();
+        await using ProjectsDbContext db = CreateContext();
         await db.Database.MigrateAsync();
     }
 
@@ -52,16 +53,16 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
     public async Task GetProjectAsync_ProjectsTheOwnerTheProjectWasCreatedWith()
     {
         // A decoy owner, seeded first, so "returns some employee id" cannot pass.
-        var decoyOwnerId = await SeedEmployeeAsync();
-        var realOwnerId = await SeedEmployeeAsync();
+        Guid decoyOwnerId = await SeedEmployeeAsync();
+        Guid realOwnerId = await SeedEmployeeAsync();
         Assert.NotEqual(decoyOwnerId, realOwnerId);
 
-        var (projectId, clientId) = await SeedProjectAsync(realOwnerId);
+        (Guid projectId, Guid clientId) = await SeedProjectAsync(realOwnerId);
 
-        await using var db = CreateContext();
+        await using ProjectsDbContext db = CreateContext();
         var directory = new ProjectDirectory(db);
 
-        var summary = await directory.GetProjectAsync(projectId, CancellationToken.None);
+        ProjectSummary? summary = await directory.GetProjectAsync(projectId, CancellationToken.None);
 
         Assert.NotNull(summary);
         Assert.Equal(realOwnerId, summary!.OwnerId);
@@ -74,15 +75,15 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
     [Fact]
     public async Task GetProjectsAsync_BatchSibling_CarriesTheOwnerToo()
     {
-        var ownerA = await SeedEmployeeAsync();
-        var ownerB = await SeedEmployeeAsync();
-        var (projectA, _) = await SeedProjectAsync(ownerA);
-        var (projectB, _) = await SeedProjectAsync(ownerB);
+        Guid ownerA = await SeedEmployeeAsync();
+        Guid ownerB = await SeedEmployeeAsync();
+        (Guid projectA, Guid _) = await SeedProjectAsync(ownerA);
+        (Guid projectB, Guid _) = await SeedProjectAsync(ownerB);
 
-        await using var db = CreateContext();
+        await using ProjectsDbContext db = CreateContext();
         var directory = new ProjectDirectory(db);
 
-        var summaries = await directory.GetProjectsAsync([projectA, projectB], CancellationToken.None);
+        IReadOnlyList<ProjectSummary> summaries = await directory.GetProjectsAsync([projectA, projectB], CancellationToken.None);
 
         Assert.Equal(2, summaries.Count);
         Assert.Equal(ownerA, summaries.Single(s => s.Id == projectA).OwnerId);
@@ -91,9 +92,9 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
 
     private async Task MigrateModuleAsync(string assemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -104,12 +105,12 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }
@@ -118,14 +119,14 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
     /// project holds no <c>InternalsVisibleTo</c> grant from <c>Hr.Domain</c> or <c>Crm.Domain</c>.</summary>
     private async Task<Guid> SeedEmployeeAsync()
     {
-        var appUserId = $"user-{Guid.NewGuid():N}";
+        string appUserId = $"user-{Guid.NewGuid():N}";
         var employeeId = Guid.NewGuid();
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
         await InsertUserAsync(connection, appUserId, "Test", "Owner");
 
-        await using var employeeCommand = connection.CreateCommand();
+        await using NpgsqlCommand employeeCommand = connection.CreateCommand();
         employeeCommand.CommandText = """
             INSERT INTO hr.employees
                 ("Id", "JobTitle", "HireDate", "ContractType", "AppUserId", "IsActive", "CreatedAtUtc")
@@ -140,11 +141,11 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
 
     private async Task<(Guid ProjectId, Guid ClientId)> SeedProjectAsync(Guid ownerId)
     {
-        var clientId = await SeedClientAsync();
+        Guid clientId = await SeedClientAsync();
         var project = Domain.Project.Create(
             $"P-{Guid.NewGuid():N}", "Test Project", "123 Main St", Domain.WorkflowType.Stage, clientId, ownerId);
 
-        await using var db = CreateContext();
+        await using ProjectsDbContext db = CreateContext();
         db.Projects.Add(project);
         await db.SaveChangesAsync();
 
@@ -153,14 +154,14 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
 
     private async Task<Guid> SeedClientAsync()
     {
-        var clientAppUserId = $"client-{Guid.NewGuid():N}";
+        string clientAppUserId = $"client-{Guid.NewGuid():N}";
         var clientId = Guid.NewGuid();
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
         await InsertUserAsync(connection, clientAppUserId, "Test", "Client");
 
-        await using var clientCommand = connection.CreateCommand();
+        await using NpgsqlCommand clientCommand = connection.CreateCommand();
         clientCommand.CommandText = """
             INSERT INTO crm.clients ("Id", "AppUserId", "Address", "IsActive", "CreatedAtUtc")
             VALUES (@id, @appUserId, '1 Client Rd', true, now());
@@ -174,7 +175,7 @@ public sealed class ProjectDirectoryTests : IAsyncLifetime
 
     private static async Task InsertUserAsync(NpgsqlConnection connection, string id, string firstName, string lastName)
     {
-        await using var userCommand = connection.CreateCommand();
+        await using NpgsqlCommand userCommand = connection.CreateCommand();
         userCommand.CommandText = """
             INSERT INTO identity.users
                 ("Id", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",

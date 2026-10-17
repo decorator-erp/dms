@@ -21,13 +21,15 @@ internal sealed class CreateCrmLeadCommandHandler(CrmDbContext db) : ICommandHan
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmLeadCommand command, CancellationToken ct = default)
     {
-        var leadResult = CrmLead.Create(
+        Result<CrmLead> leadResult = CrmLead.Create(
             command.FirstName, command.LastName, CrmEnumMapping.ToDomain(command.Source), command.OwnerId,
             command.Email, command.Phone, command.Notes);
         if (leadResult.IsFailure)
+        {
             return Result.Failure<Guid>(leadResult.Error);
+        }
 
-        var lead = leadResult.Value!;
+        CrmLead lead = leadResult.Value!;
         db.CrmLeads.Add(lead);
         await db.SaveChangesAsync(ct);
 

@@ -38,13 +38,17 @@ internal sealed class SiteApprovedNotificationHandler(
             .FirstOrDefaultAsync(ct);
 
         if (site is null)
+        {
             return;
+        }
 
-        var submitter = await hrDirectory.GetAsync(site.CreatedById, ct);
+        EmployeeSummary? submitter = await hrDirectory.GetAsync(site.CreatedById, ct);
         if (string.IsNullOrEmpty(submitter?.AppUserId))
+        {
             return;
+        }
 
-        var note = string.IsNullOrWhiteSpace(site.DecisionNote) ? string.Empty : $" Note: {site.DecisionNote}";
+        string note = string.IsNullOrWhiteSpace(site.DecisionNote) ? string.Empty : $" Note: {site.DecisionNote}";
 
         await notifications.NotifyAsync(
             submitter.AppUserId,

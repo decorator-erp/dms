@@ -12,10 +12,11 @@ namespace Crm.Contracts;
 public sealed record LeadConvertedIntegrationEvent(
     Guid EventId, Guid LeadId, Guid ClientId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
 
-/// <summary>Published whenever a <c>Client</c> row is created — by lead conversion today, and by any
-/// future direct-create path. Carries <see cref="AppUserId"/> because the only subscriber shape this
-/// phase anticipates (none registered yet) would need to resolve the client back to its portal
-/// account.</summary>
+/// <summary>Published whenever a <c>Client</c> row is created, which is <c>CreateClientCommand</c> and
+/// nothing else — lead conversion requires an existing client and does not publish this. Carries
+/// <see cref="AppUserId"/> because both its subscribers need it: CRM's own
+/// <c>ClientCreatedIntegrationEventHandler</c> activates the portal login the create provisioned, and
+/// Notifications' <c>ClientCreatedNotificationHandler</c> welcomes them to it.</summary>
 public sealed record ClientCreatedIntegrationEvent(
     Guid EventId, Guid ClientId, string AppUserId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
 

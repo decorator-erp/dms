@@ -16,7 +16,9 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
     public async Task<IReadOnlyList<ProjectSummary>> GetProjectsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await db.Projects.AsNoTracking().Where(p => ids.Contains(p.Id)).Select(ToProjectSummary()).ToListAsync(ct);
     }
@@ -28,7 +30,9 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         IReadOnlyCollection<Guid> clientIds, CancellationToken ct)
     {
         if (clientIds.Count == 0)
+        {
             return [];
+        }
 
         return await db.Projects.AsNoTracking()
             .Where(p => clientIds.Contains(p.ClientId))
@@ -42,7 +46,9 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
     public async Task<IReadOnlyList<StageSummary>> GetStagesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await db.ProjectStages.AsNoTracking().Where(s => ids.Contains(s.Id)).Select(ToStageSummary()).ToListAsync(ct);
     }
@@ -53,7 +59,9 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
     public async Task<IReadOnlyList<TaskSummary>> GetTasksAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
+        {
             return [];
+        }
 
         return await db.ProjectTasks.AsNoTracking().Where(t => ids.Contains(t.Id)).Select(ToTaskSummary()).ToListAsync(ct);
     }

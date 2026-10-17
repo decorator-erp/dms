@@ -31,13 +31,15 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db, Use
 {
     public async Task<IEnumerable<string>> ResolveAsync(string userId, CancellationToken ct = default)
     {
-        var user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
         if (user is null)
+        {
             return [];
+        }
 
-        var roleNames = await userManager.GetRolesAsync(user);
+        IList<string> roleNames = await userManager.GetRolesAsync(user);
 
-        var rolePermissions = await db.Roles
+        List<string> rolePermissions = await db.Roles
             .Where(r => roleNames.Contains(r.Name!))
             .Join(db.RoleClaims, r => r.Id, rc => rc.RoleId, (_, rc) => rc)
             .Where(rc => rc.ClaimType == PermissionClaim.Type)
@@ -45,18 +47,22 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db, Use
             .Distinct()
             .ToListAsync(ct);
 
-        var overrides = await db.UserPermissionOverrides
+        List<UserPermissionOverride> overrides = await db.UserPermissionOverrides
             .AsNoTracking()
             .Where(o => o.UserId == userId && (o.ExpiresAt == null || o.ExpiresAt > DateTime.UtcNow))
             .ToListAsync(ct);
 
         var effective = new HashSet<string>(rolePermissions);
-        foreach (var permissionOverride in overrides)
+        foreach (UserPermissionOverride? permissionOverride in overrides)
         {
             if (permissionOverride.IsGranted)
+            {
                 effective.Add(permissionOverride.Permission);
+            }
             else
+            {
                 effective.Remove(permissionOverride.Permission);
+            }
         }
 
         return effective;

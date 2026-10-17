@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts.Tasks;
+using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
 using Domain = Projects.Domain;
@@ -20,25 +21,33 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
 {
     public async Task<Result> HandleAsync(CompleteProjectSubTaskCommand command, CancellationToken ct = default)
     {
-        var subTask = await db.ProjectSubTasks.FindAsync([command.SubTaskId], ct);
+        ProjectSubTask? subTask = await db.ProjectSubTasks.FindAsync([command.SubTaskId], ct);
         if (subTask is null)
+        {
             return Domain.SubTaskErrors.NotFound;
+        }
 
-        var task = await db.ProjectTasks.FirstOrDefaultAsync(
+        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
             t => t.Id == subTask.ProjectTaskId && t.ProjectId == command.ProjectId, ct);
         if (task is null)
+        {
             return Domain.TaskErrors.NotFound;
+        }
 
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
         if (employeeId is null)
+        {
             return Domain.ProjectErrors.AccessDenied;
+        }
 
-        var result = subTask.Complete(employeeId.Value);
+        Result result = subTask.Complete(employeeId.Value);
         if (result.IsFailure)
+        {
             return result;
+        }
 
-        var totalSubTasks = await db.ProjectSubTasks.CountAsync(st => st.ProjectTaskId == task.Id, ct);
-        var completedOthers = await db.ProjectSubTasks.CountAsync(
+        int totalSubTasks = await db.ProjectSubTasks.CountAsync(st => st.ProjectTaskId == task.Id, ct);
+        int completedOthers = await db.ProjectSubTasks.CountAsync(
             st => st.ProjectTaskId == task.Id && st.IsDone && st.Id != subTask.Id, ct);
         task.RecalculateSubTaskProgress(completedOthers + 1, totalSubTasks);
 
@@ -53,10 +62,12 @@ internal sealed class GetProjectSubTasksByTaskQueryHandler(ProjectsDbContext db)
     public async Task<Result<IReadOnlyList<ProjectSubTaskResponse>>> HandleAsync(
         GetProjectSubTasksByTaskQuery query, CancellationToken ct = default)
     {
-        var taskExists = await db.ProjectTasks.AsNoTracking()
+        bool taskExists = await db.ProjectTasks.AsNoTracking()
             .AnyAsync(t => t.Id == query.TaskId && t.ProjectId == query.ProjectId, ct);
         if (!taskExists)
+        {
             return Result.Failure<IReadOnlyList<ProjectSubTaskResponse>>(Domain.TaskErrors.NotFound);
+        }
 
         List<ProjectSubTaskResponse> subTasks = await db.ProjectSubTasks.AsNoTracking()
             .Where(st => st.ProjectTaskId == query.TaskId)

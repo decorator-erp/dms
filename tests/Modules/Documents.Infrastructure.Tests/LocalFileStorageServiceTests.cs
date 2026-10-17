@@ -13,15 +13,14 @@ public sealed class LocalFileStorageServiceTests : IDisposable
 {
     private readonly string _root;
 
-    public LocalFileStorageServiceTests()
-    {
-        _root = Path.Combine(Path.GetTempPath(), "dms-modular-tests", Guid.NewGuid().ToString("N"));
-    }
+    public LocalFileStorageServiceTests() => _root = Path.Combine(Path.GetTempPath(), "dms-modular-tests", Guid.NewGuid().ToString("N"));
 
     public void Dispose()
     {
         if (Directory.Exists(_root))
+        {
             Directory.Delete(_root, recursive: true);
+        }
     }
 
     private IFileStorageService CreateService(long? maxUploadBytes = null, string[]? allowedExtensions = null)
@@ -31,14 +30,18 @@ public sealed class LocalFileStorageServiceTests : IDisposable
             ["FileStorage:RootPath"] = _root,
         };
         if (maxUploadBytes is { } max)
+        {
             settings["FileStorage:MaxUploadBytes"] = max.ToString();
+        }
 
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings);
+        IConfigurationBuilder configuration = new ConfigurationBuilder().AddInMemoryCollection(settings);
         if (allowedExtensions is not null)
         {
-            for (var i = 0; i < allowedExtensions.Length; i++)
+            for (int i = 0; i < allowedExtensions.Length; i++)
+            {
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?> { [$"FileStorage:AllowedFileExtensions:{i}"] = allowedExtensions[i] });
+            }
         }
 
         return new LocalFileStorageService(configuration.Build());
@@ -49,17 +52,17 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task SaveThenReadThenDelete_RoundTrips()
     {
-        var service = CreateService();
-        var originalText = "hello, documents module";
+        IFileStorageService service = CreateService();
+        string originalText = "hello, documents module";
 
-        var storagePath = await service.SaveAsync(ContentStream(originalText), "notes.txt", "projects/p1");
+        string storagePath = await service.SaveAsync(ContentStream(originalText), "notes.txt", "projects/p1");
 
         Assert.EndsWith(".txt", storagePath);
         Assert.StartsWith("projects/p1/", storagePath);
         // Original name is never used as the stored file name.
         Assert.DoesNotContain("notes", storagePath);
 
-        await using (var read = await service.OpenReadAsync(storagePath))
+        await using (Stream? read = await service.OpenReadAsync(storagePath))
         {
             Assert.NotNull(read);
             using var reader = new StreamReader(read!);
@@ -73,9 +76,9 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_WithNoSubFolder_StoresAtRoot()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
-        var storagePath = await service.SaveAsync(ContentStream("x"), "a.pdf", subFolder: "");
+        string storagePath = await service.SaveAsync(ContentStream("x"), "a.pdf", subFolder: "");
 
         Assert.DoesNotContain("/", storagePath);
     }
@@ -83,10 +86,10 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_GeneratesAGuidNamedFile_NeverTheOriginalName()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
-        var storagePath = await service.SaveAsync(ContentStream("x"), "sensitive-filename.pdf", "");
-        var fileNameOnly = Path.GetFileNameWithoutExtension(storagePath);
+        string storagePath = await service.SaveAsync(ContentStream("x"), "sensitive-filename.pdf", "");
+        string fileNameOnly = Path.GetFileNameWithoutExtension(storagePath);
 
         Assert.True(Guid.TryParseExact(fileNameOnly, "N", out _));
     }
@@ -94,9 +97,9 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_SubFolderWithDotDot_FailsClosed()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(
+        ArgumentException ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.SaveAsync(ContentStream("x"), "a.pdf", "../../etc/passwd"));
 
         Assert.Contains("subFolder", ex.Message + ex.ParamName);
@@ -107,7 +110,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_SubFolderWithBackslashDotDot_FailsClosed()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => service.SaveAsync(ContentStream("x"), "a.pdf", @"..\..\windows\system32"));
@@ -116,7 +119,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_OriginalFileNameWithPathSeparator_FailsClosed()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => service.SaveAsync(ContentStream("x"), "../../etc/passwd", ""));
@@ -125,7 +128,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_OriginalFileNameWithDotDot_FailsClosed()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => service.SaveAsync(ContentStream("x"), "..evil.pdf".Replace("evil", ".."), ""));
@@ -134,10 +137,10 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_BenignMessySubFolder_IsSanitizedNotRejected()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         // Double slashes and a leading "./" are messy, not an attack - must not throw.
-        var storagePath = await service.SaveAsync(ContentStream("x"), "a.pdf", "./projects//p1/");
+        string storagePath = await service.SaveAsync(ContentStream("x"), "a.pdf", "./projects//p1/");
 
         Assert.StartsWith("projects/p1/", storagePath);
     }
@@ -145,8 +148,8 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_ContentExceedingMaxUploadBytes_SeekableStream_RejectedBeforeAnyIo()
     {
-        var service = CreateService(maxUploadBytes: 10);
-        var content = ContentStream(new string('a', 100));
+        IFileStorageService service = CreateService(maxUploadBytes: 10);
+        Stream content = ContentStream(new string('a', 100));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.SaveAsync(content, "big.txt", ""));
@@ -181,14 +184,14 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_ContentExceedingMaxUploadBytes_NonSeekableStream_RejectedDuringCopy_AndPartialFileDeleted()
     {
-        var service = CreateService(maxUploadBytes: 10);
+        IFileStorageService service = CreateService(maxUploadBytes: 10);
 
         // PC-03 liveness. The assertion below observes the filesystem, and "no leftover files under
         // _root" is equally true of a service that writes somewhere else entirely — a changed
         // RootPath key, a different temp base. One successful save proves the enumeration below is
         // pointed at the directory this service actually writes into; deleting it restores the
         // preconditions for the real case.
-        var probePath = await service.SaveAsync(ContentStream("ok"), "probe.txt", "");
+        string probePath = await service.SaveAsync(ContentStream("ok"), "probe.txt", "");
         Assert.NotEmpty(Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories));
         await service.DeleteAsync(probePath);
 
@@ -197,7 +200,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.SaveAsync(content, "big.txt", ""));
 
-        var leftoverFiles = Directory.Exists(_root)
+        List<string> leftoverFiles = Directory.Exists(_root)
             ? Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories).ToList()
             : [];
         Assert.Empty(leftoverFiles);
@@ -206,18 +209,18 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_ContentAtExactlyMaxUploadBytes_Succeeds()
     {
-        var service = CreateService(maxUploadBytes: 10);
+        IFileStorageService service = CreateService(maxUploadBytes: 10);
 
-        var storagePath = await service.SaveAsync(ContentStream(new string('a', 10)), "ok.txt", "");
+        string storagePath = await service.SaveAsync(ContentStream(new string('a', 10)), "ok.txt", "");
 
-        await using var read = await service.OpenReadAsync(storagePath);
+        await using Stream? read = await service.OpenReadAsync(storagePath);
         Assert.NotNull(read);
     }
 
     [Fact]
     public async Task Save_DisallowedExtension_IsRejected()
     {
-        var service = CreateService(allowedExtensions: [".pdf"]);
+        IFileStorageService service = CreateService(allowedExtensions: [".pdf"]);
 
         await Assert.ThrowsAsync<NotSupportedException>(
             () => service.SaveAsync(ContentStream("x"), "malware.exe", ""));
@@ -226,7 +229,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task Save_NoExtension_IsRejected_DenyByDefault()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await Assert.ThrowsAsync<NotSupportedException>(
             () => service.SaveAsync(ContentStream("x"), "no-extension-at-all", ""));
@@ -241,7 +244,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [InlineData(".cmd")]
     public async Task Save_KnownExecutableExtension_IsRejectedByTheDefaultAllowList(string extension)
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await Assert.ThrowsAsync<NotSupportedException>(
             () => service.SaveAsync(ContentStream("x"), $"file{extension}", ""));
@@ -250,9 +253,9 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task OpenReadAsync_MissingFile_ReturnsNull()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
-        var result = await service.OpenReadAsync("nonexistent/file.pdf");
+        Stream? result = await service.OpenReadAsync("nonexistent/file.pdf");
 
         Assert.Null(result);
     }
@@ -260,11 +263,11 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task OpenReadAsync_PathEscapingRoot_ReturnsNull_NotThrow()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         // A storagePath value crafted to escape root - never produced by SaveAsync itself, but
         // OpenReadAsync must not trust an externally-supplied path either.
-        var result = await service.OpenReadAsync("../../../../etc/passwd");
+        Stream? result = await service.OpenReadAsync("../../../../etc/passwd");
 
         Assert.Null(result);
     }
@@ -272,7 +275,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task DeleteAsync_MissingFile_DoesNotThrow()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         await service.DeleteAsync("never/existed.pdf");
         // No exception is the assertion.
@@ -281,8 +284,8 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public async Task DeleteAsync_PathEscapingRoot_DoesNotThrow_AndDeletesNothingOutsideRoot()
     {
-        var service = CreateService();
-        var outsideFile = Path.Combine(Path.GetTempPath(), $"dms-modular-outside-{Guid.NewGuid():N}.txt");
+        IFileStorageService service = CreateService();
+        string outsideFile = Path.Combine(Path.GetTempPath(), $"dms-modular-outside-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(outsideFile, "must survive");
 
         try
@@ -300,7 +303,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     [Fact]
     public void MaxUploadBytes_DefaultsTo50Megabytes_WhenNotConfigured()
     {
-        var service = CreateService();
+        IFileStorageService service = CreateService();
 
         Assert.Equal(52_428_800, service.MaxUploadBytes);
     }

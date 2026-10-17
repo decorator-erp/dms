@@ -31,7 +31,7 @@ internal sealed class ApprovalRequestedNotificationHandler(
 {
     public async Task HandleAsync(ApprovalRequestedIntegrationEvent @event, CancellationToken ct)
     {
-        var approvers = await db.Approvals
+        List<string> approvers = await db.Approvals
             .AsNoTracking()
             .Where(a => a.Id == @event.ApprovalId)
             .SelectMany(a => a.Approvers.Select(p => p.ApproverUserId))
@@ -39,7 +39,9 @@ internal sealed class ApprovalRequestedNotificationHandler(
 
         var targets = approvers.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal).ToList();
         if (targets.Count == 0)
+        {
             return;
+        }
 
         await notifications.NotifyManyAsync(
             targets,
@@ -64,21 +66,25 @@ internal sealed class ApprovalDecidedNotificationHandler(
 {
     public async Task HandleAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
-        var requestedByUserId = await db.Approvals
+        string? requestedByUserId = await db.Approvals
             .AsNoTracking()
             .Where(a => a.Id == @event.ApprovalId)
             .Select(a => a.RequestedByUserId)
             .FirstOrDefaultAsync(ct);
 
         if (string.IsNullOrEmpty(requestedByUserId))
+        {
             return;
+        }
 
         // The decider and the requester can be the same person when someone with DecideAny overrides
         // their own request; there is no point telling them what they just did.
         if (string.Equals(requestedByUserId, @event.DecidedByUserId, StringComparison.Ordinal))
+        {
             return;
+        }
 
-        var approved = @event.Decision == ApprovalDecision.Approved;
+        bool approved = @event.Decision == ApprovalDecision.Approved;
 
         await notifications.NotifyAsync(
             requestedByUserId,

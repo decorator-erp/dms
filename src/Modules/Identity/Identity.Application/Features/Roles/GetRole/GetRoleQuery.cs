@@ -10,7 +10,7 @@ internal sealed class GetRoleQueryHandler(IRoleService roleService) : IQueryHand
 {
     public async Task<Result<RoleResponse>> HandleAsync(GetRoleQuery query, CancellationToken ct = default)
     {
-        var role = await roleService.GetByIdAsync(query.RoleId, ct);
+        ApplicationRole? role = await roleService.GetByIdAsync(query.RoleId, ct);
         return role is null ? RoleErrors.NotFound : role.ToResponse();
     }
 }

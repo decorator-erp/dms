@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using SharedKernel;
 
 namespace Documents.Infrastructure.Endpoints;
 
@@ -28,47 +29,53 @@ internal sealed class DocumentUploadEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        var projects = app.MapGroup("/api/projects/{projectId:guid}").WithTags("Documents");
+        RouteGroupBuilder projects = app.MapGroup("/api/projects/{projectId:guid}").WithTags("Documents");
 
         projects.MapPost("/documents", async (
             Guid projectId, IFormFile file, [FromForm] Guid? folderId, [FromForm] string? description,
             ICurrentUser currentUser, ICommandHandler<UploadProjectDocumentCommand, Guid> handler, CancellationToken ct) =>
         {
             if (file is null || file.Length == 0)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "A non-empty file is required.");
+            }
 
-            await using var stream = file.OpenReadStream();
-            var result = await handler.HandleAsync(new UploadProjectDocumentCommand(
+            await using Stream stream = file.OpenReadStream();
+            Result<Guid> result = await handler.HandleAsync(new UploadProjectDocumentCommand(
                 projectId, stream, file.FileName, file.ContentType, file.Length, currentUser.UserId!, folderId, description), ct);
             return result.Match(id => Results.Ok(new { DocumentId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Upload).DisableAntiforgery();
 
-        var stages = app.MapGroup("/api/project-stages/{stageId:guid}").WithTags("Documents");
+        RouteGroupBuilder stages = app.MapGroup("/api/project-stages/{stageId:guid}").WithTags("Documents");
 
         stages.MapPost("/documents", async (
             Guid stageId, IFormFile file, [FromForm] Guid? folderId, [FromForm] string? description,
             ICurrentUser currentUser, ICommandHandler<UploadStageDocumentCommand, Guid> handler, CancellationToken ct) =>
         {
             if (file is null || file.Length == 0)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "A non-empty file is required.");
+            }
 
-            await using var stream = file.OpenReadStream();
-            var result = await handler.HandleAsync(new UploadStageDocumentCommand(
+            await using Stream stream = file.OpenReadStream();
+            Result<Guid> result = await handler.HandleAsync(new UploadStageDocumentCommand(
                 stageId, stream, file.FileName, file.ContentType, file.Length, currentUser.UserId!, folderId, description), ct);
             return result.Match(id => Results.Ok(new { DocumentId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Upload).DisableAntiforgery();
 
-        var tasks = app.MapGroup("/api/project-tasks/{taskId:guid}").WithTags("Documents");
+        RouteGroupBuilder tasks = app.MapGroup("/api/project-tasks/{taskId:guid}").WithTags("Documents");
 
         tasks.MapPost("/documents", async (
             Guid taskId, IFormFile file, [FromForm] Guid? folderId, [FromForm] string? description,
             ICurrentUser currentUser, ICommandHandler<UploadTaskDocumentCommand, Guid> handler, CancellationToken ct) =>
         {
             if (file is null || file.Length == 0)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "A non-empty file is required.");
+            }
 
-            await using var stream = file.OpenReadStream();
-            var result = await handler.HandleAsync(new UploadTaskDocumentCommand(
+            await using Stream stream = file.OpenReadStream();
+            Result<Guid> result = await handler.HandleAsync(new UploadTaskDocumentCommand(
                 taskId, stream, file.FileName, file.ContentType, file.Length, currentUser.UserId!, folderId, description), ct);
             return result.Match(id => Results.Ok(new { DocumentId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Upload).DisableAntiforgery();
@@ -77,22 +84,24 @@ internal sealed class DocumentUploadEndpoints : IEndpoint
             Guid taskId, Guid fileTemplateId, ICurrentUser currentUser,
             ICommandHandler<ApplyFileTemplateToTaskCommand, Guid> handler, CancellationToken ct) =>
         {
-            var result = await handler.HandleAsync(
+            Result<Guid> result = await handler.HandleAsync(
                 new ApplyFileTemplateToTaskCommand(taskId, fileTemplateId, currentUser.UserId!), ct);
             return result.Match(id => Results.Ok(new { DocumentId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Upload);
 
-        var documents = app.MapGroup("/api/project-documents").WithTags("Documents");
+        RouteGroupBuilder documents = app.MapGroup("/api/project-documents").WithTags("Documents");
 
         documents.MapPost("/{documentId:guid}/revisions", async (
             Guid documentId, IFormFile file, [FromForm] string? description,
             ICurrentUser currentUser, ICommandHandler<UploadDocumentRevisionCommand, Guid> handler, CancellationToken ct) =>
         {
             if (file is null || file.Length == 0)
+            {
                 return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "A non-empty file is required.");
+            }
 
-            await using var stream = file.OpenReadStream();
-            var result = await handler.HandleAsync(new UploadDocumentRevisionCommand(
+            await using Stream stream = file.OpenReadStream();
+            Result<Guid> result = await handler.HandleAsync(new UploadDocumentRevisionCommand(
                 documentId, stream, file.FileName, file.ContentType, file.Length, currentUser.UserId!, description), ct);
             return result.Match(id => Results.Ok(new { DocumentId = id }), r => r.ToProblem());
         }).RequirePermission(DocumentsPermissions.Upload).DisableAntiforgery();

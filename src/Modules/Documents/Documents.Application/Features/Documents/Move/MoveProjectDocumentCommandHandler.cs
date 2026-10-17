@@ -17,21 +17,27 @@ internal sealed class MoveProjectDocumentCommandHandler(DocumentsDbContext db) :
 {
     public async Task<Result> HandleAsync(MoveProjectDocumentCommand command, CancellationToken ct = default)
     {
-        var document = await db.ProjectDocuments.FindAsync([command.DocumentId], ct);
+        ProjectDocument? document = await db.ProjectDocuments.FindAsync([command.DocumentId], ct);
         if (document is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
         if (command.FolderId is { } folderId)
         {
-            var folderExists = await db.DocumentFolders.AsNoTracking()
+            bool folderExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == folderId && f.ProjectId == document.ProjectId, ct);
             if (!folderExists)
+            {
                 return ProjectDocumentErrors.FolderScopeMismatch;
+            }
         }
 
-        var moveResult = document.MoveToFolder(command.FolderId);
+        Result moveResult = document.MoveToFolder(command.FolderId);
         if (moveResult.IsFailure)
+        {
             return moveResult;
+        }
 
         await db.SaveChangesAsync(ct);
 

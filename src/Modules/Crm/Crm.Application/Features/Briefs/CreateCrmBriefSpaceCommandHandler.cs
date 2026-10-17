@@ -21,17 +21,21 @@ internal sealed class CreateCrmBriefSpaceCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmBriefSpaceCommand command, CancellationToken ct = default)
     {
-        var briefExists = await db.CrmDesignBriefs.AnyAsync(b => b.Id == command.BriefId, ct);
+        bool briefExists = await db.CrmDesignBriefs.AnyAsync(b => b.Id == command.BriefId, ct);
         if (!briefExists)
+        {
             return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+        }
 
-        var entryResult = CrmBriefSpace.Create(
+        Result<CrmBriefSpace> entryResult = CrmBriefSpace.Create(
             command.BriefId, command.SpaceId, command.CreatedById, command.CountOrPieces,
             command.Requirements, command.MeetingId, command.ProjectTaskId);
         if (entryResult.IsFailure)
+        {
             return Result.Failure<Guid>(entryResult.Error);
+        }
 
-        var entry = entryResult.Value!;
+        CrmBriefSpace entry = entryResult.Value!;
         db.CrmBriefSpaces.Add(entry);
         await db.SaveChangesAsync(ct);
 

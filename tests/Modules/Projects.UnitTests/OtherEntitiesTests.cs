@@ -1,4 +1,5 @@
 using Projects.Domain;
+using SharedKernel;
 using Xunit;
 
 namespace Projects.UnitTests;
@@ -11,12 +12,12 @@ public class ProjectSubTaskTests
         var subTask = ProjectSubTask.Create(Guid.NewGuid(), "Attach rebar", 1);
         var completedById = Guid.NewGuid();
 
-        var first = subTask.Complete(completedById);
+        Result first = subTask.Complete(completedById);
         Assert.True(first.IsSuccess);
         Assert.True(subTask.IsDone);
         Assert.Equal(completedById, subTask.CompletedById);
 
-        var second = subTask.Complete(Guid.NewGuid());
+        Result second = subTask.Complete(Guid.NewGuid());
         Assert.True(second.IsFailure);
         Assert.Equal(SubTaskErrors.AlreadyDone, second.Error);
     }
@@ -38,11 +39,8 @@ public class TaskCommentTests
 public class StageTeamTests
 {
     [Fact]
-    public void CreateProjectDepartmentTeam_WithEmptyHead_Throws()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            StageTeam.CreateProjectDepartmentTeam(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty));
-    }
+    public void CreateProjectDepartmentTeam_WithEmptyHead_Throws() => Assert.Throws<ArgumentException>(() =>
+                                                                               StageTeam.CreateProjectDepartmentTeam(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty));
 
     [Fact]
     public void AddMember_Twice_ForSameEmployee_IsRejected()
@@ -50,10 +48,10 @@ public class StageTeamTests
         var team = StageTeam.CreateProjectDepartmentTeam(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var employeeId = Guid.NewGuid();
 
-        var first = team.AddMember(employeeId, StageTeamMemberRole.Responsible);
+        Result<StageTeamMember> first = team.AddMember(employeeId, StageTeamMemberRole.Responsible);
         Assert.True(first.IsSuccess);
 
-        var second = team.AddMember(employeeId, StageTeamMemberRole.Observer);
+        Result<StageTeamMember> second = team.AddMember(employeeId, StageTeamMemberRole.Observer);
         Assert.True(second.IsFailure);
         Assert.Equal(TeamErrors.MemberAlreadyExists, second.Error);
         Assert.Single(team.Members);

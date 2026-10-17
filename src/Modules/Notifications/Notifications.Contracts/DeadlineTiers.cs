@@ -23,10 +23,12 @@ public static class DeadlineTiers
     public static int? MostRelevant(DateTime nowUtc, DateTime dueUtc, ReadOnlySpan<int> tiers)
     {
         int? best = null;
-        foreach (var tier in tiers)
+        foreach (int tier in tiers)
         {
             if (nowUtc >= dueUtc.AddDays(tier) && (best is null || tier > best))
+            {
                 best = tier;
+            }
         }
 
         return best;

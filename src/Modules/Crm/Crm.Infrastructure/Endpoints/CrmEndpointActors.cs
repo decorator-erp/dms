@@ -20,11 +20,15 @@ internal static class CrmEndpointActors
     public static async Task<Result<Guid>> ResolveEmployeeIdAsync(ICrmAccessGuard guard, string? appUserId, CancellationToken ct)
     {
         if (appUserId is null)
+        {
             return Result.Failure<Guid>(CrmAccessErrors.NoStanding);
+        }
 
-        var actor = await guard.ResolveActorAsync(appUserId, ct);
+        Result<CrmActor> actor = await guard.ResolveActorAsync(appUserId, ct);
         if (actor.IsFailure)
+        {
             return Result.Failure<Guid>(actor.Error);
+        }
 
         return actor.Value!.Kind == CrmActorKind.Employee
             ? actor.Value.EmployeeId!.Value
@@ -34,11 +38,15 @@ internal static class CrmEndpointActors
     public static async Task<Result<Guid>> ResolveContactIdAsync(ICrmAccessGuard guard, string? appUserId, CancellationToken ct)
     {
         if (appUserId is null)
+        {
             return Result.Failure<Guid>(CrmAccessErrors.NoStanding);
+        }
 
-        var actor = await guard.ResolveActorAsync(appUserId, ct);
+        Result<CrmActor> actor = await guard.ResolveActorAsync(appUserId, ct);
         if (actor.IsFailure)
+        {
             return Result.Failure<Guid>(actor.Error);
+        }
 
         return actor.Value!.Kind == CrmActorKind.Client && actor.Value.ContactId is { } contactId
             ? contactId

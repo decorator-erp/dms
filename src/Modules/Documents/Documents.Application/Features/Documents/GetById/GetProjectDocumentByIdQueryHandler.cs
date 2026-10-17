@@ -13,7 +13,7 @@ internal sealed class GetProjectDocumentByIdQueryHandler(DocumentsDbContext db)
     public async Task<Result<ProjectDocumentResponse>> HandleAsync(
         GetProjectDocumentByIdQuery query, CancellationToken ct = default)
     {
-        var document = await db.ProjectDocuments.AsNoTracking()
+        ProjectDocumentResponse? document = await db.ProjectDocuments.AsNoTracking()
             .Where(d => d.Id == query.DocumentId && d.IsActive)
             .Select(ToResponse())
             .FirstOrDefaultAsync(ct);

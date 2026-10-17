@@ -24,7 +24,7 @@ internal static class ProjectScopeDecorator
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var access = await guard.EnsureProjectAccessAsync(command.ProjectId, command.UserId, ct);
+            Result access = await guard.EnsureProjectAccessAsync(command.ProjectId, command.UserId, ct);
             return access.IsFailure ? Domain.ProjectErrors.NotFound : await innerHandler.HandleAsync(command, ct);
         }
     }
@@ -36,7 +36,7 @@ internal static class ProjectScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            var access = await guard.EnsureProjectAccessAsync(command.ProjectId, command.UserId, ct);
+            Result access = await guard.EnsureProjectAccessAsync(command.ProjectId, command.UserId, ct);
             return access.IsFailure
                 ? Result.Failure<TResponse>(Domain.ProjectErrors.NotFound)
                 : await innerHandler.HandleAsync(command, ct);
@@ -50,7 +50,7 @@ internal static class ProjectScopeDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TQuery query, CancellationToken ct = default)
         {
-            var access = await guard.EnsureProjectAccessAsync(query.ProjectId, query.UserId, ct);
+            Result access = await guard.EnsureProjectAccessAsync(query.ProjectId, query.UserId, ct);
             return access.IsFailure
                 ? Result.Failure<TResponse>(Domain.ProjectErrors.NotFound)
                 : await innerHandler.HandleAsync(query, ct);

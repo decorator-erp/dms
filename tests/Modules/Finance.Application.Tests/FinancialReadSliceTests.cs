@@ -1,12 +1,14 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Finance.Contracts;
+using Finance.Contracts.BoqSnapshots;
 using Finance.Contracts.BudgetLines;
 using Finance.Contracts.CostCategories;
 using Finance.Contracts.Financial;
 using Finance.Contracts.Invoices;
 using Finance.Contracts.LedgerEntries;
 using Microsoft.Extensions.DependencyInjection;
+using SharedKernel;
 using Xunit;
 
 // The two InvoiceListItemResponse records -- one per namespace, different members -- collide by simple
@@ -27,7 +29,7 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> CategoryAsync(string name = "Materials")
     {
-        await using var scope = fixture.CreateScope();
+        await using AsyncServiceScope scope = fixture.CreateScope();
         return (await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateCostCategoryCommand, Guid>>()
             .HandleAsync(new CreateCostCategoryCommand(
@@ -37,8 +39,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     private async Task<Guid> BudgetLineAsync(
         Guid projectId, Guid categoryId, decimal allocated, Guid? stageId = null, Guid? taskId = null)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateBudgetLineCommand, Guid>>()
             .HandleAsync(new CreateBudgetLineCommand(new CreateBudgetLineRequest(
                 "FR", projectId, categoryId, "Read slice budget", allocated, stageId, taskId)));
@@ -49,8 +51,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
 
     private async Task<Guid> PostAsync(PostLedgerEntryRequest request, Guid actorId)
     {
-        await using var scope = fixture.CreateScope();
-        var posted = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> posted = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<PostLedgerEntryCommand, Guid>>()
             .HandleAsync(new PostLedgerEntryCommand(request, actorId));
 
@@ -62,8 +64,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
         Guid projectId, Guid clientId, decimal amount, Guid? stageId = null, Guid? taskId = null,
         InvoiceType type = InvoiceType.ClientInvoice)
     {
-        await using var scope = fixture.CreateScope();
-        var created = await scope.ServiceProvider
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<Guid> created = await scope.ServiceProvider
             .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
             .HandleAsync(new CreateInvoiceCommand(new CreateInvoiceRequest(
                 $"FR-{Guid.NewGuid().ToString("N")[..10]}", projectId, type, Today,
@@ -81,8 +83,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectSummary_ForAnUnknownProject_FailsWithProjectNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<ProjectFinancialSummaryResponse> read = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialSummaryQuery, ProjectFinancialSummaryResponse>>()
             .HandleAsync(new GetProjectFinancialSummaryQuery(Guid.NewGuid()));
 
@@ -97,9 +99,9 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectSummary_TotalsAgreeWithTheReconstructionModel()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 1000m);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 1000m);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 300m, LedgerDirection.Out, LedgerEntryType.Commitment, Today,
@@ -113,12 +115,12 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 400m, LedgerDirection.In, LedgerEntryType.ClientPayment, Today,
             ClientId: owner.ClientId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var read = await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<ProjectFinancialSummaryResponse> read = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialSummaryQuery, ProjectFinancialSummaryResponse>>()
             .HandleAsync(new GetProjectFinancialSummaryQuery(scope.ProjectId));
 
-        var t = read.Value!.Totals;
+        ProjectFinancialBlock t = read.Value!.Totals;
 
         Assert.Equal("EGP", t.Currency);
         Assert.Equal(1000m, t.EstimatedBudget);
@@ -142,10 +144,10 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectSummary_AttributesABudgetLineOnlyPostingToItsEffectiveStage()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var lineId = await BudgetLineAsync(
+        Guid lineId = await BudgetLineAsync(
             scope.ProjectId, await CategoryAsync(), 500m, scope.StageId, scope.TaskId);
 
         // Names the budget line only -- no ProjectStageId, no ProjectTaskId.
@@ -153,12 +155,12 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 120m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             BudgetLineId: lineId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var read = await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<ProjectFinancialSummaryResponse> read = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialSummaryQuery, ProjectFinancialSummaryResponse>>()
             .HandleAsync(new GetProjectFinancialSummaryQuery(scope.ProjectId));
 
-        var stage = Assert.Single(read.Value!.Stages, s => s.ProjectStageId == scope.StageId);
+        StageBudgetRow stage = Assert.Single(read.Value!.Stages, s => s.ProjectStageId == scope.StageId);
 
         Assert.Equal("First stage", stage.Name);
         Assert.Equal(500m, stage.EffectiveCap);
@@ -174,9 +176,9 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectMovements_FilterAndPage_AndResolveTheBudgetLineName()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
-        var lineId = await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 900m);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
+        Guid lineId = await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 900m);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 100m, LedgerDirection.Out, LedgerEntryType.Commitment, Today,
@@ -186,25 +188,25 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
             scope.ProjectId, 50m, LedgerDirection.In, LedgerEntryType.ClientPayment,
             new DateOnly(2021, 5, 5), ClientId: owner.ClientId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var list = dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IQueryHandler<GetProjectFinancialMovementsQuery, PagedResult<LedgerMovementResponse>> list = dbScope.ServiceProvider.GetRequiredService<
             IQueryHandler<GetProjectFinancialMovementsQuery, PagedResult<LedgerMovementResponse>>>();
 
-        var all = await list.HandleAsync(new GetProjectFinancialMovementsQuery(scope.ProjectId));
+        Result<PagedResult<LedgerMovementResponse>> all = await list.HandleAsync(new GetProjectFinancialMovementsQuery(scope.ProjectId));
         Assert.Equal(2, all.Value!.TotalCount);
 
-        var commitment = Assert.Single(all.Value.Items, m => m.Type == LedgerEntryType.Commitment);
+        LedgerMovementResponse commitment = Assert.Single(all.Value.Items, m => m.Type == LedgerEntryType.Commitment);
         Assert.Equal("Read slice budget", commitment.BudgetLineName);
 
         // A movement with no budget line must project a NULL name, not an empty string or a dropped row.
-        var payment = Assert.Single(all.Value.Items, m => m.Type == LedgerEntryType.ClientPayment);
+        LedgerMovementResponse payment = Assert.Single(all.Value.Items, m => m.Type == LedgerEntryType.ClientPayment);
         Assert.Null(payment.BudgetLineName);
 
-        var byBudgetLine = await list.HandleAsync(
+        Result<PagedResult<LedgerMovementResponse>> byBudgetLine = await list.HandleAsync(
             new GetProjectFinancialMovementsQuery(scope.ProjectId, BudgetLineId: lineId));
         Assert.Single(byBudgetLine.Value!.Items);
 
-        var windowed = await list.HandleAsync(new GetProjectFinancialMovementsQuery(
+        Result<PagedResult<LedgerMovementResponse>> windowed = await list.HandleAsync(new GetProjectFinancialMovementsQuery(
             scope.ProjectId, FromDate: new DateOnly(2026, 1, 1)));
         Assert.Single(windowed.Value!.Items);
         Assert.Equal(LedgerEntryType.Commitment, windowed.Value.Items[0].Type);
@@ -220,29 +222,29 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task CostCategoryBreakdown_BucketsByCategoryAndKeepsUncategorisedLines()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var joineryId = await CategoryAsync("Joinery");
-        var joineryLine = await BudgetLineAsync(scope.ProjectId, joineryId, 600m);
+        Guid joineryId = await CategoryAsync("Joinery");
+        Guid joineryLine = await BudgetLineAsync(scope.ProjectId, joineryId, 600m);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 150m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             BudgetLineId: joineryLine), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var rows = (await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IReadOnlyList<CostCategoryRow> rows = (await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectCostCategoryBreakdownQuery, IReadOnlyList<CostCategoryRow>>>()
             .HandleAsync(new GetProjectCostCategoryBreakdownQuery(scope.ProjectId))).Value!;
 
-        var joinery = Assert.Single(rows, r => r.CostCategoryId == joineryId);
+        CostCategoryRow joinery = Assert.Single(rows, r => r.CostCategoryId == joineryId);
         Assert.Equal("Joinery", joinery.CategoryName);
         Assert.Equal(600m, joinery.AllocatedAmount);
         Assert.Equal(150m, joinery.ActualAmount);
         Assert.Equal(-150m, joinery.CommittedAmount);
 
         // Allocation across categories must reconstruct the project's effective cap.
-        var summary = await dbScope.ServiceProvider.GetRequiredService<
+        Result<ProjectFinancialSummaryResponse> summary = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectFinancialSummaryQuery, ProjectFinancialSummaryResponse>>()
             .HandleAsync(new GetProjectFinancialSummaryQuery(scope.ProjectId));
 
@@ -252,10 +254,10 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task CostCategoryBreakdown_ForAProjectWithNoBudgetLines_IsEmpty()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
-        await using var dbScope = fixture.CreateScope();
-        var rows = await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<IReadOnlyList<CostCategoryRow>> rows = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetProjectCostCategoryBreakdownQuery, IReadOnlyList<CostCategoryRow>>>()
             .HandleAsync(new GetProjectCostCategoryBreakdownQuery(scope.ProjectId));
 
@@ -273,28 +275,28 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Cashflow_ReportsInflowAndOutflowSeparately_AndDoesNotNetReversals()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var paymentId = await PostAsync(new PostLedgerEntryRequest(
+        Guid paymentId = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 500m, LedgerDirection.In, LedgerEntryType.ClientPayment, Today,
             ClientId: owner.ClientId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var cashflow = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        IQueryHandler<GetProjectCashflowQuery, IReadOnlyList<MonthlyCashRow>> cashflow = sp.GetRequiredService<
             IQueryHandler<GetProjectCashflowQuery, IReadOnlyList<MonthlyCashRow>>>();
 
-        var before = (await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId))).Value!;
-        var beforeRow = Assert.Single(before);
+        IReadOnlyList<MonthlyCashRow> before = (await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId))).Value!;
+        MonthlyCashRow beforeRow = Assert.Single(before);
         Assert.Equal(500m, beforeRow.Inflow);
         Assert.Equal(0m, beforeRow.Outflow);
 
         await sp.GetRequiredService<ICommandHandler<ReverseLedgerEntryCommand, Guid>>()
             .HandleAsync(new ReverseLedgerEntryCommand(paymentId, owner.EmployeeId));
 
-        var after = (await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId))).Value!;
-        var afterRow = Assert.Single(after);
+        IReadOnlyList<MonthlyCashRow> after = (await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId))).Value!;
+        MonthlyCashRow afterRow = Assert.Single(after);
 
         Assert.Equal(500m, afterRow.Inflow);
         Assert.Equal(500m, afterRow.Outflow);
@@ -305,24 +307,24 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task Cashflow_DefaultsToTheTrailingTwelveMonths()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 40m, LedgerDirection.Out, LedgerEntryType.ActualCost,
             new DateOnly(2019, 2, 2)), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var cashflow = dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IQueryHandler<GetProjectCashflowQuery, IReadOnlyList<MonthlyCashRow>> cashflow = dbScope.ServiceProvider.GetRequiredService<
             IQueryHandler<GetProjectCashflowQuery, IReadOnlyList<MonthlyCashRow>>>();
 
-        var defaulted = await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId));
+        Result<IReadOnlyList<MonthlyCashRow>> defaulted = await cashflow.HandleAsync(new GetProjectCashflowQuery(scope.ProjectId));
         Assert.Empty(defaulted.Value!);
 
-        var widened = await cashflow.HandleAsync(new GetProjectCashflowQuery(
+        Result<IReadOnlyList<MonthlyCashRow>> widened = await cashflow.HandleAsync(new GetProjectCashflowQuery(
             scope.ProjectId, FromDate: new DateOnly(2019, 1, 1), ToDate: Today));
 
-        var row = Assert.Single(widened.Value!);
+        MonthlyCashRow row = Assert.Single(widened.Value!);
         Assert.Equal(2019, row.Year);
         Assert.Equal(2, row.Month);
         Assert.Equal(40m, row.Outflow);
@@ -333,26 +335,26 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectInvoices_FilterByTypeAndStage_AndCountTheirLines()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var clientId = await InvoiceAsync(scope.ProjectId, owner.ClientId, 100m, scope.StageId);
-        var vendorId = await InvoiceAsync(
+        Guid clientId = await InvoiceAsync(scope.ProjectId, owner.ClientId, 100m, scope.StageId);
+        Guid vendorId = await InvoiceAsync(
             scope.ProjectId, owner.ClientId, 60m, type: InvoiceType.VendorInvoice);
 
-        await using var dbScope = fixture.CreateScope();
-        var list = dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IQueryHandler<GetProjectInvoicesQuery, PagedResult<FinancialInvoiceRow>> list = dbScope.ServiceProvider.GetRequiredService<
             IQueryHandler<GetProjectInvoicesQuery, PagedResult<FinancialInvoiceRow>>>();
 
-        var all = await list.HandleAsync(new GetProjectInvoicesQuery(scope.ProjectId));
+        Result<PagedResult<FinancialInvoiceRow>> all = await list.HandleAsync(new GetProjectInvoicesQuery(scope.ProjectId));
         Assert.Equal(2, all.Value!.TotalCount);
         Assert.All(all.Value.Items, i => Assert.Equal(1, i.LinesCount));
 
-        var vendors = await list.HandleAsync(
+        Result<PagedResult<FinancialInvoiceRow>> vendors = await list.HandleAsync(
             new GetProjectInvoicesQuery(scope.ProjectId, Type: InvoiceType.VendorInvoice));
         Assert.Equal(vendorId, Assert.Single(vendors.Value!.Items).Id);
 
-        var staged = await list.HandleAsync(
+        Result<PagedResult<FinancialInvoiceRow>> staged = await list.HandleAsync(
             new GetProjectInvoicesQuery(scope.ProjectId, ProjectStageId: scope.StageId));
         Assert.Equal(clientId, Assert.Single(staged.Value!.Items).Id);
     }
@@ -360,14 +362,14 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task ProjectBoqSnapshots_ReportTheirLineCount_AndFilterByVersion()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 300m, scope.StageId, scope.TaskId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var generate = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        ICommandHandler<GenerateBoqSnapshotCommand, Guid> generate = sp.GetRequiredService<
             ICommandHandler<Contracts.BoqSnapshots.GenerateBoqSnapshotCommand, Guid>>();
 
         await generate.HandleAsync(new Contracts.BoqSnapshots.GenerateBoqSnapshotCommand(
@@ -378,15 +380,15 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
             new Contracts.BoqSnapshots.GenerateBoqSnapshotRequest(
                 scope.ProjectId, BoqSnapshotType.Manual), owner.EmployeeId));
 
-        var list = sp.GetRequiredService<
+        IQueryHandler<GetProjectBoqSnapshotsQuery, IReadOnlyList<BoqSnapshotSummaryResponse>> list = sp.GetRequiredService<
             IQueryHandler<GetProjectBoqSnapshotsQuery, IReadOnlyList<BoqSnapshotSummaryResponse>>>();
 
-        var all = (await list.HandleAsync(new GetProjectBoqSnapshotsQuery(scope.ProjectId))).Value!;
+        IReadOnlyList<BoqSnapshotSummaryResponse> all = (await list.HandleAsync(new GetProjectBoqSnapshotsQuery(scope.ProjectId))).Value!;
         Assert.Equal(2, all.Count);
         Assert.Equal(2, all[0].Version);
         Assert.Equal(1, all[0].LinesCount);
 
-        var v1 = (await list.HandleAsync(new GetProjectBoqSnapshotsQuery(scope.ProjectId, Version: 1))).Value!;
+        IReadOnlyList<BoqSnapshotSummaryResponse> v1 = (await list.HandleAsync(new GetProjectBoqSnapshotsQuery(scope.ProjectId, Version: 1))).Value!;
         Assert.Equal(1, Assert.Single(v1).Version);
     }
 
@@ -395,8 +397,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task StageMovements_ForAnUnknownStage_FailWithStageNotFound()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<IReadOnlyList<LedgerMovementResponse>> read = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetStageFinancialMovementsQuery, IReadOnlyList<LedgerMovementResponse>>>()
             .HandleAsync(new GetStageFinancialMovementsQuery(Guid.NewGuid()));
 
@@ -412,31 +414,31 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task StageMovements_ReachEntriesByStage_ByTaskOfTheStage_AndByBudgetLine()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var lineId = await BudgetLineAsync(
+        Guid lineId = await BudgetLineAsync(
             scope.ProjectId, await CategoryAsync(), 900m, scope.StageId, scope.TaskId);
 
-        var direct = await PostAsync(new PostLedgerEntryRequest(
+        Guid direct = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 10m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             ProjectStageId: scope.StageId), owner.EmployeeId);
 
-        var viaTask = await PostAsync(new PostLedgerEntryRequest(
+        Guid viaTask = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 20m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             ProjectTaskId: scope.TaskId), owner.EmployeeId);
 
-        var viaBudgetLine = await PostAsync(new PostLedgerEntryRequest(
+        Guid viaBudgetLine = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 30m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             BudgetLineId: lineId), owner.EmployeeId);
 
         // A movement on the OTHER stage of the same project, to prove the scope narrows at all.
-        var otherStage = await PostAsync(new PostLedgerEntryRequest(
+        Guid otherStage = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 40m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             ProjectStageId: scope.OtherStageId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var movements = (await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IReadOnlyList<LedgerMovementResponse> movements = (await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetStageFinancialMovementsQuery, IReadOnlyList<LedgerMovementResponse>>>()
             .HandleAsync(new GetStageFinancialMovementsQuery(scope.StageId))).Value!;
 
@@ -449,14 +451,14 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task StageInvoicesVariationsAndSnapshots_AreScopedToTheStage()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var mine = await InvoiceAsync(scope.ProjectId, owner.ClientId, 70m, scope.StageId);
-        var theirs = await InvoiceAsync(scope.ProjectId, owner.ClientId, 80m, scope.OtherStageId);
+        Guid mine = await InvoiceAsync(scope.ProjectId, owner.ClientId, 70m, scope.StageId);
+        Guid theirs = await InvoiceAsync(scope.ProjectId, owner.ClientId, 80m, scope.OtherStageId);
 
-        await using var dbScope = fixture.CreateScope();
-        var invoices = (await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IReadOnlyList<FinancialInvoiceRow> invoices = (await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetStageInvoicesQuery, IReadOnlyList<FinancialInvoiceRow>>>()
             .HandleAsync(new GetStageInvoicesQuery(scope.StageId))).Value!;
 
@@ -464,12 +466,12 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
         Assert.DoesNotContain(invoices, i => i.Id == theirs);
 
         // Variations and snapshots have none here; both must answer with an empty list, not an error.
-        var variations = await dbScope.ServiceProvider.GetRequiredService<
+        Result<IReadOnlyList<VariationListItemResponse>> variations = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetStageVariationsQuery, IReadOnlyList<VariationListItemResponse>>>()
             .HandleAsync(new GetStageVariationsQuery(scope.StageId));
         Assert.Empty(variations.Value!);
 
-        var snapshots = await dbScope.ServiceProvider.GetRequiredService<
+        Result<IReadOnlyList<BoqSnapshotSummaryResponse>> snapshots = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetStageBoqSnapshotsQuery, IReadOnlyList<BoqSnapshotSummaryResponse>>>()
             .HandleAsync(new GetStageBoqSnapshotsQuery(scope.StageId));
         Assert.Empty(snapshots.Value!);
@@ -482,26 +484,26 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task TaskMovements_ReachEntriesByTaskAndByItsBudgetLine()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var lineId = await BudgetLineAsync(
+        Guid lineId = await BudgetLineAsync(
             scope.ProjectId, await CategoryAsync(), 900m, scope.StageId, scope.TaskId);
 
-        var direct = await PostAsync(new PostLedgerEntryRequest(
+        Guid direct = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 11m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             ProjectTaskId: scope.TaskId), owner.EmployeeId);
 
-        var viaLine = await PostAsync(new PostLedgerEntryRequest(
+        Guid viaLine = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 22m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             BudgetLineId: lineId), owner.EmployeeId);
 
-        var elsewhere = await PostAsync(new PostLedgerEntryRequest(
+        Guid elsewhere = await PostAsync(new PostLedgerEntryRequest(
             scope.ProjectId, 33m, LedgerDirection.Out, LedgerEntryType.ActualCost, Today,
             ProjectTaskId: scope.OtherTaskId), owner.EmployeeId);
 
-        await using var dbScope = fixture.CreateScope();
-        var movements = (await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IReadOnlyList<LedgerMovementResponse> movements = (await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetTaskFinancialMovementsQuery, IReadOnlyList<LedgerMovementResponse>>>()
             .HandleAsync(new GetTaskFinancialMovementsQuery(scope.TaskId))).Value!;
 
@@ -513,15 +515,15 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task TaskInvoiceLines_ReachLinesByTaskAndByItsBudgetLine()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
-        var lineId = await BudgetLineAsync(
+        Guid lineId = await BudgetLineAsync(
             scope.ProjectId, await CategoryAsync(), 900m, scope.StageId, scope.TaskId);
 
         await InvoiceAsync(scope.ProjectId, owner.ClientId, 45m, taskId: scope.TaskId);
 
-        await using (var invoiceScope = fixture.CreateScope())
+        await using (AsyncServiceScope invoiceScope = fixture.CreateScope())
         {
             await invoiceScope.ServiceProvider
                 .GetRequiredService<ICommandHandler<CreateInvoiceCommand, Guid>>()
@@ -532,8 +534,8 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
                     VendorName: "Acme")));
         }
 
-        await using var dbScope = fixture.CreateScope();
-        var lines = (await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IReadOnlyList<TaskInvoiceLineResponse> lines = (await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetTaskInvoiceLinesQuery, IReadOnlyList<TaskInvoiceLineResponse>>>()
             .HandleAsync(new GetTaskInvoiceLinesQuery(scope.TaskId))).Value!;
 
@@ -552,41 +554,41 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task TaskBoqLines_DefaultToTheLatestSnapshotOfEachType()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
-        var owner = await FinanceTestData.ScopeAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
 
         await BudgetLineAsync(scope.ProjectId, await CategoryAsync(), 250m, scope.StageId, scope.TaskId);
 
-        await using var dbScope = fixture.CreateScope();
-        var sp = dbScope.ServiceProvider;
-        var generate = sp.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        IServiceProvider sp = dbScope.ServiceProvider;
+        ICommandHandler<GenerateBoqSnapshotCommand, Guid> generate = sp.GetRequiredService<
             ICommandHandler<Contracts.BoqSnapshots.GenerateBoqSnapshotCommand, Guid>>();
 
-        for (var i = 0; i < 2; i++)
+        for (int i = 0; i < 2; i++)
         {
             await generate.HandleAsync(new Contracts.BoqSnapshots.GenerateBoqSnapshotCommand(
                 new Contracts.BoqSnapshots.GenerateBoqSnapshotRequest(
                     scope.ProjectId, BoqSnapshotType.Manual), owner.EmployeeId));
         }
 
-        var boqLines = sp.GetRequiredService<
+        IQueryHandler<GetTaskBoqLinesQuery, IReadOnlyList<TaskBoqLineResponse>> boqLines = sp.GetRequiredService<
             IQueryHandler<GetTaskBoqLinesQuery, IReadOnlyList<TaskBoqLineResponse>>>();
 
-        var latest = (await boqLines.HandleAsync(new GetTaskBoqLinesQuery(scope.TaskId))).Value!;
-        var only = Assert.Single(latest);
+        IReadOnlyList<TaskBoqLineResponse> latest = (await boqLines.HandleAsync(new GetTaskBoqLinesQuery(scope.TaskId))).Value!;
+        TaskBoqLineResponse only = Assert.Single(latest);
         Assert.Equal(2, only.SnapshotVersion);
         Assert.Equal(250m, only.BudgetedAmount);
 
         // Naming a version overrides the default and returns that one instead.
-        var pinned = (await boqLines.HandleAsync(new GetTaskBoqLinesQuery(scope.TaskId, 1))).Value!;
+        IReadOnlyList<TaskBoqLineResponse> pinned = (await boqLines.HandleAsync(new GetTaskBoqLinesQuery(scope.TaskId, 1))).Value!;
         Assert.Equal(1, Assert.Single(pinned).SnapshotVersion);
     }
 
     [Fact]
     public async Task TaskBoqLines_ForAnUnknownTask_AreEmptyRatherThanAnError()
     {
-        await using var scope = fixture.CreateScope();
-        var read = await scope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Result<IReadOnlyList<TaskBoqLineResponse>> read = await scope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetTaskBoqLinesQuery, IReadOnlyList<TaskBoqLineResponse>>>()
             .HandleAsync(new GetTaskBoqLinesQuery(Guid.NewGuid()));
 
@@ -597,10 +599,10 @@ public sealed class FinancialReadSliceTests(FinanceApplicationFixture fixture)
     [Fact]
     public async Task TaskVariations_AreScopedToTheTask()
     {
-        var scope = await FinanceTestData.IsolatedProjectAsync(fixture);
+        FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
 
-        await using var dbScope = fixture.CreateScope();
-        var variations = await dbScope.ServiceProvider.GetRequiredService<
+        await using AsyncServiceScope dbScope = fixture.CreateScope();
+        Result<IReadOnlyList<VariationListItemResponse>> variations = await dbScope.ServiceProvider.GetRequiredService<
                 IQueryHandler<GetTaskVariationsQuery, IReadOnlyList<VariationListItemResponse>>>()
             .HandleAsync(new GetTaskVariationsQuery(scope.TaskId));
 

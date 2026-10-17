@@ -10,6 +10,10 @@
     <!-- Pinned directly: Npgsql 10.0.3 floats Relational to [10.0.4, 11.0.0), which NuGet otherwise
          resolves to the floor (10.0.4) instead of the central 10.0.10, conflicting with EFCore.Design. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />

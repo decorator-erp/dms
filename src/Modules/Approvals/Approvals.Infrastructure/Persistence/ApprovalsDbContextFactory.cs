@@ -10,7 +10,7 @@ internal sealed class ApprovalsDbContextFactory : IDesignTimeDbContextFactory<Ap
 {
     public ApprovalsDbContext CreateDbContext(string[] args)
     {
-        var builder = new DbContextOptionsBuilder<ApprovalsDbContext>()
+        DbContextOptionsBuilder<ApprovalsDbContext> builder = new DbContextOptionsBuilder<ApprovalsDbContext>()
             .UseNpgsql("Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=postgres");
 
         return new ApprovalsDbContext(builder.Options);

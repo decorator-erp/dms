@@ -31,7 +31,7 @@ internal static class CrmTestSeeding
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
 
-        await using var command = connection.CreateCommand();
+        await using NpgsqlCommand command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO crm.clients ("Id", "AppUserId", "Address", "IsActive", "CreatedAtUtc")
             VALUES (@id, @appUserId, '1 Client Rd', true, now());

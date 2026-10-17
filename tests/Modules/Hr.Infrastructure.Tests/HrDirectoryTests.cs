@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -36,7 +37,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
         await MigrateModuleAsync(
             "Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure");
 
-        await using var db = CreateContext(_ => { });
+        await using HrDbContext db = CreateContext(_ => { });
         await db.Database.MigrateAsync();
     }
 
@@ -44,9 +45,9 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
     private async Task MigrateModuleAsync(string assemblyName, string assemblyQualifiedContextTypeName)
     {
-        var module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
+        IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(assemblyName)).Single();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -57,12 +58,12 @@ public sealed class HrDirectoryTests : IAsyncLifetime
         services.AddLogging();
         module.Register(services, configuration);
 
-        await using var provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
-        var contextType = Type.GetType(assemblyQualifiedContextTypeName)
+        Type contextType = Type.GetType(assemblyQualifiedContextTypeName)
             ?? throw new InvalidOperationException($"Could not load type '{assemblyQualifiedContextTypeName}'.");
 
-        using var scope = provider.CreateScope();
+        using IServiceScope scope = provider.CreateScope();
         var context = (DbContext)scope.ServiceProvider.GetRequiredService(contextType);
         await context.Database.MigrateAsync();
     }
@@ -70,13 +71,13 @@ public sealed class HrDirectoryTests : IAsyncLifetime
     [Fact]
     public async Task GetManyAsync_with_many_ids_issues_one_query_and_never_calls_IUserDirectory()
     {
-        var ids = await SeedEmployeesAsync(100);
+        Guid[] ids = await SeedEmployeesAsync(100);
 
-        var commandCount = 0;
-        await using var db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        int commandCount = 0;
+        await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var directory = new HrDirectory(db, new ThrowingUserDirectory());
 
-        var results = await directory.GetManyAsync(ids, CancellationToken.None);
+        IReadOnlyList<EmployeeSummary> results = await directory.GetManyAsync(ids, CancellationToken.None);
 
         Assert.Equal(100, results.Count);
         Assert.Equal(1, commandCount);
@@ -85,14 +86,14 @@ public sealed class HrDirectoryTests : IAsyncLifetime
     [Fact]
     public async Task GetProfilesAsync_with_many_ids_issues_one_hr_query_and_one_identity_call()
     {
-        var ids = await SeedEmployeesAsync(100);
+        Guid[] ids = await SeedEmployeesAsync(100);
 
-        var commandCount = 0;
-        await using var db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        int commandCount = 0;
+        await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var userDirectory = new CountingUserDirectory();
         var directory = new HrDirectory(db, userDirectory);
 
-        var profiles = await directory.GetProfilesAsync(ids, CancellationToken.None);
+        IReadOnlyList<EmployeeProfile> profiles = await directory.GetProfilesAsync(ids, CancellationToken.None);
 
         Assert.Equal(100, profiles.Count);
         Assert.Equal(1, commandCount);
@@ -102,18 +103,18 @@ public sealed class HrDirectoryTests : IAsyncLifetime
     [Fact]
     public async Task ResolveEmployeeIdAsync_called_three_times_with_the_same_id_hits_the_database_once()
     {
-        var ids = await SeedEmployeesAsync(1);
+        Guid[] ids = await SeedEmployeesAsync(1);
 
-        await using var seedScope = CreateContext(_ => { });
-        var employee = await seedScope.Employees.AsNoTracking().FirstAsync(e => e.Id == ids[0]);
+        await using HrDbContext seedScope = CreateContext(_ => { });
+        Employee employee = await seedScope.Employees.AsNoTracking().FirstAsync(e => e.Id == ids[0]);
 
-        var commandCount = 0;
-        await using var db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        int commandCount = 0;
+        await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var directory = new HrDirectory(db, new ThrowingUserDirectory());
 
-        var first = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
-        var second = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
-        var third = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
+        Guid? first = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
+        Guid? second = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
+        Guid? third = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
 
         Assert.Equal(employee.Id, first);
         Assert.Equal(employee.Id, second);
@@ -130,14 +131,14 @@ public sealed class HrDirectoryTests : IAsyncLifetime
     /// </summary>
     private async Task<Guid[]> SeedEmployeesAsync(int count)
     {
-        var appUserIds = Enumerable.Range(0, count).Select(i => $"user-{Guid.NewGuid():N}-{i}").ToArray();
+        string[] appUserIds = Enumerable.Range(0, count).Select(i => $"user-{Guid.NewGuid():N}-{i}").ToArray();
 
         await using (var connection = new Npgsql.NpgsqlConnection(_container.GetConnectionString()))
         {
             await connection.OpenAsync();
-            foreach (var appUserId in appUserIds)
+            foreach (string? appUserId in appUserIds)
             {
-                await using var command = connection.CreateCommand();
+                await using NpgsqlCommand command = connection.CreateCommand();
                 command.CommandText = """
                     INSERT INTO identity.users
                         ("Id", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",
@@ -149,7 +150,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
             }
         }
 
-        await using var db = CreateContext(_ => { });
+        await using HrDbContext db = CreateContext(_ => { });
         var employees = appUserIds
             .Select(appUserId => Employee.Create(
                 appUserId, "Engineer", DateOnly.FromDateTime(DateTime.UtcNow), ContractType.FullTime))
@@ -163,7 +164,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
     private HrDbContext CreateContext(Action<string> onCommandExecuted)
     {
-        var builder = new DbContextOptionsBuilder<HrDbContext>()
+        DbContextOptionsBuilder<HrDbContext> builder = new DbContextOptionsBuilder<HrDbContext>()
             .UseNpgsql(_container.GetConnectionString())
             .LogTo(
                 message => onCommandExecuted(message),

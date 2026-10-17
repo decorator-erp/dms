@@ -29,7 +29,7 @@ public class NotificationsContractsIsolationTests
     [Fact]
     public void NotificationsContracts_ReferencesSharedKernelAndBuildingBlocksOnly()
     {
-        var csprojPath = Path.Combine(
+        string csprojPath = Path.Combine(
             SolutionRoot.Path, "src", "Modules", "Notifications",
             "Notifications.Contracts", "Notifications.Contracts.csproj");
         var doc = XDocument.Load(csprojPath);

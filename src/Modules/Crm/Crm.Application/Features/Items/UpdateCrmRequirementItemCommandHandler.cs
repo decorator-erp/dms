@@ -20,17 +20,21 @@ internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db) : 
 {
     public async Task<Result> HandleAsync(UpdateCrmRequirementItemCommand command, CancellationToken ct = default)
     {
-        var item = await db.CrmRequirementItems.FindAsync([command.ItemId], ct);
+        CrmRequirementItem? item = await db.CrmRequirementItems.FindAsync([command.ItemId], ct);
         if (item is null)
+        {
             return CrmItemErrors.NotFound;
+        }
 
-        var result = item.Update(
+        Result result = item.Update(
             CrmEnumMapping.ToDomain(command.Category), command.Title, CrmEnumMapping.ToDomain(command.Priority),
             command.SpaceTypeId, command.Room, command.Description,
             command.SourceType is { } st ? CrmEnumMapping.ToDomain(st) : null,
             command.MeetingId, command.BriefId, command.NoteId, command.ProjectTaskId);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

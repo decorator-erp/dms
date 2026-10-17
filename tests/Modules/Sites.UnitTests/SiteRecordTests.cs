@@ -1,3 +1,4 @@
+using SharedKernel;
 using Sites.Domain;
 using Xunit;
 
@@ -22,7 +23,7 @@ public class SiteRecordTests
     [Fact]
     public void Create_TrimsTheLabelAndDefaultsTheOptionalLinks()
     {
-        var record = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "  Front door  ").Value!;
+        SiteRecord record = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "  Front door  ").Value!;
 
         Assert.Equal("Front door", record.Label);
         Assert.Null(record.SpaceId);
@@ -48,7 +49,7 @@ public class SiteRecordTests
     [Fact]
     public void Create_WithANegativeSortOrder_IsRefused()
     {
-        var result = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "Door", sortOrder: -1);
+        Result<SiteRecord> result = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "Door", sortOrder: -1);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -57,7 +58,7 @@ public class SiteRecordTests
     public void Update_ChangesEveryEditableFieldAndLeavesTheModuleAlone()
     {
         var moduleId = Guid.NewGuid();
-        var record = SiteRecord.Create(Guid.NewGuid(), moduleId, "Door").Value!;
+        SiteRecord record = SiteRecord.Create(Guid.NewGuid(), moduleId, "Door").Value!;
         var space = Guid.NewGuid();
         var catalogItem = Guid.NewGuid();
 
@@ -76,7 +77,7 @@ public class SiteRecordTests
     [Fact]
     public void Update_WithABlankLabelOrNegativeOrder_IsRefusedAndChangesNothing()
     {
-        var record = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "Door", sortOrder: 2).Value!;
+        SiteRecord record = SiteRecord.Create(Guid.NewGuid(), Guid.NewGuid(), "Door", sortOrder: 2).Value!;
 
         Assert.Equal(SiteErrors.InvalidData, record.Update("  ", null, null, 5, null).Error);
         Assert.Equal(SiteErrors.InvalidData, record.Update("Back door", null, null, -1, null).Error);
@@ -88,7 +89,7 @@ public class SiteRecordTests
     [Fact]
     public void Update_CanClearTheOptionalLinks()
     {
-        var record = SiteRecord
+        SiteRecord record = SiteRecord
             .Create(Guid.NewGuid(), Guid.NewGuid(), "Door", Guid.NewGuid(), Guid.NewGuid()).Value!;
 
         Assert.True(record.Update("Door", null, null, 0, null).IsSuccess);
@@ -102,7 +103,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_WithNothingPopulated_IsRefused()
     {
-        var result = SiteRecordValue.Create(RecordId, ItemId, SiteItemDataType.Number);
+        Result<SiteRecordValue> result = SiteRecordValue.Create(RecordId, ItemId, SiteItemDataType.Number);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -110,7 +111,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_WithTwoColumnsPopulated_IsRefused()
     {
-        var result = SiteRecordValue.Create(
+        Result<SiteRecordValue> result = SiteRecordValue.Create(
             RecordId, ItemId, SiteItemDataType.Number, valueNumber: 90m, valueText: "ninety");
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
@@ -124,7 +125,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_WithWhitespaceOnlyText_CountsAsUnpopulated()
     {
-        var result = SiteRecordValue.Create(RecordId, ItemId, SiteItemDataType.Text, valueText: "   ");
+        Result<SiteRecordValue> result = SiteRecordValue.Create(RecordId, ItemId, SiteItemDataType.Text, valueText: "   ");
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -145,7 +146,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_Number_AcceptsANumberAndTrimsNothingElse()
     {
-        var value = SiteRecordValue
+        SiteRecordValue value = SiteRecordValue
             .Create(RecordId, ItemId, SiteItemDataType.Number, valueNumber: 90.5m).Value!;
 
         Assert.Equal(90.5m, value.ValueNumber);
@@ -157,7 +158,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_Text_IsTrimmed()
     {
-        var value = SiteRecordValue
+        SiteRecordValue value = SiteRecordValue
             .Create(RecordId, ItemId, SiteItemDataType.Text, valueText: "  oak veneer  ").Value!;
 
         Assert.Equal("oak veneer", value.ValueText);
@@ -172,7 +173,7 @@ public class SiteRecordTests
     [InlineData((int)SiteItemDataType.Text)]
     public void Value_ANumberAgainstANonNumberItem_IsATypeMismatch(int dataType)
     {
-        var result = SiteRecordValue.Create(RecordId, ItemId, (SiteItemDataType)dataType, valueNumber: 90m);
+        Result<SiteRecordValue> result = SiteRecordValue.Create(RecordId, ItemId, (SiteItemDataType)dataType, valueNumber: 90m);
 
         Assert.Equal(SiteErrors.ValueTypeMismatch, result.Error);
         Assert.Equal(400, result.Error.Status);
@@ -181,7 +182,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_AnOptionAgainstANumberItem_IsATypeMismatch()
     {
-        var result = SiteRecordValue.Create(
+        Result<SiteRecordValue> result = SiteRecordValue.Create(
             RecordId, ItemId, SiteItemDataType.Number, optionId: Guid.NewGuid());
 
         Assert.Equal(SiteErrors.ValueTypeMismatch, result.Error);
@@ -190,7 +191,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_ADateAgainstABoolItem_IsATypeMismatch()
     {
-        var result = SiteRecordValue.Create(
+        Result<SiteRecordValue> result = SiteRecordValue.Create(
             RecordId, ItemId, SiteItemDataType.Bool, valueDate: new DateOnly(2026, 3, 1));
 
         Assert.Equal(SiteErrors.ValueTypeMismatch, result.Error);
@@ -221,7 +222,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_Bool_FalseIsAValueNotAnAbsence()
     {
-        var value = SiteRecordValue
+        SiteRecordValue value = SiteRecordValue
             .Create(RecordId, ItemId, SiteItemDataType.Bool, valueBool: false).Value!;
 
         Assert.False(value.ValueBool);
@@ -231,7 +232,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_Number_ZeroIsAValueNotAnAbsence()
     {
-        var value = SiteRecordValue
+        SiteRecordValue value = SiteRecordValue
             .Create(RecordId, ItemId, SiteItemDataType.Number, valueNumber: 0m).Value!;
 
         Assert.Equal(0m, value.ValueNumber);
@@ -240,7 +241,7 @@ public class SiteRecordTests
     [Fact]
     public void Value_AnUnknownDataType_IsATypeMismatchRatherThanAccepted()
     {
-        var result = SiteRecordValue.Create(
+        Result<SiteRecordValue> result = SiteRecordValue.Create(
             RecordId, ItemId, (SiteItemDataType)99, valueNumber: 1m);
 
         Assert.Equal(SiteErrors.ValueTypeMismatch, result.Error);

@@ -38,14 +38,14 @@ public class SiteLifecycleTests
 
     private static Site SubmittedSite()
     {
-        var site = DraftSite();
+        Site site = DraftSite();
         site.Submit(SubmittedAt);
         return site;
     }
 
     private static Site DecidedSite(bool approved, string? note = null)
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
         site.Decide(approved, Guid.NewGuid(), DecidedAt, note);
         return site;
     }
@@ -55,7 +55,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Create_StartsInDraftWithNoStamps()
     {
-        var site = DraftSite();
+        Site site = DraftSite();
 
         Assert.Equal(SiteStatus.Draft, site.Status);
         Assert.Null(site.SubmittedAtUtc);
@@ -71,7 +71,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Draft_Submit_Approve_IsTheHappyPath()
     {
-        var site = DraftSite();
+        Site site = DraftSite();
 
         Assert.True(site.Submit(SubmittedAt).IsSuccess);
         Assert.Equal(SiteStatus.Submitted, site.Status);
@@ -94,7 +94,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Decide_Rejecting_StampsTheDeciderAndKeepsTheSiteEditable()
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
         var decidedBy = Guid.NewGuid();
 
         Assert.True(site.Decide(approved: false, decidedBy, DecidedAt, "  Missing the riser shaft.  ").IsSuccess);
@@ -112,7 +112,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Decide_WithABlankNote_StoresNullRatherThanWhitespace()
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
 
         Assert.True(site.Decide(approved: true, Guid.NewGuid(), DecidedAt, "   ").IsSuccess);
 
@@ -128,7 +128,7 @@ public class SiteLifecycleTests
     [Fact]
     public void ReopenForRework_FromRejected_ReturnsToDraftAndClearsEveryStamp()
     {
-        var site = DecidedSite(approved: false, note: "Rework the openings.");
+        Site site = DecidedSite(approved: false, note: "Rework the openings.");
 
         Assert.True(site.ReopenForRework().IsSuccess);
 
@@ -142,7 +142,7 @@ public class SiteLifecycleTests
     [Fact]
     public void ReopenForRework_ThenResubmit_IsAllowed()
     {
-        var site = DecidedSite(approved: false);
+        Site site = DecidedSite(approved: false);
         site.ReopenForRework();
 
         Assert.True(site.Submit(SubmittedAt).IsSuccess);
@@ -162,9 +162,9 @@ public class SiteLifecycleTests
     [InlineData((int)SiteStatus.Rejected)]
     public void Decide_IsRefusedFromEveryStatusButSubmitted(int status)
     {
-        var site = SiteAt((SiteStatus)status);
+        Site site = SiteAt((SiteStatus)status);
 
-        var result = site.Decide(approved: true, Guid.NewGuid(), DecidedAt);
+        Result result = site.Decide(approved: true, Guid.NewGuid(), DecidedAt);
 
         Assert.Equal(SiteErrors.InvalidTransition, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -177,10 +177,10 @@ public class SiteLifecycleTests
     [InlineData((int)SiteStatus.Rejected)]
     public void Submit_IsRefusedFromEveryStatusButDraft(int status)
     {
-        var site = SiteAt((SiteStatus)status);
-        var stampBefore = site.SubmittedAtUtc;
+        Site site = SiteAt((SiteStatus)status);
+        DateTime? stampBefore = site.SubmittedAtUtc;
 
-        var result = site.Submit(SubmittedAt);
+        Result result = site.Submit(SubmittedAt);
 
         Assert.Equal(SiteErrors.InvalidTransition, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -194,9 +194,9 @@ public class SiteLifecycleTests
     [InlineData((int)SiteStatus.Approved)]
     public void ReopenForRework_IsRefusedFromEveryStatusButRejected(int status)
     {
-        var site = SiteAt((SiteStatus)status);
+        Site site = SiteAt((SiteStatus)status);
 
-        var result = site.ReopenForRework();
+        Result result = site.ReopenForRework();
 
         Assert.Equal(SiteErrors.InvalidTransition, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -214,9 +214,9 @@ public class SiteLifecycleTests
     [InlineData("   ")]
     public void Submit_WithoutAnAddress_IsRefused(string? address)
     {
-        var site = DraftSite(address);
+        Site site = DraftSite(address);
 
-        var result = site.Submit(SubmittedAt);
+        Result result = site.Submit(SubmittedAt);
 
         Assert.Equal(SiteErrors.AddressRequiredToSubmit, result.Error);
         Assert.Equal(400, result.Error.Status);
@@ -227,9 +227,9 @@ public class SiteLifecycleTests
     [Fact]
     public void Decide_WithoutADecider_IsRefused()
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
 
-        var result = site.Decide(approved: true, Guid.Empty, DecidedAt);
+        Result result = site.Decide(approved: true, Guid.Empty, DecidedAt);
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
         Assert.Equal(SiteStatus.Submitted, site.Status);
@@ -243,9 +243,9 @@ public class SiteLifecycleTests
     [Fact]
     public void Update_OnAnApprovedSite_IsRefusedAndChangesNothing()
     {
-        var site = DecidedSite(approved: true);
+        Site site = DecidedSite(approved: true);
 
-        var result = site.Update(new SiteData(Address: "Somewhere else", Notes: "sneaky"));
+        Result result = site.Update(new SiteData(Address: "Somewhere else", Notes: "sneaky"));
 
         Assert.Equal(SiteErrors.SiteLocked, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -263,9 +263,9 @@ public class SiteLifecycleTests
     [Fact]
     public void Update_OnASubmittedSite_IsRefusedAndChangesNothing()
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
 
-        var result = site.Update(new SiteData(Address: "Somewhere else", Notes: "changed after review"));
+        Result result = site.Update(new SiteData(Address: "Somewhere else", Notes: "changed after review"));
 
         Assert.Equal(SiteErrors.SiteLocked, result.Error);
         Assert.Equal(409, result.Error.Status);
@@ -287,11 +287,11 @@ public class SiteLifecycleTests
     [InlineData((int)SiteStatus.Approved, false)]
     public void Update_IsAllowedInDraftAndRejectedOnly(int status, bool editable)
     {
-        var site = SiteAt((SiteStatus)status);
+        Site site = SiteAt((SiteStatus)status);
 
         Assert.Equal(editable, site.IsEditable);
 
-        var result = site.Update(new SiteData(Address: "9 Tahrir St", Notes: "second visit"));
+        Result result = site.Update(new SiteData(Address: "9 Tahrir St", Notes: "second visit"));
 
         if (editable)
         {
@@ -314,7 +314,7 @@ public class SiteLifecycleTests
     [Fact]
     public void ReopenForRework_RestoresEditabilityAfterASubmittedSiteWasFrozen()
     {
-        var site = SubmittedSite();
+        Site site = SubmittedSite();
         Assert.False(site.IsEditable);
 
         // Rejected is already editable -- the reject itself is the unlock.
@@ -351,7 +351,7 @@ public class SiteLifecycleTests
     [InlineData(-1)]
     public void Apply_RejectsANonPositiveArea(decimal area)
     {
-        var result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(AreaSqm: area));
+        Result<Site> result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(AreaSqm: area));
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -361,7 +361,7 @@ public class SiteLifecycleTests
     [InlineData(201)]
     public void Apply_RejectsAFloorOutsideTheBuildableRange(int floor)
     {
-        var result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(FloorNo: floor));
+        Result<Site> result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(FloorNo: floor));
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
     }
@@ -371,7 +371,7 @@ public class SiteLifecycleTests
     [InlineData(200)]
     public void Apply_AcceptsTheBoundaryFloors(int floor)
     {
-        var result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(FloorNo: floor));
+        Result<Site> result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(FloorNo: floor));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(floor, result.Value!.FloorNo);
@@ -382,7 +382,7 @@ public class SiteLifecycleTests
     [InlineData(101)]
     public void Apply_RejectsAUnitsPerFloorOutsideRange(int units)
     {
-        var result = Site.Create(
+        Result<Site> result = Site.Create(
             Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(UnitsPerFloor: units));
 
         Assert.Equal(SiteErrors.InvalidData, result.Error);
@@ -391,7 +391,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Apply_TrimsTextAndCollapsesBlanksToNull()
     {
-        var site = Site.Create(
+        Site site = Site.Create(
             Guid.NewGuid(), "  SITE-00007  ", Guid.NewGuid(),
             new SiteData(Address: "  12 Nasr Road  ", Notes: "   ", UtilityMetersNote: "  meter 4 ")).Value!;
 
@@ -409,7 +409,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Create_WithInvalidData_ReturnsFailureRatherThanAPartiallyBuiltSite()
     {
-        var result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(AreaSqm: -3));
+        Result<Site> result = Site.Create(Guid.NewGuid(), "SITE-1", Guid.NewGuid(), new SiteData(AreaSqm: -3));
 
         Assert.True(result.IsFailure);
         Assert.Equal(SiteErrors.InvalidData, result.Error);
@@ -418,7 +418,7 @@ public class SiteLifecycleTests
     [Fact]
     public void Deactivate_DoesNotChangeStatus()
     {
-        var site = DecidedSite(approved: true);
+        Site site = DecidedSite(approved: true);
 
         site.Deactivate();
 

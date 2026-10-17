@@ -15,9 +15,11 @@ internal sealed class GetClientByIdQueryHandler(CrmDbContext db) : IQueryHandler
 
     public async Task<Result<ClientResponse>> HandleAsync(GetClientByIdQuery query, CancellationToken ct = default)
     {
-        var client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == query.ClientId, ct);
+        Client? client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == query.ClientId, ct);
         if (client is null)
+        {
             return Result.Failure<ClientResponse>(ClientErrors.NotFound);
+        }
 
         return ToResponse()(client);
     }

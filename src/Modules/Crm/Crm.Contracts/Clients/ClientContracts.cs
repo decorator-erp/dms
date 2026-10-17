@@ -19,10 +19,27 @@ public sealed record ClientResponse(
     IReadOnlyList<ClientChildResponse> Children,
     bool IsActive);
 
-/// <summary>Direct creation path — the other is lead conversion (<c>ConvertLeadCommand</c>), which
-/// creates the row internally rather than through this command.</summary>
-public sealed record CreateClientCommand(string AppUserId, string Address, string? Notes = null)
-    : ICommand<Guid>;
+/// <summary>
+/// <b>The only path that creates a client.</b> Lead conversion attaches a lead to a client that already
+/// exists (<c>ConvertCrmLeadCommand</c> takes an <c>ExistingClientId</c> and fails without one) — the
+/// doc comment that used to claim it "creates the row internally" was wrong.
+///
+/// <para>Creating a client creates their portal login too. There is no <c>AppUserId</c> to pass: the
+/// handler provisions one through <c>Identity.Contracts.IUserProvisioning</c> and hands it back through
+/// <c>ClientCreatedIntegrationEvent</c>. The login is <c>UserKind.Client</c> and inactive until that
+/// event is delivered — see <c>CreateClientCommandHandler</c> for why the order matters.</para>
+///
+/// <para><b>This record carries a password.</b> It must never be logged or serialized into an audit
+/// row — see <c>LoggingDecorator</c> and <c>AuditRedaction</c>.</para>
+/// </summary>
+public sealed record CreateClientCommand(
+    string Email,
+    string Password,
+    string FirstName,
+    string LastName,
+    string Address,
+    string? PhoneNumber = null,
+    string? Notes = null) : ICommand<Guid>;
 
 public sealed record UpdateClientProfileCommand(
     Guid ClientId, string? JobTitle = null, string? MaritalStatus = null, string? RepresentativeName = null)

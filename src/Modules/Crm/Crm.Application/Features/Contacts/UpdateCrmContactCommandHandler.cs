@@ -21,15 +21,19 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result> HandleAsync(UpdateCrmContactCommand command, CancellationToken ct = default)
     {
-        var contact = await db.CrmContacts.FindAsync([command.ContactId], ct);
+        CrmContact? contact = await db.CrmContacts.FindAsync([command.ContactId], ct);
         if (contact is null)
+        {
             return CrmContactErrors.NotFound;
+        }
 
-        var result = contact.Update(
+        Result result = contact.Update(
             command.FirstName, command.LastName, CrmEnumMapping.ToDomain(command.Role),
             command.Email, command.Phone, command.Mobile, command.Notes);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 

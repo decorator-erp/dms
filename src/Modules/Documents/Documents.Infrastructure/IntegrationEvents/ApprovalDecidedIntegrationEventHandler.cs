@@ -2,8 +2,10 @@ using Approvals.Contracts;
 using BuildingBlocks.Events;
 using BuildingBlocks.Outbox;
 using Documents.Contracts;
+using Documents.Domain;
 using Documents.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 
 namespace Documents.Infrastructure.IntegrationEvents;
 
@@ -32,18 +34,26 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(DocumentsDbContext 
     public async Task HandleAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
     {
         if (@event.SubjectType != ApprovalSubjectType.ProjectDocument)
+        {
             return;
+        }
 
         if (@event.Decision != ApprovalDecision.Approved)
+        {
             return;
+        }
 
-        var document = await db.ProjectDocuments.FirstOrDefaultAsync(d => d.Id == @event.SubjectId, ct);
+        ProjectDocument? document = await db.ProjectDocuments.FirstOrDefaultAsync(d => d.Id == @event.SubjectId, ct);
         if (document is null)
+        {
             return;
+        }
 
-        var lockResult = document.Lock();
+        Result lockResult = document.Lock();
         if (lockResult.IsFailure)
+        {
             return; // already locked - nothing further to do, not an error worth surfacing here.
+        }
 
         db.Outbox().Enqueue(new DocumentApprovedIntegrationEvent(
             Guid.NewGuid(), document.RootDocumentId, document.ProjectId, DateTimeOffset.UtcNow));

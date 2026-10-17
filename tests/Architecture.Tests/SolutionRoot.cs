@@ -17,7 +17,9 @@ internal static class SolutionRoot
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (dir is not null && !File.Exists(System.IO.Path.Combine(dir.FullName, "DMS.Modular.slnx")))
+        {
             dir = dir.Parent;
+        }
 
         return dir?.FullName
             ?? throw new InvalidOperationException(

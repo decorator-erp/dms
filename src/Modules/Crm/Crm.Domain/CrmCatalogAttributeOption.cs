@@ -19,8 +19,11 @@ internal sealed class CrmCatalogAttributeOption : Entity, IAuditable
     public static Result<CrmCatalogAttributeOption> Create(
         Guid attributeId, string code, string nameEn, string nameAr, string? imageUri = null, int sortOrder = 0)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         return new CrmCatalogAttributeOption
         {
@@ -35,8 +38,11 @@ internal sealed class CrmCatalogAttributeOption : Entity, IAuditable
 
     public Result Update(string code, string nameEn, string nameAr, string? imageUri)
     {
-        var validation = Validate(code, nameEn, nameAr);
-        if (validation.IsFailure) return validation.Error;
+        Result validation = Validate(code, nameEn, nameAr);
+        if (validation.IsFailure)
+        {
+            return validation.Error;
+        }
 
         Code = code;
         NameEn = nameEn;
@@ -54,7 +60,10 @@ internal sealed class CrmCatalogAttributeOption : Entity, IAuditable
     private static Result Validate(string code, string nameEn, string nameAr)
     {
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(nameEn) || string.IsNullOrWhiteSpace(nameAr))
+        {
             return CrmCatalogErrors.InvalidData;
+        }
+
         return Result.Success();
     }
 }

@@ -27,15 +27,17 @@ internal static class DefaultFolderResolver
     public static async Task<Guid> EnsureForStageAsync(
         DocumentsDbContext db, Guid projectId, Guid projectStageId, string stageName, CancellationToken ct)
     {
-        var existingId = await db.DocumentFolders.AsNoTracking()
+        Guid? existingId = await db.DocumentFolders.AsNoTracking()
             .Where(f => f.ProjectStageId == projectStageId && f.IsDefault)
             .Select(f => (Guid?)f.Id)
             .FirstOrDefaultAsync(ct);
         if (existingId is { } id)
+        {
             return id;
+        }
 
-        var name = Truncate($"Stage: {stageName} ({projectStageId:N})");
-        var folder = DocumentFolder.Create(
+        string name = Truncate($"Stage: {stageName} ({projectStageId:N})");
+        DocumentFolder folder = DocumentFolder.Create(
             projectId, name, projectStageId: projectStageId, isDefault: true).Value!;
         db.DocumentFolders.Add(folder);
 
@@ -45,15 +47,17 @@ internal static class DefaultFolderResolver
     public static async Task<Guid> EnsureForTaskAsync(
         DocumentsDbContext db, Guid projectId, Guid projectTaskId, string taskName, CancellationToken ct)
     {
-        var existingId = await db.DocumentFolders.AsNoTracking()
+        Guid? existingId = await db.DocumentFolders.AsNoTracking()
             .Where(f => f.ProjectTaskId == projectTaskId && f.IsDefault)
             .Select(f => (Guid?)f.Id)
             .FirstOrDefaultAsync(ct);
         if (existingId is { } id)
+        {
             return id;
+        }
 
-        var name = Truncate($"Task: {taskName} ({projectTaskId:N})");
-        var folder = DocumentFolder.Create(
+        string name = Truncate($"Task: {taskName} ({projectTaskId:N})");
+        DocumentFolder folder = DocumentFolder.Create(
             projectId, name, projectTaskId: projectTaskId, isDefault: true).Value!;
         db.DocumentFolders.Add(folder);
 

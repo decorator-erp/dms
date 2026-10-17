@@ -30,24 +30,28 @@ internal sealed class UploadDocumentRevisionCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(UploadDocumentRevisionCommand command, CancellationToken ct = default)
     {
-        var referenced = await db.ProjectDocuments.AsNoTracking()
+        ProjectDocument? referenced = await db.ProjectDocuments.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == command.DocumentId, ct);
         if (referenced is null)
+        {
             return ProjectDocumentErrors.NotFound;
+        }
 
-        var latest = await db.ProjectDocuments
+        ProjectDocument latest = await db.ProjectDocuments
             .Where(d => d.RootDocumentId == referenced.RootDocumentId)
             .OrderByDescending(d => d.Version)
             .FirstAsync(ct);
 
-        var uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
+        Guid? uploadedById = await hrDirectory.ResolveEmployeeIdAsync(command.UploadedByUserId, ct);
         if (uploadedById is null)
+        {
             return ProjectDocumentErrors.UploaderNotFound;
+        }
 
-        var storagePath = await fileStorage.SaveAsync(
+        string storagePath = await fileStorage.SaveAsync(
             command.Content, command.FileName, $"projects/{latest.ProjectId}", ct);
 
-        var revisionResult = ProjectDocument.CreateRevision(
+        Result<ProjectDocument> revisionResult = ProjectDocument.CreateRevision(
             latest, command.FileName, storagePath, command.ContentType, command.FileSizeBytes,
             uploadedById.Value, command.Description);
         if (revisionResult.IsFailure)
@@ -56,7 +60,7 @@ internal sealed class UploadDocumentRevisionCommandHandler(
             return Result.Failure<Guid>(revisionResult.Error);
         }
 
-        var revision = revisionResult.Value!;
+        ProjectDocument revision = revisionResult.Value!;
         await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, revision, ct);
 
         return revision.Id;

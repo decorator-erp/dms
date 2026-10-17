@@ -29,9 +29,11 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 {
     public async Task<Result<CrmActor>> ResolveActorAsync(string appUserId, CancellationToken ct)
     {
-        var employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
+        Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
         if (employeeId is { } resolvedEmployeeId)
+        {
             return new CrmActor(CrmActorKind.Employee, resolvedEmployeeId, null, null, HasReadAll: true);
+        }
 
         var client = await db.Clients.AsNoTracking()
             .Where(c => c.AppUserId == appUserId)
@@ -40,7 +42,7 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 
         if (client is not null)
         {
-            var contactId = await db.CrmContacts.AsNoTracking()
+            Guid? contactId = await db.CrmContacts.AsNoTracking()
                 .Where(c => c.ClientId == client.Id)
                 .Select(c => (Guid?)c.Id)
                 .FirstOrDefaultAsync(ct);
@@ -55,7 +57,9 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
         IReadOnlyCollection<string> appUserIds, CancellationToken ct)
     {
         if (appUserIds.Count == 0)
+        {
             return new Dictionary<string, CrmActor>();
+        }
 
         var result = new Dictionary<string, CrmActor>();
 
@@ -64,9 +68,9 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
         // ResolveEmployeeIdAsync call per id for the employee branch. Acceptable here: batch
         // resolution is a display-list convenience (the Portal roster), not the hot per-request
         // authorization path, which always resolves exactly one actor via ResolveActorAsync.
-        foreach (var appUserId in appUserIds)
+        foreach (string appUserId in appUserIds)
         {
-            var employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
+            Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(appUserId, ct);
             if (employeeId is { } resolvedEmployeeId)
             {
                 result[appUserId] = new CrmActor(CrmActorKind.Employee, resolvedEmployeeId, null, null, HasReadAll: true);
@@ -89,7 +93,7 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 
             foreach (var client in clients)
             {
-                var contactId = primaryContactsByClient.FirstOrDefault(c => c.ClientId == client.Id)?.Id;
+                Guid? contactId = primaryContactsByClient.FirstOrDefault(c => c.ClientId == client.Id)?.Id;
                 result[client.AppUserId] = new CrmActor(CrmActorKind.Client, null, contactId, client.Id, HasReadAll: false);
             }
         }

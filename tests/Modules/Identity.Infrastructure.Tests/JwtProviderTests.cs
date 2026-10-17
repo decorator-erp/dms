@@ -16,20 +16,20 @@ public sealed class JwtProviderTests(IdentityInfrastructureFixture fixture)
     [Fact]
     public async Task GenerateTokenAsync_TokenCarriesExactlyTheResolvedPermissions()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, role) = await TestDataBuilder.CreateUserInRoleAsync(
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole? role) = await TestDataBuilder.CreateUserInRoleAsync(
             scope.ServiceProvider, "employees.read", "departments.read", "roles.manage");
 
         // An override on top of the role grants, so the test also proves the token reflects
         // EffectivePermissionService's resolution (roles ∪ overrides), not just the raw role claims.
-        var db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
         db.UserPermissionOverrides.Add(UserPermissionOverride.Deny(user.Id, "roles.manage", "admin-1"));
         await db.SaveChangesAsync();
 
-        var jwtProvider = scope.ServiceProvider.GetRequiredService<IJwtProvider>();
-        var (token, _) = await jwtProvider.GenerateTokenAsync(user, [role.Name!]);
+        IJwtProvider jwtProvider = scope.ServiceProvider.GetRequiredService<IJwtProvider>();
+        (string? token, int _) = await jwtProvider.GenerateTokenAsync(user, [role.Name!]);
 
-        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+        JwtSecurityToken jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
         var permissionClaims = jwt.Claims
             .Where(c => c.Type == PermissionClaim.Type)
             .Select(c => c.Value)
@@ -42,13 +42,13 @@ public sealed class JwtProviderTests(IdentityInfrastructureFixture fixture)
     [Fact]
     public async Task GenerateTokenAsync_ThenValidateToken_ReturnsTheSameUserId()
     {
-        await using var scope = fixture.CreateScope();
-        var (user, role) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        (ApplicationUser? user, ApplicationRole? role) = await TestDataBuilder.CreateUserInRoleAsync(scope.ServiceProvider, "employees.read");
 
-        var jwtProvider = scope.ServiceProvider.GetRequiredService<IJwtProvider>();
-        var (token, _) = await jwtProvider.GenerateTokenAsync(user, [role.Name!]);
+        IJwtProvider jwtProvider = scope.ServiceProvider.GetRequiredService<IJwtProvider>();
+        (string? token, int _) = await jwtProvider.GenerateTokenAsync(user, [role.Name!]);
 
-        var validatedUserId = jwtProvider.ValidateToken(token);
+        string? validatedUserId = jwtProvider.ValidateToken(token);
 
         Assert.Equal(user.Id, validatedUserId);
     }

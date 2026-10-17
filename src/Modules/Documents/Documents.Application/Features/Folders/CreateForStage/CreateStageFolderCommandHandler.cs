@@ -26,30 +26,38 @@ internal sealed class CreateStageFolderCommandHandler(DocumentsDbContext db, IPr
 {
     public async Task<Result<Guid>> HandleAsync(CreateStageFolderCommand command, CancellationToken ct = default)
     {
-        var stage = await projectDirectory.GetStageAsync(command.ProjectStageId, ct);
+        StageSummary? stage = await projectDirectory.GetStageAsync(command.ProjectStageId, ct);
         if (stage is null)
+        {
             return DocumentFolderErrors.NotFound;
+        }
 
         if (command.ParentFolderId is { } parentFolderId)
         {
-            var parentExists = await db.DocumentFolders.AsNoTracking()
+            bool parentExists = await db.DocumentFolders.AsNoTracking()
                 .AnyAsync(f => f.Id == parentFolderId && f.ProjectId == stage.ProjectId, ct);
             if (!parentExists)
+            {
                 return DocumentFolderErrors.NotFound;
+            }
         }
 
-        var nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
+        bool nameTaken = await db.DocumentFolders.AsNoTracking().AnyAsync(
             f => f.ProjectId == stage.ProjectId && f.ParentFolderId == command.ParentFolderId
                 && f.Name == command.Name, ct);
         if (nameTaken)
+        {
             return DocumentFolderErrors.NameCollision;
+        }
 
-        var folderResult = DocumentFolder.Create(
+        Result<DocumentFolder> folderResult = DocumentFolder.Create(
             stage.ProjectId, command.Name, command.ParentFolderId, projectStageId: command.ProjectStageId);
         if (folderResult.IsFailure)
+        {
             return Result.Failure<Guid>(folderResult.Error);
+        }
 
-        var folder = folderResult.Value!;
+        DocumentFolder folder = folderResult.Value!;
         db.DocumentFolders.Add(folder);
         await db.SaveChangesAsync(ct);
 

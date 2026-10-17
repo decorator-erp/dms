@@ -25,15 +25,19 @@ internal sealed class CreateCrmSpaceCommandHandler(CrmDbContext db, IProjectDire
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmSpaceCommand command, CancellationToken ct = default)
     {
-        var project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
         if (project is null)
+        {
             return Result.Failure<Guid>(CrmSpaceErrors.SpaceNotFound);
+        }
 
-        var result = CrmSpace.Create(command.ProjectId, command.SpaceTypeId, command.Name, command.SortOrder, command.Description);
+        Result<CrmSpace> result = CrmSpace.Create(command.ProjectId, command.SpaceTypeId, command.Name, command.SortOrder, command.Description);
         if (result.IsFailure)
+        {
             return Result.Failure<Guid>(result.Error);
+        }
 
-        var space = result.Value!;
+        CrmSpace space = result.Value!;
         db.CrmSpaces.Add(space);
         await db.SaveChangesAsync(ct);
 
@@ -55,13 +59,17 @@ internal sealed class UpdateCrmSpaceCommandHandler(CrmDbContext db) : ICommandHa
 {
     public async Task<Result> HandleAsync(UpdateCrmSpaceCommand command, CancellationToken ct = default)
     {
-        var space = await db.CrmSpaces.FindAsync([command.SpaceId], ct);
+        CrmSpace? space = await db.CrmSpaces.FindAsync([command.SpaceId], ct);
         if (space is null)
+        {
             return CrmSpaceErrors.SpaceNotFound;
+        }
 
-        var result = space.Update(command.SpaceTypeId, command.Name, command.Description);
+        Result result = space.Update(command.SpaceTypeId, command.Name, command.Description);
         if (result.IsFailure)
+        {
             return result;
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -78,11 +86,21 @@ internal sealed class SetCrmSpaceActiveCommandHandler(CrmDbContext db) : IComman
 {
     public async Task<Result> HandleAsync(SetCrmSpaceActiveCommand command, CancellationToken ct = default)
     {
-        var space = await db.CrmSpaces.FindAsync([command.SpaceId], ct);
+        CrmSpace? space = await db.CrmSpaces.FindAsync([command.SpaceId], ct);
         if (space is null)
+        {
             return CrmSpaceErrors.SpaceNotFound;
+        }
 
-        if (command.IsActive) space.Activate(); else space.Deactivate();
+        if (command.IsActive)
+        {
+            space.Activate();
+        }
+        else
+        {
+            space.Deactivate();
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Result.Success();

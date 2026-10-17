@@ -29,7 +29,7 @@ public sealed class HrApplicationFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -50,12 +50,14 @@ public sealed class HrApplicationFixture : IAsyncLifetime
         services.AddDbContext<SharedDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
         services.AddOutbox();
 
-        var modules = ModuleDiscovery.DiscoverModules(
+        IReadOnlyList<IModule> modules = ModuleDiscovery.DiscoverModules(
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
             System.Reflection.Assembly.Load("Hr.Infrastructure"));
 
-        foreach (var module in modules)
+        foreach (IModule module in modules)
+        {
             module.Register(services, configuration);
+        }
 
         _provider = services.BuildServiceProvider();
 
@@ -68,29 +70,30 @@ public sealed class HrApplicationFixture : IAsyncLifetime
         // IdentityModuleDbContext is internal to Identity.Infrastructure, and this project (correctly)
         // has no InternalsVisibleTo grant from it (rule 3 forbids cross-module IVT) - resolved by
         // assembly-qualified name instead, same technique ApiFixture/Rule9 tests use.
-        var identityContextType = Type.GetType(
+        Type identityContextType = Type.GetType(
             "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure")
             ?? throw new InvalidOperationException("Could not load IdentityModuleDbContext.");
 
-        await using (var scope = _provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             var identityDb = (DbContext)scope.ServiceProvider.GetRequiredService(identityContextType);
             await identityDb.Database.MigrateAsync();
         }
 
-        await using (var scope = _provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<Hr.Infrastructure.Persistence.HrDbContext>()
                 .Database.MigrateAsync();
         }
 
         // Seeds Identity's default roles ("employee" among them) via the public IModule.SeedAsync -
-        // RegisterCommand needs an existing role name, and this project has no InternalsVisibleTo grant
-        // from Identity.Domain/Infrastructure to construct a RoleManager<ApplicationRole> directly
-        // (correctly - rule 3 forbids cross-module IVT). DMS_SEED_ADMIN_PASSWORD stays unset and
-        // TestHostEnvironment reports "Development", so AdminUserSeeder skips rather than throwing.
-        var identityModule = modules.Single(m => m.Name == "Identity");
-        await using (var scope = _provider.CreateAsyncScope())
+        // IUserProvisioning resolves the role by name and fails with RoleErrors.NotFound if it is absent,
+        // and this project has no InternalsVisibleTo grant from Identity.Domain/Infrastructure to
+        // construct a RoleManager<ApplicationRole> directly (correctly - rule 3 forbids cross-module
+        // IVT). DMS_SEED_ADMIN_PASSWORD stays unset and TestHostEnvironment reports "Development", so
+        // AdminUserSeeder skips rather than throwing.
+        IModule identityModule = modules.Single(m => m.Name == "Identity");
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             await identityModule.SeedAsync(scope.ServiceProvider);
         }

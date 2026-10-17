@@ -95,14 +95,20 @@ internal sealed class Approval : Entity, IAuditable
     public Result Decide(string decidingUserId, ApprovalDecision decision, string? comment, bool isOverride = false)
     {
         if (Decision is not null)
+        {
             return ApprovalErrors.AlreadyDecided;
+        }
 
         if (!isOverride && !IsEligibleApprover(decidingUserId))
+        {
             return ApprovalErrors.NotAssignedApprover;
+        }
 
         if (decision is ApprovalDecision.Rejected or ApprovalDecision.ChangesRequested
             && string.IsNullOrWhiteSpace(comment))
+        {
             return ApprovalErrors.CommentRequired;
+        }
 
         Decision = decision;
         DecidedByUserId = decidingUserId;

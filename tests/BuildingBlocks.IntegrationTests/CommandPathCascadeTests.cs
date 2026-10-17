@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SharedKernel;
 using Xunit;
 
 namespace BuildingBlocks.IntegrationTests;
@@ -50,13 +51,13 @@ public sealed class CommandPathCascadeTests(OutboxFixture fixture)
     public async Task TwoLevelCascade_HandlerWriteAndBothCascadeStepsCommitTogether()
     {
         var counter = new CallCounter();
-        await using var provider = BuildProvider(counter, new FailureController());
+        await using ServiceProvider provider = BuildProvider(counter, new FailureController());
         var entityId = Guid.NewGuid();
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
-            var result = await handler.HandleAsync(new TriggerCascadeCommand(entityId));
+            ICommandHandler<TriggerCascadeCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
+            Result result = await handler.HandleAsync(new TriggerCascadeCommand(entityId));
             Assert.True(result.IsSuccess);
         }
 
@@ -64,7 +65,7 @@ public sealed class CommandPathCascadeTests(OutboxFixture fixture)
         // Level2 event only exists because Level1's handler enqueued it via IDomainEventQueue).
         Assert.Equal(2, counter.Count);
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(1, await verify.CascadingEntities.CountAsync(x => x.Id == entityId));
         Assert.Equal(1, await verify.SideEffects.CountAsync(
             x => x.EventId == entityId && x.HandlerName == nameof(Level1DomainEventHandler)));
@@ -81,30 +82,30 @@ public sealed class CommandPathCascadeTests(OutboxFixture fixture)
     {
         var counter = new CallCounter();
         var failure = new FailureController { FailNextCall = true };
-        await using var provider = BuildProvider(counter, failure);
+        await using ServiceProvider provider = BuildProvider(counter, failure);
         var entityId = Guid.NewGuid();
 
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
+            ICommandHandler<TriggerCascadeCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => handler.HandleAsync(new TriggerCascadeCommand(entityId)));
         }
 
-        await using var verify = OpenModule();
+        await using TestModuleDbContext verify = OpenModule();
         Assert.Equal(0, await verify.CascadingEntities.CountAsync(x => x.Id == entityId));
         Assert.Equal(0, await verify.SideEffects.CountAsync(x => x.EventId == entityId));
 
         // A clean retry (failure already consumed) reruns the whole chain from zero, not a partial
         // resume - exactly the same guarantee F1 proved for the integration-event path.
-        await using (var scope = provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
-            var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
-            var result = await handler.HandleAsync(new TriggerCascadeCommand(entityId));
+            ICommandHandler<TriggerCascadeCommand> handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<TriggerCascadeCommand>>();
+            Result result = await handler.HandleAsync(new TriggerCascadeCommand(entityId));
             Assert.True(result.IsSuccess);
         }
 
-        await using var afterRetry = OpenModule();
+        await using TestModuleDbContext afterRetry = OpenModule();
         Assert.Equal(1, await afterRetry.CascadingEntities.CountAsync(x => x.Id == entityId));
         Assert.Equal(1, await afterRetry.SideEffects.CountAsync(
             x => x.EventId == entityId && x.HandlerName == nameof(Level1DomainEventHandler)));

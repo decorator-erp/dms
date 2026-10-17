@@ -30,7 +30,7 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
         _container = new PostgreSqlBuilder("postgres:17").Build();
         await _container.StartAsync();
 
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
@@ -54,7 +54,7 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
         services.AddDbContext<SharedDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
         services.AddOutbox();
 
-        var modules = ModuleDiscovery.DiscoverModules(
+        IReadOnlyList<IModule> modules = ModuleDiscovery.DiscoverModules(
             System.Reflection.Assembly.Load("Identity.Infrastructure"),
             System.Reflection.Assembly.Load("Approvals.Infrastructure"),
             // N1-06: Notifications is a REQUIRED module now, not an optional extra. Approvals
@@ -62,8 +62,10 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
             // Approvals without this one fails to resolve the handler the moment an event is delivered.
             System.Reflection.Assembly.Load("Notifications.Infrastructure"));
 
-        foreach (var module in modules)
+        foreach (IModule module in modules)
+        {
             module.Register(services, configuration);
+        }
 
         _provider = services.BuildServiceProvider();
 
@@ -73,21 +75,21 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
             await shared.Database.MigrateAsync();
         }
 
-        var identityContextType = Type.GetType(
+        Type identityContextType = Type.GetType(
             "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure")
             ?? throw new InvalidOperationException("Could not load IdentityModuleDbContext.");
 
-        await using (var scope = _provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             var identityDb = (DbContext)scope.ServiceProvider.GetRequiredService(identityContextType);
             await identityDb.Database.MigrateAsync();
         }
 
-        var approvalsContextType = Type.GetType(
+        Type approvalsContextType = Type.GetType(
             "Approvals.Infrastructure.Persistence.ApprovalsDbContext, Approvals.Infrastructure")
             ?? throw new InvalidOperationException("Could not load ApprovalsDbContext.");
 
-        await using (var scope = _provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             var approvalsDb = (DbContext)scope.ServiceProvider.GetRequiredService(approvalsContextType);
             await approvalsDb.Database.MigrateAsync();
@@ -95,18 +97,18 @@ public sealed class ApprovalsApplicationFixture : IAsyncLifetime
 
         // notify is LAST in SchemaOrder: its two foreign keys point at identity.users, and nothing
         // points into it.
-        var notifyContextType = Type.GetType(
+        Type notifyContextType = Type.GetType(
             "Notifications.Infrastructure.Persistence.NotificationsDbContext, Notifications.Infrastructure")
             ?? throw new InvalidOperationException("Could not load NotificationsDbContext.");
 
-        await using (var scope = _provider.CreateAsyncScope())
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             var notifyDb = (DbContext)scope.ServiceProvider.GetRequiredService(notifyContextType);
             await notifyDb.Database.MigrateAsync();
         }
 
-        var identityModule = modules.Single(m => m.Name == "Identity");
-        await using (var scope = _provider.CreateAsyncScope())
+        IModule identityModule = modules.Single(m => m.Name == "Identity");
+        await using (AsyncServiceScope scope = _provider.CreateAsyncScope())
         {
             await identityModule.SeedAsync(scope.ServiceProvider);
         }
