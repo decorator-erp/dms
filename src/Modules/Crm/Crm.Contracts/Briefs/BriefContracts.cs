@@ -50,8 +50,11 @@ public sealed record UpdateCrmBriefHeadCommand(Guid BriefId, CrmBriefHeadData Da
     : ICommand;
 
 /// <summary>Sends the head for client approval — captures a <c>CrmBriefHeadSnapshot</c> round and
-/// requests an <c>Approvals.Contracts</c> decision via <c>IApprovalRequester</c>.</summary>
-public sealed record SendCrmBriefCommand(Guid BriefId) : ICommand;
+/// requests an <c>Approvals.Contracts</c> decision via <c>IApprovalRequester</c>.
+/// <see cref="SentByUserId"/> is the office user sending it (filled from <c>ICurrentUser</c> by the
+/// endpoint, never by the request body); it becomes the approval's requester, so the decision
+/// notification reaches the office and not the client who made the decision.</summary>
+public sealed record SendCrmBriefCommand(Guid BriefId, string SentByUserId) : ICommand;
 
 public sealed record CreateCrmBriefSpaceCommand(
     Guid BriefId, Guid CreatedById, Guid? SpaceId, int? CountOrPieces = null,
@@ -61,7 +64,8 @@ public sealed record UpdateCrmBriefSpaceCommand(
     Guid EntryId, Guid? SpaceId, int? CountOrPieces, string? Requirements,
     Guid? MeetingId, Guid? ProjectTaskId) : ICommand;
 
-public sealed record SendCrmBriefSpaceCommand(Guid EntryId) : ICommand;
+/// <summary>Same requester rule as <see cref="SendCrmBriefCommand.SentByUserId"/>.</summary>
+public sealed record SendCrmBriefSpaceCommand(Guid EntryId, string SentByUserId) : ICommand;
 
 /// <summary>Ledger correction — only a locked (Approved) entry may be superseded, mirroring
 /// <c>CrmBriefSpace.CreateSuperseding</c>.</summary>

@@ -80,6 +80,21 @@ internal static class CrmBriefErrors
 
     public static readonly Error EntryPending = Error.Conflict(
         "crm.briefs.EntryPending", "This entry already has a pending approval.");
+
+    public static readonly Error HeadLockedPendingApproval = Error.Conflict(
+        "crm.briefs.HeadLockedPendingApproval",
+        "The brief head cannot be edited while it is awaiting the client's decision.");
+
+    public static readonly Error NotSendable = Error.Conflict(
+        "crm.briefs.NotSendable", "Only a Draft or Rejected brief can be sent for approval.");
+
+    /// <summary>Two sends computed the same round; the unique <c>(BriefId, Round)</c> snapshot index
+    /// let exactly one of them through.</summary>
+    public static readonly Error ConcurrentSend = Error.Conflict(
+        "crm.briefs.ConcurrentSend", "The brief was sent concurrently. Reload and retry.");
+
+    public static readonly Error ConcurrencyConflict = Error.Conflict(
+        "crm.briefs.ConcurrencyConflict", "The brief was modified concurrently. Reload and retry.");
 }
 
 internal static class CrmSpaceErrors

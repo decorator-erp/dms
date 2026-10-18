@@ -39,7 +39,7 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
         Assert.True((await updateHead.HandleAsync(new UpdateCrmBriefHeadCommand(briefId, updatedData))).IsSuccess);
 
         ICommandHandler<SendCrmBriefCommand> sendBrief = sp.GetRequiredService<ICommandHandler<SendCrmBriefCommand>>();
-        Result sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId));
+        Result sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId, sp.GetRequiredService<TestCurrentUser>().UserId!));
         Assert.True(sendResult.IsSuccess);
 
         IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse> getBrief = sp.GetRequiredService<IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse>>();
@@ -50,8 +50,8 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
 
         // sendResult.IsSuccess above already proves IApprovalRequester.RequestAsync (resolved from the
         // real Approvals DI graph, not a stub) accepted the request - a real ApproverKind.Client
-        // approver naming the client's own AppUserId - and the resulting PendingApproval status
-        // proves the CRM side committed only after that acceptance, in the same transaction.
+        // approver naming the client's own AppUserId. BriefRoundFlowTests covers the round binding,
+        // the flush-then-request order and the decision path.
     }
 
     [Fact]

@@ -12,6 +12,9 @@ internal sealed class CrmBriefSpaceConfiguration : IEntityTypeConfiguration<CrmB
         builder.ToTable("crm_brief_spaces");
         builder.ConfigureEntityConventions();
 
+        // Same xmin concurrency token as CrmDesignBriefConfiguration.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(e => e.Requirements).HasMaxLength(2000);
         builder.Property(e => e.ApprovalStatus).HasConversion<int>();
 

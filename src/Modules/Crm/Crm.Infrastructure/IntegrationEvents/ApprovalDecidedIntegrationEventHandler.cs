@@ -1,11 +1,10 @@
 using Approvals.Contracts;
 using BuildingBlocks.Events;
-using BuildingBlocks.Outbox;
-using Crm.Contracts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using Crm.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SharedKernel;
 
 namespace Crm.Infrastructure.IntegrationEvents;
@@ -33,17 +32,33 @@ namespace Crm.Infrastructure.IntegrationEvents;
 /// from the backend — has no fourth bucket to put it in; recorded here as a deliberate choice, not an
 /// oversight.</para>
 ///
+/// <para><b>Every decision is bound to its round.</b> The brief and the brief-space entry each record the
+/// approval their current round was sent under (<c>PendingApprovalId</c>); the decision is applied only
+/// when <see cref="ApprovalDecidedIntegrationEvent.ApprovalId"/> matches it. A decision for any other
+/// approval — a superseded round, an orphan — is logged at Warning and dropped, never applied to
+/// whatever the head holds now. The application itself lives in <see cref="CrmApprovalOutcomes"/>,
+/// shared with the send handlers' recovery path.</para>
+///
+/// <para><b>Concurrency:</b> a <c>DbUpdateConcurrencyException</c> (the brief and entry carry an
+/// <c>xmin</c> token) propagates out of this handler on purpose. <c>InboxDedupeDecorator</c> rolls the
+/// whole delivery back, and <c>OutboxProcessor</c> records the failure and leaves the message
+/// unprocessed, so the next poll re-runs it against the reloaded row. There is no attempt cap or
+/// dead-letter.</para>
+///
 /// <para>Stages every write via the shared <see cref="CrmDbContext"/> and never calls its own
 /// <c>SaveChangesAsync</c> to COMMIT — that stays <c>InboxDedupeDecorator</c>'s job. <b>E2-03
-/// correction:</b> <see cref="HandleBriefSpaceAsync"/>/<see cref="HandleRequirementItemAsync"/> DO each
-/// call <c>db.SaveChangesAsync</c> once, mid-handler — needed so <c>PublishIfResolvedAsync</c>'s
+/// correction:</b> the brief-space and requirement-item paths DO each call <c>db.SaveChangesAsync</c>
+/// once, mid-handler — needed so <c>PublishIfResolvedAsync</c>'s
 /// <c>AsNoTracking</c> unresolved-count queries see the mutation just made on the SAME row they're about
 /// to count, since a no-tracking query always issues fresh SQL rather than reading the change tracker.
 /// Still entirely inside <c>InboxDedupeDecorator</c>'s one ambient transaction, so atomicity holds — the
 /// same "multiple internal saves are fine, only the final commit matters" pattern that decorator's own
 /// remarks already establish for <c>DomainEventDispatcher</c>'s drain loop.</para>
 /// </summary>
-internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, ICrmGateReader gateReader)
+internal sealed class ApprovalDecidedIntegrationEventHandler(
+    CrmDbContext db,
+    CrmApprovalOutcomes outcomes,
+    ILogger<ApprovalDecidedIntegrationEventHandler> logger)
     : IIntegrationEventHandler<ApprovalDecidedIntegrationEvent>
 {
     public async Task HandleAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
@@ -74,23 +89,10 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
             return;
         }
 
-        if (@event.Decision == ApprovalDecision.Approved)
+        Result result = outcomes.ApplyToBrief(brief, @event.ApprovalId, @event.Decision);
+        if (result.IsFailure)
         {
-            Result result = brief.MarkApproved();
-            if (result.IsFailure)
-            {
-                return;
-            }
-
-            if (brief.ProjectStageId is { } stageId)
-            {
-                db.Outbox().Enqueue(new CrmBriefApprovedIntegrationEvent(
-                    Guid.NewGuid(), brief.Id, stageId, DateTimeOffset.UtcNow));
-            }
-        }
-        else
-        {
-            brief.MarkRejected();
+            LogIgnored(@event, brief.Status, brief.PendingApprovalId);
         }
     }
 
@@ -102,26 +104,11 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
             return;
         }
 
-        if (@event.Decision == ApprovalDecision.Approved)
+        Result result = await outcomes.ApplyToBriefSpaceAsync(entry, @event.ApprovalId, @event.Decision, ct);
+        if (result.IsFailure)
         {
-            entry.MarkApproved();
+            LogIgnored(@event, entry.ApprovalStatus, entry.PendingApprovalId);
         }
-        else
-        {
-            entry.MarkRejected();
-        }
-
-        // Flush now, ahead of InboxDedupeDecorator's own final SaveChangesAsync - PublishIfResolvedAsync's
-        // CountUnresolvedForStageAsync/CountUnresolvedForTaskAsync run AsNoTracking queries, which always
-        // hit the database via SQL rather than reading the change tracker, so without this the count
-        // below still sees THIS row's PRE-mutation status and can never reach zero on the request that
-        // resolves the last one. Still inside InboxDedupeDecorator's one ambient transaction - same
-        // "multiple internal saves are fine, only the final commit matters" pattern that decorator's own
-        // remarks already establish for DomainEventDispatcher's drain loop.
-        await db.SaveChangesAsync(ct);
-
-        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == entry.BriefId, ct);
-        await PublishIfResolvedAsync(brief?.ProjectStageId, entry.ProjectTaskId, ct);
     }
 
     private async Task HandleRequirementItemAsync(ApprovalDecidedIntegrationEvent @event, CancellationToken ct)
@@ -132,39 +119,25 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(CrmDbContext db, IC
             return;
         }
 
-        if (@event.Decision == ApprovalDecision.Approved)
+        // Requirement items are not round-bound (out of this fix's scope); only the result is checked.
+        Result result = @event.Decision == ApprovalDecision.Approved ? item.MarkApproved() : item.MarkRejected();
+        if (result.IsFailure)
         {
-            item.MarkApproved();
-        }
-        else
-        {
-            item.MarkRejected();
+            LogIgnored(@event, item.ApprovalStatus, pendingApprovalId: null);
+            return;
         }
 
-        // See HandleBriefSpaceAsync's identical call for why this flush is required before counting.
+        // See CrmApprovalOutcomes.ApplyToBriefSpaceAsync's identical flush for why this is required
+        // before counting.
         await db.SaveChangesAsync(ct);
 
         CrmRequirementPeriod? period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.PeriodId, ct);
-        await PublishIfResolvedAsync(period?.ProjectStageId, item.ProjectTaskId, ct);
+        await outcomes.PublishIfResolvedAsync(period?.ProjectStageId, item.ProjectTaskId, ct);
     }
 
-    /// <summary>Checks both scopes the decided row could belong to and publishes
-    /// <see cref="CrmItemsResolvedIntegrationEvent"/> once, per scope, only when its unresolved count
-    /// has reached zero — a stage-owned gate and a task-owned gate for the SAME entry are both real
-    /// possibilities (a brief-space entry always has a stage via its brief; it may ALSO carry its own
-    /// <c>ProjectTaskId</c>), so this checks both rather than assuming exactly one applies.</summary>
-    private async Task PublishIfResolvedAsync(Guid? projectStageId, Guid? projectTaskId, CancellationToken ct)
-    {
-        if (projectStageId is { } stageId && await gateReader.CountUnresolvedForStageAsync(stageId, ct) == 0)
-        {
-            db.Outbox().Enqueue(new CrmItemsResolvedIntegrationEvent(
-                Guid.NewGuid(), stageId, null, DateTimeOffset.UtcNow));
-        }
-
-        if (projectTaskId is { } taskId && await gateReader.CountUnresolvedForTaskAsync(taskId, ct) == 0)
-        {
-            db.Outbox().Enqueue(new CrmItemsResolvedIntegrationEvent(
-                Guid.NewGuid(), null, taskId, DateTimeOffset.UtcNow));
-        }
-    }
+    private void LogIgnored(ApprovalDecidedIntegrationEvent @event, Domain.ApprovalState status, Guid? pendingApprovalId) =>
+        logger.LogWarning(
+            "Ignoring {Decision} from approval {ApprovalId} for {SubjectType} {SubjectId}: subject is {Status} "
+            + "bound to approval {PendingApprovalId}",
+            @event.Decision, @event.ApprovalId, @event.SubjectType, @event.SubjectId, status, pendingApprovalId);
 }

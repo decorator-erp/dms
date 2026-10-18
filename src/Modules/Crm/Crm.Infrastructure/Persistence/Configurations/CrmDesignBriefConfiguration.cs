@@ -12,6 +12,10 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         builder.ToTable("crm_design_briefs");
         builder.ConfigureEntityConventions();
 
+        // Postgres' system xmin as the optimistic-concurrency token - the same mapping as
+        // ProjectDocumentConfiguration. Two sends, or a send racing a decision, on one brief row.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(b => b.UnitType).HasConversion<int>();
         builder.Property(b => b.UnitCondition).HasConversion<int>();
         builder.Property(b => b.Address).HasMaxLength(512);

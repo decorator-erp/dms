@@ -86,7 +86,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         Guid itemId = itemResult.Value;
 
         ICommandHandler<SendCrmRequirementItemCommand> send = sp.GetRequiredService<ICommandHandler<SendCrmRequirementItemCommand>>();
-        Assert.True((await send.HandleAsync(new SendCrmRequirementItemCommand(itemId))).IsSuccess);
+        Assert.True((await send.HandleAsync(new SendCrmRequirementItemCommand(itemId, sp.GetRequiredService<TestCurrentUser>().UserId!))).IsSuccess);
 
         ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>>();
         Result<Guid> supersedeResult = await supersede.HandleAsync(new SupersedeCrmRequirementItemCommand(

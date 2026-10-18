@@ -73,13 +73,13 @@ internal sealed class RequestDocumentReviewCommandHandler(
             return ProjectDocumentErrors.UploaderNotFound;
         }
 
-        Result<Guid> requestResult = await approvalRequester.RequestAsync(
+        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
-                ApprovalSubjectType.ProjectDocument, latest.Id, ApprovalType.ClientReview,
+                Guid.NewGuid(), ApprovalSubjectType.ProjectDocument, latest.Id, ApprovalType.ClientReview,
                 command.RequestedByUserId, [new ApproverSpec(ApproverKind.Employee, approver.AppUserId)],
                 DueAtUtc: null),
             ct);
 
-        return requestResult;
+        return requestResult.IsFailure ? requestResult.Error : requestResult.Value!.ApprovalId;
     }
 }

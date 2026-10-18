@@ -37,6 +37,19 @@ public class ApprovalTests
     }
 
     [Fact]
+    public void Create_WithCallerSuppliedId_KeepsThatId()
+    {
+        var id = Guid.NewGuid();
+
+        var approval = Approval.Create(
+            id, ApprovalSubjectType.DesignBrief, Guid.NewGuid(), ApprovalType.ClientReview,
+            "requester-1", [new ApproverEntry(ApproverKind.Client, "client-1")]);
+
+        Assert.Equal(id, approval.Id);
+        Assert.Equal(ApprovalState.PendingApproval, approval.State);
+    }
+
+    [Fact]
     public void Decide_ByEligibleApprover_Approved_Succeeds()
     {
         Approval approval = CreateApproval("approver-1", "approver-2");

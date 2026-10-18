@@ -193,9 +193,9 @@ internal static class GateApprovalRequests
         var approvers = summaries.Select(s => new ApproverSpec(ApproverKind.Employee, s.AppUserId)).ToList();
         string requestedByUserId = currentUser.UserId ?? approvers[0].ApproverUserId;
 
-        Result<Guid> requestResult = await approvalRequester.RequestAsync(
+        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
-                ApprovalSubjectType.GateCondition, gate.Id, (global::Approvals.Contracts.ApprovalType)approvalType,
+                Guid.NewGuid(), ApprovalSubjectType.GateCondition, gate.Id, (global::Approvals.Contracts.ApprovalType)approvalType,
                 requestedByUserId, approvers, DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
@@ -203,7 +203,7 @@ internal static class GateApprovalRequests
             return requestResult.Error;
         }
 
-        gate.LinkApproval(requestResult.Value);
+        gate.LinkApproval(requestResult.Value!.ApprovalId);
         return Result.Success();
     }
 }

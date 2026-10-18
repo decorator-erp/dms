@@ -28,8 +28,6 @@ internal sealed class UpdateCrmBriefHeadCommandHandler(CrmDbContext db) : IComma
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await BriefWrites.SaveAsync(db, ct);
     }
 }

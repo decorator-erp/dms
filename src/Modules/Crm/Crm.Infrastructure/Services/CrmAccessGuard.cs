@@ -104,6 +104,10 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 
 internal static class CrmAccessErrors
 {
+    /// <summary>The caller has no user id at all — the endpoint layer's 401, before any CRM lookup.</summary>
+    public static readonly Error Unauthenticated = Error.Unauthorized(
+        "crm.access.Unauthenticated", "The current user could not be identified.");
+
     public static readonly Error NoStanding = Error.Forbidden(
         "crm.access.NoStanding", "This user has no CRM identity (neither an employee nor a client record).");
 

@@ -29,8 +29,6 @@ internal sealed class UpdateCrmBriefSpaceCommandHandler(CrmDbContext db) : IComm
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await BriefWrites.SaveAsync(db, ct);
     }
 }

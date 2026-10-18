@@ -15,7 +15,11 @@ namespace Crm.Application.Features.Items;
 
 internal sealed class SendCrmRequirementItemCommandValidator : AbstractValidator<SendCrmRequirementItemCommand>
 {
-    public SendCrmRequirementItemCommandValidator() => RuleFor(x => x.ItemId).NotEmpty();
+    public SendCrmRequirementItemCommandValidator()
+    {
+        RuleFor(x => x.ItemId).NotEmpty();
+        RuleFor(x => x.SentByUserId).NotEmpty();
+    }
 }
 
 /// <summary>Same client-approver resolution shape as <c>SendCrmBriefCommandHandler</c> (G9-10) — via
@@ -50,16 +54,16 @@ internal sealed class SendCrmRequirementItemCommandHandler(CrmDbContext db, IPro
             return ClientErrors.NotFound;
         }
 
-        Result<Guid> requestResult = await approvalRequester.RequestAsync(
+        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
-                ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
-                RequestedByUserId: client.AppUserId,
+                Guid.NewGuid(), ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
+                RequestedByUserId: command.SentByUserId,
                 [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
                 DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
         {
-            return requestResult;
+            return requestResult.Error;
         }
 
         await db.SaveChangesAsync(ct);

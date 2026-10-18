@@ -53,9 +53,15 @@ internal sealed class CrmBriefEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Briefs.Manage);
 
         byId.MapPut("/send", async (
-            Guid briefId, ICommandHandler<SendCrmBriefCommand> handler, CancellationToken ct) =>
+            Guid briefId, ICurrentUser currentUser, ICommandHandler<SendCrmBriefCommand> handler, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new SendCrmBriefCommand(briefId), ct);
+            Result<string> sentBy = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (sentBy.IsFailure)
+            {
+                return sentBy.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new SendCrmBriefCommand(briefId, sentBy.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.Send);
 
@@ -94,9 +100,15 @@ internal sealed class CrmBriefEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Briefs.Manage);
 
         spaces.MapPut("/send", async (
-            Guid entryId, ICommandHandler<SendCrmBriefSpaceCommand> handler, CancellationToken ct) =>
+            Guid entryId, ICurrentUser currentUser, ICommandHandler<SendCrmBriefSpaceCommand> handler, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new SendCrmBriefSpaceCommand(entryId), ct);
+            Result<string> sentBy = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (sentBy.IsFailure)
+            {
+                return sentBy.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new SendCrmBriefSpaceCommand(entryId, sentBy.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.Send);
 
