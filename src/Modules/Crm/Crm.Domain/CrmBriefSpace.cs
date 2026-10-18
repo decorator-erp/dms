@@ -115,6 +115,20 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>The entry's counterpart of <see cref="CrmDesignBrief.VoidRound"/>: rebinds the pending send
+    /// to <paramref name="nextApprovalId"/> and counts it as a new send.</summary>
+    internal Result VoidSend(Guid voidedApprovalId, Guid nextApprovalId)
+    {
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != voidedApprovalId)
+        {
+            return CrmBriefErrors.NotPending;
+        }
+
+        PendingApprovalId = nextApprovalId;
+        SendCount++;
+        return Result.Success();
+    }
+
     internal Result MarkApproved(Guid approvalId)
     {
         if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)

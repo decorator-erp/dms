@@ -42,8 +42,16 @@ internal sealed class SendCrmBriefCommandValidator : AbstractValidator<SendCrmBr
 /// there (409, nothing requested), and a failed request returns its error, which rolls the whole CRM
 /// transaction back (no snapshot, prior status). The approval id is deterministic per round
 /// (<see cref="CrmApprovalIds"/>), so if CRM's commit fails AFTER the approval committed, the retry
-/// lands on the same approval: <c>RequestAsync</c> returns it, and if the client already decided it in
-/// between, the decision is applied here through <see cref="CrmApprovalOutcomes"/>.</para>
+/// lands on the same approval: <c>RequestAsync</c> returns it, with the decision if the client already
+/// made one in between.</para>
+///
+/// <para><b>A missed decision is not always safe to apply.</b> That orphaned approval was decided while
+/// its round's snapshot had rolled back, so the client decided on the previous round's head (or on
+/// nothing), and the office may have edited the head since. A missed Rejected/ChangesRequested is applied
+/// — sending the head back for rework is right whatever the client saw. A missed <b>Approved</b> is not:
+/// the round is voided (its snapshot stays as the record; the approval stays decided in Approvals) and
+/// the head goes out again as round N+1 under a fresh deterministic id, so only an approval of content
+/// the client was actually shown can approve the brief.</para>
 ///
 /// <para><b>Recovery.</b> Sending a brief that is already PendingApproval re-requests its own
 /// <see cref="CrmDesignBrief.PendingApprovalId"/> when Approvals has no such approval; otherwise it is
@@ -53,6 +61,10 @@ internal sealed class SendCrmBriefCommandHandler(
     CrmDbContext db, IProjectDirectory projectDirectory, IApprovalRequester approvalRequester, CrmApprovalOutcomes outcomes)
     : ICommandHandler<SendCrmBriefCommand>
 {
+    /// <summary>Each voided round needs a CRM commit to have failed after its approval committed; more than
+    /// a couple in a row means something else is wrong, so the send stops instead of looping.</summary>
+    private const int MaxVoidedRounds = 3;
+
     public async Task<Result> HandleAsync(SendCrmBriefCommand command, CancellationToken ct = default)
     {
         CrmDesignBrief? brief = await db.CrmDesignBriefs.FirstOrDefaultAsync(b => b.Id == command.BriefId, ct);
@@ -104,25 +116,58 @@ internal sealed class SendCrmBriefCommandHandler(
             }
         }
 
-        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
-            new ApprovalRequest(
-                approvalId, ApprovalSubjectType.DesignBrief, brief.Id, ApprovalType.ClientReview,
-                RequestedByUserId: command.SentByUserId,
-                [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                DueAtUtc: null),
-            ct);
-        if (requestResult.IsFailure)
+        for (int voided = 0; ; voided++)
         {
-            return requestResult.Error;
-        }
-
-        if (requestResult.Value!.Decision is { } missedDecision)
-        {
-            Result applied = outcomes.ApplyToBrief(brief, approvalId, missedDecision);
-            if (applied.IsFailure)
+            Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
+                new ApprovalRequest(
+                    approvalId, ApprovalSubjectType.DesignBrief, brief.Id, ApprovalType.ClientReview,
+                    RequestedByUserId: command.SentByUserId,
+                    [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
+                    DueAtUtc: null),
+                ct);
+            if (requestResult.IsFailure)
             {
-                return applied;
+                return requestResult.Error;
             }
+
+            if (requestResult.Value!.Decision is not { } missedDecision)
+            {
+                break;
+            }
+
+            if (missedDecision != ApprovalDecision.Approved)
+            {
+                Result applied = outcomes.ApplyToBrief(brief, approvalId, missedDecision);
+                if (applied.IsFailure)
+                {
+                    return applied;
+                }
+
+                break;
+            }
+
+            if (voided == MaxVoidedRounds)
+            {
+                return CrmBriefErrors.TooManyVoidedRounds;
+            }
+
+            // Approved on content the client never saw: void this round, send the head as the next one.
+            int nextRound = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct) + 1;
+            Guid nextApprovalId = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, brief.Id, nextRound);
+            Result voidResult = brief.VoidRound(approvalId, nextApprovalId);
+            if (voidResult.IsFailure)
+            {
+                return voidResult;
+            }
+
+            db.CrmBriefHeadSnapshots.Add(CrmBriefHeadSnapshot.Create(brief, nextRound));
+            Result saveNext = await BriefWrites.SaveAsync(db, ct);
+            if (saveNext.IsFailure)
+            {
+                return saveNext;
+            }
+
+            approvalId = nextApprovalId;
         }
 
         return await BriefWrites.SaveAsync(db, ct);

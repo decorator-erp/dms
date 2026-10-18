@@ -170,13 +170,15 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         Assert.Equal(1, await CountSnapshotsAsync(briefId));
     }
 
+    /// <summary>The orphan was decided while round 1's snapshot had rolled back, i.e. on content the client
+    /// never saw. A missed rejection is safe to apply; a missed approval is not — round 1 is voided and the
+    /// head goes out again as round 2 under its own deterministic id.</summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Send_WhenOrphanApprovalAlreadyDecided_AppliesDecision(bool approve)
+    public async Task Send_WhenOrphanApprovalAlreadyDecided_AppliesRejection_ButVoidsAnApproval(bool approve)
     {
         ApprovalDecision decision = approve ? ApprovalDecision.Approved : ApprovalDecision.Rejected;
-        ApprovalState expected = approve ? ApprovalState.Approved : ApprovalState.Rejected;
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
         BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "round-orphan");
@@ -192,9 +194,59 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         Assert.True((await SendAsync(p, briefId)).IsSuccess);
 
         CrmDesignBrief after = await LoadBriefAsync(briefId);
-        Assert.Equal(expected, after.Status);
-        Assert.Null(after.PendingApprovalId);
-        Assert.Equal(approve, await OutboxHasAsync(nameof(CrmBriefApprovedIntegrationEvent), briefId));
+        Assert.False(await OutboxHasAsync(nameof(CrmBriefApprovedIntegrationEvent), briefId));
+        if (!approve)
+        {
+            Assert.Equal(ApprovalState.Rejected, after.Status);
+            Assert.Null(after.PendingApprovalId);
+            Assert.Equal(1, await CountSnapshotsAsync(briefId));
+            return;
+        }
+
+        Guid roundTwo = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 2);
+        Assert.Equal(ApprovalState.PendingApproval, after.Status);
+        Assert.Equal(roundTwo, after.PendingApprovalId);
+        Assert.Equal(2, await CountSnapshotsAsync(briefId));
+        ApprovalSnapshot? fresh = await sp.GetRequiredService<IApprovalRequester>().GetAsync(roundTwo, CancellationToken.None);
+        Assert.NotNull(fresh);
+        Assert.Null(fresh.Decision);
+
+        // Only the client's decision on round 2 — content they were shown — approves the brief.
+        Assert.True((await DecideAsClientAsync(p, roundTwo, ApprovalDecision.Approved)).IsSuccess);
+        await DrainOutboxAsync();
+        Assert.Equal(ApprovalState.Approved, (await LoadBriefAsync(briefId)).Status);
+    }
+
+    [Fact]
+    public async Task BriefSpace_SendWhenOrphanApprovalAlreadyApproved_VoidsItAndSendsAgain()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "space-orphan");
+        Guid briefId = await CreateBriefAsync(sp, p);
+        Guid entryId = (await sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>()
+            .HandleAsync(new CreateCrmBriefSpaceCommand(briefId, p.EmployeeId, p.OwnerAppUserId, SpaceId: null, Requirements: "light"))).Value;
+        Guid sendOne = CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entryId, 1);
+        Assert.True((await sp.GetRequiredService<IApprovalRequester>().RequestAsync(
+            new ApprovalRequest(
+                sendOne, ApprovalSubjectType.BriefSpace, entryId, ApprovalType.ClientReview,
+                p.OwnerAppUserId, [new ApproverSpec(ApproverKind.Client, p.ClientAppUserId)], DueAtUtc: null),
+            CancellationToken.None)).IsSuccess);
+        Assert.True((await DecideAsClientAsync(p, sendOne, ApprovalDecision.Approved)).IsSuccess);
+        await DrainOutboxAsync();
+
+        await using (AsyncServiceScope sendScope = OwnerScope(p))
+        {
+            Assert.True((await sendScope.ServiceProvider.GetRequiredService<ICommandHandler<SendCrmBriefSpaceCommand>>()
+                .HandleAsync(new SendCrmBriefSpaceCommand(entryId, p.OwnerAppUserId))).IsSuccess);
+        }
+
+        await using AsyncServiceScope readScope = fixture.CreateScope();
+        CrmBriefSpace entry = await readScope.ServiceProvider.GetRequiredService<CrmDbContext>()
+            .CrmBriefSpaces.AsNoTracking().SingleAsync(e => e.Id == entryId);
+        Assert.Equal(ApprovalState.PendingApproval, entry.ApprovalStatus);
+        Assert.Equal(2, entry.SendCount);
+        Assert.Equal(CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entryId, 2), entry.PendingApprovalId);
     }
 
     /// <summary>Recovery: the brief is PendingApproval under an id Approvals has no row for. Sending

@@ -24,13 +24,17 @@ internal sealed class SendCrmBriefSpaceCommandValidator : AbstractValidator<Send
     }
 }
 
-/// <summary>Same client-approver resolution, flush-then-request order, deterministic round id and
-/// recovery rule as <c>SendCrmBriefCommandHandler</c> — via the entry's parent brief's project, with
-/// the entry's own <see cref="CrmBriefSpace.SendCount"/> as its round.</summary>
+/// <summary>Same client-approver resolution, flush-then-request order, deterministic round id, recovery
+/// rule and missed-decision rule (Rejected applied, Approved voided and re-sent) as
+/// <c>SendCrmBriefCommandHandler</c> — via the entry's parent brief's project, with the entry's own
+/// <see cref="CrmBriefSpace.SendCount"/> as its round.</summary>
 internal sealed class SendCrmBriefSpaceCommandHandler(
     CrmDbContext db, IProjectDirectory projectDirectory, IApprovalRequester approvalRequester, CrmApprovalOutcomes outcomes)
     : ICommandHandler<SendCrmBriefSpaceCommand>
 {
+    /// <summary>See <c>SendCrmBriefCommandHandler.MaxVoidedRounds</c>.</summary>
+    private const int MaxVoidedRounds = 3;
+
     public async Task<Result> HandleAsync(SendCrmBriefSpaceCommand command, CancellationToken ct = default)
     {
         CrmBriefSpace? entry = await db.CrmBriefSpaces.FirstOrDefaultAsync(e => e.Id == command.EntryId, ct);
@@ -85,25 +89,56 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
             }
         }
 
-        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
-            new ApprovalRequest(
-                approvalId, ApprovalSubjectType.BriefSpace, entry.Id, ApprovalType.ClientReview,
-                RequestedByUserId: command.SentByUserId,
-                [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                DueAtUtc: null),
-            ct);
-        if (requestResult.IsFailure)
+        for (int voided = 0; ; voided++)
         {
-            return requestResult.Error;
-        }
-
-        if (requestResult.Value!.Decision is { } missedDecision)
-        {
-            Result applied = await outcomes.ApplyToBriefSpaceAsync(entry, approvalId, missedDecision, ct);
-            if (applied.IsFailure)
+            Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
+                new ApprovalRequest(
+                    approvalId, ApprovalSubjectType.BriefSpace, entry.Id, ApprovalType.ClientReview,
+                    RequestedByUserId: command.SentByUserId,
+                    [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
+                    DueAtUtc: null),
+                ct);
+            if (requestResult.IsFailure)
             {
-                return applied;
+                return requestResult.Error;
             }
+
+            if (requestResult.Value!.Decision is not { } missedDecision)
+            {
+                break;
+            }
+
+            if (missedDecision != ApprovalDecision.Approved)
+            {
+                Result applied = await outcomes.ApplyToBriefSpaceAsync(entry, approvalId, missedDecision, ct);
+                if (applied.IsFailure)
+                {
+                    return applied;
+                }
+
+                break;
+            }
+
+            if (voided == MaxVoidedRounds)
+            {
+                return CrmBriefErrors.TooManyVoidedRounds;
+            }
+
+            // Approved on content the client never saw: void this send, send the entry again.
+            Guid nextApprovalId = CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount + 1);
+            Result voidResult = entry.VoidSend(approvalId, nextApprovalId);
+            if (voidResult.IsFailure)
+            {
+                return voidResult;
+            }
+
+            Result saveNext = await BriefWrites.SaveAsync(db, ct);
+            if (saveNext.IsFailure)
+            {
+                return saveNext;
+            }
+
+            approvalId = nextApprovalId;
         }
 
         return await BriefWrites.SaveAsync(db, ct);

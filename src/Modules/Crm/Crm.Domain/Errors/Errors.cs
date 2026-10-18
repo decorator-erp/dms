@@ -93,6 +93,11 @@ internal static class CrmBriefErrors
     public static readonly Error ConcurrentSend = Error.Conflict(
         "crm.briefs.ConcurrentSend", "The brief was sent concurrently. Reload and retry.");
 
+    /// <summary>A send kept finding its next round's approval already decided — only reachable through
+    /// repeated failed commits; the send gives up rather than loop.</summary>
+    public static readonly Error TooManyVoidedRounds = Error.Conflict(
+        "crm.briefs.TooManyVoidedRounds", "The send could not open a fresh approval round. Retry later.");
+
     public static readonly Error ConcurrencyConflict = Error.Conflict(
         "crm.briefs.ConcurrencyConflict", "The brief was modified concurrently. Reload and retry.");
 

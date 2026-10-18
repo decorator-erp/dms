@@ -154,6 +154,21 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>Moves the pending round onto <paramref name="nextApprovalId"/>, voiding the approval it was
+    /// sent under. Used when that approval comes back already Approved although the client never saw the
+    /// round's content (its snapshot rolled back with a failed CRM commit): the approval cannot count, so
+    /// the head is re-sent as a new round. Only the round's own approval can be voided.</summary>
+    internal Result VoidRound(Guid voidedApprovalId, Guid nextApprovalId)
+    {
+        if (Status != ApprovalState.PendingApproval || PendingApprovalId != voidedApprovalId)
+        {
+            return CrmBriefErrors.NotPending;
+        }
+
+        PendingApprovalId = nextApprovalId;
+        return Result.Success();
+    }
+
     /// <summary>Applies <paramref name="approvalId"/>'s approval — only if it is the approval the current
     /// round was sent under.</summary>
     internal Result MarkApproved(Guid approvalId)

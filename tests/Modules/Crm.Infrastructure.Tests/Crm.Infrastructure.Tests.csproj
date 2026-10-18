@@ -38,6 +38,8 @@
     <ProjectReference Include="..\..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
     <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Infrastructure\Hr.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\src\Modules\Hr\Hr.Application\Hr.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Infrastructure\Approvals.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\Modules\Approvals\Approvals.Application\Approvals.Application.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\..\..\src\SharedKernel\SharedKernel.csproj" />

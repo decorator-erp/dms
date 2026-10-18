@@ -404,3 +404,51 @@ See the draft PR on `fix/crm-brief-review`. If opening it failed, the body is be
 > Frontend contract changes, blockers (M6) and open questions: `CRM-BRIEF-FIX-NOTES.md` §3–§4.
 >
 > Gate: build `-warnaserror`, full `dotnet test` (Testcontainers included), arch tests — green on every run.
+
+---
+
+# Follow-up (review of PR #1: H1, M1, Low)
+
+Branch `fix/crm-brief-followup`, one commit.
+
+**H1 — legacy pending rows.** Migration `CrmBriefBackfillPendingApprovalIds` sets `PendingApprovalId` on every `crm_design_briefs` / `crm_brief_spaces` row that is `PendingApproval`. The value comes from that subject's undecided `approvals.approvals` row: `SubjectType` 2 = DesignBrief, 4 = BriefSpace, `Decision IS NULL`. If several are open, the newest wins.
+- **One-off cross-schema read.** This is a deliberate, single exception to "never another module's tables". A migration has no contract to call, and `approvals.approvals` is the only record of which approval a legacy row is waiting on. It reads once and writes only CRM columns. No CRM code reads that schema.
+  - `approvals` precedes `crm` in SchemaOrder.
+  - A `to_regclass` guard keeps CRM migratable on its own.
+  - `Down` is empty on purpose: clearing the ids again would re-strand the rows.
+- **Before deploying, count what the backfill cannot bind**, i.e. pending rows with no open approval. Those need a manual decision.
+
+  ```sql
+  SELECT COUNT(*) FROM crm.crm_design_briefs b WHERE b."Status" = 2 AND NOT EXISTS
+    (SELECT 1 FROM approvals.approvals a WHERE a."SubjectType" = 2 AND a."SubjectId" = b."Id" AND a."Decision" IS NULL);
+  SELECT COUNT(*) FROM crm.crm_brief_spaces e WHERE e."ApprovalStatus" = 2 AND NOT EXISTS
+    (SELECT 1 FROM approvals.approvals a WHERE a."SubjectType" = 4 AND a."SubjectId" = e."Id" AND a."Decision" IS NULL);
+  ```
+- **Test:** `Crm.Infrastructure.Tests/CrmBriefPendingBackfillTests` migrates to the previous migration and plants a pending brief and entry with NULL ids plus their open approvals (and an older decided one). It then migrates and checks the ids were bound, and finally runs the real decided handler: both rows end up Approved.
+
+**M1 — a missed Approved decision is no longer applied.** In both send handlers, when `RequestAsync` reports a decision CRM missed:
+- **Rejected / ChangesRequested:** applied, as before.
+- **Approved:** that round is **voided**. `CrmDesignBrief.VoidRound` / `CrmBriefSpace.VoidSend` rebinds the pending round to round N+1's deterministic id, and the head is snapshotted again as round N+1 (an entry's `SendCount` increments). It is then requested afresh.
+  - Round N's snapshot stays as the record.
+  - The voided approval stays decided in Approvals. Its "approved" notification has already gone to the office and cannot be recalled.
+  - A send gives up with 409 `crm.briefs.TooManyVoidedRounds` after 3 voids in a row; this is reachable only through repeated failed commits.
+- **Tests:**
+  - `Send_WhenOrphanApprovalAlreadyDecided_AppliesRejection_ButVoidsAnApproval` (renamed from `…AppliesDecision`):
+    - a rejection is applied;
+    - an approval leaves the brief Pending under round 2 with two snapshots and no `CrmBriefApproved` event;
+    - only the round-2 decision approves it.
+  - `BriefSpace_SendWhenOrphanApprovalAlreadyApproved_VoidsItAndSendsAgain`.
+
+**Low**
+- `CrmApprovalOutcomes.ApplyToBriefSpaceAsync` saves through `BriefWrites.SaveAsync`, so on the send path an `xmin` race is a 409.
+  - `BriefWrites` moved from `Crm.Application` to `Crm.Infrastructure/Persistence`, so `CrmApprovalOutcomes` can use it.
+  - The decided handler turns that 409 back into a thrown `DbUpdateConcurrencyException`, so the inbox retry path is kept and the decision is never dropped.
+- The `xmin` `AddColumn`/`DropColumn` in `CrmBriefApprovalRounds` now carry a comment saying they are SQL no-ops.
+- `CrmApprovalIdsTests.Id_IsPinned_ForAKnownSubjectAndRound` pins one literal (`dc9a47ab-5150-5e62-9d4c-517aaaa33e6b`).
+
+**Still open from the review, not in this commit:**
+- **M2:** requirement items need the same round binding.
+- **Depth rule:** CRM → `IProjectAccessGuard` → HR, the same precedent as Sites.
+- A portal-specific spaces DTO.
+- An inbox poison-message cap.
+- Moving this file to `docs/`.
