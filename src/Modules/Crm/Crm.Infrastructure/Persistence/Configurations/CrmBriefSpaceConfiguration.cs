@@ -12,6 +12,9 @@ internal sealed class CrmBriefSpaceConfiguration : IEntityTypeConfiguration<CrmB
         builder.ToTable("crm_brief_spaces");
         builder.ConfigureEntityConventions();
 
+        // Same xmin concurrency token as CrmDesignBriefConfiguration.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(e => e.Requirements).HasMaxLength(2000);
         builder.Property(e => e.ApprovalStatus).HasConversion<int>();
 
@@ -23,6 +26,11 @@ internal sealed class CrmBriefSpaceConfiguration : IEntityTypeConfiguration<CrmB
 
         // Self-reference: the ledger's supersession chain.
         builder.HasOne<CrmBriefSpace>().WithMany().HasForeignKey(e => e.SupersedesSpaceId).OnDelete(DeleteBehavior.Restrict);
+
+        // One supersession per entry: the ledger is a chain, never a fork. Partial, so the many
+        // non-correction entries (NULL) don't collide. SupersedeCrmBriefSpaceCommandHandler maps its
+        // violation to crm.briefs.AlreadySuperseded.
+        builder.HasIndex(e => e.SupersedesSpaceId).IsUnique().HasFilter("\"SupersedesSpaceId\" IS NOT NULL");
 
         // MeetingId: same-schema, unvalidated (informational source reference, same reasoning as
         // CrmDesignBrief.LastMeetingId). ProjectTaskId: bare Guid, deliberately NO FK - see

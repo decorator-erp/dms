@@ -33,10 +33,17 @@ internal sealed record CrmBriefHeadData(
 
 /// <summary>
 /// Ported from <c>../backend/Domain/Entities/CrmDesignBrief.cs</c> — the digitized "Application Form"
-/// head, a true 1:1 with a project stage, edited in place. Any edit returns the status to
-/// <see cref="ApprovalState.PendingApproval"/>; the approval attempts form the trail. The append-only
-/// ledger lives one level down in <see cref="CrmBriefSpace"/> — the head is exempt from the ledger
-/// rule.
+/// head, a true 1:1 with a project stage, edited in place. Editing a decided head returns it to
+/// <see cref="ApprovalState.Draft"/>; it is re-confirmed only by an explicit send. The approval attempts
+/// form the trail. The append-only ledger lives one level down in <see cref="CrmBriefSpace"/> — the head
+/// is exempt from the ledger rule.
+///
+/// <para><b>Every round is bound to its approval.</b> <see cref="BeginRound"/> records the approval id
+/// the round was sent under in <see cref="PendingApprovalId"/>, the head is locked while it is pending,
+/// and <see cref="MarkApproved"/>/<see cref="MarkRejected"/> only accept the decision of THAT approval.
+/// Before this, a decision approved whatever the head held when it arrived — including edits made after
+/// the client saw it — and an edit to an Approved head flipped it to PendingApproval with no approval
+/// open at all.</para>
 ///
 /// <para><b>There is deliberately no <c>SiteId</c> here.</b> G9-04 added one on the instruction of
 /// <c>PLAN-PHASE4.md</c>, which was an error in that plan rather than a design choice: the backend
@@ -50,10 +57,17 @@ internal sealed record CrmBriefHeadData(
 internal sealed class CrmDesignBrief : Entity, IAuditable
 {
     public Guid ProjectId { get; private set; }
-    public Guid? ProjectStageId { get; private set; }
+    /// <summary>Required: a brief is one stage's brief, unique per (project, stage). Nullable before M1,
+    /// when a stage-less brief could never satisfy a gate and Postgres let any number of them share a
+    /// project.</summary>
+    public Guid ProjectStageId { get; private set; }
     public Guid CreatedById { get; private set; }
     public Guid? LastMeetingId { get; private set; }
     public ApprovalState Status { get; private set; }
+
+    /// <summary>The approval the current round was sent under; set only while
+    /// <see cref="ApprovalState.PendingApproval"/>.</summary>
+    public Guid? PendingApprovalId { get; private set; }
 
     public UnitType UnitType { get; private set; }
     public UnitCondition UnitCondition { get; private set; }
@@ -92,7 +106,7 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     private CrmDesignBrief() { }
 
     public static CrmDesignBrief Create(
-        Guid projectId, Guid createdById, Guid? projectStageId, CrmBriefHeadData data)
+        Guid projectId, Guid createdById, Guid projectStageId, CrmBriefHeadData data)
     {
         var brief = new CrmDesignBrief
         {
@@ -105,55 +119,64 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         return brief;
     }
 
-    /// <summary>Edit-in-place — always allowed, the head is exempt from the ledger rule. Any edit to a
-    /// non-Draft head returns it to <see cref="ApprovalState.PendingApproval"/> so it must be
-    /// re-confirmed.</summary>
+    /// <summary>Edit-in-place — the head is exempt from the ledger rule, but locked while a round is
+    /// pending (the client is deciding on exactly what was sent). Editing a decided head (Approved or
+    /// Rejected) returns it to <see cref="ApprovalState.Draft"/>: it is re-confirmed only by a new
+    /// <see cref="BeginRound"/>.</summary>
     public Result UpdateHead(CrmBriefHeadData data, Guid? lastMeetingId)
     {
+        if (Status == ApprovalState.PendingApproval)
+        {
+            return CrmBriefErrors.HeadLockedPendingApproval;
+        }
+
         Apply(data);
         if (lastMeetingId is not null)
         {
             LastMeetingId = lastMeetingId;
         }
 
-        if (Status != ApprovalState.Draft)
-        {
-            Status = ApprovalState.PendingApproval;
-        }
-
+        Status = ApprovalState.Draft;
         return Result.Success();
     }
 
-    internal Result MarkPendingApproval()
+    /// <summary>Opens a round under <paramref name="approvalId"/>. Only a Draft or Rejected head can be
+    /// sent; a pending one already has its round, an approved one must be edited (→ Draft) first.</summary>
+    internal Result BeginRound(Guid approvalId)
     {
-        if (Status == ApprovalState.PendingApproval)
+        if (Status is not (ApprovalState.Draft or ApprovalState.Rejected))
         {
-            return Result.Success();
+            return CrmBriefErrors.NotSendable;
         }
 
         Status = ApprovalState.PendingApproval;
+        PendingApprovalId = approvalId;
         return Result.Success();
     }
 
-    internal Result MarkApproved()
+    /// <summary>Applies <paramref name="approvalId"/>'s approval — only if it is the approval the current
+    /// round was sent under.</summary>
+    internal Result MarkApproved(Guid approvalId)
     {
-        if (Status != ApprovalState.PendingApproval)
+        if (Status != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmBriefErrors.NotPending;
         }
 
         Status = ApprovalState.Approved;
+        PendingApprovalId = null;
         return Result.Success();
     }
 
-    internal Result MarkRejected()
+    internal Result MarkRejected(Guid approvalId)
     {
-        if (Status != ApprovalState.PendingApproval)
+        if (Status != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmBriefErrors.NotPending;
         }
 
         Status = ApprovalState.Rejected;
+        PendingApprovalId = null;
         return Result.Success();
     }
 

@@ -51,6 +51,11 @@ internal sealed class Approval : Entity, IAuditable
         // EF materialization.
     }
 
+    private Approval(Guid id)
+        : base(id)
+    {
+    }
+
     /// <summary>
     /// Does not check for an already-open approval on the same subject
     /// (<see cref="ApprovalErrors.OpenApprovalExists"/>) — that is a DB existence check across other
@@ -64,9 +69,23 @@ internal sealed class Approval : Entity, IAuditable
         ApprovalType type,
         string requestedByUserId,
         IReadOnlyCollection<ApproverEntry> approvers,
+        DateTimeOffset? dueAtUtc = null) =>
+        Create(Guid.CreateVersion7(), subjectType, subjectId, type, requestedByUserId, approvers, dueAtUtc);
+
+    /// <summary>The caller-supplied-id overload behind <c>ApprovalRequest.ApprovalId</c>: a caller that
+    /// must request and then commit its own row in a separate transaction names the approval up front, so
+    /// a retry after its own commit failed finds the same approval instead of tripping
+    /// <see cref="ApprovalErrors.OpenApprovalExists"/>.</summary>
+    public static Approval Create(
+        Guid id,
+        ApprovalSubjectType subjectType,
+        Guid subjectId,
+        ApprovalType type,
+        string requestedByUserId,
+        IReadOnlyCollection<ApproverEntry> approvers,
         DateTimeOffset? dueAtUtc = null)
     {
-        var approval = new Approval
+        var approval = new Approval(id)
         {
             SubjectType = subjectType,
             SubjectId = subjectId,

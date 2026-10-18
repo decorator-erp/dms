@@ -34,10 +34,10 @@ internal sealed class CrmPortalEndpoints : IEndpoint
         RouteGroupBuilder portal = app.MapGroup("/api/crm/portal").WithTags("Crm Portal");
 
         portal.MapGet("/projects/{projectId:guid}/brief", async (
-            Guid projectId, ICurrentUser currentUser, IQueryHandler<GetMyPortalBriefQuery, PortalBriefResponse> handler,
+            Guid projectId, Guid? stageId, ICurrentUser currentUser, IQueryHandler<GetMyPortalBriefQuery, PortalBriefViewResponse> handler,
             CancellationToken ct) =>
         {
-            Result<PortalBriefResponse> result = await handler.HandleAsync(new GetMyPortalBriefQuery(currentUser.UserId!, projectId), ct);
+            Result<PortalBriefViewResponse> result = await handler.HandleAsync(new GetMyPortalBriefQuery(currentUser.UserId!, projectId, stageId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.ViewOwn);
 

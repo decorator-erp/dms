@@ -27,7 +27,9 @@ public sealed record UpdateCrmRequirementItemCommand(
     Guid? SpaceTypeId, string? Room, string? Description, RequirementSource? SourceType,
     Guid? MeetingId, Guid? BriefId, Guid? NoteId, Guid? ProjectTaskId) : ICommand;
 
-public sealed record SendCrmRequirementItemCommand(Guid ItemId) : ICommand;
+/// <summary><see cref="SentByUserId"/> is the office user sending the item (filled from
+/// <c>ICurrentUser</c> by the endpoint); it becomes the approval's requester.</summary>
+public sealed record SendCrmRequirementItemCommand(Guid ItemId, string SentByUserId) : ICommand;
 
 /// <summary>Ledger correction — only a locked (Approved/NotRequired) item may be superseded.</summary>
 public sealed record SupersedeCrmRequirementItemCommand(

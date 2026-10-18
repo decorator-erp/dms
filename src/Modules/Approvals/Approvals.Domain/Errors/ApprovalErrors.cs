@@ -18,6 +18,9 @@ internal static class ApprovalErrors
     public static readonly Error OpenApprovalExists = Error.Conflict(
         "approvals.OpenApprovalExists", "An undecided approval already exists for this subject.");
 
+    public static readonly Error ApprovalIdInUse = Error.Conflict(
+        "approvals.ApprovalIdInUse", "The supplied approval id already belongs to a different subject.");
+
     public static readonly Error NotAssignedApprover = Error.Forbidden(
         "approvals.NotAssignedApprover", "The current user is not an eligible approver for this approval.");
 

@@ -69,9 +69,15 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Items.Update);
 
         byId.MapPut("/send", async (
-            Guid itemId, ICommandHandler<SendCrmRequirementItemCommand> handler, CancellationToken ct) =>
+            Guid itemId, ICurrentUser currentUser, ICommandHandler<SendCrmRequirementItemCommand> handler, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new SendCrmRequirementItemCommand(itemId), ct);
+            Result<string> sentBy = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (sentBy.IsFailure)
+            {
+                return sentBy.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new SendCrmRequirementItemCommand(itemId, sentBy.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Items.Send);
 

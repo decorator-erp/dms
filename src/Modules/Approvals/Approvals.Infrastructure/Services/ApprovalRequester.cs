@@ -19,23 +19,42 @@ namespace Approvals.Infrastructure.Services;
 /// integration-event handler (already decoupled and retriable via the outbox), while this is called
 /// directly from a command handler's own transaction. If the caller's own <c>SaveChangesAsync</c> later
 /// fails, the <see cref="Domain.Approval"/> row created here has already committed in this module's own
-/// schema and stays orphaned (never decided, harmless clutter, not a correctness issue) — an accepted
-/// tradeoff given the alternative is a saga/two-phase-commit design nothing in this plan asks for.
+/// schema. That orphan is NOT harmless: it is still open, so every later request for the subject fails
+/// with <c>OpenApprovalExists</c>. The caller-supplied <see cref="ApprovalRequest.ApprovalId"/> is the
+/// fix short of a saga: a caller that derives the id deterministically from its own row (CRM's brief
+/// rounds do) retries into the same approval, and this method returns it — with its decision, if one
+/// was already made — instead of creating a second one.
 /// </summary>
 internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalRequester
 {
-    public async Task<Result<Guid>> RequestAsync(ApprovalRequest request, CancellationToken ct)
+    public async Task<Result<ApprovalRequestOutcome>> RequestAsync(ApprovalRequest request, CancellationToken ct)
     {
         Domain.ApprovalSubjectType subjectType = ToDomain(request.SubjectType);
+
+        var existing = await db.Approvals.AsNoTracking()
+            .Where(a => a.Id == request.ApprovalId)
+            .Select(a => new { a.SubjectType, a.SubjectId, a.Decision })
+            .FirstOrDefaultAsync(ct);
+        if (existing is not null)
+        {
+            if (existing.SubjectType != subjectType || existing.SubjectId != request.SubjectId)
+            {
+                return Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.ApprovalIdInUse);
+            }
+
+            return new ApprovalRequestOutcome(
+                request.ApprovalId, existing.Decision.HasValue ? ToContracts(existing.Decision.Value) : null);
+        }
 
         bool alreadyOpen = await db.Approvals.AsNoTracking().AnyAsync(
             a => a.SubjectType == subjectType && a.SubjectId == request.SubjectId && a.Decision == null, ct);
         if (alreadyOpen)
         {
-            return Result.Failure<Guid>(Domain.ApprovalErrors.OpenApprovalExists);
+            return Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.OpenApprovalExists);
         }
 
         var approval = Domain.Approval.Create(
+            request.ApprovalId,
             subjectType,
             request.SubjectId,
             ToDomain(request.Type),
@@ -49,7 +68,7 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
 
         await db.SaveChangesAsync(ct);
 
-        return Result.Success(approval.Id);
+        return new ApprovalRequestOutcome(approval.Id, null);
     }
 
     public async Task<ApprovalSnapshot?> GetAsync(Guid approvalId, CancellationToken ct)

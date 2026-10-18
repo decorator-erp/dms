@@ -232,8 +232,9 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
         await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();
         IApprovalRequester requester = scope.ServiceProvider.GetRequiredService<IApprovalRequester>();
 
-        Result<Guid> result = await requester.RequestAsync(
+        Result<ApprovalRequestOutcome> result = await requester.RequestAsync(
             new ApprovalRequest(
+                Guid.NewGuid(),
                 ApprovalSubjectType.GateCondition,
                 Guid.NewGuid(),
                 ApprovalType.ManagerApproval,
@@ -245,7 +246,7 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
             CancellationToken.None);
 
         Assert.True(result.IsSuccess, $"Seeding an approval failed: {result.Error?.Description}");
-        return (result.Value, requestedByUserId);
+        return (result.Value!.ApprovalId, requestedByUserId);
     }
 
     /// <summary>Read straight from Postgres: the notification read endpoints do not exist until N1-07,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using SharedKernel;
 
 namespace Crm.Domain;
@@ -87,50 +88,83 @@ internal sealed class CrmBriefHeadSnapshot : Entity
             LastMeetingId = brief.LastMeetingId,
         };
 
-    /// <summary>The names of every editable head field whose value differs between
-    /// <paramref name="previous"/> and this snapshot — the per-round diff FR-029 asks for. Compares
-    /// only the editable head fields (not <see cref="Id"/>/<see cref="BriefId"/>/<see cref="Round"/>),
-    /// since those aren't part of "what changed" from the client's perspective.</summary>
-    public IReadOnlyList<string> DiffFrom(CrmBriefHeadSnapshot previous)
+    /// <summary>Every editable head field whose value differs between <paramref name="previous"/> and
+    /// this snapshot — the per-round diff FR-029 asks for — with both raw values. Compares only the
+    /// editable head fields (not <see cref="Entity.Id"/>/<see cref="BriefId"/>/<see cref="Round"/>).
+    ///
+    /// <para>With no <paramref name="previous"/> (round 1), every field that has a value is a change.
+    /// Values are raw invariant strings: an enum as its integer, a bool as <c>"true"</c>/<c>"false"</c>.
+    /// The <see cref="BriefDiffAudience.Client"/> audience never sees <see cref="ExpectedBudget"/> (office
+    /// money) or <see cref="LastMeetingId"/> (an internal reference) — not even as a field name.</para>
+    /// </summary>
+    public IReadOnlyList<BriefFieldChange> DiffFrom(CrmBriefHeadSnapshot? previous, BriefDiffAudience audience)
     {
-        var changed = new List<string>();
+        var changed = new List<BriefFieldChange>();
 
-        void Compare<T>(string name, T mine, T theirs)
+        void Compare(string name, object? mine, object? theirs)
         {
-            if (!EqualityComparer<T>.Default.Equals(mine, theirs))
+            string? current = Format(mine);
+            string? before = previous is null ? null : Format(theirs);
+            if (!string.Equals(current, before, StringComparison.Ordinal))
             {
-                changed.Add(name);
+                changed.Add(new BriefFieldChange(name, before, current));
             }
         }
 
-        Compare(nameof(UnitType), UnitType, previous.UnitType);
-        Compare(nameof(UnitCondition), UnitCondition, previous.UnitCondition);
-        Compare(nameof(Address), Address, previous.Address);
-        Compare(nameof(FloorNo), FloorNo, previous.FloorNo);
-        Compare(nameof(UnitsPerFloor), UnitsPerFloor, previous.UnitsPerFloor);
-        Compare(nameof(AreaSqm), AreaSqm, previous.AreaSqm);
-        Compare(nameof(BuildingKind), BuildingKind, previous.BuildingKind);
-        Compare(nameof(IsLicensed), IsLicensed, previous.IsLicensed);
-        Compare(nameof(Position), Position, previous.Position);
-        Compare(nameof(ElevatorStatus), ElevatorStatus, previous.ElevatorStatus);
-        Compare(nameof(ReceivesFrequentVisitors), ReceivesFrequentVisitors, previous.ReceivesFrequentVisitors);
-        Compare(nameof(VisitorsNote), VisitorsNote, previous.VisitorsNote);
-        Compare(nameof(UsedDesignerBefore), UsedDesignerBefore, previous.UsedDesignerBefore);
-        Compare(nameof(DesignerExperience), DesignerExperience, previous.DesignerExperience);
-        Compare(nameof(DesignerExperienceReason), DesignerExperienceReason, previous.DesignerExperienceReason);
-        Compare(nameof(HiringReasons), HiringReasons, previous.HiringReasons);
-        Compare(nameof(PreferredStyle), PreferredStyle, previous.PreferredStyle);
-        Compare(nameof(PreferredColors), PreferredColors, previous.PreferredColors);
-        Compare(nameof(FurnitureStatus), FurnitureStatus, previous.FurnitureStatus);
-        Compare(nameof(ExpectedBudget), ExpectedBudget, previous.ExpectedBudget);
-        Compare(nameof(TimelinePressure), TimelinePressure, previous.TimelinePressure);
-        Compare(nameof(ArchitecturalRequests), ArchitecturalRequests, previous.ArchitecturalRequests);
-        Compare(nameof(OtherNeeds), OtherNeeds, previous.OtherNeeds);
-        Compare(nameof(Sector), Sector, previous.Sector);
-        Compare(nameof(IsRented), IsRented, previous.IsRented);
-        Compare(nameof(FinishingPurpose), FinishingPurpose, previous.FinishingPurpose);
-        Compare(nameof(LastMeetingId), LastMeetingId, previous.LastMeetingId);
+        Compare(nameof(UnitType), UnitType, previous?.UnitType);
+        Compare(nameof(UnitCondition), UnitCondition, previous?.UnitCondition);
+        Compare(nameof(Address), Address, previous?.Address);
+        Compare(nameof(FloorNo), FloorNo, previous?.FloorNo);
+        Compare(nameof(UnitsPerFloor), UnitsPerFloor, previous?.UnitsPerFloor);
+        Compare(nameof(AreaSqm), AreaSqm, previous?.AreaSqm);
+        Compare(nameof(BuildingKind), BuildingKind, previous?.BuildingKind);
+        Compare(nameof(IsLicensed), IsLicensed, previous?.IsLicensed);
+        Compare(nameof(Position), Position, previous?.Position);
+        Compare(nameof(ElevatorStatus), ElevatorStatus, previous?.ElevatorStatus);
+        Compare(nameof(ReceivesFrequentVisitors), ReceivesFrequentVisitors, previous?.ReceivesFrequentVisitors);
+        Compare(nameof(VisitorsNote), VisitorsNote, previous?.VisitorsNote);
+        Compare(nameof(UsedDesignerBefore), UsedDesignerBefore, previous?.UsedDesignerBefore);
+        Compare(nameof(DesignerExperience), DesignerExperience, previous?.DesignerExperience);
+        Compare(nameof(DesignerExperienceReason), DesignerExperienceReason, previous?.DesignerExperienceReason);
+        Compare(nameof(HiringReasons), HiringReasons, previous?.HiringReasons);
+        Compare(nameof(PreferredStyle), PreferredStyle, previous?.PreferredStyle);
+        Compare(nameof(PreferredColors), PreferredColors, previous?.PreferredColors);
+        Compare(nameof(FurnitureStatus), FurnitureStatus, previous?.FurnitureStatus);
+        if (audience == BriefDiffAudience.Office)
+        {
+            Compare(nameof(ExpectedBudget), ExpectedBudget, previous?.ExpectedBudget);
+        }
+
+        Compare(nameof(TimelinePressure), TimelinePressure, previous?.TimelinePressure);
+        Compare(nameof(ArchitecturalRequests), ArchitecturalRequests, previous?.ArchitecturalRequests);
+        Compare(nameof(OtherNeeds), OtherNeeds, previous?.OtherNeeds);
+        Compare(nameof(Sector), Sector, previous?.Sector);
+        Compare(nameof(IsRented), IsRented, previous?.IsRented);
+        Compare(nameof(FinishingPurpose), FinishingPurpose, previous?.FinishingPurpose);
+        if (audience == BriefDiffAudience.Office)
+        {
+            Compare(nameof(LastMeetingId), LastMeetingId, previous?.LastMeetingId);
+        }
 
         return changed;
     }
+
+    private static string? Format(object? value) => value switch
+    {
+        null => null,
+        bool b => b ? "true" : "false",
+        Enum e => Convert.ToInt64(e, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString(),
+    };
 }
+
+/// <summary>Who a head diff is for. The client sees what they approve, never the office's budget.</summary>
+internal enum BriefDiffAudience
+{
+    Office = 1,
+    Client = 2,
+}
+
+/// <summary>One changed head field, both values as raw invariant strings (null = no value).</summary>
+internal sealed record BriefFieldChange(string Field, string? PreviousValue, string? CurrentValue);

@@ -18,7 +18,7 @@ namespace Identity.Infrastructure;
 internal sealed class IdentityModule : IModule
 {
     public string Name => "Identity";
-    
+
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
         services.AddModuleDbContext<IdentityModuleDbContext>(cfg);

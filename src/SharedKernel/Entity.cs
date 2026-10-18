@@ -39,14 +39,14 @@ public abstract class Entity
     public void AddDomainEvent(IDomainEvent domainEvent) =>
         _domainEvents.Add(domainEvent);
 
-    public void ClearDomainEvents() => 
+    public void ClearDomainEvents() =>
         _domainEvents.Clear();
 
     #region Equality
 
-    public override bool Equals(object? obj) => 
+    public override bool Equals(object? obj) =>
         obj is Entity entity && Equals(entity);
-    
+
 
     public bool Equals(Entity? other)
     {

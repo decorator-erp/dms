@@ -80,6 +80,53 @@ internal static class CrmBriefErrors
 
     public static readonly Error EntryPending = Error.Conflict(
         "crm.briefs.EntryPending", "This entry already has a pending approval.");
+
+    public static readonly Error HeadLockedPendingApproval = Error.Conflict(
+        "crm.briefs.HeadLockedPendingApproval",
+        "The brief head cannot be edited while it is awaiting the client's decision.");
+
+    public static readonly Error NotSendable = Error.Conflict(
+        "crm.briefs.NotSendable", "Only a Draft or Rejected brief can be sent for approval.");
+
+    /// <summary>Two sends computed the same round; the unique <c>(BriefId, Round)</c> snapshot index
+    /// let exactly one of them through.</summary>
+    public static readonly Error ConcurrentSend = Error.Conflict(
+        "crm.briefs.ConcurrentSend", "The brief was sent concurrently. Reload and retry.");
+
+    public static readonly Error ConcurrencyConflict = Error.Conflict(
+        "crm.briefs.ConcurrencyConflict", "The brief was modified concurrently. Reload and retry.");
+
+    public static readonly Error StageProjectMismatch = Error.BadRequest(
+        "crm.briefs.StageProjectMismatch", "The stage does not belong to this brief's project.");
+
+    public static readonly Error SpaceProjectMismatch = Error.BadRequest(
+        "crm.briefs.SpaceProjectMismatch", "The space does not belong to this brief's project.");
+
+    public static readonly Error TaskProjectMismatch = Error.BadRequest(
+        "crm.briefs.TaskProjectMismatch", "The task does not belong to this brief's project.");
+
+    public static readonly Error TaskStageMismatch = Error.BadRequest(
+        "crm.briefs.TaskStageMismatch", "The task does not belong to this brief's stage.");
+
+    public static readonly Error MeetingProjectMismatch = Error.BadRequest(
+        "crm.briefs.MeetingProjectMismatch", "The meeting does not belong to this brief's project.");
+
+    public static readonly Error AlreadySuperseded = Error.Conflict(
+        "crm.briefs.AlreadySuperseded", "This entry has already been superseded.");
+
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        "crm.briefs.ProjectNotFound", "The project was not found.");
+
+    /// <summary>One brief per (project, stage). Replaces the misleading <see cref="NotDraft"/> a duplicate
+    /// create used to return.</summary>
+    public static readonly Error AlreadyExists = Error.Conflict(
+        "crm.briefs.AlreadyExists", "This stage already has a design brief.");
+
+    public static readonly Error RoundNotFound = Error.NotFound(
+        "crm.briefs.RoundNotFound", "The brief has no such round.");
+
+    public static readonly Error SupersedeSpaceMismatch = Error.BadRequest(
+        "crm.briefs.SupersedeSpaceMismatch", "A correction must stay on the superseded entry's space.");
 }
 
 internal static class CrmSpaceErrors

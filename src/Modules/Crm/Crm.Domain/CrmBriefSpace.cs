@@ -19,6 +19,15 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     public string? Requirements { get; private set; }
     public Guid? MeetingId { get; private set; }
     public ApprovalState ApprovalStatus { get; private set; }
+
+    /// <summary>The approval the entry's current send is bound to; set only while
+    /// <see cref="ApprovalState.PendingApproval"/>. Same round-binding rule as
+    /// <see cref="CrmDesignBrief.PendingApprovalId"/>.</summary>
+    public Guid? PendingApprovalId { get; private set; }
+
+    /// <summary>How many times this entry has been sent — the entry's round number, which the send handler
+    /// folds into a deterministic approval id so a retried send finds its own approval.</summary>
+    public int SendCount { get; private set; }
     public Guid? SupersedesSpaceId { get; private set; }
     public Guid? ProjectTaskId { get; private set; }
     public Guid CreatedById { get; private set; }
@@ -39,7 +48,10 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
             ApprovalStatus = ApprovalState.Draft,
         };
 
-    /// <summary>Ledger rule: only a locked (Approved) entry can be superseded.</summary>
+    /// <summary>Ledger rule: only a locked (Approved) entry can be superseded, and the correction stays on
+    /// the original's space — a different space is a new entry, not a correction. That an entry is
+    /// superseded at most once is a cross-row rule: the handler checks it, and a partial unique index on
+    /// <see cref="SupersedesSpaceId"/> backs it.</summary>
     public static Result<CrmBriefSpace> CreateSuperseding(
         CrmBriefSpace original, Guid? spaceId, Guid createdById, int? countOrPieces = null,
         string? requirements = null, Guid? meetingId = null, Guid? projectTaskId = null)
@@ -47,6 +59,11 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         if (original.ApprovalStatus != ApprovalState.Approved)
         {
             return CrmBriefErrors.OnlyLockedSuperseded;
+        }
+
+        if (spaceId != original.SpaceId)
+        {
+            return CrmBriefErrors.SupersedeSpaceMismatch;
         }
 
         Result<CrmBriefSpace> created = Create(original.BriefId, spaceId, createdById, countOrPieces, requirements, meetingId, projectTaskId);
@@ -71,6 +88,12 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
             return CrmBriefErrors.EntryPending;
         }
 
+        // A correction is pinned to the space of the entry it supersedes (see CreateSuperseding).
+        if (SupersedesSpaceId is not null && spaceId != SpaceId)
+        {
+            return CrmBriefErrors.SupersedeSpaceMismatch;
+        }
+
         SpaceId = spaceId;
         CountOrPieces = countOrPieces;
         Requirements = requirements;
@@ -79,7 +102,7 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         return Result.Success();
     }
 
-    public Result Send()
+    public Result Send(Guid approvalId)
     {
         if (ApprovalStatus is not (ApprovalState.Draft or ApprovalState.Rejected))
         {
@@ -87,28 +110,32 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         }
 
         ApprovalStatus = ApprovalState.PendingApproval;
+        PendingApprovalId = approvalId;
+        SendCount++;
         return Result.Success();
     }
 
-    internal Result MarkApproved()
+    internal Result MarkApproved(Guid approvalId)
     {
-        if (ApprovalStatus != ApprovalState.PendingApproval)
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmBriefErrors.NotPending;
         }
 
         ApprovalStatus = ApprovalState.Approved;
+        PendingApprovalId = null;
         return Result.Success();
     }
 
-    internal Result MarkRejected()
+    internal Result MarkRejected(Guid approvalId)
     {
-        if (ApprovalStatus != ApprovalState.PendingApproval)
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmBriefErrors.NotPending;
         }
 
         ApprovalStatus = ApprovalState.Rejected;
+        PendingApprovalId = null;
         return Result.Success();
     }
 }

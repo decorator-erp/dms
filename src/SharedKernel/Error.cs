@@ -8,7 +8,7 @@ public record Error
         this.Description = Description;
         this.Status = Status;
     }
-    
+
     public string Code { get; }
     public string Description { get; }
     public int? Status { get; }
@@ -46,7 +46,7 @@ public sealed record ValidationError : Error
             "One or more validation errors occurred",
             400) =>
         Errors = errors;
-    
+
 
     public Error[] Errors { get; }
 

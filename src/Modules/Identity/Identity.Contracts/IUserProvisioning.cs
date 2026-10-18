@@ -15,7 +15,7 @@ public sealed record NewUserRequest(
     string LastName,
     string? PhoneNumber,
     UserKind Kind,
-    string RoleName );
+    string RoleName);
 
 /// <summary>
 /// <para><b>The user is created INACTIVE and this contract never activates it.</b> The caller commits

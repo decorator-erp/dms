@@ -1,3 +1,5 @@
+using Crm.Domain;
+
 namespace Crm.Application.Features.Briefs;
 
 /// <summary>
@@ -26,4 +28,38 @@ internal static class BriefMapping
         d.TimelinePressure is { } tp ? CrmEnumMapping.ToDomain(tp) : null,
         d.ArchitecturalRequests, d.OtherNeeds, d.IsRented,
         d.FinishingPurpose is { } fp ? CrmEnumMapping.ToDomain(fp) : null);
+
+    public static Contracts.Briefs.CrmDesignBriefResponse ToResponse(CrmDesignBrief brief)
+    {
+        var data = new Contracts.Briefs.CrmBriefHeadData(
+            CrmEnumMapping.ToContracts(brief.UnitType), CrmEnumMapping.ToContracts(brief.UnitCondition),
+            brief.Address, brief.FloorNo, brief.UnitsPerFloor, brief.AreaSqm,
+            brief.BuildingKind is { } bk ? CrmEnumMapping.ToContracts(bk) : null, brief.IsLicensed,
+            brief.Position is { } p ? CrmEnumMapping.ToContracts(p) : null,
+            brief.ElevatorStatus is { } es ? CrmEnumMapping.ToContracts(es) : null,
+            brief.ReceivesFrequentVisitors, brief.VisitorsNote, brief.UsedDesignerBefore,
+            brief.DesignerExperience is { } de ? CrmEnumMapping.ToContracts(de) : null,
+            brief.DesignerExperienceReason, CrmEnumMapping.ToContracts(brief.HiringReasons),
+            brief.PreferredStyle, brief.PreferredColors,
+            brief.FurnitureStatus is { } fs ? CrmEnumMapping.ToContracts(fs) : null, brief.ExpectedBudget,
+            brief.TimelinePressure is { } tp ? CrmEnumMapping.ToContracts(tp) : null,
+            brief.ArchitecturalRequests, brief.OtherNeeds, brief.IsRented,
+            brief.FinishingPurpose is { } fp ? CrmEnumMapping.ToContracts(fp) : null);
+
+        return new Contracts.Briefs.CrmDesignBriefResponse(
+            brief.Id, brief.ProjectId, brief.ProjectStageId, brief.CreatedById, brief.LastMeetingId,
+            CrmEnumMapping.ToContracts(brief.Status), data);
+    }
+
+    /// <summary>Maps a list of entries, computing <c>IsCurrent</c> within that list: an entry is current
+    /// unless another entry in it supersedes it. (The portal list excludes Drafts, so a Draft correction
+    /// the client cannot see does not un-current the entry it will replace.)</summary>
+    public static List<Contracts.Briefs.CrmBriefSpaceResponse> ToSpaceResponses(IReadOnlyCollection<CrmBriefSpace> entries)
+    {
+        HashSet<Guid> superseded = [.. entries.Where(e => e.SupersedesSpaceId is not null).Select(e => e.SupersedesSpaceId!.Value)];
+        return [.. entries.Select(e => new Contracts.Briefs.CrmBriefSpaceResponse(
+            e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.MeetingId,
+            CrmEnumMapping.ToContracts(e.ApprovalStatus), e.SupersedesSpaceId, e.ProjectTaskId, e.CreatedById,
+            IsCurrent: !superseded.Contains(e.Id)))];
+    }
 }

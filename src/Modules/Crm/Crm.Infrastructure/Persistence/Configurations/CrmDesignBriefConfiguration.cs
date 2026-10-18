@@ -12,6 +12,10 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         builder.ToTable("crm_design_briefs");
         builder.ConfigureEntityConventions();
 
+        // Postgres' system xmin as the optimistic-concurrency token - the same mapping as
+        // ProjectDocumentConfiguration. Two sends, or a send racing a decision, on one brief row.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(b => b.UnitType).HasConversion<int>();
         builder.Property(b => b.UnitCondition).HasConversion<int>();
         builder.Property(b => b.Address).HasMaxLength(512);
@@ -46,7 +50,7 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         // harmless, purely informational).
         // A SiteId column was dropped at S1-00; the brief never pointed at a site. The real link is
         // Site.SourceBriefId, in the sites schema, pointing the other way - see the entity's remarks.
-        builder.HasIndex(b => b.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
+        builder.HasIndex(b => b.ProjectStageId);
         builder.HasIndex(b => b.CreatedById);
     }
 }

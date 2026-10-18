@@ -86,7 +86,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         Guid itemId = itemResult.Value;
 
         ICommandHandler<SendCrmRequirementItemCommand> send = sp.GetRequiredService<ICommandHandler<SendCrmRequirementItemCommand>>();
-        Assert.True((await send.HandleAsync(new SendCrmRequirementItemCommand(itemId))).IsSuccess);
+        Assert.True((await send.HandleAsync(new SendCrmRequirementItemCommand(itemId, sp.GetRequiredService<TestCurrentUser>().UserId!))).IsSuccess);
 
         ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>>();
         Result<Guid> supersedeResult = await supersede.HandleAsync(new SupersedeCrmRequirementItemCommand(
@@ -137,13 +137,13 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
-        (string _, Guid clientId) = await CreateClientAsync(sp, "artifact-rt-client");
-        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
-        Guid documentId = await SeedProjectDocumentAsync(projectId, employeeId);
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "artifact-rt-client");
+        Guid employeeId = p.EmployeeId;
+        Guid documentId = await SeedProjectDocumentAsync(p.ProjectId, employeeId);
 
         ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         Guid briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
-            projectId, employeeId, null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
+            p.ProjectId, employeeId, p.StageId, new CrmBriefHeadData((UnitType)1, (UnitCondition)1), p.OwnerAppUserId))).Value;
 
         ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
         Result<Guid> linkResult = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(

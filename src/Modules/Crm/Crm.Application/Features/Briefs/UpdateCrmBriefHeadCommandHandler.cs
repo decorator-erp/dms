@@ -3,16 +3,23 @@ using Crm.Contracts.Briefs;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Briefs;
 
 internal sealed class UpdateCrmBriefHeadCommandValidator : AbstractValidator<UpdateCrmBriefHeadCommand>
 {
-    public UpdateCrmBriefHeadCommandValidator() => RuleFor(x => x.BriefId).NotEmpty();
+    public UpdateCrmBriefHeadCommandValidator()
+    {
+        RuleFor(x => x.BriefId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmBriefHeadDataValidator());
+    }
 }
 
-internal sealed class UpdateCrmBriefHeadCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmBriefHeadCommand>
+internal sealed class UpdateCrmBriefHeadCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<UpdateCrmBriefHeadCommand>
 {
     public async Task<Result> HandleAsync(UpdateCrmBriefHeadCommand command, CancellationToken ct = default)
     {
@@ -22,14 +29,20 @@ internal sealed class UpdateCrmBriefHeadCommandHandler(CrmDbContext db) : IComma
             return CrmBriefErrors.NotFound;
         }
 
+        // LastMeetingId is the same kind of reference as an entry's MeetingId: it must be this project's.
+        Result references = await BriefReferenceValidator.ValidateEntryReferencesAsync(
+            db, projectDirectory, brief, spaceId: null, projectTaskId: null, command.LastMeetingId, ct);
+        if (references.IsFailure)
+        {
+            return references;
+        }
+
         Result result = brief.UpdateHead(BriefMapping.ToDomain(command.Data), command.LastMeetingId);
         if (result.IsFailure)
         {
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await BriefWrites.SaveAsync(db, ct);
     }
 }

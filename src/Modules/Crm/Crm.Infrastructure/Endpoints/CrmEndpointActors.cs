@@ -17,6 +17,11 @@ namespace Crm.Infrastructure.Endpoints;
 /// </summary>
 internal static class CrmEndpointActors
 {
+    /// <summary>The caller's own user id for commands that carry it (the approval requester on a send,
+    /// the scope subject on an office brief route) — 401 when there is none.</summary>
+    public static Result<string> RequireUserId(string? appUserId) =>
+        appUserId is null ? Result.Failure<string>(CrmAccessErrors.Unauthenticated) : appUserId;
+
     public static async Task<Result<Guid>> ResolveEmployeeIdAsync(ICrmAccessGuard guard, string? appUserId, CancellationToken ct)
     {
         if (appUserId is null)
