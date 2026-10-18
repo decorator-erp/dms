@@ -5,6 +5,8 @@ using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Crm.Contracts;
 using Crm.Contracts.Briefs;
+using Crm.Contracts.Portal;
+using Crm.Infrastructure.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -139,6 +141,37 @@ internal sealed class CrmBriefEndpoints : IEndpoint
                 new GetCrmBriefSpacesByBriefQuery(briefId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.Read);
+
+        // FR-029 round diff, two audiences on one route. Route claims decide the audience: crm.briefs.read
+        // is the office (scoped by CrmProjectScopeDecorator, budget included); otherwise
+        // crm.briefs.view_own is the client (own projects only, no budget); neither is a 403. There is no
+        // any-of permission helper, hence RequireAuthorization() plus the explicit checks.
+        byId.MapGet("/rounds/{round:int}/diff", async (
+            Guid briefId, int round, ICurrentUser currentUser,
+            IQueryHandler<GetCrmBriefRoundDiffQuery, BriefHeadDiffResponse> officeHandler,
+            IQueryHandler<GetMyPortalBriefRoundDiffQuery, BriefHeadDiffResponse> clientHandler, CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } userId)
+            {
+                return Result.Failure(CrmAccessErrors.Unauthenticated).ToProblem();
+            }
+
+            Result<BriefHeadDiffResponse> result;
+            if (currentUser.HasPermission(CrmPermissions.Briefs.Read))
+            {
+                result = await officeHandler.HandleAsync(new GetCrmBriefRoundDiffQuery(briefId, round, userId), ct);
+            }
+            else if (currentUser.HasPermission(CrmPermissions.Briefs.ViewOwn))
+            {
+                result = await clientHandler.HandleAsync(new GetMyPortalBriefRoundDiffQuery(userId, briefId, round), ct);
+            }
+            else
+            {
+                return Results.Forbid();
+            }
+
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequireAuthorization();
 
         RouteGroupBuilder spaces = app.MapGroup("/api/crm/brief-spaces/{entryId:guid}").WithTags("Crm Briefs");
 

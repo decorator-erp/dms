@@ -114,6 +114,9 @@ internal static class CrmBriefErrors
     public static readonly Error AlreadySuperseded = Error.Conflict(
         "crm.briefs.AlreadySuperseded", "This entry has already been superseded.");
 
+    public static readonly Error RoundNotFound = Error.NotFound(
+        "crm.briefs.RoundNotFound", "The brief has no such round.");
+
     public static readonly Error SupersedeSpaceMismatch = Error.BadRequest(
         "crm.briefs.SupersedeSpaceMismatch", "A correction must stay on the superseded entry's space.");
 }

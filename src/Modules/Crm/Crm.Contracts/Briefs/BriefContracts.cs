@@ -120,3 +120,20 @@ public sealed record GetCrmBriefSpacesByBriefQuery(Guid BriefId, string UserId)
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
 }
+
+/// <summary>One changed head field. Values are raw strings: an enum as its integer, a bool as
+/// <c>"true"</c>/<c>"false"</c>, a number invariant; null means "no value".</summary>
+public sealed record BriefFieldChangeResponse(string Field, string? PreviousValue, string? CurrentValue);
+
+/// <summary>What changed in the head between <see cref="PreviousRound"/> and <see cref="Round"/> (FR-029).
+/// In round 1 there is no previous round, and every field with a value is a change. The client audience
+/// never sees <c>ExpectedBudget</c> or <c>LastMeetingId</c>.</summary>
+public sealed record BriefHeadDiffResponse(
+    Guid BriefId, int Round, int? PreviousRound, IReadOnlyList<BriefFieldChangeResponse> Changes);
+
+/// <summary>The office audience's round diff — includes <c>ExpectedBudget</c>.</summary>
+public sealed record GetCrmBriefRoundDiffQuery(Guid BriefId, int Round, string UserId)
+    : IQuery<BriefHeadDiffResponse>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
+}

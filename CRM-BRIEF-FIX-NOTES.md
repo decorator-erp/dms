@@ -197,3 +197,50 @@ Environment: .NET SDK 10.0.400 is at `~/.dotnet`. `dockerd` was started inside t
 **Owner flag (amendment 4).** `IProjectAccessGuard` passes on `project.read_all`, read off `ICurrentUser`. Under the new decorator that permission therefore grants **write** scope on every office brief route — create, edit, send, supersede — not just reads.
 - That is the guard's existing semantics, so it was left alone, but it is broader than the permission's name suggests.
 - Options: accept it, or have `CrmProjectScope` require stage-team membership for commands and honour `read_all` only for queries.
+
+---
+
+## Run C — client loop (M5, M6, M7)
+
+**M5 — money-free diff and portal view.**
+- **Domain:** `CrmBriefHeadSnapshot.DiffFrom(CrmBriefHeadSnapshot? previous, BriefDiffAudience audience)` now returns `BriefFieldChange(Field, PreviousValue, CurrentValue)`.
+  - Values are raw invariant strings: an enum as its integer (flags included), a bool as `"true"`/`"false"`, a decimal invariant.
+  - With no previous snapshot (round 1), every field that has a value is a change.
+  - The **Client** audience skips `ExpectedBudget` and `LastMeetingId` entirely — not even the field name appears.
+- **`GET /api/crm/briefs/{briefId}/rounds/{round}/diff`** → `BriefHeadDiffResponse { briefId, round, previousRound?, changes: [{ field, previousValue?, currentValue? }] }`.
+  - With `crm.briefs.read`: office audience, project-scoped by the Run B decorator (`GetCrmBriefRoundDiffQuery`).
+  - Otherwise with `crm.briefs.view_own`: client audience. The brief's project must belong to the caller's client, else 404 (`GetMyPortalBriefRoundDiffQuery`, `ICrmScoped`).
+  - Neither permission → 403. There is no any-of permission helper, so the route uses `RequireAuthorization()` plus explicit `HasPermission` checks.
+  - An unknown round → 404 `crm.briefs.RoundNotFound`.
+- **Portal brief** `GET /api/crm/portal/projects/{projectId}/brief[?stageId=]` now returns `PortalBriefViewResponse { head: BriefHeadBlock | null, spaces: CrmBriefSpaceResponse[] }`.
+  - `head` is the **latest snapshot**, i.e. what the client was actually sent, never the office's unsent edits. It carries the brief's id, project, stage, live status and round, and is null until the first send.
+  - `BriefHeadBlock` has **no** `ExpectedBudget` and no `LastMeetingId`.
+  - `spaces` excludes Draft entries.
+  - This replaces `PortalBriefResponse {Id, ProjectId, Status}`.
+- **Tests:**
+  - Unit: `ClientDiff_NeverContainsExpectedBudget_OrLastMeetingId`, `RoundOne_WithNoPrevious_ReportsEveryFieldThatHasAValue`, `Values_AreRawInvariantStrings`.
+  - Application (`BriefClientLoopTests`, **run, green**):
+    - the portal head is null until the first send, then shows that round without budget fields, and Draft entries are hidden;
+    - in the office round-2 diff the budget goes 50000 → 80000, while the client diff shows only the address;
+    - the client's round-1 diff has no budget;
+    - an unknown round → 404;
+    - another project's brief → 404, for another client and for an outsider employee. This is amendment 5's cross-project diff check.
+  - HTTP (`Integration.Tests/CrmBriefRouteTests`, **run, green**): the stage route; office diff 200 with the budget; client diff 200 with no `ExpectedBudget` anywhere in the JSON; neither permission → 403; the portal view JSON has no `expectedBudget`.
+
+**M6 — client decision path: BLOCKED, no code change.**
+- Run 0 step 3 found that the seeded Client role holds **no** permissions, so it lacks `approvals.decide`. The client cannot reach `PUT /api/approvals/{id}/decide` unless an admin grants it through the role/permission admin API.
+- `DecideMyPortalApprovalCommand` (`crm.approvals.decide_own`) is still declared but unmapped.
+- The data model **does** support a client decider: `approval_approvers` stores `ApproverKind.Client` rows, and `Approval.Decide` matches on `ApproverUserId`. The `GetMyPortalBriefQueryHandler` remark calling the ledger "employee-scoped" is out of date.
+- Every test that has the client decide calls the `DecideApprovalCommand` handler directly, and is named `…ClientDecidesViaHandler_NotPortalRoute…`.
+- Owner decision needed. Either seed `approvals.decide` (+ `approvals.read`) on the Client role — the `Approval.Decide` eligibility check already confines a client to approvals naming them — or map `DecideMyPortalApprovalCommand` under `crm.approvals.decide_own`.
+
+**M7 — `04-Approvals.md` doc change (to apply in `../docs/backend/dms-modular/`).** Add under the subject-type mapping:
+
+> **CRM subjects (DesignBrief, BriefSpace, RequirementItem): `ChangesRequested` → `Rejected`.**
+> Approvals itself treats `ChangesRequested` as non-terminal (`Approval.State` = PendingApproval).
+> CRM does not: its ledger, ported from the backend, has only Draft / PendingApproval / Approved / Rejected, and Rejected already *is* the "send it back for revision" state.
+> A Rejected head or entry is editable and resendable; editing a Rejected head returns it to Draft.
+> The approval row itself is decided (`Decision` set), so it is no longer "open", and the resend opens a new round with a new approval.
+> The frontend must therefore show a CRM subject as **Rejected (changes requested)** after a ChangesRequested decision, not Pending.
+
+**M7 question (no code change).** `CrmGateReader.CountUnresolvedFor{Stage,Task}Async` counts only Draft and PendingApproval as unresolved. A **Rejected** brief-space entry or requirement item therefore counts as resolved, and can let `CrmItemsResolved` close a stage or task gate while the client's "no" is still unaddressed. **Should a Rejected entry keep `CrmItemsResolved` closed?**

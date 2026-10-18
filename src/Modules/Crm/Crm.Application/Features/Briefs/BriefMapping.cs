@@ -50,4 +50,8 @@ internal static class BriefMapping
             brief.Id, brief.ProjectId, brief.ProjectStageId, brief.CreatedById, brief.LastMeetingId,
             CrmEnumMapping.ToContracts(brief.Status), data);
     }
+
+    public static Contracts.Briefs.CrmBriefSpaceResponse ToSpaceResponse(CrmBriefSpace e) => new(
+        e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.MeetingId,
+        CrmEnumMapping.ToContracts(e.ApprovalStatus), e.SupersedesSpaceId, e.ProjectTaskId, e.CreatedById);
 }
