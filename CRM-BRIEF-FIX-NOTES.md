@@ -274,3 +274,129 @@ Environment: .NET SDK 10.0.400 is at `~/.dotnet`. `dockerd` was started inside t
 - `AlreadyExists` 409 and `ProjectNotFound` 404.
 - An unknown brief's list → 404, and `IsCurrent` false on the superseded entry and true on the correction.
 - HTTP: `CrmBriefRouteTests` asserts the new Location.
+
+---
+
+# Closure report
+
+Commits on `fix/crm-brief-review`, one per run, each gated and pushed:
+
+| Run | Commit | Gate |
+|---|---|---|
+| A | `c2f5cbe` | green |
+| B | `5798c71` | green |
+| C | `1b17fdd` | green |
+| D | `0ea52e8` | green |
+
+"Green" here means `dotnet build DMS.Modular.slnx -warnaserror` passed, `dotnet test DMS.Modular.slnx` ran all 29 test projects with 0 failures (Docker available, Testcontainers suites included), and `dotnet test tests/Architecture.Tests` passed 25/25.
+
+## 1. Findings
+
+| Id | Status | Commit | Proving test(s) |
+|---|---|---|---|
+| H1 | fixed | `c2f5cbe` | `CrmDesignBriefTests.UpdateHead_WhilePending_IsLocked_AndChangesNothing`, `…MarkApproved_WithAnotherApprovalsId_IsIgnored`, `…ADecisionForAnEarlierRound_DoesNotApplyToTheCurrentOne`, `…UpdateHead_WhileApproved_ReturnsToDraft`; `BriefRoundFlowTests.EditWhilePending_IsRejectedWith409`, `…Reject_…_ThenEditGoesToDraft_ThenResendOpensRoundTwo` |
+| H2 | fixed | `5798c71` | `BriefScopeAndReferenceTests.CreateBrief_WithAnotherProjectsStage_Is400`, `…Entry_WithForeignSpaceTaskOrMeeting_Is400_OnCreateUpdateAndSupersede` |
+| H3 | fixed (design adjusted, see Run 0) | `c2f5cbe` | `BriefRoundFlowTests.FailedApprovalRequest_LeavesNoSnapshot_AndThePriorStatus`, `…Resend_AfterCrmCommitWasLost_ReusesTheSameApproval`, `…Send_WhenOrphanApprovalAlreadyDecided_AppliesDecision`, `…Send_WhilePendingOnAMissingApproval_ReRequestsTheSameId`, `…ConcurrentSends_ExactlyOneWins_TheOtherGets409`; `ApprovalFlowTests.RequestingTwice_WithTheSameApprovalId_…`; `CrmApprovalIdsTests` |
+| H4 | fixed (briefs, spaces, requirement items) | `c2f5cbe` | `BriefRoundFlowTests.Send_ThenApprove_…_ApprovesEnqueuesAndSatisfiesTheGate` (office sender's notification) |
+| H5 | fixed | `5798c71` | `BriefScopeAndReferenceTests.EmployeeOutsideTheProject_Gets404_OnEveryBriefMessage`, `…StageTeamMember_WithoutReadAll_CanWorkTheBrief_ButGets404OnAnotherProject`; `BriefClientLoopTests.RoundDiff_OnAnotherProjectsBrief_Is404_ForBothAudiences` |
+| M1 | fixed | `5798c71` | `BriefScopeAndReferenceTests.StageRoute_ReturnsThatStagesBrief_AndProjectRoute_ReturnsTheLatest`; `CrmBriefMigrationGuardTests.StageRequired_RefusesToRun_WhileABriefHasNoStage`; `CrmBriefRouteTests` |
+| M2 | fixed | `5798c71` | `BriefScopeAndReferenceTests.SupersedingTheSameEntryTwice_Is409_…`, `…ConcurrentSupersedes_ExactlyOneWins`; `CrmBriefSpaceTests.CreateSuperseding_OnADifferentSpace_Fails`, `…Update_OfACorrection_CannotMoveItToAnotherSpace`; `CrmBriefMigrationGuardTests.…SupersededTwice` |
+| M3 | fixed | `c2f5cbe` | `BriefRoundFlowTests.StaleWrite_OnTheBrief_IsAConcurrencyConflict`, `…ConcurrentSends_…` |
+| M4 | fixed | `0ea52e8` | `BriefHardeningTests.CreateBrief_WithAnInvalidHeadField_Is400_NotA500` (9 cases), `…UpdateHead_WithAnOverLongField_Is400`, `…Entry_WithOverLongRequirements_OrNoPieces_Is400` |
+| M5 | fixed | `1b17fdd` | `CrmBriefHeadSnapshotTests.ClientDiff_NeverContainsExpectedBudget_OrLastMeetingId`, `…RoundOne_…`, `…Values_AreRawInvariantStrings`; `BriefClientLoopTests` (3); `CrmBriefRouteTests` |
+| M6 | **blocked** | — | Client role holds no `approvals.decide` (Run 0 step 3); see §4 |
+| M7 | question + doc change | `1b17fdd` (notes) | — (no code change by instruction) |
+| L1 | fixed | `0ea52e8` | `BriefHardeningTests.DuplicateCreate_IsAlreadyExists_AndAnUnknownProject_IsProjectNotFound` |
+| L2 | fixed | `0ea52e8` | `CrmBriefRouteTests` (Location assertion) |
+| L3 | fixed | `0ea52e8` | `BriefHardeningTests.SpacesList_ForAnUnknownBrief_Is404_AndFlagsTheCurrentLedgerLine` |
+| L4 | fixed (deleted) | `0ea52e8` | build + `Architecture.Tests` (no references remain) |
+| L5 | fixed | `c2f5cbe` | `BriefRoundFlowTests.Send_WhenOrphanApprovalAlreadyDecided_AppliesDecision` (the decision for an unbound approval is ignored and logged, not applied) |
+
+No finding was invalid. Every finding was confirmed against the code before it was fixed.
+
+## 2. Tests not run
+
+**None.** `dockerd` could be started in the container, so every Testcontainers suite ran on every gate, including all new application, infrastructure and HTTP tests. CI should still run them as usual.
+
+## 3. Frontend contract changes
+
+**New routes**
+- `GET /api/crm/stages/{stageId}/brief` (`crm.briefs.read`) → `CrmDesignBriefResponse`. This is now *the* way to read a brief.
+- `GET /api/crm/briefs/{briefId}/rounds/{round}/diff` → `BriefHeadDiffResponse { briefId, round, previousRound?, changes: [{ field, previousValue?, currentValue? }] }`.
+  - With `crm.briefs.read`: the office audience, budget included.
+  - With `crm.briefs.view_own`: the client audience, no `ExpectedBudget` or `LastMeetingId`, and only the client's own projects (else 404).
+  - Neither permission → 403.
+  - Values are raw strings: enums as integers, bools as `"true"`/`"false"`.
+
+**Changed routes and shapes**
+- `POST /api/crm/projects/{projectId}/brief`:
+  - **`projectStageId` is required** in the body.
+  - The stage must belong to the project, else 400 `crm.briefs.StageProjectMismatch`.
+  - `Location` is now `/api/crm/stages/{stageId}/brief`.
+- `GET /api/crm/projects/{projectId}/brief`: **obsolete**. It returns the latest brief (`CreatedAtUtc desc`); switch to the stage route.
+- `CrmDesignBriefResponse.projectStageId` is non-null.
+- `CrmBriefSpaceResponse` gains **`isCurrent`**.
+- `GET /api/crm/portal/projects/{projectId}/brief[?stageId=]`:
+  - The response is now **`{ head: BriefHeadBlock | null, spaces: CrmBriefSpaceResponse[] }`**. The old `{ id, projectId, status }` is gone.
+  - `head` is the **last sent** round, with `briefId`, `projectId`, `projectStageId`, live `status`, `round` and the head fields. It has **no `expectedBudget` and no `lastMeetingId`**, and it is null before the first send.
+  - `spaces` has no Draft entries.
+- **Head edit semantics:**
+  - Editing an Approved or Rejected head returns it to **Draft**, not PendingApproval. The UI must send it again.
+  - Editing while **PendingApproval** → **409** `crm.briefs.HeadLockedPendingApproval`.
+  - Sending a pending or approved brief → 409 `crm.briefs.NotSendable`.
+- After a client **ChangesRequested**, a CRM subject shows **Rejected**, not Pending (M7 doc change).
+- No request body gains a user field. The new command fields `UserId` (office brief messages) and `SentByUserId` (the three sends) are **server-filled from the token**; a request without a user → 401 `crm.access.Unauthenticated`.
+- **Scope:** every office brief route now 404s (`crm.briefs.NotFound`) for an employee who has neither a stage-team seat on the project nor `project.read_all`.
+
+**New error codes**
+
+| Status | Codes |
+|---|---|
+| 409 | `crm.briefs.HeadLockedPendingApproval`, `NotSendable`, `ConcurrentSend`, `ConcurrencyConflict`, `AlreadySuperseded`, `AlreadyExists` |
+| 400 | `crm.briefs.StageProjectMismatch`, `SpaceProjectMismatch`, `TaskProjectMismatch`, `TaskStageMismatch`, `MeetingProjectMismatch`, `SupersedeSpaceMismatch`; validation errors (`Validation.General`) for head and entry fields |
+| 404 | `crm.briefs.ProjectNotFound`, `RoundNotFound` |
+| 401 | `crm.access.Unauthenticated` |
+| 409 | `approvals.ApprovalIdInUse` |
+
+**Internal module contract (owner amendment 9)**
+- `Approvals.Contracts.ApprovalRequest` gains a leading **`Guid ApprovalId`**.
+- `IApprovalRequester.RequestAsync` returns **`Result<ApprovalRequestOutcome(ApprovalId, Decision?)>`** instead of `Result<Guid>`, and is idempotent per id.
+- Projects (gates) and Documents (review) callers were updated and pass `Guid.NewGuid()`.
+
+## 4. Blockers and open questions
+
+1. **M6 — BLOCKED.** The Client role has no `approvals.decide`, so a client cannot decide over HTTP without an admin grant. `DecideMyPortalApprovalCommand` (`crm.approvals.decide_own`) is still unmapped. Decide between:
+   - seeding `approvals.decide` + `approvals.read` on the Client role, which is safe because `Approval.Decide` only accepts listed approvers;
+   - mapping the portal decide command.
+
+   Tests that decide as the client use the handler and say so in their names.
+2. **M7 — question.** Should a **Rejected** brief-space entry or requirement item keep `CrmItemsResolved` closed? Today `CrmGateReader` counts Rejected as resolved. The doc change for `04-Approvals.md` is in Run C.
+3. **Owner amendment 3 — question.** When an **approved head is edited**, it returns to Draft, but `CrmBriefApprovedIntegrationEvent` has already satisfied the stage gate, and nothing un-satisfies it. Should editing an approved brief re-open the gate, or is the gate a one-time milestone? Behaviour was not changed.
+4. **Owner amendment 4 — flag.** `project.read_all` passes `IProjectAccessGuard`, so under the new decorator it grants **write** scope on every office brief route. Accept it, or split read and write in `CrmProjectScope`.
+5. **H3 design note.** `DomainEventDispatchDecorator` wraps each command in a CRM transaction, so CRM *flushes* before requesting and *commits* after. The remaining "approval committed, CRM commit lost" window is closed by deterministic per-round approval ids plus the idempotent `RequestAsync`, which also applies a decision made in between (amendment 1). No cross-context transaction exists to use instead (Run 0 step 1).
+6. **Out of scope, observed in passing.**
+   - Requirement items are not round-bound the way briefs and entries now are. Their decided handler only checks the mark result.
+   - Approvals' open-approval check has no DB backstop: its `(SubjectType, SubjectId)` index is not unique. For CRM subjects, the deterministic id and the CRM-side unique `(BriefId, Round)` index cover it.
+7. **Decision 20 respected.** None of the 10 unit columns, nor their snapshot fields, were moved or changed. The new validator only bounds them: Address length, AreaSqm/FloorNo/UnitsPerFloor ranges, and enum ranges.
+
+## 5. PR body
+
+See the draft PR on `fix/crm-brief-review`. If opening it failed, the body is below.
+
+> **CRM brief review fixes (H1–L5)**
+>
+> Fixes the review of CRM's design-brief slice in four runs (one commit each): approval-round integrity (H1, H3, H4, M3, L5), project scope and references (H2, H5, M1, M2), the client loop (M5; M6 blocked, M7 recorded), and hardening (M4, L1–L4).
+>
+> - Each round is bound to its approval; the head locks while pending and returns to Draft when a decided head is edited.
+> - Sends flush CRM before requesting, with deterministic per-round approval ids. `RequestAsync` is idempotent and reports a decision CRM missed.
+> - The office sender is now the requester.
+> - `xmin` concurrency; races are 409s.
+> - Office brief routes are project-scoped (404). Stage, space, task and meeting references must belong to the brief's project.
+> - `ProjectStageId` is required, behind a data-guarded migration. New stage route; one supersede per entry.
+> - Money-free client diff and portal view; validators match the columns.
+>
+> Migrations: `CrmBriefApprovalRounds`, `CrmBriefStageRequired`. The latter **refuses to run** if any brief has a NULL stage or any entry is superseded twice; resolve those rows first.
+>
+> Frontend contract changes, blockers (M6) and open questions: `CRM-BRIEF-FIX-NOTES.md` §3–§4.
+>
+> Gate: build `-warnaserror`, full `dotnet test` (Testcontainers included), arch tests — green on every run.
