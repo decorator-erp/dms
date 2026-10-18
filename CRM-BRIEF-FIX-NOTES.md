@@ -121,3 +121,79 @@ Environment: .NET SDK 10.0.400 is at `~/.dotnet`. `dockerd` was started inside t
   - space send → approve.
 - `ApprovalFlowTests`: a same-id request is idempotent and reports its decision; an id for a different subject → `ApprovalIdInUse`.
 - Tests that decide as the client are named `…ClientDecidesViaHandler_NotPortalRoute…` (amendment 6). They call the `DecideApprovalCommand` handler directly, so they do **not** show M6 is solved.
+
+---
+
+## Run B — scoping and references (H2, H5, M1, M2)
+
+**Caller audit, before H5/M1 (owner amendment 2).**
+- `CrmDesignBrief.SeedFromIntake` has **no callers**. The `ConvertCrmLeadCommandHandler` comment says seeding happens at period-open, but nothing calls it.
+- `CrmDesignBrief.Create` is called only from `CreateCrmDesignBriefCommandHandler`.
+- Every brief or brief-space command and query is dispatched only from `CrmBriefEndpoints`. No job, event handler or other module dispatches one.
+- So there are **no null-stage creators to fix and no system caller needs a scope bypass**, and none was built.
+- If a future system caller appears, the plan's `CrmProjectScope.SystemUserId` bypass is the intended shape.
+
+**H5 — project scope.**
+- `Crm.Contracts.ICrmProjectScoped { string UserId; CrmScopeTarget ScopeTarget }`. `CrmScopeTarget` is a `Project`, `Stage`, `Brief` or `BriefSpaceEntry` id.
+- `CrmProjectScopeDecorator` and `CrmProjectScopeRegistration` live in `Crm.Infrastructure/Decorators`:
+  - The decorator resolves the `ProjectId`: a brief from `crm_design_briefs`, an entry by joining to its brief, a stage via `IProjectDirectory.GetStageAsync`.
+  - It then calls `IProjectAccessGuard.EnsureProjectAccessAsync`.
+  - An unresolvable subject and an access failure are both 404 `crm.briefs.NotFound`.
+  - It is registered after `AddCrmScopeDecorator`, so it wraps validation and the transaction and is outermost. The order stays route 403 → scope 404 → state 409.
+- It applies to all 10 office messages: create, update-head, send, entry create/update/send/supersede, get-by-project, get-by-stage, and the spaces list.
+- Each gains `string UserId`, which the endpoint fills from `ICurrentUser.UserId`; null → 401. On the two send commands, `UserId` is `SentByUserId`.
+- The portal keeps its `ICrmScoped` client check.
+
+**H2 — references** (`Crm.Application/Features/Briefs/BriefReferenceValidator.cs`). Each mismatch is a 400 with a field-specific code; an unknown id counts as a mismatch.
+
+| Reference | Error code | Checked on |
+|---|---|---|
+| Stage | `crm.briefs.StageProjectMismatch` | brief create |
+| Space | `SpaceProjectMismatch` | entry create, update, supersede |
+| Task, other project | `TaskProjectMismatch` | entry create, update, supersede |
+| Task, other stage (both stages set) | `TaskStageMismatch` | entry create, update, supersede |
+| Meeting | `MeetingProjectMismatch` | entry create, update, supersede |
+
+- **Beyond the prompt:** the head's `LastMeetingId` on update-head gets the same meeting check. It is the same class of cross-project reference.
+
+**M1 — one brief per stage.**
+- `ProjectStageId` is `Guid` (required) in the command, the request body, the entity, `CrmDesignBriefResponse` and the column.
+- Migration `20261018074122_CrmBriefStageRequired` opens with the prompt's `DO $$` guard on `crm.crm_design_briefs`. A second guard then checks for any entry superseded more than once. Only after both comes the DDL: NOT NULL, the unfiltered stage index, and the M2 unique index. Script output:
+
+  ```sql
+  DO $$ BEGIN IF EXISTS (SELECT 1 FROM crm.crm_design_briefs WHERE "ProjectStageId" IS NULL) THEN RAISE EXCEPTION '…'; END IF; END $$;
+  DO $$ BEGIN IF EXISTS (SELECT 1 FROM crm.crm_brief_spaces WHERE "SupersedesSpaceId" IS NOT NULL GROUP BY "SupersedesSpaceId" HAVING COUNT(*) > 1) THEN RAISE EXCEPTION '…'; END IF; END $$;
+  DROP INDEX crm."IX_crm_design_briefs_ProjectStageId";
+  DROP INDEX crm."IX_crm_brief_spaces_SupersedesSpaceId";
+  ALTER TABLE crm.crm_design_briefs ALTER COLUMN "ProjectStageId" SET NOT NULL;
+  CREATE INDEX "IX_crm_design_briefs_ProjectStageId" ON crm.crm_design_briefs ("ProjectStageId");
+  CREATE UNIQUE INDEX "IX_crm_brief_spaces_SupersedesSpaceId" ON crm.crm_brief_spaces ("SupersedesSpaceId") WHERE "SupersedesSpaceId" IS NOT NULL;
+  ```
+
+  - The generated `defaultValue: Guid.Empty` on the NOT NULL alter was removed. The guard guarantees there are no NULLs, and an empty-GUID default would be wrong data.
+- New route `GET /api/crm/stages/{stageId}/brief` (`crm.briefs.read`, scoped through the Stage target).
+- `GET /api/crm/projects/{projectId}/brief` stays but is **obsolete**. It returns the latest brief by `CreatedAtUtc desc`.
+- The portal brief takes an optional `?stageId=` and follows the same rule.
+
+**M2 — the ledger cannot fork.**
+- A partial unique index on `SupersedesSpaceId WHERE NOT NULL`.
+- The supersede handler pre-checks → 409 `crm.briefs.AlreadySuperseded`, and `BriefWrites` maps the index violation to the same error. Two concurrent supersedes: exactly one wins.
+- A correction must keep the original's `SpaceId`, at supersede and on later updates of the correction → 400 `crm.briefs.SupersedeSpaceMismatch`.
+
+**Tests**
+- Unit: `CreateSuperseding_OnADifferentSpace_Fails` and `Update_OfACorrection_CannotMoveItToAnotherSpace`.
+- Application (`BriefScopeAndReferenceTests`, all **run and green**):
+  - an outsider employee gets 404 on all 10 messages;
+  - **a stage-team member without `read_all`** works the brief, but gets 404 on another project's brief, entries and stage (owner amendment 5; the cross-project diff check comes with the route in Run C);
+  - a foreign stage → 400;
+  - a foreign space, task (other project and other stage) or meeting → 400, on create, update and supersede, while the project's own references are accepted;
+  - a double supersede → 409, and a correction on another space → 400;
+  - concurrent supersedes;
+  - the stage route, and the project route returning the latest brief.
+- Infrastructure (`CrmBriefMigrationGuardTests`, **run and green**): migrate to the previous migration, plant a NULL-stage brief or a double supersede, and the migration throws the guard's message and leaves the schema unchanged.
+- `BriefSpaceFlowTests`, `PeriodItemArtifactFlowTests` and `CrossModuleSmokeTests` now create real stages, and the HTTP smoke token carries `project.read_all`.
+- The test helper `BriefTestSeeding` builds multi-stage projects and stage-team membership.
+
+**Owner flag (amendment 4).** `IProjectAccessGuard` passes on `project.read_all`, read off `ICurrentUser`. Under the new decorator that permission therefore grants **write** scope on every office brief route — create, edit, send, supersede — not just reads.
+- That is the guard's existing semantics, so it was left alone, but it is broader than the permission's name suggests.
+- Options: accept it, or have `CrmProjectScope` require stage-team membership for commands and honour `read_all` only for queries.

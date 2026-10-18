@@ -95,6 +95,27 @@ internal static class CrmBriefErrors
 
     public static readonly Error ConcurrencyConflict = Error.Conflict(
         "crm.briefs.ConcurrencyConflict", "The brief was modified concurrently. Reload and retry.");
+
+    public static readonly Error StageProjectMismatch = Error.BadRequest(
+        "crm.briefs.StageProjectMismatch", "The stage does not belong to this brief's project.");
+
+    public static readonly Error SpaceProjectMismatch = Error.BadRequest(
+        "crm.briefs.SpaceProjectMismatch", "The space does not belong to this brief's project.");
+
+    public static readonly Error TaskProjectMismatch = Error.BadRequest(
+        "crm.briefs.TaskProjectMismatch", "The task does not belong to this brief's project.");
+
+    public static readonly Error TaskStageMismatch = Error.BadRequest(
+        "crm.briefs.TaskStageMismatch", "The task does not belong to this brief's stage.");
+
+    public static readonly Error MeetingProjectMismatch = Error.BadRequest(
+        "crm.briefs.MeetingProjectMismatch", "The meeting does not belong to this brief's project.");
+
+    public static readonly Error AlreadySuperseded = Error.Conflict(
+        "crm.briefs.AlreadySuperseded", "This entry has already been superseded.");
+
+    public static readonly Error SupersedeSpaceMismatch = Error.BadRequest(
+        "crm.briefs.SupersedeSpaceMismatch", "A correction must stay on the superseded entry's space.");
 }
 
 internal static class CrmSpaceErrors

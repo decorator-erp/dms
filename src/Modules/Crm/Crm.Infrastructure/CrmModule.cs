@@ -31,6 +31,7 @@ internal sealed class CrmModule : IModule
         services.AddScoped<ICrmAccessGuard, CrmAccessGuard>();
         services.AddScoped<ICrmGateReader, CrmGateReader>();
         services.AddScoped<CrmApprovalOutcomes>();
+        services.AddScoped<CrmProjectScope>();
         services.AddScoped<IClientDirectory, ClientDirectory>();
         services.AddScoped<ICrmSchedulerService, CrmSchedulerService>();
 
@@ -72,6 +73,7 @@ internal sealed class CrmModule : IModule
         // Must run AFTER AddModuleCqrs - Scrutor's Decorate wraps in call order, so the scope check
         // needs the Validation→Logging→DomainEventDispatch chain already registered to wrap outermost.
         services.AddCrmScopeDecorator(typeof(ICrmScoped).Assembly);
+        services.AddCrmProjectScopeDecorator(typeof(ICrmProjectScoped).Assembly);
 
         // The three IGateConditionTypeHandler implementations (Crm.Application/Features/Gates) are
         // `internal` there, with no InternalsVisibleTo grant to Crm.Infrastructure - Scrutor's scan

@@ -7,7 +7,7 @@ public class CrmBriefHeadSnapshotTests
 {
     private static CrmDesignBrief CreateBrief(string? address = null, decimal? areaSqm = null) =>
         CrmDesignBrief.Create(
-            Guid.NewGuid(), Guid.NewGuid(), null,
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
             new CrmBriefHeadData((UnitType)1, (UnitCondition)1, Address: address, AreaSqm: areaSqm));
 
     [Fact]

@@ -50,7 +50,10 @@ internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGu
             return Result.Failure<PortalBriefResponse>(CrmPortalErrors.NotFound);
         }
 
-        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking()
+            .Where(b => b.ProjectId == query.ProjectId && (query.StageId == null || b.ProjectStageId == query.StageId))
+            .OrderByDescending(b => b.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
         if (brief is null)
         {
             return Result.Failure<PortalBriefResponse>(CrmPortalErrors.NotFound);

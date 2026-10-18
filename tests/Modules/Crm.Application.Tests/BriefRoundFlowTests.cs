@@ -273,7 +273,7 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "space-round");
         Guid briefId = await CreateBriefAsync(sp, p);
         Guid entryId = (await sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>()
-            .HandleAsync(new CreateCrmBriefSpaceCommand(briefId, p.EmployeeId, SpaceId: null, Requirements: "light"))).Value;
+            .HandleAsync(new CreateCrmBriefSpaceCommand(briefId, p.EmployeeId, p.OwnerAppUserId, SpaceId: null, Requirements: "light"))).Value;
 
         await using (AsyncServiceScope sendScope = OwnerScope(p))
         {
@@ -297,7 +297,7 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
     private static async Task<Guid> CreateBriefAsync(IServiceProvider sp, BriefTestProject p)
     {
         Result<Guid> result = await sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>()
-            .HandleAsync(new CreateCrmDesignBriefCommand(p.ProjectId, p.EmployeeId, p.StageId, Head));
+            .HandleAsync(new CreateCrmDesignBriefCommand(p.ProjectId, p.EmployeeId, p.StageId, Head, p.OwnerAppUserId));
         Assert.True(result.IsSuccess, result.Error?.Description);
         return result.Value;
     }
@@ -324,7 +324,7 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = OwnerScope(p);
         return await scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateCrmBriefHeadCommand>>()
-            .HandleAsync(new UpdateCrmBriefHeadCommand(briefId, data));
+            .HandleAsync(new UpdateCrmBriefHeadCommand(briefId, data, p.OwnerAppUserId));
     }
 
     private static Task<Result<ApprovalRequestOutcome>> RequestDirectlyAsync(

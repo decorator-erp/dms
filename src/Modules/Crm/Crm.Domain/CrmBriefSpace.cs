@@ -48,7 +48,10 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
             ApprovalStatus = ApprovalState.Draft,
         };
 
-    /// <summary>Ledger rule: only a locked (Approved) entry can be superseded.</summary>
+    /// <summary>Ledger rule: only a locked (Approved) entry can be superseded, and the correction stays on
+    /// the original's space — a different space is a new entry, not a correction. That an entry is
+    /// superseded at most once is a cross-row rule: the handler checks it, and a partial unique index on
+    /// <see cref="SupersedesSpaceId"/> backs it.</summary>
     public static Result<CrmBriefSpace> CreateSuperseding(
         CrmBriefSpace original, Guid? spaceId, Guid createdById, int? countOrPieces = null,
         string? requirements = null, Guid? meetingId = null, Guid? projectTaskId = null)
@@ -56,6 +59,11 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         if (original.ApprovalStatus != ApprovalState.Approved)
         {
             return CrmBriefErrors.OnlyLockedSuperseded;
+        }
+
+        if (spaceId != original.SpaceId)
+        {
+            return CrmBriefErrors.SupersedeSpaceMismatch;
         }
 
         Result<CrmBriefSpace> created = Create(original.BriefId, spaceId, createdById, countOrPieces, requirements, meetingId, projectTaskId);
@@ -78,6 +86,12 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         if (ApprovalStatus == ApprovalState.PendingApproval)
         {
             return CrmBriefErrors.EntryPending;
+        }
+
+        // A correction is pinned to the space of the entry it supersedes (see CreateSuperseding).
+        if (SupersedesSpaceId is not null && spaceId != SpaceId)
+        {
+            return CrmBriefErrors.SupersedeSpaceMismatch;
         }
 
         SpaceId = spaceId;

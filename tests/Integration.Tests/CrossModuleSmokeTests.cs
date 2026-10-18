@@ -510,15 +510,23 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             fixture, $"g9-filter-{suffix}@example.com");
 
         string token = fixture.IssueTestToken(
-            appUserId, "employees.create", "project.create", "clients.create", "crm.briefs.manage", "crm.briefs.read");
+            appUserId, "employees.create", "project.create", "project.read_all", "stages.read", "stages.manage",
+            "clients.create", "crm.briefs.manage", "crm.briefs.read");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         HttpResponseMessage clientResponse = await client.PostAsJsonAsync("/api/clients", ClientRequests.NewClientBody("client"));
         Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
         Guid clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
 
-        // No stage template at all - CreateCrmDesignBriefCommand's ProjectStageId is nullable, and this
-        // test only needs a real project + a real brief, not a stage-owned one.
+        // A one-stage template: a brief is a stage's brief (ProjectStageId is required since the CRM brief
+        // fixes' M1), so even this filter test needs a real project stage.
+        HttpResponseMessage templateResponse = await client.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 });
+        Guid templateId = (await templateResponse.Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;
+        HttpResponseMessage stageResponse = await client.PostAsJsonAsync(
+            $"/api/stage-templates/{templateId}/stages",
+            new { Name = "Only Stage", Order = 1, WeightPercent = 100m, Description = (string?)null });
+        Assert.True(stageResponse.IsSuccessStatusCode);
+
         HttpResponseMessage projectResponse = await client.PostAsJsonAsync("/api/projects", new
         {
             Code = $"P-{suffix}",
@@ -526,12 +534,15 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             Address = "1 Test Rd",
             WorkflowType = 1,
             ClientId = clientId,
+            StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
         Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;
+        Guid stageId = Assert.Single((await client.GetFromJsonAsync<List<ProjectStageBody>>($"/api/projects/{projectId}/stages"))!).Id;
 
         HttpResponseMessage briefResponse = await client.PostAsJsonAsync($"/api/crm/projects/{projectId}/brief", new
         {
+            ProjectStageId = stageId,
             Data = new { UnitType = 1, UnitCondition = 1 },
         });
         Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);

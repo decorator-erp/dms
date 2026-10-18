@@ -468,7 +468,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.HasIndex("SpaceId")
                         .HasFilter("\"SpaceId\" IS NOT NULL");
 
-                    b.HasIndex("SupersedesSpaceId");
+                    b.HasIndex("SupersedesSpaceId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesSpaceId\" IS NOT NULL");
 
                     b.ToTable("crm_brief_spaces", "crm");
                 });
@@ -971,7 +973,7 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ProjectStageId")
+                    b.Property<Guid>("ProjectStageId")
                         .HasColumnType("uuid");
 
                     b.Property<bool?>("ReceivesFrequentVisitors")
@@ -1017,8 +1019,7 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("ProjectId");
 
-                    b.HasIndex("ProjectStageId")
-                        .HasFilter("\"ProjectStageId\" IS NOT NULL");
+                    b.HasIndex("ProjectStageId");
 
                     b.HasIndex("ProjectId", "ProjectStageId")
                         .IsUnique();

@@ -99,7 +99,7 @@ public class CrmBriefSpaceTests
         Assert.True(original.Send(ApprovalId).IsSuccess);
         Assert.True(original.MarkApproved(ApprovalId).IsSuccess);
 
-        Result<CrmBriefSpace> result = CrmBriefSpace.CreateSuperseding(original, null, Guid.NewGuid(), requirements: "corrected");
+        Result<CrmBriefSpace> result = CrmBriefSpace.CreateSuperseding(original, original.SpaceId, Guid.NewGuid(), requirements: "corrected");
 
         Assert.True(result.IsSuccess);
         Assert.Equal(original.Id, result.Value!.SupersedesSpaceId);
@@ -160,5 +160,34 @@ public class CrmBriefSpaceTests
         Assert.True(entry.MarkApproved(second).IsSuccess);
         Assert.Equal(ApprovalState.Approved, entry.ApprovalStatus);
         Assert.Null(entry.PendingApprovalId);
+    }
+
+    [Fact]
+    public void CreateSuperseding_OnADifferentSpace_Fails()
+    {
+        CrmBriefSpace original = CreateEntry();
+        Assert.True(original.Send(ApprovalId).IsSuccess);
+        Assert.True(original.MarkApproved(ApprovalId).IsSuccess);
+
+        Result<CrmBriefSpace> result = CrmBriefSpace.CreateSuperseding(original, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(CrmBriefErrors.SupersedeSpaceMismatch, result.Error);
+        Assert.Equal(400, result.Error.Status);
+    }
+
+    [Fact]
+    public void Update_OfACorrection_CannotMoveItToAnotherSpace()
+    {
+        CrmBriefSpace original = CreateEntry();
+        Assert.True(original.Send(ApprovalId).IsSuccess);
+        Assert.True(original.MarkApproved(ApprovalId).IsSuccess);
+        CrmBriefSpace correction = CrmBriefSpace.CreateSuperseding(original, original.SpaceId, Guid.NewGuid()).Value!;
+
+        Result moved = correction.Update(Guid.NewGuid(), 1, "x", null, null);
+        Result kept = correction.Update(original.SpaceId, 2, "y", null, null);
+
+        Assert.Equal(CrmBriefErrors.SupersedeSpaceMismatch, moved.Error);
+        Assert.True(kept.IsSuccess);
+        Assert.Equal(original.SpaceId, correction.SpaceId);
     }
 }

@@ -50,7 +50,7 @@ internal sealed class CrmDesignBriefConfiguration : IEntityTypeConfiguration<Crm
         // harmless, purely informational).
         // A SiteId column was dropped at S1-00; the brief never pointed at a site. The real link is
         // Site.SourceBriefId, in the sites schema, pointing the other way - see the entity's remarks.
-        builder.HasIndex(b => b.ProjectStageId).HasFilter("\"ProjectStageId\" IS NOT NULL");
+        builder.HasIndex(b => b.ProjectStageId);
         builder.HasIndex(b => b.CreatedById);
     }
 }

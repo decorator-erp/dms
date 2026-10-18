@@ -18,7 +18,10 @@ public sealed record PortalBriefResponse(Guid Id, Guid ProjectId, CrmApprovalSta
 public sealed record GetMyPortalMeetingsQuery(string AppUserId)
     : IQuery<IReadOnlyList<PortalMeetingResponse>>, ICrmScoped;
 
-public sealed record GetMyPortalBriefQuery(string AppUserId, Guid ProjectId)
+/// <summary>The client's own brief for one project. With <see cref="StageId"/>, that stage's brief;
+/// without it, the most recently created brief on the project (a project has one brief per
+/// stage).</summary>
+public sealed record GetMyPortalBriefQuery(string AppUserId, Guid ProjectId, Guid? StageId = null)
     : IQuery<PortalBriefResponse>, ICrmScoped;
 
 /// <summary>The client's own decision on a brief/brief-space/requirement-item approval — routes

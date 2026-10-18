@@ -24,29 +24,29 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
-        (string? clientAppUserId, Guid clientId) = await CreateClientAsync(sp, "brief-client");
-        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "brief-client");
 
         ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         var headData = new CrmBriefHeadData((UnitType)1, (UnitCondition)1, Address: "Original Addr");
         Result<Guid> briefResult = await createBrief.HandleAsync(
-            new CreateCrmDesignBriefCommand(projectId, employeeId, null, headData));
+            new CreateCrmDesignBriefCommand(p.ProjectId, p.EmployeeId, p.StageId, headData, p.OwnerAppUserId));
         Assert.True(briefResult.IsSuccess);
         Guid briefId = briefResult.Value;
 
         ICommandHandler<UpdateCrmBriefHeadCommand> updateHead = sp.GetRequiredService<ICommandHandler<UpdateCrmBriefHeadCommand>>();
         CrmBriefHeadData updatedData = headData with { Address = "Updated Addr" };
-        Assert.True((await updateHead.HandleAsync(new UpdateCrmBriefHeadCommand(briefId, updatedData))).IsSuccess);
+        Assert.True((await updateHead.HandleAsync(new UpdateCrmBriefHeadCommand(briefId, updatedData, p.OwnerAppUserId))).IsSuccess);
 
         ICommandHandler<SendCrmBriefCommand> sendBrief = sp.GetRequiredService<ICommandHandler<SendCrmBriefCommand>>();
-        Result sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId, sp.GetRequiredService<TestCurrentUser>().UserId!));
+        Result sendResult = await sendBrief.HandleAsync(new SendCrmBriefCommand(briefId, p.OwnerAppUserId));
         Assert.True(sendResult.IsSuccess);
 
         IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse> getBrief = sp.GetRequiredService<IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse>>();
-        Result<CrmDesignBriefResponse> brief = await getBrief.HandleAsync(new GetCrmBriefByProjectQuery(projectId));
+        Result<CrmDesignBriefResponse> brief = await getBrief.HandleAsync(new GetCrmBriefByProjectQuery(p.ProjectId, p.OwnerAppUserId));
         Assert.True(brief.IsSuccess);
         Assert.Equal(CrmApprovalState.PendingApproval, brief.Value!.Status);
         Assert.Equal("Updated Addr", brief.Value.Head.Address);
+        Assert.Equal(p.StageId, brief.Value.ProjectStageId);
 
         // sendResult.IsSuccess above already proves IApprovalRequester.RequestAsync (resolved from the
         // real Approvals DI graph, not a stub) accepted the request - a real ApproverKind.Client
@@ -59,28 +59,27 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
-        (string _, Guid clientId) = await CreateClientAsync(sp, "space-client");
-        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "space-client");
 
         ICommandHandler<CreateCrmDesignBriefCommand, Guid> createBrief = sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>();
         Guid briefId = (await createBrief.HandleAsync(new CreateCrmDesignBriefCommand(
-            projectId, employeeId, null, new CrmBriefHeadData((UnitType)1, (UnitCondition)1)))).Value;
+            p.ProjectId, p.EmployeeId, p.StageId, new CrmBriefHeadData((UnitType)1, (UnitCondition)1), p.OwnerAppUserId))).Value;
 
         ICommandHandler<CreateCrmBriefSpaceCommand, Guid> createEntry = sp.GetRequiredService<ICommandHandler<CreateCrmBriefSpaceCommand, Guid>>();
         Result<Guid> entryResult = await createEntry.HandleAsync(
-            new CreateCrmBriefSpaceCommand(briefId, employeeId, SpaceId: null, Requirements: "north-facing light"));
+            new CreateCrmBriefSpaceCommand(briefId, p.EmployeeId, p.OwnerAppUserId, SpaceId: null, Requirements: "north-facing light"));
         Assert.True(entryResult.IsSuccess);
         Guid entryId = entryResult.Value;
 
         ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid>>();
         Result<Guid> supersedeResult = await supersede.HandleAsync(
-            new SupersedeCrmBriefSpaceCommand(entryId, Guid.NewGuid(), SpaceId: null, Requirements: "corrected"));
+            new SupersedeCrmBriefSpaceCommand(entryId, p.EmployeeId, p.OwnerAppUserId, SpaceId: null, Requirements: "corrected"));
 
         // Only a locked (Approved) entry can be superseded - a Draft entry must be rejected.
         Assert.True(supersedeResult.IsFailure);
 
         IQueryHandler<GetCrmBriefSpacesByBriefQuery, IReadOnlyList<CrmBriefSpaceResponse>> getEntries = sp.GetRequiredService<IQueryHandler<GetCrmBriefSpacesByBriefQuery, IReadOnlyList<CrmBriefSpaceResponse>>>();
-        IReadOnlyList<CrmBriefSpaceResponse> entries = (await getEntries.HandleAsync(new GetCrmBriefSpacesByBriefQuery(briefId))).Value!;
+        IReadOnlyList<CrmBriefSpaceResponse> entries = (await getEntries.HandleAsync(new GetCrmBriefSpacesByBriefQuery(briefId, p.OwnerAppUserId))).Value!;
         Assert.Single(entries);
     }
 

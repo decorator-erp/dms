@@ -57,7 +57,10 @@ internal sealed record CrmBriefHeadData(
 internal sealed class CrmDesignBrief : Entity, IAuditable
 {
     public Guid ProjectId { get; private set; }
-    public Guid? ProjectStageId { get; private set; }
+    /// <summary>Required: a brief is one stage's brief, unique per (project, stage). Nullable before M1,
+    /// when a stage-less brief could never satisfy a gate and Postgres let any number of them share a
+    /// project.</summary>
+    public Guid ProjectStageId { get; private set; }
     public Guid CreatedById { get; private set; }
     public Guid? LastMeetingId { get; private set; }
     public ApprovalState Status { get; private set; }
@@ -103,7 +106,7 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     private CrmDesignBrief() { }
 
     public static CrmDesignBrief Create(
-        Guid projectId, Guid createdById, Guid? projectStageId, CrmBriefHeadData data)
+        Guid projectId, Guid createdById, Guid projectStageId, CrmBriefHeadData data)
     {
         var brief = new CrmDesignBrief
         {

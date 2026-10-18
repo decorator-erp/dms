@@ -3,6 +3,8 @@ using Crm.Contracts.Briefs;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Briefs;
@@ -13,10 +15,14 @@ internal sealed class SupersedeCrmBriefSpaceCommandValidator : AbstractValidator
     {
         RuleFor(x => x.OriginalEntryId).NotEmpty();
         RuleFor(x => x.CreatedById).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
     }
 }
 
-internal sealed class SupersedeCrmBriefSpaceCommandHandler(CrmDbContext db)
+/// <summary>The ledger cannot fork: an entry is superseded at most once — checked here (409
+/// <see cref="CrmBriefErrors.AlreadySuperseded"/>) and backed by the partial unique index on
+/// <c>SupersedesSpaceId</c>, whose violation <see cref="BriefWrites"/> maps to the same error.</summary>
+internal sealed class SupersedeCrmBriefSpaceCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<SupersedeCrmBriefSpaceCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(SupersedeCrmBriefSpaceCommand command, CancellationToken ct = default)
@@ -25,6 +31,24 @@ internal sealed class SupersedeCrmBriefSpaceCommandHandler(CrmDbContext db)
         if (original is null)
         {
             return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+        }
+
+        if (await db.CrmBriefSpaces.AnyAsync(e => e.SupersedesSpaceId == original.Id, ct))
+        {
+            return Result.Failure<Guid>(CrmBriefErrors.AlreadySuperseded);
+        }
+
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == original.BriefId, ct);
+        if (brief is null)
+        {
+            return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+        }
+
+        Result references = await BriefReferenceValidator.ValidateEntryReferencesAsync(
+            db, projectDirectory, brief, command.SpaceId, command.ProjectTaskId, command.MeetingId, ct);
+        if (references.IsFailure)
+        {
+            return Result.Failure<Guid>(references.Error);
         }
 
         Result<CrmBriefSpace> supersedingResult = CrmBriefSpace.CreateSuperseding(
@@ -37,7 +61,11 @@ internal sealed class SupersedeCrmBriefSpaceCommandHandler(CrmDbContext db)
 
         CrmBriefSpace superseding = supersedingResult.Value!;
         db.CrmBriefSpaces.Add(superseding);
-        await db.SaveChangesAsync(ct);
+        Result saved = await BriefWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
 
         return superseding.Id;
     }

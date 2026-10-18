@@ -17,6 +17,7 @@ internal static class BriefWrites
     private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
     {
         ["IX_crm_brief_head_snapshots_BriefId_Round"] = CrmBriefErrors.ConcurrentSend,
+        ["IX_crm_brief_spaces_SupersedesSpaceId"] = CrmBriefErrors.AlreadySuperseded,
     };
 
     public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)

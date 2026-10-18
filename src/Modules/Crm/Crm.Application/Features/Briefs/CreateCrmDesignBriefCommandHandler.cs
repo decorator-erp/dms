@@ -15,6 +15,8 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.CreatedById).NotEmpty();
+        RuleFor(x => x.ProjectStageId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
     }
 }
 
@@ -22,7 +24,8 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
 /// <c>ProjectStageId</c> carry no FK (structural item 1: crm precedes projects in SchemaOrder).
 /// <see cref="ProjectId"/> is validated against a real project via
 /// <see cref="IProjectDirectory"/> — the application-code check that stands where a constraint would
-/// otherwise be.</summary>
+/// otherwise be. <see cref="CreateCrmDesignBriefCommand.ProjectStageId"/> is checked the same way, and
+/// must belong to that project (<see cref="BriefReferenceValidator"/>).</summary>
 internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<CreateCrmDesignBriefCommand, Guid>
 {
@@ -32,6 +35,13 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
         if (project is null)
         {
             return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+        }
+
+        Result stageResult = await BriefReferenceValidator.ValidateStageAsync(
+            projectDirectory, command.ProjectId, command.ProjectStageId, ct);
+        if (stageResult.IsFailure)
+        {
+            return Result.Failure<Guid>(stageResult.Error);
         }
 
         bool alreadyExists = await db.CrmDesignBriefs.AnyAsync(

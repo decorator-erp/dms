@@ -7,34 +7,36 @@ using SharedKernel;
 
 namespace Crm.Application.Features.Briefs;
 
+/// <summary>Obsolete route, kept for the frontend: a project has one brief per stage, so this returns
+/// the most recently created one — deterministic, unlike the unordered <c>FirstOrDefault</c> it
+/// replaces. Prefer <see cref="GetCrmBriefByStageQueryHandler"/>.</summary>
 internal sealed class GetCrmBriefByProjectQueryHandler(CrmDbContext db)
     : IQueryHandler<GetCrmBriefByProjectQuery, CrmDesignBriefResponse>
 {
     public async Task<Result<CrmDesignBriefResponse>> HandleAsync(GetCrmBriefByProjectQuery query, CancellationToken ct = default)
     {
-        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking().FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking()
+            .Where(b => b.ProjectId == query.ProjectId)
+            .OrderByDescending(b => b.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
         if (brief is null)
         {
             return Result.Failure<CrmDesignBriefResponse>(CrmBriefErrors.NotFound);
         }
 
-        var data = new Contracts.Briefs.CrmBriefHeadData(
-            CrmEnumMapping.ToContracts(brief.UnitType), CrmEnumMapping.ToContracts(brief.UnitCondition),
-            brief.Address, brief.FloorNo, brief.UnitsPerFloor, brief.AreaSqm,
-            brief.BuildingKind is { } bk ? CrmEnumMapping.ToContracts(bk) : null, brief.IsLicensed,
-            brief.Position is { } p ? CrmEnumMapping.ToContracts(p) : null,
-            brief.ElevatorStatus is { } es ? CrmEnumMapping.ToContracts(es) : null,
-            brief.ReceivesFrequentVisitors, brief.VisitorsNote, brief.UsedDesignerBefore,
-            brief.DesignerExperience is { } de ? CrmEnumMapping.ToContracts(de) : null,
-            brief.DesignerExperienceReason, CrmEnumMapping.ToContracts(brief.HiringReasons),
-            brief.PreferredStyle, brief.PreferredColors,
-            brief.FurnitureStatus is { } fs ? CrmEnumMapping.ToContracts(fs) : null, brief.ExpectedBudget,
-            brief.TimelinePressure is { } tp ? CrmEnumMapping.ToContracts(tp) : null,
-            brief.ArchitecturalRequests, brief.OtherNeeds, brief.IsRented,
-            brief.FinishingPurpose is { } fp ? CrmEnumMapping.ToContracts(fp) : null);
+        return BriefMapping.ToResponse(brief);
+    }
+}
 
-        return new CrmDesignBriefResponse(
-            brief.Id, brief.ProjectId, brief.ProjectStageId, brief.CreatedById, brief.LastMeetingId,
-            CrmEnumMapping.ToContracts(brief.Status), data);
+internal sealed class GetCrmBriefByStageQueryHandler(CrmDbContext db)
+    : IQueryHandler<GetCrmBriefByStageQuery, CrmDesignBriefResponse>
+{
+    public async Task<Result<CrmDesignBriefResponse>> HandleAsync(GetCrmBriefByStageQuery query, CancellationToken ct = default)
+    {
+        CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.ProjectStageId == query.StageId, ct);
+        return brief is null
+            ? Result.Failure<CrmDesignBriefResponse>(CrmBriefErrors.NotFound)
+            : BriefMapping.ToResponse(brief);
     }
 }

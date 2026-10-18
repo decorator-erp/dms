@@ -35,11 +35,8 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
             return result;
         }
 
-        if (brief.ProjectStageId is { } stageId)
-        {
-            db.Outbox().Enqueue(new CrmBriefApprovedIntegrationEvent(
-                Guid.NewGuid(), brief.Id, stageId, DateTimeOffset.UtcNow));
-        }
+        db.Outbox().Enqueue(new CrmBriefApprovedIntegrationEvent(
+            Guid.NewGuid(), brief.Id, brief.ProjectStageId, DateTimeOffset.UtcNow));
 
         return Result.Success();
     }
@@ -65,7 +62,7 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
 
         Guid? stageId = await db.CrmDesignBriefs.AsNoTracking()
             .Where(b => b.Id == entry.BriefId)
-            .Select(b => b.ProjectStageId)
+            .Select(b => (Guid?)b.ProjectStageId)
             .FirstOrDefaultAsync(ct);
         await PublishIfResolvedAsync(stageId, entry.ProjectTaskId, ct);
 
