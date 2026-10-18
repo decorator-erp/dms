@@ -18,7 +18,7 @@ internal sealed class ActivateEmployeeCommandHandler(HrDbContext db) : ICommandH
     public async Task<Result> HandleAsync(ActivateEmployeeCommand command, CancellationToken ct = default)
     {
         var employee = await db.Employees
-            .Select(x => new {x.Id, x.IsActive })
+            .Select(x => new { x.Id, x.IsActive })
             .SingleOrDefaultAsync(x => x.Id == command.EmployeeId, ct);
 
         if (employee is null)
@@ -36,10 +36,10 @@ internal sealed class ActivateEmployeeCommandHandler(HrDbContext db) : ICommandH
             .ExecuteUpdateAsync(employee => employee.SetProperty(x => x.IsActive, true), ct);
 
         if (affectedRows < 0)
-        { 
+        {
             return EmployeeErrors.FailedToActivate;
         }
-        
+
         return Result.Success();
     }
 }

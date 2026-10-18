@@ -20,7 +20,7 @@ internal sealed class ApplicationRole : IdentityRole<string>, IAuditable
             CreatedAt = DateTime.UtcNow,
             ConcurrencyStamp = Guid.NewGuid().ToString(),
         };
-    
+
     public string? Description { get; private set; }
     public bool IsActive { get; private set; } = true;
     public DateTime CreatedAt { get; private set; }

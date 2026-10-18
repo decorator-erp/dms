@@ -377,7 +377,11 @@ No finding was invalid. Every finding was confirmed against the code before it w
 6. **Out of scope, observed in passing.**
    - Requirement items are not round-bound the way briefs and entries now are. Their decided handler only checks the mark result.
    - Approvals' open-approval check has no DB backstop: its `(SubjectType, SubjectId)` index is not unique. For CRM subjects, the deterministic id and the CRM-side unique `(BriefId, Round)` index cover it.
-7. **Decision 20 respected.** None of the 10 unit columns, nor their snapshot fields, were moved or changed. The new validator only bounds them: Address length, AreaSqm/FloorNo/UnitsPerFloor ranges, and enum ranges.
+7. **CI format gate.** The `gate` workflow's last step, `dotnet format` then `git diff --exit-code`, was **already red on `master`**: runs 2–4 all failed it.
+   - The cause is trailing whitespace and style left in SharedKernel (`Entity.cs`, `Error.cs`), Identity, Hr and `Api/BearerSecuritySchemeTransformer.cs`.
+   - The formatter's own fix for those files is ported into this PR, together with the formatting of this PR's own files. The changes are whitespace, using order and line breaks only.
+   - It no-ops once `master` carries the same fix.
+8. **Decision 20 respected.** None of the 10 unit columns, nor their snapshot fields, were moved or changed. The new validator only bounds them: Address length, AreaSqm/FloorNo/UnitsPerFloor ranges, and enum ranges.
 
 ## 5. PR body
 

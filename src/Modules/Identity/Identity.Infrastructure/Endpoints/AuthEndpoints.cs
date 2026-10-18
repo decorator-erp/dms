@@ -27,7 +27,7 @@ internal sealed class AuthEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        RouteGroupBuilder group = app.MapGroup("/api/auth").WithTags("Auth");   
+        RouteGroupBuilder group = app.MapGroup("/api/auth").WithTags("Auth");
 
         group.MapPost("/login", async (
             LoginRequest request, ICommandHandler<LoginCommand, AuthResponse> handler, CancellationToken ct) =>

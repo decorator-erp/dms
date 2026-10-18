@@ -8,10 +8,10 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
-// Same ambiguity as SendCrmBriefCommandHandler - see that file's identical comment.
-using ApprovalType = Approvals.Contracts.ApprovalType;
 // Crm.Domain's own ApprovalState (the brief's status) vs Approvals.Contracts' - this file means CRM's.
 using ApprovalState = Crm.Domain.ApprovalState;
+// Same ambiguity as SendCrmBriefCommandHandler - see that file's identical comment.
+using ApprovalType = Approvals.Contracts.ApprovalType;
 
 namespace Crm.Application.Features.Briefs;
 

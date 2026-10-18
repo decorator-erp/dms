@@ -33,9 +33,9 @@ internal sealed class UpdateDepartmentCommandHandler(HrDbContext db) : ICommandH
         {
             return DepartmentErrors.NotFound;
         }
-        
+
         Action<UpdateSettersBuilder<Department>>? settersAction = null;
-        
+
         if (department.Name != command.Name)
         {
             string newName = NameCorrection(command.Name);
@@ -48,8 +48,8 @@ internal sealed class UpdateDepartmentCommandHandler(HrDbContext db) : ICommandH
 
         if (!string.IsNullOrEmpty(command.Description) && department.Description != command.Description)
         {
-            settersAction = settersAction is null ? 
-                setters => setters.SetProperty(x => x.Description, command.Description) : 
+            settersAction = settersAction is null ?
+                setters => setters.SetProperty(x => x.Description, command.Description) :
                 settersAction + (setters => setters.SetProperty(x => x.Description, command.Description));
         }
 

@@ -38,8 +38,12 @@ public sealed class CrmBriefRouteTests(ApiFixture fixture)
             new { Name = "Design", Order = 1, WeightPercent = 100m, Description = (string?)null })).IsSuccessStatusCode);
         HttpResponseMessage projectResponse = await office.PostAsJsonAsync("/api/projects", new
         {
-            Code = $"P-{suffix}", Name = "Brief Routes", Address = "1 Test Rd", WorkflowType = 1,
-            ClientId = clientId, StageTemplateId = templateId,
+            Code = $"P-{suffix}",
+            Name = "Brief Routes",
+            Address = "1 Test Rd",
+            WorkflowType = 1,
+            ClientId = clientId,
+            StageTemplateId = templateId,
         });
         Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
         Guid projectId = (await projectResponse.Content.ReadFromJsonAsync<ProjectIdBody>())!.ProjectId;

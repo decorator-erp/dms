@@ -8,13 +8,13 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
+// Crm.Domain's own ApprovalState (the brief's status) vs Approvals.Contracts' - this file means CRM's.
+using ApprovalState = Crm.Domain.ApprovalState;
 // Approvals.Contracts.ApprovalType and Projects.Contracts.ApprovalType are two independent full
 // duplicates of the same enum (Projects.Contracts' own remarks: "Contracts cannot reference another
 // module's Contracts") - Crm.Application references both modules' Contracts, so the plain name is
 // ambiguous. This handler always means the Approvals one.
 using ApprovalType = Approvals.Contracts.ApprovalType;
-// Crm.Domain's own ApprovalState (the brief's status) vs Approvals.Contracts' - this file means CRM's.
-using ApprovalState = Crm.Domain.ApprovalState;
 
 namespace Crm.Application.Features.Briefs;
 

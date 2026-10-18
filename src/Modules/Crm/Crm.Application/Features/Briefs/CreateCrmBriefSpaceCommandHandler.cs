@@ -3,8 +3,8 @@ using Crm.Contracts.Briefs;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
-using Projects.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Briefs;

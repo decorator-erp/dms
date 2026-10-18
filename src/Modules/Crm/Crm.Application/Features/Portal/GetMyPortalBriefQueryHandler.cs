@@ -1,6 +1,6 @@
 using BuildingBlocks.Messaging;
-using Crm.Contracts;
 using Crm.Application.Features.Briefs;
+using Crm.Contracts;
 using Crm.Contracts.Briefs;
 using Crm.Contracts.Portal;
 using Crm.Domain;

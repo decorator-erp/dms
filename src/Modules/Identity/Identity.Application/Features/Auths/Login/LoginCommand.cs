@@ -37,7 +37,7 @@ internal sealed class LoginCommandHandler(
         {
             return AuthErrors.InvalidCredentials;
         }
-       
+
         if (!await userManager.CheckPasswordAsync(user, request.Password))
         {
             return AuthErrors.InvalidCredentials;
