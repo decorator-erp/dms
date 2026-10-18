@@ -7,7 +7,8 @@ using Xunit;
 namespace Integration.Tests;
 
 /// <summary>
-/// The CRM brief fixes' HTTP surface, through the real composition root: the stage route, the
+/// The CRM brief fixes' HTTP surface, through the real composition root: the create's Location (the
+/// stage route, L2), the stage route, the
 /// two-audience round-diff route (route claims pick the audience; neither claim is a 403), and the
 /// client's money-free portal view.
 /// </summary>
@@ -50,6 +51,7 @@ public sealed class CrmBriefRouteTests(ApiFixture fixture)
             Data = new { UnitType = 1, UnitCondition = 1, Address = "Route Addr", ExpectedBudget = 12345m },
         });
         Assert.Equal(HttpStatusCode.Created, briefResponse.StatusCode);
+        Assert.Equal($"/api/crm/stages/{stageId}/brief", briefResponse.Headers.Location?.OriginalString);
         Guid briefId = (await briefResponse.Content.ReadFromJsonAsync<BriefIdBody>())!.BriefId;
         Assert.Equal(HttpStatusCode.NoContent, (await office.PutAsync($"/api/crm/briefs/{briefId}/send", content: null)).StatusCode);
 

@@ -43,7 +43,10 @@ internal sealed class CrmBriefEndpoints : IEndpoint
 
             Result<Guid> result = await handler.HandleAsync(
                 new CreateCrmDesignBriefCommand(projectId, createdById.Value, request.ProjectStageId, request.Data, userId.Value!), ct);
-            return result.Match(id => Results.Created($"/api/crm/briefs/{id}", new { BriefId = id }), r => r.ToProblem());
+            // The brief is read back by its stage - there is no GET /api/crm/briefs/{id}.
+            return result.Match(
+                id => Results.Created($"/api/crm/stages/{request.ProjectStageId}/brief", new { BriefId = id }),
+                r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.Manage);
 
         // Obsolete: one brief per stage - returns the project's latest. Prefer GET /api/crm/stages/{stageId}/brief.

@@ -35,10 +35,12 @@ public sealed record CrmDesignBriefResponse(
     Guid Id, Guid ProjectId, Guid ProjectStageId, Guid CreatedById, Guid? LastMeetingId,
     CrmApprovalState Status, CrmBriefHeadData Head);
 
+/// <summary><see cref="IsCurrent"/> is false once another entry in the same list supersedes this one —
+/// the ledger's live line is the entries with <see cref="IsCurrent"/> true.</summary>
 public sealed record CrmBriefSpaceResponse(
     Guid Id, Guid BriefId, Guid? SpaceId, int? CountOrPieces, string? Requirements,
     Guid? MeetingId, CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId,
-    Guid? ProjectTaskId, Guid CreatedById);
+    Guid? ProjectTaskId, Guid CreatedById, bool IsCurrent);
 
 /// <summary>Creates the stage-long brief head. One per (project, stage) — the handler rejects a
 /// second create for the same stage, mirroring the backend's unique-project_id rule generalized to

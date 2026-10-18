@@ -12,11 +12,16 @@ internal sealed class GetCrmBriefSpacesByBriefQueryHandler(CrmDbContext db)
     public async Task<Result<IReadOnlyList<CrmBriefSpaceResponse>>> HandleAsync(
         GetCrmBriefSpacesByBriefQuery query, CancellationToken ct = default)
     {
+        if (!await db.CrmDesignBriefs.AnyAsync(b => b.Id == query.BriefId, ct))
+        {
+            return Result.Failure<IReadOnlyList<CrmBriefSpaceResponse>>(Domain.CrmBriefErrors.NotFound);
+        }
+
         List<Domain.CrmBriefSpace> entries = await db.CrmBriefSpaces.AsNoTracking()
             .Where(e => e.BriefId == query.BriefId)
             .OrderByDescending(e => e.CreatedAtUtc)
             .ToListAsync(ct);
 
-        return entries.Select(BriefMapping.ToSpaceResponse).ToList();
+        return BriefMapping.ToSpaceResponses(entries);
     }
 }

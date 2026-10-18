@@ -114,6 +114,14 @@ internal static class CrmBriefErrors
     public static readonly Error AlreadySuperseded = Error.Conflict(
         "crm.briefs.AlreadySuperseded", "This entry has already been superseded.");
 
+    public static readonly Error ProjectNotFound = Error.NotFound(
+        "crm.briefs.ProjectNotFound", "The project was not found.");
+
+    /// <summary>One brief per (project, stage). Replaces the misleading <see cref="NotDraft"/> a duplicate
+    /// create used to return.</summary>
+    public static readonly Error AlreadyExists = Error.Conflict(
+        "crm.briefs.AlreadyExists", "This stage already has a design brief.");
+
     public static readonly Error RoundNotFound = Error.NotFound(
         "crm.briefs.RoundNotFound", "The brief has no such round.");
 

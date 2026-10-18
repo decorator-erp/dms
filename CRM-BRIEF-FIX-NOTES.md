@@ -244,3 +244,33 @@ Environment: .NET SDK 10.0.400 is at `~/.dotnet`. `dockerd` was started inside t
 > The frontend must therefore show a CRM subject as **Rejected (changes requested)** after a ChangesRequested decision, not Pending.
 
 **M7 question (no code change).** `CrmGateReader.CountUnresolvedFor{Stage,Task}Async` counts only Draft and PendingApproval as unresolved. A **Rejected** brief-space entry or requirement item therefore counts as resolved, and can let `CrmItemsResolved` close a stage or task gate while the client's "no" is still unaddressed. **Should a Rejected entry keep `CrmItemsResolved` closed?**
+
+---
+
+## Run D — hardening (M4, L1–L4)
+
+**M4 — validators that match the columns.**
+- `CrmBriefHeadDataValidator` is wired into the create and update-head validators through `SetValidator`. Its rules:
+  - **Lengths, from `CrmDesignBriefConfiguration`:** Address 512; VisitorsNote and DesignerExperienceReason 1000; PreferredStyle and PreferredColors 256; ArchitecturalRequests and OtherNeeds 2000.
+  - **Ranges:** `AreaSqm > 0`, `FloorNo >= 0`, `UnitsPerFloor >= 1`, `ExpectedBudget >= 0`.
+  - **Enums:** `IsInEnum` for every one. `HiringReasons` is a `[Flags]` enum, so it is checked against the mask of its defined bits; `IsInEnum` would reject valid combinations.
+- **Entries** (create, update, supersede): `Requirements` ≤ 2000 and `CountOrPieces >= 1` when set.
+- All of these are now 400 `ValidationError`s instead of a 500 from `DbUpdateException` (or silently accepted negatives).
+- The create handler also saves through `BriefWrites`. A race on the unique `(ProjectId, ProjectStageId)` index therefore maps to `AlreadyExists`.
+
+**Low items**
+- **L1:** a duplicate create → 409 `crm.briefs.AlreadyExists`, replacing the misleading `NotDraft`. An unknown project → 404 `crm.briefs.ProjectNotFound`.
+- **L2:** the `Created` Location is `/api/crm/stages/{stageId}/brief`, the brief's real GET.
+- **L3:**
+  - The spaces list for an unknown brief → 404. Both the scope decorator and the handler enforce it.
+  - `CrmBriefSpaceResponse.IsCurrent` is computed per list: false once another entry in the same list supersedes it. The portal list hides Drafts, so a Draft correction the client cannot see does not mark the original as superseded for them.
+- **L4:** `Crm.Contracts/ICrmBriefReader.cs` (`ICrmBriefReader` + `CrmDesignBriefSummary`) was deleted; Run 0 found no users. Sites' historical comment now notes the deletion.
+- `PUT …/send` is unchanged.
+
+**Tests** (`BriefHardeningTests`, **run, green**)
+- One case each for an over-long Address, OtherNeeds or PreferredStyle; a zero area; a negative floor or budget; zero units per floor; an out-of-range enum; an undefined flag bit. Each is a 400 `ValidationError` naming the field.
+- An over-long VisitorsNote on update → 400.
+- `Requirements` of 2001 and `CountOrPieces` of 0 → 400, while 2000 and 1 are accepted.
+- `AlreadyExists` 409 and `ProjectNotFound` 404.
+- An unknown brief's list → 404, and `IsCurrent` false on the superseded entry and true on the correction.
+- HTTP: `CrmBriefRouteTests` asserts the new Location.

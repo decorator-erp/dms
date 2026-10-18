@@ -17,6 +17,7 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
         RuleFor(x => x.CreatedById).NotEmpty();
         RuleFor(x => x.ProjectStageId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmBriefHeadDataValidator());
     }
 }
 
@@ -34,7 +35,7 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
         ProjectSummary? project = await projectDirectory.GetProjectAsync(command.ProjectId, ct);
         if (project is null)
         {
-            return Result.Failure<Guid>(CrmBriefErrors.NotFound);
+            return Result.Failure<Guid>(CrmBriefErrors.ProjectNotFound);
         }
 
         Result stageResult = await BriefReferenceValidator.ValidateStageAsync(
@@ -48,14 +49,18 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
             b => b.ProjectId == command.ProjectId && b.ProjectStageId == command.ProjectStageId, ct);
         if (alreadyExists)
         {
-            return Result.Failure<Guid>(CrmBriefErrors.NotDraft);
+            return Result.Failure<Guid>(CrmBriefErrors.AlreadyExists);
         }
 
         var brief = CrmDesignBrief.Create(
             command.ProjectId, command.CreatedById, command.ProjectStageId, BriefMapping.ToDomain(command.Data));
 
         db.CrmDesignBriefs.Add(brief);
-        await db.SaveChangesAsync(ct);
+        Result saved = await BriefWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
 
         return brief.Id;
     }

@@ -18,6 +18,7 @@ internal static class BriefWrites
     {
         ["IX_crm_brief_head_snapshots_BriefId_Round"] = CrmBriefErrors.ConcurrentSend,
         ["IX_crm_brief_spaces_SupersedesSpaceId"] = CrmBriefErrors.AlreadySuperseded,
+        ["IX_crm_design_briefs_ProjectId_ProjectStageId"] = CrmBriefErrors.AlreadyExists,
     };
 
     public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)

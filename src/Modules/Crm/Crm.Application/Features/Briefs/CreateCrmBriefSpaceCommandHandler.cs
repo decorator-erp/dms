@@ -16,6 +16,9 @@ internal sealed class CreateCrmBriefSpaceCommandValidator : AbstractValidator<Cr
         RuleFor(x => x.BriefId).NotEmpty();
         RuleFor(x => x.CreatedById).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
+        // Requirements matches CrmBriefSpaceConfiguration's column length.
+        RuleFor(x => x.Requirements).MaximumLength(2000);
+        RuleFor(x => x.CountOrPieces).GreaterThanOrEqualTo(1).When(x => x.CountOrPieces.HasValue);
     }
 }
 

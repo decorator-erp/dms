@@ -14,6 +14,7 @@ internal sealed class UpdateCrmBriefHeadCommandValidator : AbstractValidator<Upd
     {
         RuleFor(x => x.BriefId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmBriefHeadDataValidator());
     }
 }
 

@@ -51,7 +51,15 @@ internal static class BriefMapping
             CrmEnumMapping.ToContracts(brief.Status), data);
     }
 
-    public static Contracts.Briefs.CrmBriefSpaceResponse ToSpaceResponse(CrmBriefSpace e) => new(
-        e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.MeetingId,
-        CrmEnumMapping.ToContracts(e.ApprovalStatus), e.SupersedesSpaceId, e.ProjectTaskId, e.CreatedById);
+    /// <summary>Maps a list of entries, computing <c>IsCurrent</c> within that list: an entry is current
+    /// unless another entry in it supersedes it. (The portal list excludes Drafts, so a Draft correction
+    /// the client cannot see does not un-current the entry it will replace.)</summary>
+    public static List<Contracts.Briefs.CrmBriefSpaceResponse> ToSpaceResponses(IReadOnlyCollection<CrmBriefSpace> entries)
+    {
+        HashSet<Guid> superseded = [.. entries.Where(e => e.SupersedesSpaceId is not null).Select(e => e.SupersedesSpaceId!.Value)];
+        return [.. entries.Select(e => new Contracts.Briefs.CrmBriefSpaceResponse(
+            e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.MeetingId,
+            CrmEnumMapping.ToContracts(e.ApprovalStatus), e.SupersedesSpaceId, e.ProjectTaskId, e.CreatedById,
+            IsCurrent: !superseded.Contains(e.Id)))];
+    }
 }

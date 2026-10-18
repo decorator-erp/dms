@@ -11,7 +11,8 @@ namespace Sites.Contracts;
 /// about (Notifications' reviewer alert, later), and Sites publishes with zero knowledge of who
 /// reacts, per <c>docs/adding-a-module.md</c>'s cross-module-write pattern. Zero registered handlers
 /// is a supported no-op (the event is marked processed), not a gap — but an UNSTATED zero is how
-/// <c>Crm.Contracts.ICrmBriefReader</c> became a dangling seam nobody noticed for two phases.</para>
+/// <c>Crm.Contracts.ICrmBriefReader</c> became a dangling seam nobody noticed for two phases (since deleted,
+/// with no consumer ever written).</para>
 /// </summary>
 public sealed record SiteSubmittedIntegrationEvent(
     Guid EventId, Guid SiteId, Guid ProjectId, Guid SubmittedById, DateTimeOffset OccurredAtUtc)

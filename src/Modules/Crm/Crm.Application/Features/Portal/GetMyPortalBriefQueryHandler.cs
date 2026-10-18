@@ -68,7 +68,7 @@ internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGu
 
         return new PortalBriefViewResponse(
             latest is null ? null : ToHeadBlock(brief, latest),
-            [.. entries.Select(BriefMapping.ToSpaceResponse)]);
+            BriefMapping.ToSpaceResponses(entries));
     }
 
     private static BriefHeadBlock ToHeadBlock(CrmDesignBrief brief, CrmBriefHeadSnapshot s) => new(
