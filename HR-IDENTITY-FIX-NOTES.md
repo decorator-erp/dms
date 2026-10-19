@@ -18,7 +18,7 @@ This file stands in for `../docs/backend/dms-modular/`, which the cloud clone do
 - Docker Hub answered `429 Too Many Requests` for `postgres:17`, so the image was pulled from `mirror.gcr.io/library/postgres:17` and re-tagged `postgres:17`. Testcontainers' default pull policy (missing) then uses the local tag.
 - **The Testcontainers suites ran.**
 
-**Baseline.** Every one of the 30 test suites was green on `1d6aefb` before any change.
+**Baseline.** Every one of the 29 test suites was green on `1d6aefb` before any change.
 
 ### 1. Item table
 
