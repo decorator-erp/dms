@@ -225,3 +225,132 @@ None. Phase 0 has no migration.
 ### 7. PR body
 
 (Opened as a draft PR; see the PR. Body kept here only if creation fails.)
+
+---
+
+## Phase 1A — Authorization
+
+### Setup
+
+**Branch.** Phase 1A also lives on `claude/awesome-einstein-mw5xmb`, which is the only branch this session can push to.
+- It builds on Phase 0, which is not merged yet (PR #3).
+- The commits therefore join PR #3 rather than starting a new `fix/hr-identity-phase-1A` PR.
+
+**Environment and baseline.** Same environment as Phase 0. Phase 0's head was green both locally and in CI (`gate` ×2).
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| N1 delegation guard | fixed | `02a401b` | `IdentityAuthorizationTests`: `RolesManageOnly_CannotAssignTheAdminRole`, `RolesManageOnly_CannotAddAPermissionTheyLack_EvenToTheirOwnRole`, `RolesManageOnly_CanAssignARoleWhoseClaimsTheyHold`, `PermissionsManage_CannotGrantAnOverrideTheyDoNotHold`, `EditingTheManagerRole_ByANonFullAccessCaller_Is403_BeforeTheLock` |
+| K6 self-modification, last holder, shared body | fixed | `02a401b` | `GrantingAnOverrideToYourself_Is403` (grant and revoke); `LastHolderTests`; `LastHolderInactiveTests` |
+| K8 read side | fixed | `02a401b` | `PlainEmployee_CannotReadAnotherUsersEffectivePermissions_ButCanReadTheirOwn` |
+| N3 full-access lock | fixed | `02a401b` | `EditingTheManagerRolesClaims_Is409_EvenForAnAdmin` (add and remove) |
+| N4 system role / in use / audited delete | fixed | `02a401b` | `DeletingTheEmployeeRole_Is409`, `RenamingTheClientRole_Is409_ButItsDescriptionIsEditable`, `DeletingARoleWithAMember_Is409`, `DeletingAnUnusedRole_WritesAnAuditRowPerClaim` |
+| Role validators (Aug 3.6) | already-fixed | — | `CreateRoleCommandValidator`: `Name NotEmpty().MaximumLength(256)`. `UpdateRoleCommandValidator`: the same, plus `RoleId NotEmpty` and `Description ≤ 500`. `DeleteRoleCommandValidator`: `RoleId NotEmpty`. FluentValidation's `NotEmpty` also rejects whitespace, so names are 1..256 already. |
+| K7 Rule 12 + FallbackPolicy | fixed | `23c6bfe` | `Rule12EndpointAuthorizationTests` |
+
+**Red-before-green proofs**, each run locally by reverting the fix and then restoring it:
+- **Reverting all 1A guards at once:**
+  - **11 of the 12 `IdentityAuthorizationTests` went red,** along with both last-holder tests.
+  - **`RolesManageOnly_CanAssignARoleWhoseClaimsTheyHold` is the positive control.** It went red in that combined run too; re-run on its own with only the guard reverted, it passes, which is what a positive control should do.
+  - **The audit test survived the first, partial revert.**
+    - That revert skipped only `RemoveRange`. The claims were still loaded, so EF tracked them and cascaded the delete itself, which still writes audit rows.
+    - With the load removed as well (the original code), the test goes red: `Assert.Equal() Failure` on the row count.
+- **Rule 12:**
+  - With `.RequirePermission` replaced by `.RequireAuthorization()` on `GET /api/roles`, tier 2 reports `GET /api/roles requires a signed-in caller but no permission`.
+  - With `.AllowAnonymous()` removed from login, the rule reports `POST /api/auth/login is on the anonymous list but does not call .AllowAnonymous()`.
+  - With `FallbackPolicy = null`, the runtime assertion goes red.
+
+### What changed
+
+- **N1, the delegation guard.** `IDelegationGuard`/`DelegationGuard` live in `Identity.Infrastructure/Services`.
+  - **How it checks:**
+    - "Holds" means **effectively** holds: resolved from the database through `IEffectivePermissionService`, not read from the token.
+    - "Full-access" means **membership** of `DefaultRoles.FullAccessRoles` (an active caller), not holding today's catalog through a custom role.
+  - **Where it runs:**
+    - **Assign role:** the caller must hold every claim of the role, and a full-access role requires a full-access caller.
+    - **Remove role from user, and remove permission from role:** a full-access role requires a full-access caller.
+    - **Add permission to role:** the full-access rule, plus the caller must hold the permission.
+    - **Grant override:** the caller must hold the permission.
+  - **Failures** are 403 `permissions.CannotDelegate`, naming the missing permissions or the role.
+  - **Order:** role not found → 404 first (there's nothing to evaluate), then the guard (403), then the state checks (409).
+- **K6, overrides.**
+  - `PermissionOverrideWrites.WriteAsync` is the single body behind grant and deny. The two handlers keep their own validators and doc comments.
+  - **Checks, in order:**
+    1. no caller → 401;
+    2. target is the caller → 403 `permissions.SelfModification`;
+    3. grant → the delegation guard (403);
+    4. **target user doesn't exist → 404 `users.NotFound`** (new: this used to be an FK violation and a 500);
+    5. an override already exists → 409 (unchanged);
+    6. deny of `permissions.manage` with no other **active** effective holder → 409 `permissions.LastHolder`.
+  - The holder count is `IEffectivePermissionService.HasOtherActiveHolderAsync`. The candidates are members of roles carrying the permission plus users with a grant for it; each is resolved with `ResolveAsync` and must be active.
+- **K8, the read side.**
+  - `GET /api/permissions/users/{userId}/effective` now requires `permissions.manage`. It used to be authenticated-only.
+  - New `GET /api/permissions/me/effective`, authenticated-only, takes the user id from the token.
+- **N3.** `PermissionService` refuses both adding and removing a claim on a full-access role, with 409 `roles.FullAccessLocked`.
+  - `RemovePermissionFromRoleAsync` now loads the role for this check, so a missing role answers 404 instead of 204. That is part of Aug 3.2, done early because the check needs the role; the affected-count and audited delete stay in Phase 3.
+  - `RoleClaimSeeder` stays additive, and its comment now says why.
+- **N4.**
+  - **Delete, or rename (`RoleService` and `UpdateRoleCommandHandler`), of a role in `DefaultRoles.All`** → 409 `roles.SystemRole`.
+    - The name comparison is ordinal, so a casing change counts as a rename.
+    - Editing the description is still allowed.
+  - **Delete of a role with members** → 409 `roles.RoleInUse` (with role id and count).
+  - **Delete of an unused custom role:** its `role_claims` are removed through the change tracker first, in the command's transaction, so one audit row is written per claim. Then `RoleManager.DeleteAsync` runs.
+- **K7.**
+  - **`Api/DI.cs`** sets `FallbackPolicy = RequireAuthenticatedUser`.
+  - **Explicit `.AllowAnonymous()`** on login, refresh, revoke, the CRM public lead form, `/health`, and the Development-only OpenAPI/Scalar docs.
+  - **`tests/Architecture.Tests/Rule12EndpointAuthorizationTests.cs`:**
+    - Boots the real host (`WebApplicationFactory<Program>`) against a Testcontainers database. It is migrated from Rule 9's module map, which is now `internal`, as is Rule 9's migrate helper, which takes the connection string; Rule 9's own behaviour is unchanged.
+    - Reads `EndpointDataSource`.
+    - Checks the two tiers, checks the lists in reverse (every entry must name a mapped route), and checks that the fallback policy denies anonymous users.
+    - Floor: 330 route endpoints counted, so ≥ 320. The count is in the message.
+- **Test infrastructure.**
+  - `IdentityApplicationFixture` now seeds a real active `test-caller-id` in an `admin` role holding the catalog. `ICurrentUser` is scoped through a settable slot (`CreateScope(caller)`).
+  - The four existing role/permission tests that went red under N1 stay unchanged; only their caller became real.
+  - `TestUsers` exposes `RoleId`, `CreateRoleAsync` and `RoleIdAsync`.
+
+### 2. Run 0 for this phase
+
+There is no separate Run 0 for 1A in the prompt. Phase 0's inventory (§2.2) was re-checked against the code before each fix, and every 1A item was still open as recorded there, except the role validators, which are already-fixed (above).
+
+### 3. Tests written but not run
+
+None.
+
+### 4. Migration guards added
+
+None. Phase 1A has no migration.
+
+### 5. Frontend contract changes
+
+| Route / behaviour | Before | After |
+|---|---|---|
+| `GET /api/permissions/users/{userId}/effective` | any authenticated user | **403** without `permissions.manage` |
+| `GET /api/permissions/me/effective` | — | **new**, authenticated; returns `EffectivePermissionsResponse` for the caller |
+| `POST /api/roles/{roleId}/users/{userId}` | `roles.manage` was enough | **403 `permissions.CannotDelegate`** if the caller doesn't hold every claim of the role, or the role is admin/manager and the caller isn't in one |
+| `DELETE /api/roles/{roleId}/users/{userId}` | — | 403 `permissions.CannotDelegate` for admin/manager unless the caller is full-access |
+| `PUT /api/permissions/roles/{roleId}/{permission}` | — | 403 `permissions.CannotDelegate` if the caller lacks the permission; **409 `roles.FullAccessLocked`** on admin/manager |
+| `DELETE /api/permissions/roles/{roleId}/{permission}` | always 204 | 404 `roles.NotFound` for an unknown role; 403 (non-full-access caller) or 409 `roles.FullAccessLocked` on admin/manager |
+| `POST …/overrides/grant` | — | 403 `permissions.SelfModification` on yourself; 403 `permissions.CannotDelegate` if you lack it; **404 `users.NotFound`** for an unknown target (was 500) |
+| `POST …/overrides/deny` | — | 403 `permissions.SelfModification`; 404 `users.NotFound`; **409 `permissions.LastHolder`** for `permissions.manage` |
+| `DELETE …/overrides/{permission}` | — | 403 `permissions.SelfModification` on yourself |
+| `PUT /api/roles/{roleId}` | renamed anything | **409 `roles.SystemRole`** renaming admin/manager/employee/client; description edits still 204 |
+| `DELETE /api/roles/{roleId}` | deleted anything, stripping members | **409 `roles.SystemRole`** for system roles; **409 `roles.RoleInUse`** with members |
+| Any route with no authorization declared | anonymous | requires authentication (`FallbackPolicy`); no such route exists today, so no visible change |
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **Rule 12's lists are longer than the prompt's.** Running it against the real host found routes the prompt's lists don't name. Each is listed in the test with its reason:
+   - **Tier 1 (anonymous):**
+     - `/health`, probed without credentials;
+     - the Development-only `/openapi/…` and `/scalar…` docs, as prefixes.
+   - **Tier 2 (authenticated-only):**
+     - `/api/me`;
+     - `/hubs/notifications` and `/hubs/notifications/negotiate`;
+     - `GET /api/crm/briefs/{briefId}/rounds/{round}/diff`: either `crm.briefs.view_any` or the brief's own client may read it, so the handler decides; changing that is CRM work, out of scope.
+2. **`/api/auth/logout`** is in tier 2 as the prompt asks, but the route arrives in Phase 1B. It sits in `NotYetMapped`, so the "listed route still exists" check skips it. **Phase 1B must remove it from `NotYetMapped`.**
+3. **Self-modification also blocks revoke** (`DELETE …/overrides/{permission}` on yourself). The prompt names grant and deny only, but revoking a deny is how someone would lift one placed on themselves. Same error code.
+4. **The last-holder rule is only reachable with a stale caller.** The route requires the caller to hold `permissions.manage`, and self-deny is refused, so a caller who still holds it is themselves the other holder. The rule therefore catches the case where the caller's token outlived their permission. Phase 1B's security stamp narrows that window; the tests reach the rule with a token-only caller in an isolated database.
+5. **N1 "full-access caller" means role membership,** not "holds every permission today". The prompt says "in a full-access role"; this records why that is the right reading: a custom role that holds today's catalog misses the permissions modules add later.
+6. **Not changed, recorded only:** the existing `IRoleService.UserIsAdminAsync` hard-codes `"admin"`/`"manager"` and has no callers. The guard uses `DefaultRoles.FullAccessRoles` instead. Dead-code removal is Aug 5.7.
