@@ -15,7 +15,9 @@ namespace BuildingBlocks;
 /// Registers one module's CQRS pipeline: handler implementations found in <paramref name="assembly"/>,
 /// wrapped in Validation → Logging → DomainEventDispatch, in that order (innermost to outermost) —
 /// so a failing validator short-circuits before the handler runs, and domain events dispatch only
-/// after the whole chain, including logging, has reported success.
+/// after the whole chain, including logging, has reported success. Query handlers get the same
+/// Validation → Logging pair (they raise no domain events, so there is no dispatch decorator), so a
+/// query's validator runs exactly like a command's.
 ///
 /// <para>
 /// This deliberately does NOT use Scrutor's open-generic <c>Decorate(typeof(ICommandHandler&lt;,&gt;), ...)</c>
@@ -123,6 +125,7 @@ public static class ModuleCqrsRegistration
     {
         Type serviceType = typeof(IQueryHandler<,>).MakeGenericType(tQuery, tResponse);
 
+        services.Decorate(serviceType, typeof(ValidationDecorator.QueryHandler<,>).MakeGenericType(tQuery, tResponse));
         services.Decorate(serviceType, typeof(LoggingDecorator.QueryHandler<,>).MakeGenericType(tQuery, tResponse));
     }
 }

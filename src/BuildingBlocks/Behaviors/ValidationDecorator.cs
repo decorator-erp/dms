@@ -15,7 +15,7 @@ internal sealed class ValidationDecorator
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            ValidationFailure[] validationFailures = await ValidateAsync(command, Validators);
+            ValidationFailure[] validationFailures = await ValidateAsync(command, Validators, ct);
             if (validationFailures.Length == 0)
             {
                 return await innerHandler.HandleAsync(command, ct);
@@ -32,7 +32,7 @@ internal sealed class ValidationDecorator
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            ValidationFailure[] validationFailures = await ValidateAsync(command, Validators);
+            ValidationFailure[] validationFailures = await ValidateAsync(command, Validators, ct);
             if (validationFailures.Length == 0)
             {
                 return await innerHandler.HandleAsync(command, ct);
@@ -41,25 +41,51 @@ internal sealed class ValidationDecorator
             return CreateValidationError(validationFailures);
         }
     }
-    private static async Task<ValidationFailure[]> ValidateAsync<TCommand>(
-        TCommand command,
-        IEnumerable<IValidator> validators)
+    internal sealed class QueryHandler<TQuery, TResponse>(
+        IQueryHandler<TQuery, TResponse> innerHandler,
+        IEnumerable<IValidator<TQuery>> Validators)
+        : IQueryHandler<TQuery, TResponse>
+        where TQuery : IQuery<TResponse>
+    {
+        public async Task<Result<TResponse>> HandleAsync(TQuery query, CancellationToken ct = default)
+        {
+            ValidationFailure[] validationFailures = await ValidateAsync(query, Validators, ct);
+            if (validationFailures.Length == 0)
+            {
+                return await innerHandler.HandleAsync(query, ct);
+            }
+
+            return CreateValidationError(validationFailures);
+        }
+    }
+    private static async Task<ValidationFailure[]> ValidateAsync<TRequest>(
+        TRequest request,
+        IEnumerable<IValidator> validators,
+        CancellationToken ct)
     {
         if (!validators.Any())
         {
             return [];
         }
 
-        var context = new ValidationContext<TCommand>(command);
+        var context = new ValidationContext<TRequest>(request);
 
-        ValidationResult[] validationResult = await Task.WhenAll(
-            validators.Select(validator => validator.ValidateAsync(context)));
+        // Sequential, not Task.WhenAll: validators are scoped and an async rule (MustAsync) typically
+        // queries the module's scoped DbContext, which is not thread-safe - two validators awaiting at
+        // once is "a second operation was started on this context instance". It also keeps the order of
+        // the reported failures stable. Validation is cheap next to the handler; the parallelism bought
+        // nothing worth that.
+        List<ValidationFailure> validationFailures = [];
+        foreach (IValidator validator in validators)
+        {
+            ValidationResult validationResult = await validator.ValidateAsync(context, ct);
+            if (!validationResult.IsValid)
+            {
+                validationFailures.AddRange(validationResult.Errors);
+            }
+        }
 
-        ValidationFailure[] validationFailures = [.. validationResult
-            .Where(x => !x.IsValid)
-            .SelectMany(x => x.Errors)];
-
-        return validationFailures;
+        return [.. validationFailures];
     }
     private static ValidationError CreateValidationError(ValidationFailure[] validationFailures) =>
         new([.. validationFailures.Select(f => Error.BadRequest(f.PropertyName, f.ErrorMessage))]);

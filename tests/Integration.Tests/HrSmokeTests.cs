@@ -72,37 +72,35 @@ public sealed class HrSmokeTests(ApiFixture fixture)
     }
 
     /// <summary>
-    /// <b>A known gap, pinned deliberately — this asserts what the system DOES, not what it should.</b>
+    /// <b>The known gap this used to pin is closed (HR/Identity Phase 0, Aug 0.1).</b>
     ///
     /// <para>This began as B1's positive control: making paging optional must supply a default for the
     /// caller who names no page, without disabling the range check for the caller who names a bad one.
-    /// It failed, and the reason is not B1. <c>ValidationDecorator</c> declares only
-    /// <c>CommandHandler&lt;&gt;</c> and <c>CommandHandler&lt;,&gt;</c>; <c>DecorateQueryHandler</c>
-    /// (<c>ModuleCqrsRegistration.cs:122-126</c>) applies the logging decorator and nothing else. <b>No
-    /// query validator in any module has ever been invoked</b> — the same is true at HEAD, so this
-    /// predates both B1 and the current working set.</para>
+    /// It failed then, and the reason was not B1: <c>ValidationDecorator</c> declared only
+    /// <c>CommandHandler&lt;&gt;</c> and <c>CommandHandler&lt;,&gt;</c>, and <c>DecorateQueryHandler</c>
+    /// applied the logging decorator and nothing else, so no query validator in any module had ever been
+    /// invoked. <c>pageSize=0</c> reached the handler as a literal zero (<c>?? 200</c> cannot help, because
+    /// 0 is not null) and answered 200 with an empty page; <c>pageSize=100000</c> was unbounded.</para>
     ///
-    /// <para>So <c>GetDepartmentsQueryValidator</c>'s <c>PageNumber &gt; 0</c> and
-    /// <c>InclusiveBetween(1, 200)</c> are dead code, and <c>pageSize=0</c> reaches the handler as a
-    /// literal zero — <c>?? 200</c> cannot help, because 0 is not null. The result is a 200 carrying an
-    /// empty page, and an explicit <c>pageSize=100000</c> is likewise unbounded.</para>
-    ///
-    /// <para>Fixing that means adding a validating decorator for queries in <c>BuildingBlocks</c>,
-    /// which would newly enforce every query validator in all nine modules at once. That is well
-    /// outside B1, so it is reported rather than done. When someone does fix it, this test goes red —
-    /// which is the point of writing it down here instead of only in a message.</para>
+    /// <para>The test was written to go red the day queries got a validating decorator, and it did.
+    /// <c>ModuleCqrsRegistration.DecorateQueryHandler</c> now wraps every query handler in
+    /// <c>ValidationDecorator.QueryHandler&lt;,&gt;</c>, so <c>GetDepartmentsQueryValidator</c>'s
+    /// <c>PageNumber &gt; 0</c> and <c>InclusiveBetween(1, 200)</c> are enforced at the route, on both
+    /// sides of the range. It now asserts what the system should do.</para>
     /// </summary>
-    [Fact]
-    public async Task GetDepartments_ExplicitlyInvalidPageSize_IsNotRejected_BecauseQueryValidatorsNeverRun()
+    [Theory]
+    [InlineData("pageSize=0")]
+    [InlineData("pageSize=100000")]
+    [InlineData("pageNumber=0")]
+    public async Task GetDepartments_ExplicitlyInvalidPaging_IsRejected_ByTheQueryValidator(string paging)
     {
         HttpClient client = fixture.CreateClient();
         string token = fixture.IssueTestToken(Guid.NewGuid().ToString(), HrPermissions.DepartmentsRead);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        HttpResponseMessage response = await client.GetAsync("/api/departments?pageSize=0");
+        HttpResponseMessage response = await client.GetAsync($"/api/departments?{paging}");
 
-        // Not BadRequest, though GetDepartmentsQueryValidator says it should be. See the remarks above.
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     /// <summary>

@@ -7,12 +7,13 @@ using SharedKernel;
 namespace Identity.Application.Features.Permissions.GetUserPermissions;
 
 /// <summary>
-/// No <c>AbstractValidator</c> here — <c>AddModuleCqrs</c> only wraps command handlers in
-/// <c>ValidationDecorator</c>; queries have no equivalent pipeline to plug a validator into. A
-/// FluentValidation validator on a query type would register via the <c>IValidator&lt;&gt;</c> scan and
-/// then silently never run — the same no-op failure mode already fixed once for commands in G1-05. An
-/// empty <c>UserId</c> here is not worth a pipeline for: it resolves zero roles and returns an empty
-/// list, a safe and correct answer to "what can this user do".
+/// No <c>AbstractValidator</c> here, by choice. When this was written <c>AddModuleCqrs</c> only wrapped
+/// command handlers in <c>ValidationDecorator</c>, so a query validator would have registered via the
+/// <c>IValidator&lt;&gt;</c> scan and then silently never run. Queries now get
+/// <c>ValidationDecorator.QueryHandler&lt;,&gt;</c> too (HR/Identity Phase 0, Aug 0.1), and Rule 11
+/// checks every validator is reachable, so one could be added here and would run. It still isn't worth
+/// one: an empty <c>UserId</c> resolves zero roles and returns an empty list, a safe and correct answer
+/// to "what can this user do".
 ///
 /// Role-derived permissions only (the admin/listing view) — NOT the same as a user's effective
 /// permission set, which also applies per-user overrides; see
