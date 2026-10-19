@@ -60,8 +60,10 @@ WebApplication app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
-    app.MapScalarApiReference();
+    // Development-only API docs. Anonymous explicitly, because the FallbackPolicy (K7) would otherwise
+    // put the docs UI behind a login it has no way to perform.
+    app.MapOpenApi().AllowAnonymous();
+    app.MapScalarApiReference().AllowAnonymous();
 }
 
 app.UseExceptionHandler();
@@ -72,7 +74,9 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.UseSerilogRequestLogging();
 
-app.MapHealthChecks("/health");
+// Anonymous on purpose: load balancers and container orchestrators probe it without credentials. Explicit
+// because the FallbackPolicy (K7) would otherwise require authentication here too.
+app.MapHealthChecks("/health").AllowAnonymous();
 
 // A minimal authenticated "who am I" endpoint — generically useful on its own, and gives G0-09's
 // smoke test a real protected route to assert 401-unauthenticated against before any module exists.

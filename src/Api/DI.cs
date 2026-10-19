@@ -83,7 +83,13 @@ public static class DI
                 };
             });
 
-        services.AddAuthorization();
+        // K7: deny by default. An endpoint that declares no authorization at all (a new route someone forgot
+        // to gate) now requires an authenticated user instead of being silently anonymous. Anonymous routes
+        // say .AllowAnonymous() explicitly, and Architecture.Tests' Rule 12 checks both directions: every
+        // route is authorized or on the anonymous list, and every authorized route names a permission or
+        // is on the authenticated-only list.
+        services.AddAuthorization(options =>
+            options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
         services.AddExceptionHandler<GlobalExceptionHandler>();

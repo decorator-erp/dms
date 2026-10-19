@@ -18,6 +18,11 @@ namespace Crm.Infrastructure.Endpoints;
 /// not add anything here that should require a signed-in caller, and do not move this route under an
 /// authorized group.
 ///
+/// <para>Since K7 the host has a <c>FallbackPolicy</c> requiring an authenticated user on every endpoint
+/// that declares nothing, so "omitting" authorization no longer makes a route anonymous. The route says
+/// so explicitly with <c>.AllowAnonymous()</c>, and Rule 12 lists it as one of the four anonymous
+/// routes.</para>
+///
 /// <para><b>No dedicated "public lead" command exists in <c>Crm.Contracts</c></b> (unlike the backend's
 /// own <c>SubmitPublicLeadCommand</c>) — this reuses <see cref="CreateCrmLeadCommand"/> directly. That
 /// command's <c>OwnerId</c> is a required real employee <c>Guid</c> (<c>Crm.Domain.CrmLead</c> has no
@@ -64,6 +69,7 @@ internal sealed class CrmPublicEndpoints : IEndpoint
             // by retrying differently, so it can't be used to probe past field-shape errors.
             return result.IsSuccess ? Results.Accepted() : result.ToProblem();
         })
+        .AllowAnonymous()
         .RequireRateLimiting(RateLimitPolicies.CrmPublicLeads)
         .WithMetadata(new RequestSizeLimitAttribute(4_096))
         .ProducesProblem(StatusCodes.Status400BadRequest)
