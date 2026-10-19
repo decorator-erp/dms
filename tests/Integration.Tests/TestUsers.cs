@@ -11,9 +11,10 @@ using Xunit;
 namespace Integration.Tests;
 
 /// <summary>A logged-in user: the tokens the real <c>POST /api/auth/login</c> issued, and a client that
-/// already carries the access token.</summary>
+/// already carries the access token. <see cref="RoleId"/> is the fresh role
+/// <see cref="TestUsers.CreateUserWithPermissionsAsync"/> made for them, if it made one.</summary>
 internal sealed record TestSession(
-    string UserId, string Email, string AccessToken, string RefreshToken, HttpClient Client);
+    string UserId, string Email, string AccessToken, string RefreshToken, HttpClient Client, string? RoleId = null);
 
 /// <summary>
 /// HR/Identity Phase 0 harness: real users with real tokens, for testing 403/404 through the whole HTTP
@@ -58,15 +59,16 @@ internal static class TestUsers
             HttpStatusCode.NoContent,
             await admin.DeleteAsync($"/api/roles/{await RoleIdAsync(admin, IdentityRoles.Employee)}/users/{userId}"));
 
+        string? roleId = null;
         if (permissions.Length > 0)
         {
-            string roleId = await CreateRoleAsync(admin, permissions);
+            roleId = await CreateRoleAsync(admin, permissions);
             await ExpectAsync(
                 HttpStatusCode.NoContent,
                 await admin.PostAsync($"/api/roles/{roleId}/users/{userId}", content: null));
         }
 
-        return await LoginAsync(fixture, userId, email, IdentityTestSeeding.Password);
+        return await LoginAsync(fixture, userId, email, IdentityTestSeeding.Password) with { RoleId = roleId };
     }
 
     /// <summary>Provisions an active user in the existing role <paramref name="roleName"/> and logs them in.</summary>
@@ -115,7 +117,8 @@ internal static class TestUsers
         return admin.Client;
     }
 
-    private static async Task<string> CreateRoleAsync(HttpClient admin, string[] permissions)
+    /// <summary>Creates a fresh role holding exactly <paramref name="permissions"/>, as the admin.</summary>
+    public static async Task<string> CreateRoleAsync(HttpClient admin, params string[] permissions)
     {
         HttpResponseMessage created = await admin.PostAsJsonAsync(
             "/api/roles", new { Name = $"harness-{Guid.NewGuid():N}" });
@@ -132,7 +135,8 @@ internal static class TestUsers
         return roleId;
     }
 
-    private static async Task<string> RoleIdAsync(HttpClient admin, string roleName)
+    /// <summary>The id of the role named <paramref name="roleName"/>.</summary>
+    public static async Task<string> RoleIdAsync(HttpClient admin, string roleName)
     {
         JsonElement roles = await admin.GetFromJsonAsync<JsonElement>("/api/roles");
         return roles.EnumerateArray()

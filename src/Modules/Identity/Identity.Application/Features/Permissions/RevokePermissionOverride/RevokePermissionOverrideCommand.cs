@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Identity.Contracts.Permissions;
@@ -18,12 +19,24 @@ internal sealed class RevokePermissionOverrideCommandValidator : AbstractValidat
 }
 
 /// <summary>Removes the override row entirely (a user reverts to whatever their roles alone confer) —
-/// not the same as flipping it to a grant/deny; there is nothing left to flip.</summary>
-internal sealed class RevokePermissionOverrideCommandHandler(IdentityModuleDbContext db)
+/// not the same as flipping it to a grant/deny; there is nothing left to flip.
+/// <para>K6's self-modification rule covers revoke as well as grant and deny: revoking a deny is how a
+/// user would lift one placed on themselves.</para></summary>
+internal sealed class RevokePermissionOverrideCommandHandler(IdentityModuleDbContext db, ICurrentUser currentUser)
     : ICommandHandler<RevokePermissionOverrideCommand>
 {
     public async Task<Result> HandleAsync(RevokePermissionOverrideCommand command, CancellationToken ct = default)
     {
+        if (currentUser.UserId is null)
+        {
+            return AuthErrors.UnAuthorization;
+        }
+
+        if (command.TargetUserId == currentUser.UserId)
+        {
+            return PermissionErrors.SelfModification;
+        }
+
         int rowsDeleted = await db.UserPermissionOverrides
             .Where(o => o.UserId == command.TargetUserId && o.Permission == command.Permission)
             .ExecuteDeleteAsync(ct);

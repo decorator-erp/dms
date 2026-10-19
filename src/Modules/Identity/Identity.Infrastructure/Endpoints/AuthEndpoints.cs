@@ -22,6 +22,10 @@ namespace Identity.Infrastructure.Endpoints;
 /// authentication middleware in front of them would reject the very expired token they exist to accept,
 /// before the handler ever runs. With <c>/register</c> gone they and <c>/api/crm/public/leads</c> are
 /// the whole anonymous surface.</para>
+///
+/// <para>K7: the host's <c>FallbackPolicy</c> requires an authenticated user on any endpoint that declares
+/// nothing, so leaving authorization off no longer makes a route anonymous. Login, refresh and revoke
+/// carry an explicit <c>.AllowAnonymous()</c>, and Rule 12 holds the list.</para>
 /// </summary>
 internal sealed class AuthEndpoints : IEndpoint
 {
@@ -34,21 +38,21 @@ internal sealed class AuthEndpoints : IEndpoint
         {
             Result<AuthResponse> result = await handler.HandleAsync(new LoginCommand(request), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
-        });
+        }).AllowAnonymous();
 
         group.MapPost("/refresh", async (
             RefreshTokenRequest request, ICommandHandler<RefreshTokenCommand, AuthResponse> handler, CancellationToken ct) =>
         {
             Result<AuthResponse> result = await handler.HandleAsync(new RefreshTokenCommand(request), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
-        });
+        }).AllowAnonymous();
 
         group.MapPost("/revoke", async (
             RefreshTokenRequest request, ICommandHandler<RevokeRefreshTokenCommand> handler, CancellationToken ct) =>
         {
             Result result = await handler.HandleAsync(new RevokeRefreshTokenCommand(request), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        });
+        }).AllowAnonymous();
 
         group.MapPost("/change-password", async (
             ChangePasswordRequest request, ICommandHandler<ChangePasswordCommand> handler, CancellationToken ct) =>

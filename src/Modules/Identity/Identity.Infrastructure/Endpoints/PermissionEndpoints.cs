@@ -1,9 +1,11 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Identity.Contracts;
 using Identity.Contracts.Permissions;
+using Identity.Domain;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -54,10 +56,31 @@ internal sealed class PermissionEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(IdentityPermissions.PermissionsManage);
 
+        // K8. Someone else's effective set (with the override rows: who granted what, and why) is an
+        // administrative read, so it needs permissions.manage. It used to be RequireAuthorization() alone,
+        // which let any logged-in user read anyone's. "What can I do" is /me/effective below.
         group.MapGet("/users/{userId}/effective", async (
             string userId, IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse> handler, CancellationToken ct) =>
         {
             Result<EffectivePermissionsResponse> result = await handler.HandleAsync(new GetUserEffectivePermissionsQuery(userId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(IdentityPermissions.PermissionsManage);
+
+        // K8. The caller's own effective set, for the frontend to decide what to show. Authenticated
+        // only, by design: the user id comes from the token, never from the route, so there is nobody
+        // else's data to protect. Listed in Rule 12's tier-2 exemptions for that reason.
+        group.MapGet("/me/effective", async (
+            ICurrentUser currentUser,
+            IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse> handler,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is null)
+            {
+                return Result.Failure(AuthErrors.UnAuthorization).ToProblem();
+            }
+
+            Result<EffectivePermissionsResponse> result =
+                await handler.HandleAsync(new GetUserEffectivePermissionsQuery(currentUser.UserId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequireAuthorization();
 

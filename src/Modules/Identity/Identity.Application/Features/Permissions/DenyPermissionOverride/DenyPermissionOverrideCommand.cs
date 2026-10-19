@@ -5,7 +5,8 @@ using Identity.Contracts;
 using Identity.Contracts.Permissions;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Identity.Infrastructure.Services;
+using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions.DenyPermissionOverride;
@@ -31,27 +32,23 @@ internal sealed class DenyPermissionOverrideCommandValidator : AbstractValidator
     }
 }
 
-internal sealed class DenyPermissionOverrideCommandHandler(IdentityModuleDbContext db, ICurrentUser currentUser)
+internal sealed class DenyPermissionOverrideCommandHandler(
+    IdentityModuleDbContext db,
+    ICurrentUser currentUser,
+    IDelegationGuard delegationGuard,
+    IEffectivePermissionService effectivePermissions,
+    UserManager<ApplicationUser> userManager)
     : ICommandHandler<DenyPermissionOverrideCommand>
 {
-    public async Task<Result> HandleAsync(DenyPermissionOverrideCommand command, CancellationToken ct = default)
-    {
-        if (currentUser.UserId is null)
-        {
-            return AuthErrors.UnAuthorization;
-        }
-
-        bool alreadyExists = await db.UserPermissionOverrides.AnyAsync(
-            o => o.UserId == command.TargetUserId && o.Permission == command.Permission, ct);
-        if (alreadyExists)
-        {
-            return PermissionErrors.PermissionOverrideAlreadyExists(command.Permission);
-        }
-
-        db.UserPermissionOverrides.Add(UserPermissionOverride.Deny(
-            command.TargetUserId, command.Permission, currentUser.UserId, command.Reason, command.ExpiresAtUtc));
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
-    }
+    /// <summary>The body is shared with the grant handler: see <see cref="PermissionOverrideWrites"/>.</summary>
+    public Task<Result> HandleAsync(DenyPermissionOverrideCommand command, CancellationToken ct = default) =>
+        PermissionOverrideWrites.WriteAsync(
+            db,
+            currentUser,
+            delegationGuard,
+            effectivePermissions,
+            userManager,
+            new OverrideWrite(
+                command.TargetUserId, command.Permission, IsGrant: false, command.Reason, command.ExpiresAtUtc),
+            ct);
 }

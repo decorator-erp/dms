@@ -63,6 +63,7 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IDelegationGuard, DelegationGuard>();
         services.AddScoped<IUserProvisioning, UserProvisioning>();
         services.AddScoped<IUserAdministration, UserAdministration>();
 
@@ -77,7 +78,12 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
                 IdentityPermissions.PermissionsManage,
             ]));
         services.AddSingleton<IPermissionCatalog, PermissionCatalog>();
-        services.AddSingleton<ICurrentUser>(new TestCurrentUser("test-caller-id"));
+        // Scoped through a settable slot so a test can act as somebody else (CreateScope(caller)). By
+        // default the caller is CallerId: a real, active member of a seeded "admin" role holding the
+        // whole catalog (seeded below). Since N1, role and permission writes check what the caller
+        // effectively holds in the database, so a caller that exists only as an id holds nothing.
+        services.AddScoped<CallerSlot>();
+        services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<CallerSlot>().Caller);
 
         services.AddModuleCqrs<IdentityModuleDbContext>(
             typeof(Identity.Application.Features.Auths.Login.LoginCommandHandler).Assembly);
@@ -91,10 +97,50 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         }
 
         await using AsyncServiceScope scope = _provider.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
+        IdentityModuleDbContext db = scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>();
+        await db.Database.MigrateAsync();
+        await SeedCallerAsync(scope.ServiceProvider, db);
     }
 
-    public AsyncServiceScope CreateScope() => _provider.CreateAsyncScope();
+    /// <summary>The default caller's id: an active user in the seeded <c>admin</c> role.</summary>
+    public const string CallerId = "test-caller-id";
+
+    /// <summary>A scope whose <see cref="ICurrentUser"/> is <paramref name="caller"/> (default: <see cref="CallerId"/>).</summary>
+    public AsyncServiceScope CreateScope(ICurrentUser? caller = null)
+    {
+        AsyncServiceScope scope = _provider.CreateAsyncScope();
+        if (caller is not null)
+        {
+            scope.ServiceProvider.GetRequiredService<CallerSlot>().Caller = caller;
+        }
+
+        return scope;
+    }
+
+    private static async Task SeedCallerAsync(IServiceProvider sp, IdentityModuleDbContext db)
+    {
+        RoleManager<ApplicationRole> roleManager = sp.GetRequiredService<RoleManager<ApplicationRole>>();
+        UserManager<ApplicationUser> userManager = sp.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var admin = ApplicationRole.Create(Guid.NewGuid().ToString(), "admin");
+        await roleManager.CreateAsync(admin);
+        foreach (string permission in sp.GetRequiredService<IPermissionCatalog>().All().SelectMany(m => m.Permissions))
+        {
+            db.RoleClaims.Add(ApplicationRoleClaim.Create(admin.Id, BuildingBlocks.PermissionClaim.Type, permission));
+        }
+
+        await db.SaveChangesAsync();
+
+        var caller = ApplicationUser.Create(
+            CallerId, "test-caller@example.com", "test-caller@example.com", "Test", "Caller", UserType.Employee);
+        await userManager.CreateAsync(caller, IdentityTestSeeding.Password);
+        await userManager.AddToRoleAsync(caller, admin.Name!);
+    }
+
+    private sealed class CallerSlot
+    {
+        public ICurrentUser Caller { get; set; } = new TestCurrentUser(CallerId);
+    }
 
     public async Task DisposeAsync()
     {

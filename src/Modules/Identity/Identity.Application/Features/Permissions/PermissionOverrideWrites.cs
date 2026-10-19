@@ -1,0 +1,89 @@
+using BuildingBlocks;
+using Identity.Contracts;
+using Identity.Domain;
+using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Services;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using SharedKernel;
+
+namespace Identity.Application.Features.Permissions;
+
+/// <summary>
+/// K6: the one body behind grant and deny. The two handlers used to be copies of each other that
+/// differed only in <c>UserPermissionOverride.Grant</c> vs <c>.Deny</c>, so every rule added to one had
+/// to be remembered in the other. Checks run in CLAUDE.md's order: who is asking (401), whether they may
+/// (403), whether the target exists (404), then the state of the data (409).
+/// <list type="number">
+/// <item>Nobody writes overrides on their own account (<c>permissions.SelfModification</c>, 403).</item>
+/// <item>A grant confers a permission, so the caller must effectively hold it (N1,
+/// <c>permissions.CannotDelegate</c>, 403).</item>
+/// <item>One override per (user, permission) is a data invariant (409, as before).</item>
+/// <item>Denying <c>permissions.manage</c> must leave at least one other active holder, or nobody
+/// could ever repair permissions again (<c>permissions.LastHolder</c>, 409).</item>
+/// </list>
+/// A static helper rather than a registered service: Application has no DI hook of its own besides the
+/// handler scan, and the handlers already hold every dependency it needs.
+/// </summary>
+internal static class PermissionOverrideWrites
+{
+    public static async Task<Result> WriteAsync(
+        IdentityModuleDbContext db,
+        ICurrentUser currentUser,
+        IDelegationGuard delegationGuard,
+        IEffectivePermissionService effectivePermissions,
+        UserManager<ApplicationUser> userManager,
+        OverrideWrite write,
+        CancellationToken ct)
+    {
+        if (currentUser.UserId is null)
+        {
+            return AuthErrors.UnAuthorization;
+        }
+
+        if (write.TargetUserId == currentUser.UserId)
+        {
+            return PermissionErrors.SelfModification;
+        }
+
+        if (write.IsGrant)
+        {
+            Result delegable = await delegationGuard.EnsureCallerHoldsAsync([write.Permission], ct);
+            if (delegable.IsFailure)
+            {
+                return delegable;
+            }
+        }
+
+        if (await userManager.FindByIdAsync(write.TargetUserId) is null)
+        {
+            return UserErrors.NotFound;
+        }
+
+        bool alreadyExists = await db.UserPermissionOverrides.AnyAsync(
+            o => o.UserId == write.TargetUserId && o.Permission == write.Permission, ct);
+        if (alreadyExists)
+        {
+            return PermissionErrors.PermissionOverrideAlreadyExists(write.Permission);
+        }
+
+        if (!write.IsGrant
+            && write.Permission == IdentityPermissions.PermissionsManage
+            && !await effectivePermissions.HasOtherActiveHolderAsync(write.Permission, write.TargetUserId, ct))
+        {
+            return PermissionErrors.LastHolder(write.Permission);
+        }
+
+        db.UserPermissionOverrides.Add(write.IsGrant
+            ? UserPermissionOverride.Grant(
+                write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc)
+            : UserPermissionOverride.Deny(
+                write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc));
+        await db.SaveChangesAsync(ct);
+
+        return Result.Success();
+    }
+}
+
+internal sealed record OverrideWrite(
+    string TargetUserId, string Permission, bool IsGrant, string? Reason, DateTime? ExpiresAtUtc);
