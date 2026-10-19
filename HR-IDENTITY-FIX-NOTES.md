@@ -354,3 +354,169 @@ None. Phase 1A has no migration.
 4. **The last-holder rule is only reachable with a stale caller.** The route requires the caller to hold `permissions.manage`, and self-deny is refused, so a caller who still holds it is themselves the other holder. The rule therefore catches the case where the caller's token outlived their permission. Phase 1B's security stamp narrows that window; the tests reach the rule with a token-only caller in an isolated database.
 5. **N1 "full-access caller" means role membership,** not "holds every permission today". The prompt says "in a full-access role"; this records why that is the right reading: a custom role that holds today's catalog misses the permissions modules add later.
 6. **Not changed, recorded only:** the existing `IRoleService.UserIsAdminAsync` hard-codes `"admin"`/`"manager"` and has no callers. The guard uses `DefaultRoles.FullAccessRoles` instead. Dead-code removal is Aug 5.7.
+
+---
+
+## Phase 1B — Authentication & sessions
+
+### Setup
+
+- **Branch:** `claude/awesome-einstein-mw5xmb`, which builds on 1A. The commits go to the same PR #3.
+- **Baseline:** 1A's head was green, both locally and in CI.
+- **Tooling:** `dotnet-ef` 10.0.13 was installed as a global tool to scaffold the migration.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| K4 lockout, uniform login, dummy hash | fixed | `335890e` | `AuthSessionTests`: `UnknownEmail_WrongPassword_AndInactiveAccount_AnswerIdentically`, `AfterFiveFailures_TheRightPasswordIsRefused_WithLockedOut`, `ASuccessfulLogin_ResetsTheFailureCount` (positive control); `AuthFlowTests.Provisioned_user_cannot_log_in_until_activated` (now expects `InvalidCredentials`) |
+| Auth rate limit | fixed | `335890e` | `BeyondTheWindowsLimit_AuthRoutesAnswer429` |
+| K5 family revoke on reuse | fixed | `335890e` | `PresentingARotatedRefreshToken_RevokesTheFamily`; `AuthFlowTests.Reusing_a_rotated_refresh_token_revokes_the_whole_family`; unit `RotateRefreshToken_WithAlreadyRotatedToken_RevokesTheWholeFamily` |
+| K5 revoke on password change | fixed | `335890e` | `ARefreshTokenFromBeforeAPasswordChange_IsRejected` |
+| K5 `/logout` | fixed | `335890e` | `Logout_RevokesEveryRefreshToken_AndEndsTheLiveAccessToken` |
+| K5 hashed storage + migration | fixed | `335890e` | `NoRefreshTokenValueIsStored_OnlyItsSha256`; unit `IssueRefreshToken_StoresOnlyTheHash`; `RefreshTokenHashMigrationTests.ExistingTokens_AreHashedInPlace_AndExpired` |
+| K8 change-password from `ICurrentUser` | fixed | `335890e` | `ChangePassword_IgnoresAnyUserIdInTheBody` |
+| N2 security stamp | fixed | `335890e` | `DeactivatingAUser_EndsTheirLiveToken_AndTheirRefresh`, `AssigningARole_MakesTheOldTokenStale_AndRefreshCarriesTheNewPermissions`, `EveryAuthenticatedRequest_ChecksTheSession` |
+| Pinned algorithms (Aug 5.1) | fixed | `335890e` | — (configuration; `HmacSha256` tokens keep validating across the whole suite) |
+| `ValidateToken` catches `ArgumentException` (Aug 3.10) | fixed | `335890e` | `AMalformedOrOversizedAccessToken_OnRefresh_Is401_Not500` (×3) |
+
+**Red-before-green proofs**, each run locally by reverting the fix and then restoring it:
+- **One combined revert:**
+  - **What was reverted:**
+    - `lockoutOnFailure: false`, and an inactive account answering differently;
+    - the auth routes' rate limiting;
+    - the family revocation, both in the domain and in the handler;
+    - revoke-on-password-change;
+    - logout's revocations;
+    - `OnTokenValidated`'s `Fail`;
+    - the `ArgumentException` catch.
+  - **Result:** 11 of the 15 `AuthSessionTests` went red, each on its own assertion.
+  - **The four that stayed green, and why:**
+    - the reset-counter test is a positive control;
+    - hashing was not part of this revert (it has its own, below);
+    - the change-password `UserId` field cannot be reverted without restoring the old contract;
+    - the session-check test asserts only that the query runs.
+- **Hashing:** with `RefreshToken.Hash` made the identity function, `IssueRefreshToken_StoresOnlyTheHash` goes red. This was proved at unit level, because the 64-character column rejects a plaintext token outright.
+
+### What changed
+
+- **K4, login.**
+  - **`IdentityPolicy.Configure`** is applied by `IdentityModule` and by both Identity test fixtures:
+    - lockout: 5 attempts, 15 minutes, `AllowedForNewUsers`;
+    - password: length 8 with a digit, lower, upper and non-alphanumeric.
+  - **`.AddSignInManager()`** is added, plus `AddAuthenticationCore()`, which supplies the scheme provider in hosts that don't call `AddAuthentication`. All registrations are TryAdd.
+  - **`IPasswordSignIn`/`PasswordSignIn` run in a scope of their own.**
+    - Every command runs in a transaction that `DomainEventDispatchDecorator` **rolls back on a failed result**, and a failed login is a failed result.
+    - Written inside the command, the failed-attempt counter would never persist, and lockout would never trigger.
+    - This is the same reasoning as the existing `INotificationService` exception.
+  - **The unknown-email path** verifies a dummy hash made by the real hasher, so it costs the same time.
+  - **Answers:**
+    - unknown email, wrong password and inactive account → `InvalidCredentials`;
+    - locked → `authentications.LockedOut`. The lockout is checked before the password, so the answer reveals nothing about it.
+- **Rate limit.**
+  - `RateLimitPolicies.AuthLogin` is a fixed window keyed by IP, registered like `CrmPublicLeads`.
+  - Limits: 10 requests per 60 s, configurable through `RateLimiting:AuthLogin:PermitLimit` and `RateLimiting:AuthLogin:WindowSeconds`.
+  - It covers `/login`, `/refresh`, `/revoke`, `/change-password` and `/logout`, all sharing one window per IP.
+  - `UseRateLimiter()` now runs **before** `UseAuthentication()`.
+- **K5, refresh tokens.**
+  - **Hashed storage:**
+    - `RefreshToken.TokenHash` holds the lower-case hex SHA-256 of the token; the token value itself is never stored.
+    - The handlers return the plaintext they generated (`RefreshTokenValues.New()`).
+  - **Reuse detection:**
+    - Presenting an already-**revoked** token makes `ApplicationUser.RotateRefreshToken` return `authentications.RefreshTokenReused` (401).
+    - The handler then calls `ISessionRevocation.RevokeAllInOwnTransactionAsync`, which revokes every refresh token and bumps the stamp in its own scope. It has to: this command fails and its transaction rolls back, and the revocation must survive.
+    - An unknown or expired token is still just `InvalidRefreshToken`.
+  - **Change-password** revokes every refresh token. `ChangePasswordAsync` bumps the stamp itself; the cache is evicted.
+  - **`POST /api/auth/logout`** is new: authenticated, rate-limited. It revokes every refresh token and bumps the stamp, so live access tokens die at once.
+  - **Migration `20261019205422_HashRefreshTokens`**, hand-written:
+    - renames the column, hashes the existing values in place (so the unique index holds and no plaintext survives), sets every `ExpiresOn` to the migration time, narrows the column to 64 characters and recreates the index;
+    - also sets `LockoutEnabled = true` on every user;
+    - **expires all existing refresh tokens, so every user signs in again after deploy**, as its comment says;
+    - `Down` restores the shape; the tokens cannot come back.
+    - The regenerated snapshot also picked up `shared.audit_logs` as `ExcludeFromMigrations`. That is the tool catching up with the model; it generates no DDL.
+- **K8, the write side.** `ChangePasswordRequest(CurrentPassword, NewPassword)` has no `UserId`. The handler uses `ICurrentUser.UserId`; null → 401.
+- **N2, the security stamp.**
+  - **The `sstamp` claim:** `JwtProvider` adds it (`JwtProvider.SecurityStampClaim`).
+  - **`IUserSessionState`** is new in `Identity.Contracts`, with `GetAsync` and `GetManyAsync` per the one-and-many rule, returning `UserSessionSnapshot(UserId, SecurityStamp, IsActive)`.
+    - It is backed by `IMemoryCache`, with TTL `Identity:SessionStateCacheSeconds` (default 30; 0 in the test hosts).
+    - Only hits are cached.
+    - Its query is tagged `identity:session-state`.
+  - **The host's JwtBearer `OnTokenValidated`** (Api `DI.cs`) refuses a token when the user is missing, inactive, has no stamp, or has a different stamp.
+    - `OnChallenge` then writes a 401 problem with `authentications.StaleToken`, in the same shape as every other error.
+    - Refresh does **not** check the stamp: picking up a changed stamp is what refresh is for.
+  - **Stamp bump plus eviction** goes through `ISecurityStamps`, whose `BumpRoleHoldersAsync` is the one "all holders of a role" helper. Where it happens:
+    - deactivation (`UserAdministration.DeactivateAsync`, which also revokes every refresh token);
+    - role assign and remove;
+    - any role-claim change, for every holder;
+    - override grant, deny and revoke, for the target;
+    - password change, logout, and refresh-token reuse.
+  - **Eviction timing.** It happens inside the command, before commit. A request racing the commit could re-cache the old stamp, so in production the window is at most one TTL (30 s).
+- **Pinned algorithms.** `ValidAlgorithms = [HmacSha256]` in both `JwtProvider.ValidateToken` and the JwtBearer options.
+- **`ValidateToken`** also catches `ArgumentException` (an oversized or malformed token), giving `InvalidToken` (401) instead of 500.
+- **Rule 12.** `/api/auth/logout` is mapped and in tier 2. `NotYetMapped` is now empty, and the count is 331.
+
+### Test infrastructure changes
+
+These were required by N2 and K4–K5.
+- **`ApiFixture.IssueTestToken`** now carries the user's current `sstamp`.
+  - An id nobody provisioned first gets a bare, active login row, inserted with raw SQL as `SeedPublicLeadIntakeOwnerAsync` already does.
+  - Without this, every one of the ~50 arbitrary-claim test tokens would be `StaleToken`.
+  - A token issued before a change to its user is stale afterwards, as in production.
+- **`ApiFixture`** sets the auth rate limit to 100000 (one IP, hundreds of logins) and the session cache TTL to 0.
+- **`ApiFixture.CapturedSql` excludes exactly the tagged session-check statement.**
+  - Why: since N2, every authenticated request reads `identity.users` during authentication, which is host work, before any module's handler. Without the exclusion, eight schema-isolation tests reported every module as touching `identity`.
+  - The match is on the query tag, not on the query's shape. Any other `identity.` statement still counts.
+  - `CapturedSessionChecks` keeps the excluded statements visible, and `EveryAuthenticatedRequest_ChecksTheSession` proves the check runs.
+- **`CrmBriefRouteTests` and `CrossModuleSmokeTests`** now process the outbox before using the new client's token.
+  - The portal login is activated by `ClientCreatedIntegrationEvent`, and a token for an inactive account is now refused.
+  - In production such an account could not have signed in at all.
+- **Identity fixtures:**
+  - **`IdentityApplicationFixture`:** new registrations, `IdentityPolicy`, `AddSignInManager`, and TTL 0.
+  - **`AuthFlowTests`:** these now run one scope per call, as HTTP requests do. The sign-in bookkeeping and the family revocation commit from scopes of their own, and a shared scope's tracked user would go stale.
+    - `Login_then_refresh_then_revoke…` no longer replays the first token before revoking the second: that replay now (correctly) revokes the family. The replay has its own test.
+  - **`ApplicationUserRefreshTokenTests`** compare through `Matches(...)`, because only hashes are stored.
+
+### 2. Run 0 for this phase
+
+There is no separate Run 0 for 1B in the prompt. Every 1B item was re-checked against the code before its fix; all were open as recorded in Phase 0 §2.2.
+
+### 3. Tests written but not run
+
+None.
+
+### 4. Migration guards added
+
+None. This migration adds no constraint that existing data could violate: the hashed values stay unique because the plaintext values were unique, and the column narrows to the hash's exact 64 characters. Before deploying, run this against a production snapshot:
+
+```sql
+-- Rows this migration expires (every user with one must sign in again):
+SELECT count(*) AS live_refresh_tokens FROM identity.refresh_tokens WHERE "RevokedOn" IS NULL AND "ExpiresOn" > now();
+-- Users this migration subjects to lockout for the first time (expected 0):
+SELECT count(*) FROM identity.users WHERE NOT "LockoutEnabled";
+```
+
+### 5. Frontend contract changes
+
+| Route / behaviour | Before | After |
+|---|---|---|
+| `POST /api/auth/login`, inactive account | 401 `authentications.UserNotActive` | **401 `authentications.InvalidCredentials`**, identical to an unknown email or a wrong password |
+| `POST /api/auth/login`, 5th failure in a row and for 15 min after | — | **401 `authentications.LockedOut`**, even with the right password |
+| `/login`, `/refresh`, `/revoke`, `/change-password`, `/logout` | unlimited | **429** past 10 requests/min per IP, shared across all five |
+| `POST /api/auth/refresh` with a rotated-away token | 401 `InvalidRefreshToken` | **401 `authentications.RefreshTokenReused`**, and **every** refresh token of the account is revoked; sign in again |
+| `POST /api/auth/refresh` with a malformed or oversized access token | 500 | 401 `authentications.InvalidToken` |
+| `POST /api/auth/change-password` | body `{ userId, currentPassword, newPassword }`, any user | body **`{ currentPassword, newPassword }`**, always the caller; a `userId` is ignored. All refresh tokens revoked, and live access tokens become `StaleToken`: sign in again with the new password |
+| `POST /api/auth/logout` | — | **new**, authenticated, 204; ends every session of the caller |
+| Any authenticated request after deactivation, role assign/remove, a claim change on one of your roles, an override on you, a password change or logout | worked until the token expired | **401 `authentications.StaleToken`**. Call `/refresh`; after deactivation, password change or logout the refresh fails too and the user must sign in |
+| Access token claims | — | new `sstamp` claim (opaque) |
+| Existing refresh tokens at deploy | — | **all expired; every user signs in again once** |
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **The command transaction forces two "own scope" writes.** The prompt's K4 and K5 designs assume a failed login and a reused refresh token can persist state. `DomainEventDispatchDecorator` rolls back every failed command, so the lockout bookkeeping (`PasswordSignIn`) and the family revocation (`SessionRevocation`) each run in a scope of their own. They are documented in their interfaces, in the spirit of the `INotificationService` exception.
+2. **Beyond the prompt:**
+   - **Logout and refresh-token reuse also bump the security stamp**, so live access tokens die at once. The prompt's N2 list doesn't name either. The prompt says logout "revokes all of the caller's tokens", and reuse means theft; without a bump, the thief's access token would live out its hour.
+3. **Refresh deliberately ignores the stamp.** Otherwise "assign a role → old token 401 → after refresh, the new token has the role's permissions" could not work.
+4. **Integration tests changed to match N2** (§Test infrastructure). The schema-isolation exclusion is the one judgement call. It excludes only the tagged host query, it is proved to run, and the tests still catch any module SQL touching `identity.`.
+5. **Rate-limit numbers** (10 per 60 s) are my choice; the prompt gives none. Both are configurable.
+6. **Dead code, recorded for Aug 5.7, not removed:** `AuthErrors.UserNotActive` (unused since K4).
+7. **Eviction timing:** a stamp change is evicted before its transaction commits, so a racing request can re-cache the old stamp for at most one TTL (30 s by default). Evicting after commit would need a post-commit hook the pipeline doesn't have.
