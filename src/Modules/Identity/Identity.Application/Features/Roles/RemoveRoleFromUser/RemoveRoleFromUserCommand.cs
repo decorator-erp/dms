@@ -1,8 +1,8 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Identity.Contracts.Roles;
-using Identity.Infrastructure.Services;
 using Identity.Domain;
+using Identity.Infrastructure.Services;
 using SharedKernel;
 
 namespace Identity.Application.Features.Roles.RemoveRoleFromUser;
