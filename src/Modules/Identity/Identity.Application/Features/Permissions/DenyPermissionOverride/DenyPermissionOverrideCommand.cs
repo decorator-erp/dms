@@ -37,7 +37,8 @@ internal sealed class DenyPermissionOverrideCommandHandler(
     ICurrentUser currentUser,
     IDelegationGuard delegationGuard,
     IEffectivePermissionService effectivePermissions,
-    UserManager<ApplicationUser> userManager)
+    UserManager<ApplicationUser> userManager,
+    ISecurityStamps securityStamps)
     : ICommandHandler<DenyPermissionOverrideCommand>
 {
     /// <summary>The body is shared with the grant handler: see <see cref="PermissionOverrideWrites"/>.</summary>
@@ -48,6 +49,7 @@ internal sealed class DenyPermissionOverrideCommandHandler(
             delegationGuard,
             effectivePermissions,
             userManager,
+            securityStamps,
             new OverrideWrite(
                 command.TargetUserId, command.Permission, IsGrant: false, command.Reason, command.ExpiresAtUtc),
             ct);

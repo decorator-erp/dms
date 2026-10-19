@@ -13,10 +13,17 @@ namespace Identity.Infrastructure.Authentication;
 /// <summary>Ported from <c>../backend/Infrastructure/Services/Authentication/JwtProvider.cs</c>. Claim
 /// shapes kept identical to the original: <c>roles</c> is a single JSON-array claim (not
 /// <see cref="ClaimTypes.Role"/> — <c>[Authorize(Roles=...)]</c> won't work against this token, same as
-/// the backend), and one <see cref="PermissionClaim.Type"/> claim per resolved permission.</summary>
+/// the backend), and one <see cref="PermissionClaim.Type"/> claim per resolved permission.
+///
+/// <para>N2 adds <see cref="SecurityStampClaim"/>, the user's security stamp at issue time. The host
+/// compares it with the stored stamp on every request (<c>IUserSessionState</c>), so a change to the
+/// account invalidates tokens already issued.</para></summary>
 internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermissionService effectivePermissionService)
     : IJwtProvider
 {
+    /// <summary>N2: the claim carrying the user's security stamp.</summary>
+    public const string SecurityStampClaim = "sstamp";
+
     private readonly JwtOptions _options = options.Value;
 
     public async Task<(string Token, int ExpireMinutes)> GenerateTokenAsync(
@@ -30,6 +37,7 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new("name", user.UserName ?? string.Empty),
+            new(SecurityStampClaim, user.SecurityStamp ?? string.Empty),
             new("roles", JsonSerializer.Serialize(roles), JsonClaimValueTypes.JsonArray),
             .. permissions.Select(p => new Claim(PermissionClaim.Type, p)),
         ];
@@ -64,6 +72,10 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key)),
             ValidateLifetime = validateLifetime,
             ClockSkew = TimeSpan.Zero,
+
+            // Aug 5.1: only the algorithm this provider signs with. Without the pin, the token's own
+            // header chooses how it is checked.
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
         };
 
         try
@@ -73,6 +85,13 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
         }
         catch (SecurityTokenException)
         {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            // Aug 3.10: an oversized or structurally malformed token is thrown as ArgumentException (not
+            // a SecurityTokenException) before validation starts. It is still just an invalid token: the
+            // caller gets InvalidToken (401), not a 500.
             return null;
         }
     }

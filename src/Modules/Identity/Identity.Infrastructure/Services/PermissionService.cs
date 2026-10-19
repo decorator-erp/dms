@@ -8,7 +8,8 @@ using SharedKernel;
 
 namespace Identity.Infrastructure.Services;
 
-internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<ApplicationRole> roleManager)
+internal sealed class PermissionService(
+    IdentityModuleDbContext db, RoleManager<ApplicationRole> roleManager, ISecurityStamps securityStamps)
     : IPermissionService
 {
     public async Task<Result> AssignPermissionToRoleAsync(
@@ -36,6 +37,9 @@ internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<
 
         db.RoleClaims.Add(ApplicationRoleClaim.Create(roleId, PermissionClaim.Type, permission));
         await db.SaveChangesAsync(ct);
+
+        // N2: every holder's tokens now under-state what the role confers.
+        await securityStamps.BumpRoleHoldersAsync(roleId, ct);
         return Result.Success();
     }
 
@@ -57,6 +61,9 @@ internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<
         await db.RoleClaims
             .Where(rc => rc.RoleId == roleId && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission)
             .ExecuteDeleteAsync(ct);
+
+        // N2: every holder's tokens still claim the removed permission; refuse them.
+        await securityStamps.BumpRoleHoldersAsync(roleId, ct);
         return Result.Success();
     }
 

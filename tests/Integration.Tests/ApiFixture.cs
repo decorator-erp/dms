@@ -50,15 +50,63 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// "enable EF query logging in the test and assert no SQL touches the identity schema" requirement.
     /// Call <see cref="ClearCapturedSql"/> before the operation under test so earlier noise (migrations,
     /// seeding, an unrelated request) doesn't produce a false positive.
+    ///
+    /// <para><b>Excludes exactly one statement: N2's per-request session check.</b> Since Phase 1B the
+    /// host's JwtBearer <c>OnTokenValidated</c> reads the caller's security stamp from
+    /// <c>identity.users</c> on every authenticated request, through <c>IUserSessionState</c>. That is the
+    /// host authenticating the request before any module runs, not a module reaching into Identity's
+    /// tables, which is what the schema-isolation tests guard against. It is recognised by the query tag
+    /// <c>identity:session-state</c> (<c>UserSessionState.SessionStateQueryTag</c>), not by its shape, so
+    /// any other <c>identity.</c> statement still counts. <see cref="CapturedSessionChecks"/> keeps the
+    /// excluded statements visible, so a test can prove the check really ran.</para>
     /// </summary>
-    public IReadOnlyList<string> CapturedSql => [.. _capturedSql];
+    public IReadOnlyList<string> CapturedSql => [.. _capturedSql.Where(sql => !IsSessionCheck(sql))];
+
+    /// <summary>The session-check statements <see cref="CapturedSql"/> leaves out.</summary>
+    public IReadOnlyList<string> CapturedSessionChecks => [.. _capturedSql.Where(IsSessionCheck)];
+
+    private static bool IsSessionCheck(string sql) =>
+        sql.Contains("-- identity:session-state", StringComparison.Ordinal);
 
     public void ClearCapturedSql() => _capturedSql.Clear();
 
     private readonly ConcurrentQueue<string> _capturedSql = new();
 
+    /// <summary>
+    /// A signed token claiming <paramref name="permissions"/> for <paramref name="userId"/>. It tests
+    /// route claims and nothing else; for a real login token use <see cref="TestUsers"/>.
+    ///
+    /// <para><b>Since N2 the host also checks every token's session:</b> its <c>sstamp</c> must equal
+    /// the user's stored security stamp, and the user must exist and be active. So this carries the
+    /// user's current stamp. An id nobody provisioned gets a bare, active login row first (raw SQL, like
+    /// <see cref="SeedPublicLeadIntakeOwnerAsync"/>), so the many tests that only need "some caller with
+    /// these permissions" keep working. A token issued before a change to its user (deactivation, a role
+    /// change) is stale afterwards, exactly as in production.</para>
+    /// </summary>
     public string IssueTestToken(string userId, params string[] permissions) =>
-        TestJwt.Issue(JwtKey, JwtIssuer, JwtAudience, userId, permissions);
+        TestJwt.Issue(JwtKey, JwtIssuer, JwtAudience, userId, CurrentSecurityStamp(userId), permissions);
+
+    private string CurrentSecurityStamp(string userId)
+    {
+        using var connection = new NpgsqlConnection(ConnectionString);
+        connection.Open();
+
+        using NpgsqlCommand command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO identity.users
+                ("Id", "UserName", "NormalizedUserName", "FirstName", "LastName", "IsActive", "UserType", "CreatedAt",
+                 "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount",
+                 "SecurityStamp")
+            VALUES (@id, 'token-' || @id, upper('token-' || @id), 'Test', 'Token', true, 0, now(),
+                    true, false, false, true, 0, gen_random_uuid()::text)
+            ON CONFLICT ("Id") DO NOTHING;
+            UPDATE identity.users SET "SecurityStamp" = gen_random_uuid()::text
+            WHERE "Id" = @id AND "SecurityStamp" IS NULL;
+            SELECT "SecurityStamp" FROM identity.users WHERE "Id" = @id;
+            """;
+        command.Parameters.AddWithValue("id", userId);
+        return (string)command.ExecuteScalar()!;
+    }
 
     public async Task InitializeAsync()
     {
@@ -130,6 +178,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
         builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
+        // Phase 1B. Every test request comes from one IP, and the suite logs in hundreds of times
+        // (TestUsers), so the auth rate limit is raised far out of reach here. The 429 itself is asserted
+        // by AuthSessionTests on a derived host with a tiny limit.
+        builder.UseSetting("RateLimiting:AuthLogin:PermitLimit", "100000");
+        // N2: no session-state cache, so a security-stamp change is visible on the very next request.
+        builder.UseSetting("Identity:SessionStateCacheSeconds", "0");
         // F1-10. Stands down OutboxProcessor's and PeriodicJobWorker's TIMER loops -- both remain
         // registered and resolvable, and the ten call sites that drive them explicitly are unaffected.
         //

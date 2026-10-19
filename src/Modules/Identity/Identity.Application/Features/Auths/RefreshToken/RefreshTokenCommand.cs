@@ -4,6 +4,7 @@ using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using SharedKernel;
@@ -25,10 +26,19 @@ internal sealed class RefreshTokenCommandValidator : AbstractValidator<RefreshTo
 /// to already be expired (that is the whole reason a caller is refreshing). Reuse of an
 /// already-rotated or revoked refresh token is rejected by
 /// <see cref="ApplicationUser.RotateRefreshToken"/> itself (G1-02), not re-checked here.
+///
+/// <para>K5: a replayed (already-rotated) token means the family is compromised.
+/// <see cref="ISessionRevocation"/> revokes every refresh token and bumps the stamp <b>in its own
+/// transaction</b>, because this command then fails and its own transaction rolls back.</para>
+///
+/// <para>The access token's security stamp is deliberately <i>not</i> checked here. A bumped stamp
+/// (new roles, a permission change) is exactly what refresh exists to pick up; the refresh token is the
+/// credential, and the events that must end a session revoke it.</para>
 /// </summary>
 internal sealed class RefreshTokenCommandHandler(
     UserManager<ApplicationUser> userManager,
     IJwtProvider jwtProvider,
+    ISessionRevocation sessionRevocation,
     IdentityModuleDbContext db,
     IOptions<JwtOptions> jwtOptions)
     : ICommandHandler<RefreshTokenCommand, AuthResponse>
@@ -50,14 +60,20 @@ internal sealed class RefreshTokenCommandHandler(
         }
 
         DateTime utcNow = DateTime.UtcNow;
+        string newRefreshToken = RefreshTokenValues.New();
         Result<Domain.RefreshToken> rotateResult = user.RotateRefreshToken(
             request.RefreshToken,
-            GenerateRefreshTokenValue(),
+            newRefreshToken,
             utcNow,
             TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
 
         if (rotateResult.IsFailure)
         {
+            if (rotateResult.Error == AuthErrors.RefreshTokenReused)
+            {
+                await sessionRevocation.RevokeAllInOwnTransactionAsync(user.Id, ct);
+            }
+
             return rotateResult.Error;
         }
 
@@ -66,9 +82,6 @@ internal sealed class RefreshTokenCommandHandler(
 
         await db.SaveChangesAsync(ct);
 
-        return new AuthResponse(newAccessToken, rotateResult.Value!.Token, utcNow.AddMinutes(expireMinutes));
+        return new AuthResponse(newAccessToken, newRefreshToken, utcNow.AddMinutes(expireMinutes));
     }
-
-    private static string GenerateRefreshTokenValue() =>
-        Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64));
 }

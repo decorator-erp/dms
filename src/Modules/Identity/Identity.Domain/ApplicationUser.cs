@@ -68,9 +68,23 @@ internal sealed class ApplicationUser : IdentityUser<string>, IAuditable
         return issued;
     }
 
+    /// <summary>
+    /// Rotation: the presented token is revoked and a new one issued. K5 adds reuse detection. A token
+    /// that was <b>already revoked</b> (rotated away, or revoked) being presented again means two parties
+    /// hold the same token family, one of them a thief. Every refresh token of the account is revoked,
+    /// and the result is <see cref="AuthErrors.RefreshTokenReused"/>. The caller must persist that
+    /// revocation outside the failing command's transaction (see <c>RefreshTokenCommandHandler</c>). An
+    /// unknown or merely expired token is just <see cref="AuthErrors.InvalidRefreshToken"/>.
+    /// </summary>
     public Result<RefreshToken> RotateRefreshToken(string presentedToken, string newToken, DateTime utcNow, TimeSpan lifetime)
     {
-        RefreshToken? existing = _refreshTokens.SingleOrDefault(t => t.Token == presentedToken);
+        RefreshToken? existing = _refreshTokens.SingleOrDefault(t => t.Matches(presentedToken));
+        if (existing is { RevokedOn: not null })
+        {
+            RevokeAllRefreshTokens(utcNow);
+            return AuthErrors.RefreshTokenReused;
+        }
+
         if (existing is null || !existing.IsActive)
         {
             return AuthErrors.InvalidRefreshToken;
@@ -84,7 +98,7 @@ internal sealed class ApplicationUser : IdentityUser<string>, IAuditable
 
     public Result RevokeRefreshToken(string token, DateTime utcNow)
     {
-        RefreshToken? existing = _refreshTokens.SingleOrDefault(t => t.RevokedOn == null && t.Token == token);
+        RefreshToken? existing = _refreshTokens.SingleOrDefault(t => t.RevokedOn == null && t.Matches(token));
         if (existing is null || !existing.IsActive)
         {
             return AuthErrors.InvalidRefreshToken;

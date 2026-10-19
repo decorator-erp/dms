@@ -69,9 +69,12 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseCors(CorsPolicies.Default);
 app.UseHttpsRedirection();
+// Rate limiting runs BEFORE authentication (Phase 1B). A throttled request is refused before any token
+// is validated, so the per-request session check (N2's database read) is not something a flood of
+// requests can make the server do for free.
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseRateLimiter();
 app.UseSerilogRequestLogging();
 
 // Anonymous on purpose: load balancers and container orchestrators probe it without credentials. Explicit

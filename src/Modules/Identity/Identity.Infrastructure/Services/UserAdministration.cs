@@ -13,7 +13,8 @@ namespace Identity.Infrastructure.Services;
 /// <c>OutboxProcessor</c> retries a failed <see cref="DeactivateAsync"/> call, and a retry landing after
 /// an earlier attempt actually succeeded must not itself fail.
 /// </summary>
-internal sealed class UserAdministration(UserManager<ApplicationUser> userManager) : IUserAdministration
+internal sealed class UserAdministration(UserManager<ApplicationUser> userManager, IUserSessionCache sessionCache)
+    : IUserAdministration
 {
     public async Task<Result> DeactivateAsync(string userId, CancellationToken ct)
     {
@@ -28,8 +29,13 @@ internal sealed class UserAdministration(UserManager<ApplicationUser> userManage
             return Result.Success();
         }
 
+        // N2: a deactivated user's sessions end now. Every refresh token is revoked, so they cannot refresh,
+        // and the stamp is bumped, so the access tokens they hold are refused at their next request
+        // instead of working until they expire. UpdateSecurityStampAsync saves all three changes at once.
         user.Deactivate();
-        IdentityResult result = await userManager.UpdateAsync(user);
+        user.RevokeAllRefreshTokens(DateTime.UtcNow);
+        IdentityResult result = await userManager.UpdateSecurityStampAsync(user);
+        sessionCache.Evict(user.Id);
 
         return result.Succeeded
             ? Result.Success()

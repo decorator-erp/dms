@@ -21,12 +21,13 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
             refreshToken.Property<int>("id");
             refreshToken.HasKey("id");
 
-            refreshToken.Property(t => t.Token).HasMaxLength(256).IsRequired();
+            // K5: the SHA-256 hex of the token (64 characters), never the token itself.
+            refreshToken.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
             refreshToken.Property(t => t.CreatedOn).IsRequired();
             refreshToken.Property(t => t.ExpiresOn).IsRequired();
             refreshToken.Property(t => t.RevokedOn);
 
-            refreshToken.HasIndex(t => t.Token).IsUnique();
+            refreshToken.HasIndex(t => t.TokenHash).IsUnique();
         });
     }
 }

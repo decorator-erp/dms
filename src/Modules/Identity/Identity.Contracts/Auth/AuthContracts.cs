@@ -28,8 +28,12 @@ public sealed record RefreshTokenCommand(RefreshTokenRequest Request) : ICommand
 
 public sealed record RevokeRefreshTokenCommand(RefreshTokenRequest Request) : ICommand;
 
-public sealed record ChangePasswordRequest(string UserId, string CurrentPassword, string NewPassword);
+/// <summary>K8: no user id. The account is always the caller's own.</summary>
+public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 public sealed record ChangePasswordCommand(ChangePasswordRequest Request) : ICommand;
+
+/// <summary>K5: ends every session of the caller.</summary>
+public sealed record LogoutCommand : ICommand;
 
 public sealed record AuthResponse(string Token, string RefreshToken, DateTime Expiration);

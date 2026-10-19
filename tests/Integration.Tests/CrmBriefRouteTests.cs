@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using BuildingBlocks.Outbox;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Integration.Tests;
@@ -30,6 +33,11 @@ public sealed class CrmBriefRouteTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.Created, clientResponse.StatusCode);
         Guid clientId = (await clientResponse.Content.ReadFromJsonAsync<ClientIdBody>())!.ClientId;
         string clientUserId = (await office.GetFromJsonAsync<ClientAppUserBody>($"/api/clients/{clientId}"))!.AppUserId;
+
+        // The portal login is activated by ClientCreatedIntegrationEvent. Since N2 an inactive account's
+        // token is refused, as in production, where such an account could not have signed in at all.
+        await fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single()
+            .ProcessPendingAsync(CancellationToken.None);
 
         Guid templateId = (await (await office.PostAsJsonAsync("/api/stage-templates", new { Name = $"Tmpl-{suffix}", Type = 2 }))
             .Content.ReadFromJsonAsync<IdBody>())!.StageTemplateId;

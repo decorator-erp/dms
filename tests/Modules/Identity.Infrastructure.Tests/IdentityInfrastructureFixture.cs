@@ -45,7 +45,7 @@ public sealed class IdentityInfrastructureFixture : IAsyncLifetime
         services.AddLogging();
         services.AddDataProtection();
         services.AddDbContext<IdentityModuleDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
-        services.AddIdentityCore<ApplicationUser>()
+        services.AddIdentityCore<ApplicationUser>(IdentityPolicy.Configure)
             .AddRoles<ApplicationRole>()
             .AddEntityFrameworkStores<IdentityModuleDbContext>()
             .AddDefaultTokenProviders();

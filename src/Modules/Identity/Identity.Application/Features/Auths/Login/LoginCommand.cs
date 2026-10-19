@@ -4,6 +4,7 @@ using Identity.Contracts.Auth;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using SharedKernel;
@@ -20,9 +21,15 @@ internal sealed class LoginCommandValidator : AbstractValidator<LoginCommand>
 }
 
 /// <summary>Ported from <c>AuthService.GetTokenAsync</c>. Publishes nothing — login is a read of
-/// existing state, not a fact another module could need to react to.</summary>
+/// existing state, not a fact another module could need to react to.
+///
+/// <para>K4: the credential check (lockout included) is <see cref="IPasswordSignIn"/>, which commits its
+/// failed-attempt bookkeeping in a scope of its own; see that interface for why it must. Unknown email,
+/// wrong password and inactive account all answer <c>InvalidCredentials</c>; a locked account answers
+/// <c>LockedOut</c>.</para></summary>
 internal sealed class LoginCommandHandler(
     UserManager<ApplicationUser> userManager,
+    IPasswordSignIn passwordSignIn,
     IJwtProvider jwtProvider,
     IdentityModuleDbContext db,
     IOptions<JwtOptions> jwtOptions)
@@ -32,35 +39,31 @@ internal sealed class LoginCommandHandler(
     {
         LoginRequest request = command.Request;
 
-        ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
+        PasswordSignInResult signIn = await passwordSignIn.CheckAsync(request.Email, request.Password, ct);
+        switch (signIn.Outcome)
+        {
+            case PasswordSignInOutcome.LockedOut:
+                return AuthErrors.LockedOut;
+            case PasswordSignInOutcome.InvalidCredentials:
+                return AuthErrors.InvalidCredentials;
+        }
+
+        ApplicationUser? user = await userManager.FindByIdAsync(signIn.UserId!);
         if (user is null)
         {
             return AuthErrors.InvalidCredentials;
-        }
-
-        if (!await userManager.CheckPasswordAsync(user, request.Password))
-        {
-            return AuthErrors.InvalidCredentials;
-        }
-
-        if (!user.IsActive)
-        {
-            return AuthErrors.UserNotActive;
         }
 
         IList<string> roles = await userManager.GetRolesAsync(user);
         (string? token, int expireMinutes) = await jwtProvider.GenerateTokenAsync(user, roles, ct);
 
         DateTime utcNow = DateTime.UtcNow;
-        Domain.RefreshToken refreshToken = user.IssueRefreshToken(
-            GenerateRefreshTokenValue(), utcNow, TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
+        string refreshToken = RefreshTokenValues.New();
+        user.IssueRefreshToken(refreshToken, utcNow, TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
         user.UpdateLastLogin();
 
         await db.SaveChangesAsync(ct);
 
-        return new AuthResponse(token, refreshToken.Token, utcNow.AddMinutes(expireMinutes));
+        return new AuthResponse(token, refreshToken, utcNow.AddMinutes(expireMinutes));
     }
-
-    private static string GenerateRefreshTokenValue() =>
-        Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64));
 }

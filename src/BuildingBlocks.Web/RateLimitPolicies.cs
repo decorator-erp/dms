@@ -13,4 +13,10 @@ public static class RateLimitPolicies
     /// (see <c>Api.DI.AddApi</c>'s registration for the window/limit values and the reasoning for
     /// picking a fixed window over a sliding one).</summary>
     public const string CrmPublicLeads = "crm-public-leads";
+
+    /// <summary>HR/Identity Phase 1B: <c>/api/auth/login</c>, <c>/refresh</c>, <c>/revoke</c>,
+    /// <c>/change-password</c> and <c>/logout</c>. One fixed window, keyed by remote IP and shared across
+    /// all five routes, so a guesser cannot spread attempts across them. Lockout (K4) stops guessing one
+    /// account; this stops one client trying many.</summary>
+    public const string AuthLogin = "auth-login";
 }

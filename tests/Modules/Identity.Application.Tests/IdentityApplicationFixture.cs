@@ -43,6 +43,8 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
                 ["JwtSettings:Audience"] = "identity-application-tests-client",
                 ["JwtSettings:ExpiryMinutes"] = "60",
                 ["JwtSettings:RefreshTokenExpiryDays"] = "14",
+                // N2: no session-state caching in tests, so a stamp bump is visible at once.
+                ["Identity:SessionStateCacheSeconds"] = "0",
             })
             .Build();
 
@@ -50,10 +52,12 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddLogging();
         services.AddDataProtection();
         services.AddDbContext<IdentityModuleDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
-        services.AddIdentityCore<ApplicationUser>()
+        services.AddIdentityCore<ApplicationUser>(IdentityPolicy.Configure)
             .AddRoles<ApplicationRole>()
+            .AddSignInManager()
             .AddEntityFrameworkStores<IdentityModuleDbContext>()
             .AddDefaultTokenProviders();
+        services.AddAuthenticationCore();
 
         services.AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
@@ -64,6 +68,13 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IDelegationGuard, DelegationGuard>();
+        services.AddScoped<IPasswordSignIn, PasswordSignIn>();
+        services.AddScoped<ISessionRevocation, SessionRevocation>();
+        services.AddScoped<ISecurityStamps, SecurityStamps>();
+        services.AddScoped<IUserSessionState, UserSessionState>();
+        services.AddSingleton<IUserSessionCache, UserSessionCache>();
+        services.AddMemoryCache();
+        services.AddSingleton<IConfiguration>(configuration);
         services.AddScoped<IUserProvisioning, UserProvisioning>();
         services.AddScoped<IUserAdministration, UserAdministration>();
 

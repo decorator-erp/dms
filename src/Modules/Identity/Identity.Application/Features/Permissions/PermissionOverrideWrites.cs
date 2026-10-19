@@ -13,7 +13,8 @@ namespace Identity.Application.Features.Permissions;
 /// K6: the one body behind grant and deny. The two handlers used to be copies of each other that
 /// differed only in <c>UserPermissionOverride.Grant</c> vs <c>.Deny</c>, so every rule added to one had
 /// to be remembered in the other. Checks run in CLAUDE.md's order: who is asking (401), whether they may
-/// (403), whether the target exists (404), then the state of the data (409).
+/// (403), whether the target exists (404), then the state of the data (409). A successful write bumps the
+/// target's security stamp (N2), so their tokens refresh into the new set.
 /// <list type="number">
 /// <item>Nobody writes overrides on their own account (<c>permissions.SelfModification</c>, 403).</item>
 /// <item>A grant confers a permission, so the caller must effectively hold it (N1,
@@ -33,6 +34,7 @@ internal static class PermissionOverrideWrites
         IDelegationGuard delegationGuard,
         IEffectivePermissionService effectivePermissions,
         UserManager<ApplicationUser> userManager,
+        ISecurityStamps securityStamps,
         OverrideWrite write,
         CancellationToken ct)
     {
@@ -81,6 +83,8 @@ internal static class PermissionOverrideWrites
                 write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc));
         await db.SaveChangesAsync(ct);
 
+        // N2: the target's tokens carry their old permission set.
+        await securityStamps.BumpAsync(write.TargetUserId, ct);
         return Result.Success();
     }
 }

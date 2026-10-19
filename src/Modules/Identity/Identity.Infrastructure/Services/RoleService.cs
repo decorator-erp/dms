@@ -12,7 +12,10 @@ namespace Identity.Infrastructure.Services;
 /// <see cref="UserManager{TUser}.IsInRoleAsync"/> — the backend passed a role <em>id</em> to that
 /// method, which expects a name, so the check silently always returned false there.</summary>
 internal sealed class RoleService(
-    RoleManager<ApplicationRole> roleManager, UserManager<ApplicationUser> userManager, IdentityModuleDbContext db)
+    RoleManager<ApplicationRole> roleManager,
+    UserManager<ApplicationUser> userManager,
+    IdentityModuleDbContext db,
+    ISecurityStamps securityStamps)
     : IRoleService
 {
     public async Task<Result<string>> CreateRoleAsync(string roleName, CancellationToken ct = default)
@@ -100,8 +103,14 @@ internal sealed class RoleService(
         }
 
         IdentityResult result = await userManager.AddToRoleAsync(user, role.Name!);
+        if (!result.Succeeded)
+        {
+            return IdentityErrorsToError("roles.AssignFailed", result);
+        }
 
-        return result.Succeeded ? Result.Success() : IdentityErrorsToError("roles.AssignFailed", result);
+        // N2: the user's tokens list their old roles and permissions; make them refresh.
+        await securityStamps.BumpAsync(user.Id, ct);
+        return Result.Success();
     }
 
     public async Task<Result> RemoveRoleFromUserAsync(string userId, string roleId, CancellationToken ct = default)
@@ -119,8 +128,14 @@ internal sealed class RoleService(
         }
 
         IdentityResult result = await userManager.RemoveFromRoleAsync(user, role.Name!);
+        if (!result.Succeeded)
+        {
+            return IdentityErrorsToError("roles.RemoveFailed", result);
+        }
 
-        return result.Succeeded ? Result.Success() : IdentityErrorsToError("roles.RemoveFailed", result);
+        // N2: a removed role must stop working now, not when the token expires.
+        await securityStamps.BumpAsync(user.Id, ct);
+        return Result.Success();
     }
 
     public async Task<bool> UserInRoleAsync(string userId, string roleId, CancellationToken ct = default)

@@ -62,7 +62,7 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         // The prompt's three (K7).
         "/api/permissions/me/effective", // the caller's own permissions; the id comes from the token
         "/api/auth/change-password", // the caller's own password; needs the current one as well
-        "/api/auth/logout", // the caller's own sessions (Phase 1B adds the route)
+        "/api/auth/logout", // ends the caller's own sessions; acts on nobody else
         // Found when the rule ran against the real host (recorded in the notes).
         "/api/me", // who-am-I: echoes the token's own user id
         "/hubs/notifications", // the caller's own notification stream; the hub pushes to their id only
@@ -72,8 +72,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         "/api/crm/briefs/{briefId:guid}/rounds/{round:int}/diff",
     ];
 
-    /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.</summary>
-    private static readonly string[] NotYetMapped = ["/api/auth/logout"];
+    /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.
+    /// Empty since Phase 1B mapped <c>/api/auth/logout</c>.</summary>
+    private static readonly string[] NotYetMapped = [];
 
     private PostgreSqlContainer _container = null!;
     private HostFactory _host = null!;
@@ -174,7 +175,8 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         Assert.Contains(fallback!.Requirements, r => r is DenyAnonymousAuthorizationRequirement);
 
         // PC-03 liveness. Both tiers pass trivially over an empty data source: a host that failed to map
-        // a module, or a lookup that returned a different EndpointDataSource. Counted at Phase 1A: 330
+        // a module, or a lookup that returned a different EndpointDataSource. Counted at Phase 1A: 330 (331 at
+        // 1B, with /api/auth/logout)
         // route endpoints (every module, plus /api/me, /health, the hub and the Development API docs).
         // The margin absorbs a few routes being retired; losing a module's worth is a red test.
         Assert.True(endpoints.Length >= 320,
