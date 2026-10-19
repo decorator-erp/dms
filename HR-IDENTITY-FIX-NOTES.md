@@ -101,7 +101,8 @@ Every claim below was read from the code at `1d6aefb`. The key ones were re-chec
 - **Is end-of-line handling consistent?** **No.**
   - `git ls-files --eol src` shows 747 files `w/lf` and 40 `w/crlf`. All 40 CRLF files are `*.csproj`, which matches `.gitattributes` (`*.csproj text eol=crlf`).
   - `.editorconfig` sets `end_of_line = crlf` for `[*.cs]`, which contradicts `.gitattributes` `*.cs text eol=lf`. Every `.cs` file is LF in both the index and the working tree.
-  - The format gate passes, but the two files disagree. Not changed (out of scope); the owner should pick one.
+  - The format gate passes, but the two files disagree, and this is visible: the gate's `dotnet format DMS.Modular.slnx` rewrites **every** `.cs` working copy to CRLF, per `.editorconfig`. `git diff --exit-code` still passes, because `.gitattributes` normalises them back to LF, but it prints one "CRLF will be replaced by LF" warning per file (~750 lines) and leaves a CRLF working tree behind.
+  - Not changed (out of scope). The owner should pick one; most likely `end_of_line = lf` in `.editorconfig`.
 
 #### 2.2 Status of every Phase 1A–5 item
 
