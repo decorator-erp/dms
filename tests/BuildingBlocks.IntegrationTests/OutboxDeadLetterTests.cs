@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 using BuildingBlocks.Events;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,9 @@ namespace BuildingBlocks.IntegrationTests;
 [Collection(OutboxCollection.Name)]
 public sealed class OutboxDeadLetterTests(OutboxFixture fixture)
 {
+    // The processor's own options (JsonSerializerDefaults.Web).
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task A_failing_message_backs_off_doubling_then_is_dead_lettered_at_max_attempts_with_one_error_log()
     {
@@ -235,6 +239,91 @@ public sealed class OutboxDeadLetterTests(OutboxFixture fixture)
         Assert.Contains(plan, line => line.Contains("ix_outbox_messages_unprocessed", StringComparison.Ordinal));
     }
 
+    /// <summary>P5-F1: System.Text.Json throws <see cref="InvalidOperationException"/>, not a
+    /// <see cref="JsonException"/>, for a type whose constructor it can't bind. That is still a payload that
+    /// doesn't fit its type: dead-lettered on the first pass, and the sweep delivers the message behind it.</summary>
+    [Fact]
+    public async Task A_payload_whose_type_cannot_be_built_is_dead_lettered_at_once_and_the_sweep_goes_on()
+    {
+        const string content = """{"eventId":"7f1d2c3b-0000-4000-8000-000000000001","occurredAtUtc":"2026-01-01T00:00:00Z"}""";
+        Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<UnbindableEvent>(content, WebJson));
+
+        string cs = await NewDatabaseAsync();
+        var clock = new ManualTimeProvider();
+        var counter = new CallCounter();
+        var log = new CapturingLogger();
+        await using ServiceProvider provider = BuildProvider(cs, counter, new FailureController(), clock, log);
+
+        var bad = Guid.NewGuid();
+        await InsertRawAsync(cs, bad, typeof(UnbindableEvent).AssemblyQualifiedName!, content,
+            clock.GetUtcNow().AddMinutes(-5));
+        Guid good = await EnqueueAsync(provider);
+
+        await SweepAsync(provider);
+
+        OutboxMessage dead = await ReadAsync(cs, bad);
+        Assert.NotNull(dead.DeadLetteredUtc);
+        Assert.Equal(1, dead.Attempts);
+        Assert.Contains("could not be deserialized", dead.Error);
+        Assert.NotNull((await ReadAsync(cs, good)).ProcessedUtc);
+        Assert.Equal(1, counter.Count);
+        Assert.Equal(1, log.Count(LogLevel.Error));
+    }
+
+    /// <summary>P5-F1: a message whose own save fails (after its handler ran) is recorded as an ordinary
+    /// failure with backoff, in a fresh context, and the next message in the same sweep is still
+    /// delivered.</summary>
+    [Fact]
+    public async Task A_message_whose_save_throws_is_recorded_as_a_failure_and_the_next_message_is_delivered()
+    {
+        string cs = await NewDatabaseAsync();
+        var clock = new ManualTimeProvider();
+        var log = new CapturingLogger();
+        var bad = Guid.NewGuid();
+        await using ServiceProvider provider = BuildProvider(cs, new CallCounter(), new FailureController(), clock, log,
+            interceptor: new FailingOutboxSave(bad));
+
+        await InsertRawAsync(cs, bad, typeof(TestEvent).AssemblyQualifiedName!,
+            $$"""{"eventId":"{{bad}}","occurredAtUtc":"2026-01-01T00:00:00Z"}""", clock.GetUtcNow().AddMinutes(-5));
+        Guid good = await EnqueueAsync(provider);
+
+        await SweepAsync(provider);
+
+        OutboxMessage failed = await ReadAsync(cs, bad);
+        Assert.Null(failed.ProcessedUtc);
+        Assert.Null(failed.DeadLetteredUtc);
+        Assert.Equal(1, failed.Attempts);
+        Assert.Equal(TimeSpan.FromSeconds(30), failed.NextAttemptUtc - clock.GetUtcNow());
+        Assert.NotNull((await ReadAsync(cs, good)).ProcessedUtc);
+        Assert.Equal(1, log.Count(LogLevel.Error));
+        Assert.Equal(1, log.Count(LogLevel.Warning));
+    }
+
+    /// <summary>P5-F1: when recording the failure fails too (every save of that message throws, as with
+    /// the database down for that row), both are logged and the sweep still moves on.</summary>
+    [Fact]
+    public async Task When_recording_the_failure_also_fails_the_sweep_still_goes_on()
+    {
+        string cs = await NewDatabaseAsync();
+        var clock = new ManualTimeProvider();
+        var log = new CapturingLogger();
+        var bad = Guid.NewGuid();
+        await using ServiceProvider provider = BuildProvider(cs, new CallCounter(), new FailureController(), clock, log,
+            interceptor: new FailingOutboxSave(bad) { FailEverySave = true });
+
+        await InsertRawAsync(cs, bad, typeof(TestEvent).AssemblyQualifiedName!,
+            $$"""{"eventId":"{{bad}}","occurredAtUtc":"2026-01-01T00:00:00Z"}""", clock.GetUtcNow().AddMinutes(-5));
+        Guid good = await EnqueueAsync(provider);
+
+        await SweepAsync(provider);
+
+        OutboxMessage untouched = await ReadAsync(cs, bad);
+        Assert.Null(untouched.ProcessedUtc);
+        Assert.Equal(0, untouched.Attempts);
+        Assert.NotNull((await ReadAsync(cs, good)).ProcessedUtc);
+        Assert.Equal(2, log.Count(LogLevel.Error));
+    }
+
     private static ServiceProvider BuildProvider(
         string cs,
         CallCounter counter,
@@ -332,6 +421,25 @@ public sealed class OutboxDeadLetterTests(OutboxFixture fixture)
         return await command.ExecuteScalarAsync();
     }
 
+    /// <summary>P5-F1: makes saving one outbox message throw. By default only the save that marks it
+    /// processed; with <see cref="FailEverySave"/>, the processor's failure record too.</summary>
+    private sealed class FailingOutboxSave(Guid messageId) : SaveChangesInterceptor
+    {
+        public bool FailEverySave { get; init; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<OutboxMessage>()
+                .Any(e => e.Entity.Id == messageId && (FailEverySave || e.Entity.ProcessedUtc is not null)))
+            {
+                throw new InvalidOperationException("Simulated save failure for one outbox message.");
+            }
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
     /// <summary>Keeps the first command that selects due outbox ids, as sent, with its parameters.</summary>
     private sealed class SweepCommandCapture : DbCommandInterceptor
     {
@@ -350,6 +458,22 @@ public sealed class OutboxDeadLetterTests(OutboxFixture fixture)
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }
+}
+
+/// <summary>P5-F1: an event System.Text.Json can't build. The constructor's <c>note</c> parameter binds
+/// to no property, so deserializing throws <see cref="InvalidOperationException"/>.</summary>
+public sealed class UnbindableEvent : IIntegrationEvent
+{
+    public UnbindableEvent(Guid eventId, DateTimeOffset occurredAtUtc, string note)
+    {
+        EventId = eventId;
+        OccurredAtUtc = occurredAtUtc;
+        _ = note;
+    }
+
+    public Guid EventId { get; }
+
+    public DateTimeOffset OccurredAtUtc { get; }
 }
 
 /// <summary>Counts the processor's log entries by level.</summary>
