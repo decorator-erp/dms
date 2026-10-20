@@ -924,3 +924,139 @@ The new claims reach each user's access token **at their next refresh** (C7). Th
 12. **B7:** the baseline seed inverts **no** existing test. The full suite passed with it before any test was touched; only `IdentitySchemaTests`' table list changed (+`seed_markers`).
 13. **Tests, a scope per command:** a save that fails on a unique index leaves its entity tracked by that scope's context. In the host, a request is one scope and one command. The department race test therefore uses a fresh scope per command, and the notes record it so nobody "fixes" it by reusing a scope.
 14. **`/me` with no user id** answers 401 `employees.Unauthenticated`. It is unreachable behind the route's permission and is kept only so the handler is total.
+
+## Phase 4 — Performance
+
+### Setup
+
+- **Branch:** `claude/awesome-einstein-mw5xmb`. PR #5 (Phase 3) was still open when coding started, so the `Phase 4:` commits are **stacked on it** and join #5. Its body lists the range (the A12 fallback).
+- **Plan:** the approved "Phase 4, final", with review items P1–P9 and the "Also" line merged in.
+- **Decision (user):** keep the refresh token as an owned collection and bound it with a cap and a prune job, rather than making the token a standalone entity.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| 4.1 cap on active refresh tokens | fixed | `fde9714` | unit `ApplicationUserRefreshTokenCapTests` (15 logins → 10 active; rotation keeps the count; a cap-revoked token is reuse; no cap → nothing revoked) |
+| 4.1 prune job (P1, P4) | fixed | `fde9714` | `Phase4HttpTests.Prune_deletes_old_expired_and_old_revoked_rows_and_keeps_everything_still_usable`, `Prune_works_in_batches_and_stops_at_the_per_sweep_cap`, `Fifty_rotations_then_a_prune_leave_the_account_within_the_cap` |
+| 4.1 invariant (P8) | fixed | `fde9714` | `A_user_loaded_before_a_prune_still_rotates_and_saves_after_it` |
+| 4.1 indexes (P5) | fixed | `fde9714` | probe migration empty (§2) |
+| 4.1 login projections | fixed | `fde9714` | `Regression_guard_login_statement_count_does_not_depend_on_the_token_count` (labelled guard, P3) |
+| P2 session check is a projection | already-fixed (verified) | — | `The_session_check_is_one_statement_and_never_reads_refresh_tokens` |
+| 4.2 `ResolveAsync` one statement | fixed | `fde9714` | `Phase4PermissionQueryTests.ResolveAsync_is_one_statement`; semantics `ResolveAsync_semantics_role_minus_live_deny_plus_grant_and_expired_overrides_ignored`, `ResolveAsync_for_an_unknown_user_is_empty` |
+| 4.2 `HasOtherActiveHolderAsync` one statement | fixed | `fde9714` | `HasOtherActiveHolderAsync_is_one_statement_however_many_candidates`, `A_holder_only_through_an_expired_grant_is_not_a_holder`, `A_role_holder_with_a_live_deny_is_not_a_holder`, `A_live_grant_without_a_role_is_a_holder_and_an_inactive_one_is_not`, `The_excluded_user_does_not_count_for_themselves` |
+| 4.3 employee list reads the table once | fixed | `fde9714` | `The_employee_list_is_three_statements_two_on_hr_employees_whatever_the_page_size` |
+| 4.4 `GetUserRolesAsync` one statement | fixed | `fde9714` | `A_users_roles_are_one_statement` |
+| 4.4 `AsNoTracking` on role, role-permission and role-detail reads | fixed | `fde9714` | — (no behavioural change; the full suite is unchanged) |
+
+**Statement counts, before → after:**
+
+| Path | Before | After |
+|---|---|---|
+| `ResolveAsync` | 4 (user + its tokens, role names, role claims, overrides) | **1** (`UNION ALL`) |
+| `HasOtherActiveHolderAsync` | 2 + about 5 per candidate | **1** (`EXISTS`) |
+| `GET /api/employees` | 4 (count, full rows, re-read for profiles, Identity) | **3** (count, projected page, Identity) |
+| `GetUserRolesAsync` | 3 | **1** |
+| Login, in the command's own scope | the user loaded, then loaded again inside `ResolveAsync` | the user loaded once; permissions are one statement |
+
+### What changed
+
+- **`ApplicationUser.IssueRefreshToken(…, maxActive)`** revokes the oldest active tokens beyond the cap. Login passes `Identity:RefreshTokens:MaxActivePerUser` (default 10).
+  - Rotation is not given the cap: it revokes one token for every one it issues, so it can never cross it. This is a small deviation from the plan's wording ("passes the cap too") with the same effect.
+- **`RefreshTokenOptions`** (`Identity:RefreshTokens`) and **`RefreshTokenPruneJob`** are registered in `IdentityModule`.
+  - The job reads its settings per run (`IOptionsSnapshot`; it is scoped), like the reaper.
+  - **P4:** the token is an owned type, and an owned type can't be the root of `ExecuteDeleteAsync`. So each batch is one plain-SQL `DELETE FROM identity.refresh_tokens WHERE id IN (SELECT id … LIMIT n)` on Identity's own table. Its shape is checked in captured SQL.
+- **Indexes (P5):** on `ExpiresOn` and `RevokedOn`, in the owned-type mapping. Migration `RefreshTokenPruneIndexes`.
+- **The invariant (P8)** is commented on `IssueRefreshToken` and on the job.
+- **`IPeriodicJob`'s doc** said a job with any side effect beyond notifying didn't belong there; it now names the two housekeeping jobs.
+- **`EffectivePermissionService`:**
+  - one `UNION ALL` for resolution; one `EXISTS` for the last-holder check;
+  - a new `ResolveAsync(ApplicationUser)` overload, used by `JwtProvider`;
+  - no `UserManager` dependency any more;
+  - its doc keeps the ported-unchanged text and the two known gaps (Phase 5), and adds the Phase 4 paragraph.
+- **`GetEmployeeProfilesQuery`** serves `GET /api/employees`.
+  - **P6:** `EmployeeProfiles.ToSummary(db)`, the single HR projection, and `EmployeeProfiles.Zip`, the join with Identity's names plus Phase 3's missing-login warning, live in `Hr.Infrastructure/Services/EmployeeProfiles.cs`.
+  - Both `HrDirectory` and the Hr.Application handler use it. `Hr.Infrastructure.csproj` already grants `InternalsVisibleTo` to `Hr.Application` (verified, line 26), so no reference was added.
+- **Role reads:**
+  - `RoleService.GetUserRolesAsync` is one untracked query;
+  - `GetAllRolesAsync`, `GetRolePermissionsAsync` and `GetRoleQuery`'s read are `AsNoTracking`;
+  - `RoleService.GetByIdAsync` stays tracked, because commands use it.
+- **`PeriodicJobTests`:** its exact job list gains `RefreshTokenPruneJob` (an addition), and its comment's count is corrected.
+- **The `EmployeeDetailResponse` doc,** which still said "composed at the endpoint" (stale since Phase 3), is corrected.
+
+### 2. Run 0 for this phase
+
+The exploration on 2026-10-20 confirmed every item as described in the plan's context. **P2 was already true:** `UserSessionState` projects `(Id, SecurityStamp, IsActive)` with `AsNoTracking` and a query tag, and never calls `FindByIdAsync`. The new test pins it.
+
+The probe migration after `RefreshTokenPruneIndexes` came out empty. The snapshot's only change is the two indexes.
+
+### 3. Tests written but not run
+
+None.
+
+### 3a. Red-before-green proofs
+
+| Reverted | Went red |
+|---|---|
+| the cap never applied | `Fifteen_logins_leave_ten_active_and_revoke_the_five_oldest` |
+| the `RevokedOn` condition removed from the prune | `Prune_deletes_old_…`, `Fifty_rotations_then_a_prune_…` |
+| the `ExpiresOn` condition removed from the prune | `Prune_deletes_old_…` |
+| the batch loop stops after one batch | `Prune_works_in_batches_and_stops_at_the_per_sweep_cap` |
+| the per-sweep cap removed | the same test |
+| an extra statement added to `ResolveAsync` | `ResolveAsync_is_one_statement` (the pre-Phase-4 body can't be swapped back in, because the old constructor took `UserManager`) |
+| the live-deny clause disabled in `HasOtherActiveHolderAsync` | `A_role_holder_with_a_live_deny_is_not_a_holder` |
+| `LiveAt` dropped from the holder check | `A_holder_only_through_an_expired_grant_is_not_a_holder` |
+| `GetUserRolesAsync`'s three-statement body restored | `A_users_roles_are_one_statement` |
+| `EmployeeEndpoints.cs` restored to its pre-Phase-4 version | `The_employee_list_is_three_statements_two_on_hr_employees_whatever_the_page_size` |
+
+**Not proved by revert:**
+- the session check: P2 was already true and there is nothing to revert;
+- the P8 invariant test: a guard on a property of the design, not of one line;
+- the login statement check: a labelled regression guard (P3);
+- the `AsNoTracking` reads: no observable behaviour.
+
+### 4. Migration guards added
+
+None. `RefreshTokenPruneIndexes` only adds indexes.
+
+**Ops, before deploying (P4).** Size the backlog the first sweeps will work off:
+
+```sql
+SELECT count(*) FILTER (WHERE "ExpiresOn" < now() - interval '1 day') AS expired,
+       count(*) FILTER (WHERE "RevokedOn" < now() - interval '24 hours') AS revoked_past_window
+FROM identity.refresh_tokens;
+```
+
+The worker sweeps every `Notifications:SweepMinutes` (default 15). Each sweep deletes at most `PruneBatchSize × PruneMaxBatchesPerSweep` = 1000 × 10 = **10,000 rows**, so about **40,000 rows an hour**. A backlog of N rows clears in about N / 40,000 hours, with each statement bounded at 1000 rows.
+
+**Per-user row bound (P1).**
+- At most **10 active** rows.
+- Plus the rows revoked within the last **24 h**: one per rotation, plus any the cap or a logout revoked.
+- With 60-minute access tokens, a client refreshing continuously rotates about 24 times a day per session. That is about **10 + 24 × sessions** rows per user: about 34 for one busy session, about 250 for ten.
+- Before this phase the count was unbounded, because nothing was ever deleted.
+
+**The P1 trade-off.** A rotated-away token presented more than 24 h after its rotation is still **rejected** (`authentications.InvalidRefreshToken`). It no longer revokes the whole family, because the row that proved it was rotated has been pruned. Inside the window, reuse detection is exactly as before.
+
+### 5. Frontend contract changes
+
+| Behaviour | Before | After |
+|---|---|---|
+| An 11th concurrent session for one account | allowed; unlimited sessions | **the oldest session's refresh ends**: its next `POST /api/auth/refresh` answers 401 `authentications.InvalidRefreshToken`, and that device must sign in again |
+| Replaying a rotated refresh token more than 24 h later | 401 `RefreshTokenReused`, and the family revoked | 401 `InvalidRefreshToken`; the family is not revoked |
+| `GET /api/employees` | — | same response shape and order; one fewer statement |
+
+**P9, for the owner:** copy the 11th-session row above into the **frontend 006b-1 notes**, so QA expects a device to be signed out when a user opens an 11th session. Those notes live in `../docs`, outside this repo, so they are not edited here.
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **No blockers.**
+2. **P4:** the batched delete is plain SQL, not `ExecuteDeleteAsync`, because EF can't use an owned type as a delete root. It touches one table in Identity's own schema, and it is not a stored procedure. Housekeeping on unusable rows, so it is not audited.
+3. **P7, remaining callers:**
+   - `GetEmployeesQuery` (and its handler and validator) is now used **only by a test**: `EmployeeFlowTests`. Marked for Phase 5's dead-code pass and left in place.
+   - `GetEmployeeQuery` is also test-only (`EmployeeFlowTests`), so it is marked too.
+   - `EmployeeResponse` is still used in production: `GetEmployeeDetailQueryHandler` builds the detail from it through `ResponseMapping`. It stays.
+4. **Semantics are unchanged.** The resolver and the last-holder check still ignore the override's own `IsActive` flag and the user's `IsActive` in `ResolveAsync`. Both are Phase 5 items. The last-holder check weighs only active users, as before.
+5. **Left as is, recorded:**
+   - the detail route's extra `IUserDirectory.GetAsync` for `LoginActive`, because `EmployeeProfile` doesn't carry the login state and adding it would change a cross-module contract;
+   - the duplicate override read in `GetUserEffectivePermissionsQuery`.
+6. **Login still loads the user twice:** once in `PasswordSignIn`'s own scope, by design (K4: the lockout bookkeeping commits outside the command), and once in the handler. The owned tokens come with each load, which is why the cap and the prune, not projections, are what bound the cost.
