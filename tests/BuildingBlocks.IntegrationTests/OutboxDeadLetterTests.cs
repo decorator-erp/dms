@@ -235,7 +235,7 @@ public sealed class OutboxDeadLetterTests(OutboxFixture fixture)
         Assert.Contains(plan, line => line.Contains("ix_outbox_messages_unprocessed", StringComparison.Ordinal));
     }
 
-    private ServiceProvider BuildProvider(
+    private static ServiceProvider BuildProvider(
         string cs,
         CallCounter counter,
         FailureController failure,

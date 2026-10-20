@@ -25,10 +25,14 @@ internal sealed class CreateSiteItemCommandValidator : AbstractValidator<CreateS
 internal sealed class CreateSiteItemCommandHandler(SitesDbContext db, ISiteSchemaCache schemaCache)
     : ICommandHandler<CreateSiteItemCommand, Guid>
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     public async Task<Result<Guid>> HandleAsync(
         CreateSiteItemCommand command, CancellationToken ct = default)
     {
-        string normalized = command.Request.Code.Trim().ToLower();
+        string normalized = command.Request.Code.Trim().ToLowerInvariant();
 
         if (await db.SiteItems.AnyAsync(i => i.Code.ToLower() == normalized, ct))
         {
@@ -107,6 +111,10 @@ internal sealed class ChangeSiteItemShapeCommandValidator : AbstractValidator<Ch
 internal sealed class ChangeSiteItemShapeCommandHandler(SitesDbContext db, ISiteSchemaCache schemaCache)
     : ICommandHandler<ChangeSiteItemShapeCommand>
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     public async Task<Result> HandleAsync(
         ChangeSiteItemShapeCommand command, CancellationToken ct = default)
     {
@@ -128,7 +136,7 @@ internal sealed class ChangeSiteItemShapeCommandHandler(SitesDbContext db, ISite
         // collides with the item's own row.
         if (!item.CodeEquals(command.Request.Code))
         {
-            string normalized = command.Request.Code.Trim().ToLower();
+            string normalized = command.Request.Code.Trim().ToLowerInvariant();
             if (await db.SiteItems.AnyAsync(i => i.Id != command.ItemId && i.Code.ToLower() == normalized, ct))
             {
                 return SiteErrors.CodeTaken;

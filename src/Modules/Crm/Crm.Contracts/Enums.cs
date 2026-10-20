@@ -222,6 +222,10 @@ public enum CatalogAttributeType
 public enum CatalogSelectionMode
 {
     None = 1,
+
+    // A stored and serialized value the frontend already sends; renaming it would break that contract.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1720:Identifier contains type name",
+        Justification = "Domain word (pick a single item), and a wire value clients already use.")]
     Single = 2,
     Multi = 3,
 }

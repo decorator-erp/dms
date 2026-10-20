@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using BuildingBlocks.Events;
 using BuildingBlocks.Messaging;
@@ -68,7 +69,7 @@ public sealed class WakeOnWriteTests(OutboxFixture fixture)
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Outbox:FallbackPollSeconds"] = fallbackSeconds.ToString(),
+                ["Outbox:FallbackPollSeconds"] = fallbackSeconds.ToString(CultureInfo.InvariantCulture),
             })
             .Build());
         services.AddDbContext<SharedDbContext>(o => o.UseNpgsql(fixture.ConnectionString));

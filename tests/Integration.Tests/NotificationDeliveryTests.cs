@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -190,7 +191,7 @@ public sealed class NotificationDeliveryTests(ApiFixture fixture)
             """SELECT COUNT(*) FROM notify.notifications WHERE "RecipientUserId" = ANY(@ids)""", connection);
         command.Parameters.AddWithValue("ids", recipients.ToArray());
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     private sealed record RegisterResponse(string UserId);

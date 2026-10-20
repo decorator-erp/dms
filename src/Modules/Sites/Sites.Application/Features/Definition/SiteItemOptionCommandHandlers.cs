@@ -25,6 +25,10 @@ internal sealed class AddSiteItemOptionCommandValidator : AbstractValidator<AddS
 internal sealed class AddSiteItemOptionCommandHandler(SitesDbContext db, ISiteSchemaCache schemaCache)
     : ICommandHandler<AddSiteItemOptionCommand, Guid>
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     public async Task<Result<Guid>> HandleAsync(
         AddSiteItemOptionCommand command, CancellationToken ct = default)
     {
@@ -44,7 +48,7 @@ internal sealed class AddSiteItemOptionCommandHandler(SitesDbContext db, ISiteSc
             return SiteErrors.OptionsRequireSelect;
         }
 
-        string normalized = command.Request.Code.Trim().ToLower();
+        string normalized = command.Request.Code.Trim().ToLowerInvariant();
         bool taken = await db.SiteItemOptions
             .AnyAsync(o => o.ItemId == command.ItemId && o.Code.ToLower() == normalized, ct);
 

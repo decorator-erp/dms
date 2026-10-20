@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -258,7 +259,7 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
     private async Task<long> ScalarAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection);
-        return Convert.ToInt64(await command.ExecuteScalarAsync());
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     private async Task<string> TextAsync(string sql)

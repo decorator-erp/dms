@@ -94,7 +94,7 @@ internal sealed class IdentityModule : IModule
         IHostEnvironment environment = services.GetRequiredService<IHostEnvironment>();
 
         await RoleSeeder.SeedAsync(roleManager);
-        await RoleClaimSeeder.SeedAsync(roleManager, db, catalog);
+        await RoleClaimSeeder.SeedAsync(roleManager, db, catalog, ct);
         await BaselineClaimSeeder.SeedAsync(roleManager, db, catalog, ct);
         await AdminUserSeeder.SeedAsync(userManager, roleManager, configuration, environment);
     }

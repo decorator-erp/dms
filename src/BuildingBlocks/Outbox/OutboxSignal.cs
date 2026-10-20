@@ -15,7 +15,7 @@ namespace BuildingBlocks.Outbox;
 /// request (whose nudge never fired) or by a second process instance (whose in-memory signal this one
 /// never sees) — never remove it in exchange for this.
 /// </summary>
-public sealed class OutboxSignal
+public sealed class OutboxSignal : IDisposable
 {
     private readonly SemaphoreSlim _signal = new(0, 1);
 
@@ -36,4 +36,7 @@ public sealed class OutboxSignal
 
     /// <summary>Waits for the next nudge, or <paramref name="fallback"/>, whichever comes first.</summary>
     public Task WaitAsync(TimeSpan fallback, CancellationToken ct) => _signal.WaitAsync(fallback, ct);
+
+    /// <summary>The container disposes the singleton at shutdown, after the hosted processor has stopped.</summary>
+    public void Dispose() => _signal.Dispose();
 }

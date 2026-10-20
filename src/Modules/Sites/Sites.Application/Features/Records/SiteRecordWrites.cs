@@ -43,11 +43,15 @@ internal static class SiteRecordWrites
     /// Case-insensitive label uniqueness within (site, module), among ACTIVE rows — mirroring
     /// <c>ux_site_records_label</c>, so the caller gets a 409 rather than a constraint violation.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     public static async Task<Result> EnsureLabelFreeAsync(
         SitesDbContext db, Guid siteId, Guid moduleId, string label, Guid? excludingRecordId,
         CancellationToken ct)
     {
-        string normalized = label.Trim().ToLower();
+        string normalized = label.Trim().ToLowerInvariant();
 
         bool taken = await db.SiteRecords
             .AnyAsync(

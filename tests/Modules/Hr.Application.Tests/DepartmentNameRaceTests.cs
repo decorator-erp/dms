@@ -68,7 +68,7 @@ public sealed class DepartmentNameRaceTests(HrApplicationFixture fixture) : IAsy
     }
 
     /// <summary>The handlers title-case names; the trigger must see the stored form.</summary>
-    private static string Corrected(string name) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower());
+    private static string Corrected(string name) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower(CultureInfo.CurrentCulture));
 
     private async Task ExecuteAsync(string sql)
     {

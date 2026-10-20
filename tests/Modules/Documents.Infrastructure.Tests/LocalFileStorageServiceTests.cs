@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Documents.Contracts;
 using Documents.Infrastructure.Services;
@@ -31,7 +32,7 @@ public sealed class LocalFileStorageServiceTests : IDisposable
         };
         if (maxUploadBytes is { } max)
         {
-            settings["FileStorage:MaxUploadBytes"] = max.ToString();
+            settings["FileStorage:MaxUploadBytes"] = max.ToString(CultureInfo.InvariantCulture);
         }
 
         IConfigurationBuilder configuration = new ConfigurationBuilder().AddInMemoryCollection(settings);
@@ -175,6 +176,8 @@ public sealed class LocalFileStorageServiceTests : IDisposable
         public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
             inner.ReadAsync(buffer, offset, count, ct);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            inner.ReadAsync(buffer, ct);
         public override void Flush() => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();

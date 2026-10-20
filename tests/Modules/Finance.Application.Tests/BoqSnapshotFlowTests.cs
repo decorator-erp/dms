@@ -1,3 +1,4 @@
+using System.Globalization;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Finance.Contracts;
@@ -373,6 +374,6 @@ public sealed class BoqSnapshotFlowTests(FinanceApplicationFixture fixture)
             $"""SELECT count(*) FROM finance.boq_snapshot_lines WHERE "BoqSnapshotId" = '{snapshotId}';""",
             connection);
 
-        Assert.Equal(1L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        Assert.Equal(1L, Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
     }
 }

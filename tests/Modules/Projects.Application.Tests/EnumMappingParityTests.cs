@@ -1,3 +1,4 @@
+using System.Globalization;
 using Xunit;
 using Domain = Projects.Domain;
 
@@ -32,9 +33,9 @@ public class EnumMappingParityTests
     public void ContractsAndDomainEnum_HaveIdenticalNamesAndValues(Type contractsType, Type domainType)
     {
         var contractsValues = Enum.GetValues(contractsType).Cast<object>()
-            .ToDictionary(v => v.ToString()!, v => Convert.ToInt32(v));
+            .ToDictionary(v => v.ToString()!, v => Convert.ToInt32(v, CultureInfo.InvariantCulture));
         var domainValues = Enum.GetValues(domainType).Cast<object>()
-            .ToDictionary(v => v.ToString()!, v => Convert.ToInt32(v));
+            .ToDictionary(v => v.ToString()!, v => Convert.ToInt32(v, CultureInfo.InvariantCulture));
 
         Assert.Equal(contractsValues.Count, domainValues.Count);
         foreach ((string? name, int value) in contractsValues)

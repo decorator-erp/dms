@@ -43,9 +43,13 @@ internal sealed class GetSiteModuleSchemaQueryHandler(SitesDbContext db, ISiteSc
         return schema is null ? SiteErrors.ModuleNotFound : schema;
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     private async Task<SiteModuleSchemaResponse?> BuildAsync(string code, CancellationToken ct)
     {
-        string normalized = code.Trim().ToLower();
+        string normalized = code.Trim().ToLowerInvariant();
 
         var module = await db.SiteModules.AsNoTracking()
             .Where(m => m.Code.ToLower() == normalized && m.IsActive)
