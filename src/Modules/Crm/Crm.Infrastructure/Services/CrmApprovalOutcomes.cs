@@ -41,7 +41,8 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
         return Result.Success();
     }
 
-    /// <summary>Same binding rule as <see cref="ApplyToBrief"/>. On success, flushes and publishes
+    /// <summary>Same binding rule as <see cref="ApplyToBrief"/>. On success, flushes (a lost
+    /// <c>xmin</c> race is <see cref="CrmBriefErrors.ConcurrencyConflict"/>) and publishes
     /// <see cref="CrmItemsResolvedIntegrationEvent"/> for any scope the entry just resolved.</summary>
     public async Task<Result> ApplyToBriefSpaceAsync(
         CrmBriefSpace entry, Guid approvalId, ApprovalDecision decision, CancellationToken ct)
@@ -58,7 +59,13 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
         // database rather than the change tracker, so without this they still see THIS row's
         // pre-decision status and can never reach zero on the decision that resolves the last one. Still
         // inside the caller's one ambient transaction (InboxDedupeDecorator's, or the command pipeline's).
-        await db.SaveChangesAsync(ct);
+        // Through BriefWrites, so an xmin race on the send path is a 409, not a 500; the decided handler
+        // turns that 409 back into a retry (see ApprovalDecidedIntegrationEventHandler).
+        Result saved = await BriefWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return saved;
+        }
 
         Guid? stageId = await db.CrmDesignBriefs.AsNoTracking()
             .Where(b => b.Id == entry.BriefId)

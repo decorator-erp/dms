@@ -18,6 +18,9 @@ public partial class CrmBriefApprovalRounds : Migration
             type: "uuid",
             nullable: true);
 
+        // No-op in SQL: xmin is Postgres' system row-version column, which every table already has.
+        // Npgsql's migration SQL generator skips system columns, so this emits no DDL (checked with
+        // `dotnet ef migrations script`); EF records it only so the model snapshot knows the token.
         migrationBuilder.AddColumn<uint>(
             name: "xmin",
             schema: "crm",
@@ -42,6 +45,9 @@ public partial class CrmBriefApprovalRounds : Migration
             nullable: false,
             defaultValue: 0);
 
+        // No-op in SQL: xmin is Postgres' system row-version column, which every table already has.
+        // Npgsql's migration SQL generator skips system columns, so this emits no DDL (checked with
+        // `dotnet ef migrations script`); EF records it only so the model snapshot knows the token.
         migrationBuilder.AddColumn<uint>(
             name: "xmin",
             schema: "crm",
@@ -60,6 +66,7 @@ public partial class CrmBriefApprovalRounds : Migration
             schema: "crm",
             table: "crm_design_briefs");
 
+        // No-op in SQL, like the AddColumn in Up: Npgsql never drops the xmin system column.
         migrationBuilder.DropColumn(
             name: "xmin",
             schema: "crm",
@@ -75,6 +82,7 @@ public partial class CrmBriefApprovalRounds : Migration
             schema: "crm",
             table: "crm_brief_spaces");
 
+        // No-op in SQL, like the AddColumn in Up: Npgsql never drops the xmin system column.
         migrationBuilder.DropColumn(
             name: "xmin",
             schema: "crm",

@@ -38,4 +38,17 @@ public sealed class CrmApprovalIdsTests
         Assert.Equal(0b10, bytes[8] >> 6);
         Assert.Equal(5, id.Version);
     }
+
+    /// <summary>Pinned: these ids are already stored on live approvals. A change to the namespace, the
+    /// byte layout or the <c>ApprovalSubjectType</c> values must break this test rather than silently
+    /// re-key rounds in flight.</summary>
+    [Fact]
+    public void Id_IsPinned_ForAKnownSubjectAndRound()
+    {
+        var subjectId = new Guid("11111111-2222-3333-4444-555555555555");
+
+        Assert.Equal(
+            new Guid("dc9a47ab-5150-5e62-9d4c-517aaaa33e6b"),
+            CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, subjectId, 1));
+    }
 }

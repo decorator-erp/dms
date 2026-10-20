@@ -105,6 +105,14 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(
         }
 
         Result result = await outcomes.ApplyToBriefSpaceAsync(entry, @event.ApprovalId, @event.Decision, ct);
+        if (result.Error == CrmBriefErrors.ConcurrencyConflict)
+        {
+            // A lost xmin race is not a stale decision: rethrow so the inbox rolls back and the next outbox
+            // poll re-delivers against the reloaded row (the class remarks' retry path), never drop it.
+            throw new DbUpdateConcurrencyException(
+                $"BriefSpace {entry.Id} changed while applying approval {@event.ApprovalId}; retrying.");
+        }
+
         if (result.IsFailure)
         {
             LogIgnored(@event, entry.ApprovalStatus, entry.PendingApprovalId);

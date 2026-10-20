@@ -1,16 +1,16 @@
 using Crm.Domain;
-using Crm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SharedKernel;
 
-namespace Crm.Application.Features.Briefs;
+namespace Crm.Infrastructure.Persistence;
 
 /// <summary>
 /// Save for every brief and brief-space write, translating the two races the brief tables now catch into
 /// 409s instead of a 500: an <c>xmin</c> conflict on the brief or entry row, and a unique-index violation
 /// named in <see cref="UniqueViolations"/>. Same shape as Sites' <c>SiteWrites.SaveAsync</c>; anything
-/// else still throws.
+/// else still throws. Lives in Infrastructure (not beside the handlers) because
+/// <c>CrmApprovalOutcomes</c>, which the send handlers call, saves through it too.
 /// </summary>
 internal static class BriefWrites
 {
