@@ -147,9 +147,11 @@ public sealed class EmployeeFlowTests(HrApplicationFixture fixture)
         (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
             sp, $"employee-{Guid.NewGuid():N}@example.com");
 
-        IQueryHandler<GetEmployeeQuery, EmployeeResponse> get = sp.GetRequiredService<IQueryHandler<GetEmployeeQuery, EmployeeResponse>>();
-        Result<EmployeeResponse> getResult = await get.HandleAsync(new GetEmployeeQuery(employeeId));
-        Assert.True(getResult.IsSuccess);
+        // The queries the endpoints serve (Phase 5 deleted the two test-only ones this used to call).
+        IQueryHandler<GetEmployeeDetailQuery, EmployeeDetailResponse> get =
+            sp.GetRequiredService<IQueryHandler<GetEmployeeDetailQuery, EmployeeDetailResponse>>();
+        Result<EmployeeDetailResponse> getResult = await get.HandleAsync(new GetEmployeeDetailQuery(employeeId));
+        Assert.True(getResult.IsSuccess, getResult.IsFailure ? getResult.Error.ToString() : null);
         Assert.Equal("Engineer", getResult.Value!.JobTitle);
         Assert.Equal(appUserId, getResult.Value.AppUserId);
 
@@ -158,11 +160,12 @@ public sealed class EmployeeFlowTests(HrApplicationFixture fixture)
             employeeId, "Senior Engineer", "FullTime", PhoneNumber: null, EmergencyContactPhone: null, Notes: null, EndDate: null));
         Assert.True(updateResult.IsSuccess);
 
-        Result<EmployeeResponse> afterUpdate = await get.HandleAsync(new GetEmployeeQuery(employeeId));
+        Result<EmployeeDetailResponse> afterUpdate = await get.HandleAsync(new GetEmployeeDetailQuery(employeeId));
         Assert.Equal("Senior Engineer", afterUpdate.Value!.JobTitle);
 
-        IQueryHandler<GetEmployeesQuery, PagedResult<EmployeeResponse>> list = sp.GetRequiredService<IQueryHandler<GetEmployeesQuery, PagedResult<EmployeeResponse>>>();
-        Result<PagedResult<EmployeeResponse>> listResult = await list.HandleAsync(new GetEmployeesQuery(1, 50, "Senior"));
+        IQueryHandler<GetEmployeeProfilesQuery, PagedResult<EmployeeProfile>> list =
+            sp.GetRequiredService<IQueryHandler<GetEmployeeProfilesQuery, PagedResult<EmployeeProfile>>>();
+        Result<PagedResult<EmployeeProfile>> listResult = await list.HandleAsync(new GetEmployeeProfilesQuery(1, 50, "Senior"));
         Assert.True(listResult.IsSuccess);
         Assert.Contains(listResult.Value!.Items, e => e.Id == employeeId);
     }

@@ -140,7 +140,7 @@ public sealed class HrDataIntegrityTests(ApiFixture fixture)
         // Both former members can join another department now.
         Guid other = await CreateDepartmentAsync(hr);
         await ExpectAsync(HttpStatusCode.NoContent, await hr.PostAsync($"/api/employees/{member}/department/{other}", null));
-        // Deleted means gone: deleting again is 404 (DepartmentAlreadyDeleted is unreachable now).
+        // Deleted means gone: deleting again is 404 (the unreachable DepartmentAlreadyDeleted is gone too).
         await ExpectProblemAsync(await hr.DeleteAsync($"/api/departments/{department}"), HttpStatusCode.NotFound, "departments.NotFound");
     }
 

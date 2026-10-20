@@ -41,14 +41,11 @@ public class DepartmentTests
     }
 
     [Fact]
-    public void Deactivate_ThenActivate_RestoresIsActive()
+    public void Deactivate_ClearsIsActive()
     {
         var department = Department.Create("Engineering");
 
         department.Deactivate();
         Assert.False(department.IsActive);
-
-        department.Activate();
-        Assert.True(department.IsActive);
     }
 }

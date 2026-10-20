@@ -7,10 +7,10 @@ using SharedKernel;
 
 namespace Identity.Infrastructure.Services;
 
-/// <summary>Ported from <c>../backend/Infrastructure/Services/RoleService.cs</c>, with one bug fixed
-/// on the way in (D7): <see cref="UserInRoleAsync"/> resolves the role's <em>name</em> before calling
-/// <see cref="UserManager{TUser}.IsInRoleAsync"/> — the backend passed a role <em>id</em> to that
-/// method, which expects a name, so the check silently always returned false there.</summary>
+/// <summary>Ported from <c>../backend/Infrastructure/Services/RoleService.cs</c>. Its role-membership
+/// and is-admin checks (where D7 fixed the backend passing a role id to
+/// <see cref="UserManager{TUser}.IsInRoleAsync"/>, which expects a name) and its rename-only update had
+/// no caller here, and Phase 5 deleted them.</summary>
 internal sealed class RoleService(
     RoleManager<ApplicationRole> roleManager,
     UserManager<ApplicationUser> userManager,
@@ -29,25 +29,6 @@ internal sealed class RoleService(
         IdentityResult result = await roleManager.CreateAsync(role);
 
         return result.Succeeded ? role.Id : IdentityErrorsToError("roles.CreateFailed", result);
-    }
-
-    public async Task<Result> UpdateRoleAsync(string roleId, string newRoleName, CancellationToken ct = default)
-    {
-        ApplicationRole? role = await roleManager.FindByIdAsync(roleId);
-        if (role is null)
-        {
-            return RoleErrors.NotFound;
-        }
-
-        if (IsSystemRole(role.Name) && !string.Equals(role.Name, newRoleName, StringComparison.Ordinal))
-        {
-            return RoleErrors.SystemRole(role.Name!);
-        }
-
-        role.Rename(newRoleName);
-        IdentityResult result = await roleManager.UpdateAsync(role);
-
-        return result.Succeeded ? Result.Success() : IdentityErrorsToError("roles.UpdateFailed", result);
     }
 
     public async Task<Result> DeleteRoleAsync(string roleId, CancellationToken ct = default)
@@ -136,31 +117,6 @@ internal sealed class RoleService(
         // N2: a removed role must stop working now, not when the token expires.
         await securityStamps.BumpAsync(user.Id, ct);
         return Result.Success();
-    }
-
-    public async Task<bool> UserInRoleAsync(string userId, string roleId, CancellationToken ct = default)
-    {
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
-        ApplicationRole? role = await roleManager.FindByIdAsync(roleId);
-        if (user is null || role?.Name is null)
-        {
-            return false;
-        }
-
-        return await userManager.IsInRoleAsync(user, role.Name);
-    }
-
-    public async Task<bool> UserIsAdminAsync(string userId, CancellationToken ct = default)
-    {
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
-        if (user is null || !user.IsActive)
-        {
-            return false;
-        }
-
-        IList<string> roleNames = await userManager.GetRolesAsync(user);
-        return roleNames.Contains("admin", StringComparer.OrdinalIgnoreCase)
-            || roleNames.Contains("manager", StringComparer.OrdinalIgnoreCase);
     }
 
     public Task<ApplicationRole?> GetByIdAsync(string roleId, CancellationToken ct = default) =>

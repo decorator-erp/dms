@@ -4,9 +4,6 @@ namespace Identity.Domain;
 
 internal static class RoleErrors
 {
-    public static readonly Error Unauthorized =
-        Error.Unauthorized("roles.Unauthorized", "You are not authorized to manage roles.");
-
     public static Error DuplicatedRole(string roleName) =>
         Error.BadRequest("roles.DuplicatedRole", $"Role '{roleName}' already exists.");
 
@@ -27,7 +24,4 @@ internal static class RoleErrors
         Error.Conflict(
             "roles.RoleInUse",
             $"Role '{roleId}' is still assigned to {memberCount} user(s); remove them from it first.");
-
-    public static readonly Error UserNotInRole =
-        Error.BadRequest("roles.UserNotInRole", "User is not in the specified role.");
 }
