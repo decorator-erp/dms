@@ -28,6 +28,8 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
             return cached;
         }
 
+        // Active employees only (K3's filter): other modules ask this to authorize or assign the caller,
+        // and a deactivated employee must not be anyone. IsLinkedAsync is the "deactivated too" question.
         Guid? employeeId = await db.Employees
             .Where(e => e.AppUserId == appUserId)
             .Select(e => (Guid?)e.Id)
@@ -35,6 +37,24 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
 
         _resolveCache[appUserId] = employeeId;
         return employeeId;
+    }
+
+    // IgnoreQueryFilters: "linked" includes deactivated employees (see the contract).
+    public async Task<bool> IsLinkedAsync(string appUserId, CancellationToken ct) =>
+        await db.Employees.IgnoreQueryFilters().AnyAsync(e => e.AppUserId == appUserId, ct);
+
+    public async Task<IReadOnlyCollection<string>> GetLinkedAsync(
+        IReadOnlyCollection<string> appUserIds, CancellationToken ct)
+    {
+        if (appUserIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.Employees.IgnoreQueryFilters()
+            .Where(e => appUserIds.Contains(e.AppUserId))
+            .Select(e => e.AppUserId)
+            .ToListAsync(ct);
     }
 
     public async Task<EmployeeSummary?> GetAsync(Guid employeeId, CancellationToken ct) =>
@@ -58,7 +78,10 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
 
     public async Task<IReadOnlyList<Guid>> DepartmentMembersAsync(Guid departmentId, CancellationToken ct) =>
         await db.EmployeeDepartments
-            .Where(ed => ed.DepartmentId == departmentId && ed.IsActive)
+            // Active memberships of active employees: a deactivated employee keeps their membership row
+            // (reactivation restores them), but is not a member anyone should see. The Employees set
+            // carries K3's filter, so this stays one statement.
+            .Where(ed => ed.DepartmentId == departmentId && ed.IsActive && db.Employees.Any(e => e.Id == ed.EmployeeId))
             .Select(ed => ed.EmployeeId)
             .ToListAsync(ct);
 
@@ -85,7 +108,11 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
             return [];
         }
 
+        // IgnoreQueryFilters: the ids come from an HR read that already applied the caller's choice
+        // (an employee list with includeInactive=true, or a detail page, which shows deactivated
+        // employees too), so a deactivated one is asked for on purpose.
         List<EmployeeSummary> summaries = await db.Employees
+            .IgnoreQueryFilters()
             .Where(e => ids.Contains(e.Id))
             .Select(ToSummary())
             .ToListAsync(ct);
@@ -108,6 +135,10 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
     /// lives in <see cref="Domain.EmployeeDepartment"/>, so this resolves it as a correlated scalar
     /// subquery (translates to SQL directly; EF Core supports this pattern) rather than loading the
     /// join table separately and mapping in memory.
+    ///
+    /// <para>K1: an employee has at most one active membership (a partial unique index enforces it), so
+    /// the subquery has exactly one candidate and needs no ordering. Before, it had to pick arbitrarily
+    /// between several.</para>
     /// </summary>
     private System.Linq.Expressions.Expression<Func<Domain.Employee, EmployeeSummary>> ToSummary() => e =>
         new EmployeeSummary(

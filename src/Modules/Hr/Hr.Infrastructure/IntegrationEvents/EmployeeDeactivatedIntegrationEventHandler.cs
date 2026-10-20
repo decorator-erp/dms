@@ -22,8 +22,18 @@ internal sealed class EmployeeDeactivatedIntegrationEventHandler(
 {
     public async Task HandleAsync(EmployeeDeactivatedIntegrationEvent @event, CancellationToken ct)
     {
-        Employee? employee = await db.Employees.FirstOrDefaultAsync(e => e.Id == @event.EmployeeId, ct);
+        // IgnoreQueryFilters: the employee this event is about is, by then, inactive.
+        Employee? employee = await db.Employees.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(e => e.Id == @event.EmployeeId, ct);
         if (employee is null)
+        {
+            return;
+        }
+
+        // HR-1: the current state wins over the event. If the employee was re-activated before this event
+        // was delivered, disabling the login now would undo the activation; the activation's own event
+        // will have re-enabled it (or will, in order).
+        if (employee.IsActive)
         {
             return;
         }

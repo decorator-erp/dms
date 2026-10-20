@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Identity.Contracts.Permissions;
+using Identity.Domain;
 using Identity.Infrastructure.Persistence;
 using Identity.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,8 @@ internal sealed class GetUserEffectivePermissionsQueryHandler(
         List<PermissionOverrideResponse> overrides = await db.UserPermissionOverrides
             .AsNoTracking()
             .Where(o => o.UserId == query.UserId)
+            // Aug 2.4: an expired override no longer affects anything, so it isn't listed either.
+            .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
             .Select(o => new PermissionOverrideResponse(
                 o.Id, o.Permission, o.IsGranted, o.GrantedById, o.Reason, o.ExpiresAt))
             .ToListAsync(ct);

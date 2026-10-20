@@ -4,6 +4,7 @@ using Hr.Contracts.Departments;
 using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
+using Hr.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
@@ -18,22 +19,12 @@ internal sealed class RemoveEmployeeFromDepartmentCommandValidator : AbstractVal
     }
 }
 
-internal sealed class RemoveEmployeeFromDepartmentCommandHandler(HrDbContext db)
+/// <summary>K2: removing an active member. Not a member (or already removed) is
+/// <c>departments.UserNotInDepartment</c> (400), where removing twice used to "succeed"; the department's
+/// head is <c>departments.RemoveHeadFirst</c> (409). See <see cref="IDepartmentMembershipService.RemoveAsync"/>.</summary>
+internal sealed class RemoveEmployeeFromDepartmentCommandHandler(IDepartmentMembershipService memberships)
     : ICommandHandler<RemoveEmployeeFromDepartmentCommand>
 {
-    public async Task<Result> HandleAsync(RemoveEmployeeFromDepartmentCommand command, CancellationToken ct = default)
-    {
-        EmployeeDepartment? membership = await db.EmployeeDepartments.FirstOrDefaultAsync(
-            ed => ed.EmployeeId == command.EmployeeId && ed.DepartmentId == command.DepartmentId, ct);
-
-        if (membership is null)
-        {
-            return DepartmentErrors.UserNotInDepartment;
-        }
-
-        membership.Remove();
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
-    }
+    public Task<Result> HandleAsync(RemoveEmployeeFromDepartmentCommand command, CancellationToken ct = default) =>
+        memberships.RemoveAsync(command.EmployeeId, command.DepartmentId, ct);
 }

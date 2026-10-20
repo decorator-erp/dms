@@ -28,6 +28,10 @@ internal static class DepartmentErrors
     public static readonly Error AlreadyHaveHead =
         Error.BadRequest("departments.AlreadyHaveHead", "This department already has a head assigned.");
 
+    /// <summary>K2: a department's head stays a member; unassign the head before removing or moving them.</summary>
+    public static readonly Error RemoveHeadFirst =
+        Error.Conflict("departments.RemoveHeadFirst", "This employee heads the department. Unassign the head first.");
+
     public static readonly Error DepartmentAlreadyDeleted =
         Error.BadRequest("departments.DepartmentAlreadyDeleted", "This department is already deleted.");
 }

@@ -10,7 +10,12 @@
     <ProjectReference Include="..\Hr.Contracts\Hr.Contracts.csproj" />
     <ProjectReference Include="..\Hr.Domain\Hr.Domain.csproj" />
     <!-- Own Infrastructure, same reasoning as Identity.Application (G1-04): handlers use HrDbContext
-         directly - "no repository pattern" - so Application needs the concrete type. -->
+         directly - "no repository pattern" - so Application needs the concrete type.
+         The one service-layer exception (K2): membership and headship transitions go through
+         Hr.Infrastructure's DepartmentMembershipService, because seven handlers share one set of rules
+         (one active department per employee, heads stay members, deactivation and deletion clean up)
+         that had already drifted apart when each handler wrote employee_departments itself. It is not a
+         repository: it uses HrDbContext directly too, and owns rules, not data access. -->
     <ProjectReference Include="..\Hr.Infrastructure\Hr.Infrastructure.csproj" />
     <!-- Cross-module read: HR validates AppUserId via Identity.Contracts.IUserDirectory, never a join
          into identity. tables. Cross-module *.Contracts references are always allowed. -->

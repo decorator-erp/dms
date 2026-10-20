@@ -4,6 +4,7 @@ using Hr.Contracts.Departments;
 using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
+using Hr.Infrastructure.Services;
 using SharedKernel;
 
 namespace Hr.Application.Features.Departments.UnassignHead;
@@ -13,24 +14,9 @@ internal sealed class UnassignDepartmentHeadCommandValidator : AbstractValidator
     public UnassignDepartmentHeadCommandValidator() => RuleFor(x => x.DepartmentId).NotEmpty();
 }
 
-internal sealed class UnassignDepartmentHeadCommandHandler(HrDbContext db) : ICommandHandler<UnassignDepartmentHeadCommand>
+internal sealed class UnassignDepartmentHeadCommandHandler(IDepartmentMembershipService memberships)
+    : ICommandHandler<UnassignDepartmentHeadCommand>
 {
-    public async Task<Result> HandleAsync(UnassignDepartmentHeadCommand command, CancellationToken ct = default)
-    {
-        Department? department = await db.Departments.FindAsync([command.DepartmentId], ct);
-        if (department is null)
-        {
-            return DepartmentErrors.NotFound;
-        }
-
-        if (!department.DepartmentHeadId.HasValue)
-        {
-            return DepartmentErrors.DepartmentHeadNotAssign;
-        }
-
-        department.RemoveHead();
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
-    }
+    public Task<Result> HandleAsync(UnassignDepartmentHeadCommand command, CancellationToken ct = default) =>
+        memberships.UnassignHeadAsync(command.DepartmentId, ct);
 }

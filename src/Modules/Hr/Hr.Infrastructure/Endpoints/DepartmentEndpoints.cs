@@ -28,11 +28,11 @@ internal sealed class DepartmentEndpoints : IEndpoint
         // own ceiling - "everything you will allow". Employees is a genuine browse list, where one
         // page is what the screen actually wants.
         group.MapGet("/", async (
-            int? pageNumber, int? pageSize, string? nameFilter,
+            int? pageNumber, int? pageSize, string? nameFilter, bool? includeInactive,
             IQueryHandler<GetDepartmentsQuery, PagedResult<DepartmentResponse>> handler, CancellationToken ct) =>
         {
             Result<PagedResult<DepartmentResponse>> result = await handler.HandleAsync(
-                new GetDepartmentsQuery(pageNumber ?? 1, pageSize ?? 200, nameFilter), ct);
+                new GetDepartmentsQuery(pageNumber ?? 1, pageSize ?? 200, nameFilter, includeInactive ?? false), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRead);
 

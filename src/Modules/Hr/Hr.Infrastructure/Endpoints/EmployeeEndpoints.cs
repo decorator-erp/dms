@@ -36,13 +36,13 @@ internal sealed class EmployeeEndpoints : IEndpoint
         // Paging is optional, for the reason spelled out on /api/departments - which also explains why
         // that default is 200 and this one is 50.
         group.MapGet("/", async (
-            int? pageNumber, int? pageSize, string? jobTitleFilter,
+            int? pageNumber, int? pageSize, string? jobTitleFilter, bool? includeInactive,
             IQueryHandler<GetEmployeesQuery, PagedResult<EmployeeResponse>> listHandler,
             IHrDirectory hrDirectory,
             CancellationToken ct) =>
         {
             Result<PagedResult<EmployeeResponse>> pageResult = await listHandler.HandleAsync(
-                new GetEmployeesQuery(pageNumber ?? 1, pageSize ?? 50, jobTitleFilter), ct);
+                new GetEmployeesQuery(pageNumber ?? 1, pageSize ?? 50, jobTitleFilter, includeInactive ?? false), ct);
             if (pageResult.IsFailure)
             {
                 return pageResult.ToProblem();
@@ -179,7 +179,9 @@ internal sealed class EmployeeEndpoints : IEndpoint
     // No EmergencyContactName: the column was dropped by migration 20260827091145_UpdateEmployeeEntity,
     // and the field is gone from Employee, EmployeeResponse and UpdateEmployeeCommand alike. Declaring
     // it here without ever reading it would let a client send it and have it silently discarded.
+    // N7: a full replacement. JobTitle and ContractType are required (the validator says so); a missing
+    // or null optional field clears it.
     private sealed record UpdateEmployeeRequest(
-        string? JobTitle, string? ContractType, string? PhoneNumber,
+        string JobTitle, string ContractType, string? PhoneNumber,
         string? EmergencyContactPhone, string? Notes, DateOnly? EndDate);
 }

@@ -230,5 +230,11 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
 
         public Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
             throw new NotImplementedException("Not used by CrmAccessGuard.");
+
+        public Task<bool> IsLinkedAsync(string appUserId, CancellationToken ct) =>
+            throw new NotImplementedException("Not used by CrmAccessGuard.");
+
+        public Task<IReadOnlyCollection<string>> GetLinkedAsync(IReadOnlyCollection<string> appUserIds, CancellationToken ct) =>
+            throw new NotImplementedException("Not used by CrmAccessGuard.");
     }
 }

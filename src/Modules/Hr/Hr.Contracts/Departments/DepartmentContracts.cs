@@ -5,7 +5,10 @@ namespace Hr.Contracts.Departments;
 
 /// <summary>See the remarks on <c>Hr.Contracts.Employees.EmployeeContracts</c> — same reason these
 /// command/query wrapper types and DTOs live here rather than in <c>Hr.Application</c>.</summary>
-public sealed record DepartmentResponse(Guid Id, string Name, string? Description, Guid? DepartmentHeadId, bool IsActive);
+/// <summary>N8 adds <paramref name="HeadName"/> (the head's display name, from Identity) and
+/// <paramref name="MemberCount"/> (active members who are active employees).</summary>
+public sealed record DepartmentResponse(
+    Guid Id, string Name, string? Description, Guid? DepartmentHeadId, bool IsActive, string? HeadName, int MemberCount);
 
 public sealed record CreateDepartmentCommand(string Name, string? Description = null) : ICommand<Guid>;
 
@@ -19,7 +22,8 @@ public sealed record UnassignDepartmentHeadCommand(Guid DepartmentId) : ICommand
 
 public sealed record GetDepartmentQuery(Guid DepartmentId) : IQuery<DepartmentResponse>;
 
-public sealed record GetDepartmentsQuery(int PageNumber, int PageSize, string? NameFilter = null)
+/// <summary>K3: deleted departments are left out unless <paramref name="IncludeInactive"/>.</summary>
+public sealed record GetDepartmentsQuery(int PageNumber, int PageSize, string? NameFilter = null, bool IncludeInactive = false)
     : IQuery<PagedResult<DepartmentResponse>>;
 
 /// <summary>Moves an employee from whichever department they're currently in (if any) to

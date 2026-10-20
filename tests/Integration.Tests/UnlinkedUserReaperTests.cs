@@ -1,7 +1,11 @@
 using BuildingBlocks.Jobs;
+using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
+using Hr.Contracts.Employees;
 using Identity.Contracts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using SharedKernel;
 using Xunit;
 
@@ -62,6 +66,34 @@ public sealed class UnlinkedUserReaperTests(ApiFixture fixture)
         UserSummary? survivor = await GetUserAsync(appUserId);
         Assert.NotNull(survivor);
         Assert.False(survivor!.IsActive);
+    }
+
+    /// <summary>
+    /// HR Phase 2 (A1): the directory hides inactive employees now, so "is linked" can no longer be the
+    /// same question as "resolves to an employee". Here the EMPLOYEE is deactivated through HR, and the
+    /// outbox deactivates the login, so both are inactive and the filtered directory sees no employee.
+    /// The reaper must still keep the login: <c>IsLinkedAsync</c> counts inactive employees.
+    /// </summary>
+    [Fact]
+    public async Task A_deactivated_employees_login_is_never_reaped()
+    {
+        (Guid employeeId, string appUserId) = await HrTestSeeding.HireEmployeeAsync(
+            fixture, $"left-{Guid.NewGuid():N}@example.com");
+
+        OutboxProcessor outbox = fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single();
+        await using (AsyncServiceScope scope = fixture.Services.CreateAsyncScope())
+        {
+            Result deactivated = await scope.ServiceProvider.GetRequiredService<ICommandHandler<DeactivateEmployeeCommand>>()
+                .HandleAsync(new DeactivateEmployeeCommand(employeeId));
+            Assert.True(deactivated.IsSuccess, deactivated.IsFailure ? deactivated.Error.ToString() : null);
+        }
+
+        await outbox.ProcessPendingAsync(CancellationToken.None);
+        Assert.False((await GetUserAsync(appUserId))!.IsActive);
+
+        await RunReaperAsync(retentionDays: 0);
+
+        Assert.NotNull(await GetUserAsync(appUserId));
     }
 
     [Fact]

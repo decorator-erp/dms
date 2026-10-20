@@ -18,7 +18,7 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("hr")
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -213,7 +213,8 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr
                     b.HasIndex("DepartmentHeadId");
 
                     b.HasIndex("Name")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
 
                     b.ToTable("departments", "hr");
                 });
@@ -268,7 +269,10 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr
                     b.HasIndex("AppUserId")
                         .IsUnique();
 
-                    b.ToTable("employees", "hr");
+                    b.ToTable("employees", "hr", t =>
+                        {
+                            t.HasCheckConstraint("ck_employees_contract_type", "\"ContractType\" BETWEEN 1 AND 4");
+                        });
                 });
 
             modelBuilder.Entity("Hr.Domain.EmployeeDepartment", b =>
@@ -285,11 +289,27 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("EmployeeId", "DepartmentId");
 
                     b.HasIndex("DepartmentId");
 
+                    b.HasIndex("EmployeeId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_employee_departments_EmployeeId")
+                        .HasFilter("\"IsActive\"");
+
                     b.ToTable("employee_departments", "hr");
+                });
+
+            modelBuilder.Entity("Hr.Domain.Department", b =>
+                {
+                    b.HasOne("Hr.Domain.Employee", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentHeadId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Hr.Domain.EmployeeDepartment", b =>
@@ -297,13 +317,13 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr
                     b.HasOne("Hr.Domain.Department", null)
                         .WithMany()
                         .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Hr.Domain.Employee", null)
                         .WithMany()
                         .HasForeignKey("EmployeeId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

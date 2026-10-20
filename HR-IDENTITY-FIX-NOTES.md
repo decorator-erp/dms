@@ -520,3 +520,206 @@ SELECT count(*) FROM identity.users WHERE NOT "LockoutEnabled";
 5. **Rate-limit numbers** (10 per 60 s) are my choice; the prompt gives none. Both are configurable.
 6. **Dead code, recorded for Aug 5.7, not removed:** `AuthErrors.UserNotActive` (unused since K4).
 7. **Eviction timing:** a stamp change is evicted before its transaction commits, so a racing request can re-cache the old stamp for at most one TTL (30 s by default). Evicting after commit would need a post-commit hook the pipeline doesn't have.
+
+## Phase 2 — HR data integrity
+
+### Setup
+
+- **Branch:** `claude/awesome-einstein-mw5xmb`. Per A12, it restarted from `master` after PR #3 merged (`3ea23a8`), so only merged history sits under it. Phase 2 is a **new** PR.
+- **Baseline:** `master` at `3ea23a8`, green.
+- **Plan:** the approved Phase 2 plan, with review amendments A1–A12 applied before coding.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| K1 restore a former membership | fixed | `3e9e4ed` | `HrDataIntegrityTests.AssignMoveAndMoveBack_RestoresTheFormerMembership_WithANewStart` |
+| K1/K2 one active department per employee | fixed | `3e9e4ed` | `AssigningSomeoneAlreadyInAnotherDepartment_Is409_Not500`; A6 `TwoConcurrentAssignments_OneWins_TheOtherIs409` |
+| K2 remove: inactive row → 400, head → 409 | fixed | `3e9e4ed` | `RemovingTwice_Is400_AndRemovingTheHead_Is409`; `DepartmentFlowTests` (inverted, §6) |
+| K2 deactivating a head clears the headship | fixed | `3e9e4ed` | `DeactivatingAHead_ClearsTheHeadship` |
+| K2 deleting a department ends memberships, clears the head | fixed | `3e9e4ed` | `DeletingADepartment_EndsItsMemberships_AndClearsItsHead` |
+| A3 inactive employee → 409 `employees.Inactive` (assign, move, head) | fixed | `3e9e4ed` | `AnInactiveEmployee_CannotBeAssigned_Moved_OrMadeHead` |
+| K3 query filters + `includeInactive` | fixed | `3e9e4ed` | `Lists_HideInactiveByDefault_AndShowThemWithIncludeInactive`; `HrDirectoryTests.A_deactivated_employee_is_invisible_to_the_directory_but_still_linked` |
+| A1 reaper keeps a deactivated employee's login | fixed | `3e9e4ed` | `UnlinkedUserReaperTests.A_deactivated_employees_login_is_never_reaped` |
+| HR-1 activation re-enables the login | fixed | `3e9e4ed` | `DeactivateProcessActivateProcess_LoginWorks`, `DeactivateActivateThenProcessOnce_LoginWorks`, `ALateDeactivationEvent_AfterActivation_LeavesTheLoginWorking`; A9 `Reactivation_IsTheRehirePath` |
+| ContractType `IsDefined` (update validator + domain) | fixed | `3e9e4ed` | `UpdatingWithAnUndefinedContractType_Is400` (×3); unit `An_undefined_contract_type_is_refused_by_the_domain` (×3) |
+| N7 full-replacement PUT; inactive → 409 | fixed | `3e9e4ed` | `UpdatingAnInactiveEmployee_Is409`, `APutWithANullPhone_ClearsIt`; unit `Update_ReplacesEveryEditableField_AndANullClears`, `Update_OnInactiveEmployee_IsRefusedWithInactive` |
+| N8 names unique among active only; casing rename; description cap and clear | fixed | `3e9e4ed` | `ACasingOnlyRename_IsNotADuplicateOfItself`, `ADeletedDepartmentsName_CanBeReused_ButTwoActiveCannotShareOne`, `ADescriptionOver2000Characters_Is400`, `ThePutReplacesTheDescription_AndEmptyClearsIt` |
+| N8 `HeadName` / `MemberCount` | fixed | `3e9e4ed` | `TheDepartmentList_CarriesTheHeadsName_AndTheMemberCount` |
+| `ExecuteUpdateAsync` bypassing audit (Activate, UpdateDepartment) | fixed | `3e9e4ed` | covered by the Activate/Update tests above (tracked entities now) |
+| Aug 2.7 Restrict FKs, head FK, partial indexes, CHECK | fixed | `3e9e4ed` | `HrSchemaTests.Phase2_constraints_are_restrict_foreign_keys_partial_unique_indexes_and_a_check`; A4 probe migration empty |
+| Aug 2.8 `[AuditIgnore]` phone, emergency phone, notes | fixed | `3e9e4ed` | `ThePhoneChangesAuditRow_DoesNotContainThePhone` |
+| K9 migration guards | added | `3e9e4ed` | `HrDataIntegrityMigrationGuardTests` (4 refusals + clean-migrate control) |
+| Aug 2.4 expired overrides | fixed | `fe9dd6f` | `ExpiredOverrideTests` (both renew directions with stamp bump, live-409 control, `/effective`) |
+| A11 EF query-filter warning | configured | `3e9e4ed` | — (build is `-warnaserror`; the warning is ignored on `HrDbContext` only, with a comment) |
+
+**Red-before-green proofs.** Each fix was reverted on its own, its test run, and the file restored from a `cp` backup (never `tar`):
+
+| Reverted | Went red |
+|---|---|
+| `PermissionOverrideWrites`: any existing row → 409 | both `ExpiredOverrideTests` renew tests |
+| `LiveAt` filter on `/effective` | `Effective_permissions_leave_an_expired_override_out` |
+| reaper back on `ResolveEmployeeIdAsync` | `A_deactivated_employees_login_is_never_reaped` (and the sweep then fails for every candidate after it) |
+| `Employee` query filter | `Lists_HideInactiveByDefault_AndShowThemWithIncludeInactive` |
+| restore of a former membership | `AssignMoveAndMoveBack_…` |
+| remove-head check | `RemovingTwice_Is400_AndRemovingTheHead_Is409` |
+| deactivated handler's state check | `ALateDeactivationEvent_AfterActivation_LeavesTheLoginWorking`. `DeactivateActivateThenProcessOnce` stayed green: delivered in order, the activation re-enables what the deactivation disabled. So the late-redelivery test was added. |
+| enqueue of `EmployeeActivatedIntegrationEvent` | `DeactivateProcessActivateProcess_LoginWorks` |
+| `IsDefined` in the update validator | `UpdatingWithAnUndefinedContractType_Is400` (×3) |
+| `[AuditIgnore]` on `PhoneNumber` | `ThePhoneChangesAuditRow_DoesNotContainThePhone` |
+| `d.Id != id` in the rename duplicate check | `ACasingOnlyRename_IsNotADuplicateOfItself` |
+| the membership guard's `RAISE` | `Refuses_an_employee_with_two_active_memberships` |
+| A6 23505 mapping (constraint name changed) | `TwoConcurrentAssignments_OneWins_TheOtherIs409`, **5 of 5 runs**: `[204, 500]` |
+
+### What changed
+
+- **`DepartmentMembershipService`** (Hr.Infrastructure, internal). Every membership and head write goes through it: assign, move, remove, assign head, unassign head, deactivate employee, delete department. The handlers delegate to it. This is the one service between HR handlers and `HrDbContext`; `Hr.Application.csproj`'s comment records the exception.
+  - Rejoining restores the pair's existing row (`EmployeeDepartment.Restore`, new `StartedAtUtc`); the composite key allows only one row per pair.
+  - Move saves after leaving, so the one-active-membership index never sees two active rows.
+  - The index's 23505 is mapped, by constraint name, to 409 `AlreadyInAnotherDepartment` (A6).
+- **Query filters** (`IsActive`) on `Employee` and `Department`. `IgnoreQueryFilters` is used, each with a one-line why, at:
+  - the re-hire check;
+  - both lifecycle event handlers;
+  - Activate and Update employee;
+  - the employee and department detail reads;
+  - `includeInactive=true`;
+  - `HrDirectory.GetProfilesAsync`, `IsLinkedAsync` and `GetLinkedAsync`.
+- **`IHrDirectory`** gains `IsLinkedAsync` and `GetLinkedAsync` (A1, with the many-form CLAUDE.md requires). `ResolveEmployeeIdAsync` stays active-only.
+- **HR-1:** a new `EmployeeActivatedIntegrationEvent`, and `EmployeeActivatedIntegrationEventHandler` (Hr.Infrastructure → `IUserAdministration.ReactivateAsync`). Both lifecycle handlers return early when the employee's current state disagrees with the event. `EmployeeErrors.FailedToActivate` was deleted; it was only used by the `ExecuteUpdateAsync` path this replaces.
+- **Migration `20261020045733_HrDataIntegrity`:**
+  - four guards, then the DDL;
+  - `StartedAtUtc` backfilled from `CreatedAtUtc`;
+  - everything is in the EF model (A4); `dotnet ef migrations add Probe` came out empty and was deleted.
+- **Identity:** `UserPermissionOverride.LiveAt(now)` is the one live predicate, and `Renew(...)` reuses an expired row in place. Renewal goes through the existing post-save stamp bump (A7), which also evicts the session cache.
+
+### 2. Run 0 for this phase
+
+All Phase 2 items were open as recorded in the plan's context. The A2 audit of every external `IHrDirectory` read, done **before** `GetAsync`/`GetManyAsync`/`DepartmentMembersAsync` were filtered, found:
+
+| Call site | Category | Effect of the filter |
+|---|---|---|
+| Projects `StageTeamHandlers` (two sites), `ProjectTaskHandlers` | (a) assignment | already treated an inactive employee like a missing one; now it is one |
+| Projects `GateConditionHandlers` (approvers) | (a) authorization | an inactive approver is skipped |
+| Projects `ProjectDeadlineJob`, `StageDeadlineJob`, `TaskDeadlineJob`; `ProjectStageNotificationHandlers` (two sites) | (a) notification recipient | inactive people are no longer notified |
+| Projects `ProjectHandlers` → `GetDepartmentHeadsAsync` | (a) assignment | deleted departments are omitted, and a head cleared by deactivation is gone, see §6.4 |
+| Documents `RequestDocumentReviewCommandHandler` | (a) authorization | an inactive approver answers `UploaderNotFound` |
+| CRM `CrmMeetingReminderJob`, `MeetingScheduledNotificationHandler` | (a) recipient | as above |
+| Finance `InvoiceDueJob` | (a) recipient | as above |
+| Notifications `ProjectTaskNotificationHandlers` (two sites) | (a) recipient | as above |
+| Sites `SiteApprovedNotificationHandler` | (a) recipient | as above |
+| Api `UnlinkedUserReaperJob` | **linkage**, neither (a) nor (b) | moved to `IsLinkedAsync` (A1) |
+
+No call site is (b) display or history, so no `includeInactive` overload was added to the contract. HR's own display reads use `GetProfilesAsync`, which already ignores the filter. **No test in another module had to be inverted**: the full suite passed after the filter landed, before any test was touched.
+
+### 3. Tests written but not run
+
+None.
+
+### 4. Migration guards added
+
+`HrDataIntegrity` starts with four `DO $$ … RAISE EXCEPTION … $$` blocks, before any DDL. A refusal changes nothing and the migration is not recorded (`AssertRefusedAsync` checks both). Run these against a production snapshot **before** deploying; each must return 0 rows:
+
+```sql
+-- G1: employees with more than one active membership (the new partial unique index)
+SELECT "EmployeeId", count(*) FROM hr.employee_departments WHERE "IsActive" GROUP BY "EmployeeId" HAVING count(*) > 1;
+-- G2: ContractType outside the enum (the new CHECK)
+SELECT "Id", "ContractType" FROM hr.employees WHERE "ContractType" NOT BETWEEN 1 AND 4;
+-- G3: a head who is not an employee (the new head FK)
+SELECT d."Id", d."DepartmentHeadId" FROM hr.departments d
+WHERE d."DepartmentHeadId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM hr.employees e WHERE e."Id" = d."DepartmentHeadId");
+-- G4: two active departments sharing a name (the new partial unique index)
+SELECT "Name", count(*) FROM hr.departments WHERE "IsActive" GROUP BY "Name" HAVING count(*) > 1;
+```
+
+**A5: G1 will probably fire in production.** Until now, assign never checked other departments. The listing:
+
+```sql
+SELECT ed."EmployeeId", ed."DepartmentId", d."Name", ed."CreatedAtUtc"
+FROM hr.employee_departments ed JOIN hr.departments d ON d."Id" = ed."DepartmentId"
+WHERE ed."IsActive" AND ed."EmployeeId" IN (
+  SELECT "EmployeeId" FROM hr.employee_departments WHERE "IsActive" GROUP BY "EmployeeId" HAVING count(*) > 1)
+ORDER BY ed."EmployeeId", ed."CreatedAtUtc" DESC;
+```
+
+The proposed cleanup **keeps each employee's latest membership** (by `CreatedAtUtc`) and ends the others. It is to be reviewed against the listing and run **before** the migration, by hand, never inside it. A head whose department loses them this way shows up in the second report below.
+
+```sql
+BEGIN;
+UPDATE hr.employee_departments ed SET "IsActive" = false
+FROM (
+  SELECT "EmployeeId", "DepartmentId",
+         row_number() OVER (PARTITION BY "EmployeeId" ORDER BY "CreatedAtUtc" DESC, "DepartmentId") AS rn
+  FROM hr.employee_departments WHERE "IsActive") ranked
+WHERE ed."EmployeeId" = ranked."EmployeeId" AND ed."DepartmentId" = ranked."DepartmentId" AND ranked.rn > 1;
+-- check the row count against the listing, then COMMIT (or ROLLBACK)
+```
+
+**The deploy is blocked until someone with HR authority decides which department each listed employee keeps.** "Latest wins" is a proposal, not a rule.
+
+Report-only queries (no guard, no automatic fix; the new code refuses to create either state, but existing rows stay until someone acts):
+
+```sql
+-- departments headed by an inactive employee
+SELECT d."Id", d."Name", d."DepartmentHeadId" FROM hr.departments d
+JOIN hr.employees e ON e."Id" = d."DepartmentHeadId" WHERE d."IsActive" AND NOT e."IsActive";
+-- heads who are not active members of the department they head
+SELECT d."Id", d."Name", d."DepartmentHeadId" FROM hr.departments d
+WHERE d."IsActive" AND d."DepartmentHeadId" IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM hr.employee_departments ed
+  WHERE ed."EmployeeId" = d."DepartmentHeadId" AND ed."DepartmentId" = d."Id" AND ed."IsActive");
+```
+
+**A10: HR-1 stragglers.** These are employees who were re-activated before this fix, so they are active in HR with a login still disabled. Count them with this query. It is the one cross-schema query in these notes: an ops query run by hand, not application code.
+
+```sql
+SELECT count(*) FROM hr.employees e JOIN identity.users u ON u."Id" = e."AppUserId"
+WHERE e."IsActive" AND NOT u."IsActive";
+```
+
+Fix each one through the API, not SQL: deactivate → let the outbox process → activate → let it process. The activation event then re-enables the login.
+
+### 5. Frontend contract changes
+
+| Route / behaviour | Before | After |
+|---|---|---|
+| `PUT /api/employees/{id}` | partial patch; omitted fields kept | **full replacement**: `jobTitle` and `contractType` required (400 otherwise); omitted or null `phoneNumber`, `emergencyContactPhone`, `notes`, `endDate` are **cleared** |
+| `PUT /api/employees/{id}`, inactive employee | 204, nothing changed | **409 `employees.Inactive`** |
+| `PUT /api/employees/{id}`, `contractType` "99"/"0"/"-1" | accepted | **400** |
+| `GET /api/employees`, `GET /api/departments` | inactive rows included | inactive **hidden**; `?includeInactive=true` shows them |
+| `GET /api/employees/{id}`, `GET /api/departments/{id}` | — | still return inactive records, so admins can open and reactivate them |
+| Assign, while active in another department | 200/204, two departments | **409 `employees.AlreadyInAnotherDepartment`**; use move |
+| Assign/move back to a former department | 500 / `AlreadyInDepartment` | 204, membership restored with a new start date |
+| Remove, not an active member | 204 | **400 `departments.UserNotInDepartment`** |
+| Remove or move the department head | 204, head kept | **409 `departments.RemoveHeadFirst`** |
+| Assign/move/make head an inactive employee | accepted | **409 `employees.Inactive`** |
+| Deactivate an employee who heads a department | head kept | headship **cleared** |
+| Delete a department | memberships and head kept | memberships ended, head cleared; **its name can be reused** |
+| Rename to a casing variant of itself | 400 duplicate | 204 |
+| Department description | uncapped; empty kept | max 2000 (400); empty or null **clears** it |
+| `DepartmentResponse` | — | new **`headName`** and **`memberCount`** |
+| Activate an employee | login stayed disabled | login **re-enabled** (after the outbox runs) |
+| Grant/deny over an expired override | 409 | 204, renewed in place |
+| `GET /api/permissions/users/{id}/effective` | listed expired overrides | expired overrides omitted |
+| Projects template instantiation | — | hard-fails for a department whose head was cleared by deactivation (§6.4) |
+
+**A8 deploy check:** because the PUT is now a full replacement, a client that sends only changed fields will **silently clear** phone, emergency phone, notes and end date. Before deploying, confirm that both the old app's and DMS's employee edit dialogs send all six fields. If either doesn't, ship that frontend first.
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **The deploy is blocked on the G1 data decision** (§4, A5).
+2. **The detail reads ignore the filter.** The prompt says to filter everywhere. An admin who can't open a deactivated employee can't reactivate them, so `GET /{id}` keeps showing inactive records. The lists are filtered.
+3. **Status codes differ from the prompt's test list:**
+   - a casing-only rename answers **204**, not 200, because every HR PUT is 204;
+   - re-creating a deleted department's name answers **200**, not 201, because department create has always been 200.
+
+   The tests assert the real codes.
+4. **Projects template instantiation hard-fails** for a department whose head was cleared by deactivating them, because `GetDepartmentHeadsAsync` now returns no head for it. That is correct (nobody can head it), but ops must assign a new head before instantiating. Recorded for the frontend and ops.
+5. **`DepartmentErrors.DepartmentAlreadyDeleted` is unreachable.** A deleted department is filtered and answers 404 (A3). Left for Phase 5's dead-code pass.
+6. **G4 (duplicate active names) can't fire on a database that has the old plain unique index.** It guards a drifted database only. The test simulates the drift by dropping the index.
+7. **Inverted tests**, each by name, with the reason:
+   - **`EmployeeTests.Update_ChangesOnlyProvidedFields`** → `Update_ReplacesEveryEditableField_AndANullClears` (N7, full replacement).
+   - **`EmployeeTests.Update_OnInactiveEmployee_IsNoOp`** → `Update_OnInactiveEmployee_IsRefusedWithInactive` (N7, 409).
+   - **`DepartmentFlowTests`, the remove test.** Its comment pinned "removing an already-inactive row is a no-op success" as intended behaviour. The comment is rewritten, and an assertion added that it is now `UserNotInDepartment` (K1).
+   - **`EmployeeFlowTests`, `HrSmokeTests.UpdateEmployee_WithEmergencyContactNameInTheBody_…`:** these now send the required `contractType`. Their intent is unchanged.
+   - **Access-guard test stubs** in CRM and Projects implement the two new `IHrDirectory` members by throwing; they are never called.
+8. **The full PUT does not include the employee's name or `LoginActive`.** Both are Phase 3 (N7's second half), as the plan states.

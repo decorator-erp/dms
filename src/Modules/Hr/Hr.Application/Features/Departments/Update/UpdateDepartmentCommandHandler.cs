@@ -7,7 +7,6 @@ using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Query;
 using SharedKernel;
 
 namespace Hr.Application.Features.Departments.Update;
@@ -18,50 +17,39 @@ internal sealed class UpdateDepartmentCommandValidator : AbstractValidator<Updat
     {
         RuleFor(x => x.DepartmentId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Description).MaximumLength(2000);
     }
 }
 
+/// <summary>
+/// N8: a PUT replaces the name and the description (empty or missing clears it, where it used to be
+/// impossible to clear). The duplicate check runs on the corrected name, among active departments other
+/// than this one, so a rename that only changes casing or spacing is not a "duplicate" of itself. The
+/// write goes through the tracked entity (audited, <c>UpdatedAtUtc</c> set), not
+/// <c>ExecuteUpdateAsync</c>, which the audit interceptor never saw. A deleted department is 404.
+/// </summary>
 internal sealed class UpdateDepartmentCommandHandler(HrDbContext db) : ICommandHandler<UpdateDepartmentCommand>
 {
     public async Task<Result> HandleAsync(UpdateDepartmentCommand command, CancellationToken ct = default)
     {
-        var department = await db.Departments
-            .Where(x => x.Id == command.DepartmentId)
-            .Select(x => new { x.Id, x.Name, x.Description })
-            .SingleOrDefaultAsync(ct);
+        Department? department = await db.Departments.FirstOrDefaultAsync(d => d.Id == command.DepartmentId, ct);
         if (department is null)
         {
             return DepartmentErrors.NotFound;
         }
 
-        Action<UpdateSettersBuilder<Department>>? settersAction = null;
-
-        if (department.Name != command.Name)
+        string newName = NameCorrection(command.Name);
+        if (await db.Departments.AnyAsync(d => d.Name == newName && d.Id != command.DepartmentId, ct))
         {
-            string newName = NameCorrection(command.Name);
-            if (await db.Departments.AnyAsync(x => x.Name == newName, ct))
-            {
-                return DepartmentErrors.DuplicatedName(command.Name);
-            }
-            settersAction = setters => setters.SetProperty(x => x.Name, newName);
+            return DepartmentErrors.DuplicatedName(command.Name);
         }
 
-        if (!string.IsNullOrEmpty(command.Description) && department.Description != command.Description)
-        {
-            settersAction = settersAction is null ?
-                setters => setters.SetProperty(x => x.Description, command.Description) :
-                settersAction + (setters => setters.SetProperty(x => x.Description, command.Description));
-        }
-
-        if (settersAction is not null)
-        {
-            int affectedRows = await db.Departments
-                .Where(x => x.Id == command.DepartmentId)
-                .ExecuteUpdateAsync(settersAction, ct);
-        }
+        department.Update(newName, string.IsNullOrWhiteSpace(command.Description) ? null : command.Description);
+        await db.SaveChangesAsync(ct);
 
         return Result.Success();
     }
+
     private static string NameCorrection(string s)
     {
         string name = s.Trim();

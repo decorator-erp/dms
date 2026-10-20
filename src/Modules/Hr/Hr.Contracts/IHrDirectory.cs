@@ -33,6 +33,19 @@ public interface IHrDirectory
 {
     // --- HR-only. No Identity involvement. ---
     Task<Guid?> ResolveEmployeeIdAsync(string appUserId, CancellationToken ct);
+
+    /// <summary>
+    /// Whether ANY employee row, active or deactivated, is linked to <paramref name="appUserId"/>.
+    /// <see cref="ResolveEmployeeIdAsync"/>, <see cref="GetAsync"/>, <see cref="GetManyAsync"/> and
+    /// <see cref="DepartmentMembersAsync"/> see active employees only (K3); this one is for the question
+    /// "is this login someone's", which a deactivated employee still answers yes to. The unlinked-login reaper asks it:
+    /// a deactivated employee's login is inactive but not orphaned, and hr.employees' RESTRICT foreign key
+    /// would refuse its deletion anyway (A1).
+    /// </summary>
+    Task<bool> IsLinkedAsync(string appUserId, CancellationToken ct);
+
+    /// <summary>The subset of <paramref name="appUserIds"/> that <see cref="IsLinkedAsync"/> answers yes for.</summary>
+    Task<IReadOnlyCollection<string>> GetLinkedAsync(IReadOnlyCollection<string> appUserIds, CancellationToken ct);
     Task<EmployeeSummary?> GetAsync(Guid employeeId, CancellationToken ct);
     Task<IReadOnlyList<EmployeeSummary>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
     Task<IReadOnlyList<Guid>> DepartmentMembersAsync(Guid departmentId, CancellationToken ct);

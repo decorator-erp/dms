@@ -58,14 +58,16 @@ public sealed record CreateEmployeeCommand(
     string? EmergencyContactPhone = null,
     string? Notes = null) : ICommand<Guid>;
 
+/// <summary>N7: a full replacement. <see cref="JobTitle"/> and <see cref="ContractType"/> are required;
+/// a null optional field clears it.</summary>
 public sealed record UpdateEmployeeCommand(
     Guid EmployeeId,
-    string? JobTitle = null,
-    string? ContractType = null,
-    string? PhoneNumber = null,
-    string? EmergencyContactPhone = null,
-    string? Notes = null,
-    DateOnly? EndDate = null) : ICommand;
+    string JobTitle,
+    string ContractType,
+    string? PhoneNumber,
+    string? EmergencyContactPhone,
+    string? Notes,
+    DateOnly? EndDate) : ICommand;
 
 public sealed record DeactivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
@@ -73,7 +75,8 @@ public sealed record ActivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
 public sealed record GetEmployeeQuery(Guid EmployeeId) : IQuery<EmployeeResponse>;
 
-public sealed record GetEmployeesQuery(int PageNumber, int PageSize, string? JobTitleFilter = null)
+/// <summary>K3: deactivated employees are left out unless <paramref name="IncludeInactive"/>.</summary>
+public sealed record GetEmployeesQuery(int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)
     : IQuery<PagedResult<EmployeeResponse>>;
 
 public sealed record AssignEmployeeToDepartmentCommand(Guid EmployeeId, Guid DepartmentId) : ICommand;

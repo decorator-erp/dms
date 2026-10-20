@@ -12,7 +12,10 @@ internal sealed class GetEmployeeQueryHandler(HrDbContext db) : IQueryHandler<Ge
 {
     public async Task<Result<EmployeeResponse>> HandleAsync(GetEmployeeQuery query, CancellationToken ct = default)
     {
-        Employee? employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == query.EmployeeId, ct);
+        // IgnoreQueryFilters: the detail page shows a deactivated employee too (IsActive says so), or there
+        // would be no page to reactivate them from.
+        Employee? employee = await db.Employees.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == query.EmployeeId, ct);
 
         return employee is null ? EmployeeErrors.NotFound : ResponseMapping.ToResponse(employee);
     }
