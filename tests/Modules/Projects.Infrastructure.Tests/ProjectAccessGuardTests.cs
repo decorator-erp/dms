@@ -299,6 +299,12 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
         public Task<IReadOnlyList<EmployeeProfile>> GetProfilesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
             throw new NotImplementedException("Not used by ProjectAccessGuard.");
+
+        public Task<bool> IsLinkedAsync(string appUserId, CancellationToken ct) =>
+            throw new NotImplementedException("Not used by ProjectAccessGuard.");
+
+        public Task<IReadOnlyCollection<string>> GetLinkedAsync(IReadOnlyCollection<string> appUserIds, CancellationToken ct) =>
+            throw new NotImplementedException("Not used by ProjectAccessGuard.");
     }
 
     private sealed class StubCurrentUser(bool hasReadAll) : ICurrentUser

@@ -239,6 +239,8 @@ public sealed class HrSmokeTests(ApiFixture fixture)
         HttpResponseMessage response = await client.PutAsJsonAsync($"/api/employees/{employeeId}", new
         {
             JobTitle = "Senior Engineer",
+            // HR Phase 2 (N7): the PUT is a full replacement, so ContractType is required.
+            ContractType = "FullTime",
             EmergencyContactName = "Should Be Ignored",
         });
 

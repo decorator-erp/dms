@@ -14,11 +14,18 @@ internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departm
 
         builder.Property(d => d.Name).HasMaxLength(200).IsRequired();
         builder.Property(d => d.Description).HasMaxLength(2000);
-        builder.HasIndex(d => d.Name).IsUnique();
+        // N8: a name is unique among ACTIVE departments only, so a deleted department's name can be
+        // reused. A plain unique index counted deleted rows forever.
+        builder.HasIndex(d => d.Name).IsUnique().HasFilter("\"IsActive\"");
 
-        // DepartmentHeadId references Employee, another aggregate IN THIS SAME MODULE - a plain
-        // indexed column, not a HasOne/navigation, since Department doesn't own the employee's
-        // lifecycle and shouldn't be able to cascade into it.
+        // K3: a deleted (deactivated) department is invisible by default; see EmployeeConfiguration.
+        builder.HasQueryFilter(d => d.IsActive);
+
+        // DepartmentHeadId references Employee, another aggregate IN THIS SAME MODULE. Still no
+        // navigation (Department doesn't own the employee's lifecycle), but since Aug 2.7 a real foreign
+        // key: RESTRICT, so a head can never point at a row that doesn't exist. Same schema, so EF emits it;
+        // only fk_employees_app_user, which crosses into identity, has to be written by hand.
+        builder.HasOne<Employee>().WithMany().HasForeignKey(d => d.DepartmentHeadId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(d => d.DepartmentHeadId);
     }
 }

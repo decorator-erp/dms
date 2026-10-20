@@ -57,9 +57,8 @@ internal sealed class UnlinkedUserReaperJob(
         DateTime cutoff = now.AddDays(-retentionDays);
 
         // The batch size is what bounds this sweep, and it bounds the two directory calls per candidate
-        // below with it. Neither IHrDirectory.ResolveEmployeeIdAsync nor
-        // IClientDirectory.ResolveByAppUserIdAsync has a batch sibling - a gap worth closing, and noted,
-        // but not one that matters while the loop itself is capped.
+        // below with it. IClientDirectory.ResolveByAppUserIdAsync has no batch sibling - a gap worth
+        // closing, and noted, but not one that matters while the loop itself is capped.
         IReadOnlyList<string> candidates = await maintenance.ListUnactivatedAsync(cutoff, batchSize, ct);
         if (candidates.Count == 0)
         {
@@ -68,7 +67,9 @@ internal sealed class UnlinkedUserReaperJob(
 
         foreach (string userId in candidates)
         {
-            if (await hrDirectory.ResolveEmployeeIdAsync(userId, ct) is not null)
+            // IsLinkedAsync, not ResolveEmployeeIdAsync: since Phase 2 the latter sees active employees
+            // only, and a deactivated employee's login is linked, not orphaned (A1).
+            if (await hrDirectory.IsLinkedAsync(userId, ct))
             {
                 continue;
             }

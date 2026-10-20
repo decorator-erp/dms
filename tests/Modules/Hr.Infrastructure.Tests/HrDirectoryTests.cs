@@ -129,6 +129,54 @@ public sealed class HrDirectoryTests : IAsyncLifetime
     /// through <c>UserManager</c> - this test only needs a row to satisfy the constraint, not full
     /// ASP.NET Identity semantics.
     /// </summary>
+    /// <summary>
+    /// K3: GetAsync, GetManyAsync, ResolveEmployeeIdAsync and DepartmentMembersAsync see active employees
+    /// only, each still in one statement (the filter is part of the same SQL). IsLinkedAsync is the one
+    /// "deactivated too" question (A1): a deactivated employee's login is still linked.
+    /// </summary>
+    [Fact]
+    public async Task A_deactivated_employee_is_invisible_to_the_directory_but_still_linked()
+    {
+        Guid[] ids = await SeedEmployeesAsync(2);
+        Guid active = ids[0];
+        Guid deactivated = ids[1];
+        Guid departmentId;
+        string deactivatedAppUserId;
+
+        await using (HrDbContext seed = CreateContext(_ => { }))
+        {
+            var department = Department.Create($"Dept {Guid.NewGuid():N}");
+            seed.Departments.Add(department);
+            seed.EmployeeDepartments.Add(EmployeeDepartment.Create(active, department.Id));
+            seed.EmployeeDepartments.Add(EmployeeDepartment.Create(deactivated, department.Id));
+            await seed.SaveChangesAsync();
+            departmentId = department.Id;
+
+            Employee toDeactivate = await seed.Employees.FirstAsync(e => e.Id == deactivated);
+            deactivatedAppUserId = toDeactivate.AppUserId;
+            toDeactivate.Deactivate();
+            await seed.SaveChangesAsync();
+        }
+
+        int commandCount = 0;
+        await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
+        var directory = new HrDirectory(db, new ThrowingUserDirectory());
+
+        EmployeeSummary? single = await directory.GetAsync(deactivated, CancellationToken.None);
+        IReadOnlyList<EmployeeSummary> many = await directory.GetManyAsync(ids, CancellationToken.None);
+        IReadOnlyList<Guid> members = await directory.DepartmentMembersAsync(departmentId, CancellationToken.None);
+        Guid? resolved = await directory.ResolveEmployeeIdAsync(deactivatedAppUserId, CancellationToken.None);
+
+        Assert.Null(single);
+        Assert.Equal([active], many.Select(e => e.Id));
+        Assert.Equal([active], members);
+        Assert.Null(resolved);
+        Assert.Equal(4, commandCount);
+
+        Assert.True(await directory.IsLinkedAsync(deactivatedAppUserId, CancellationToken.None));
+        Assert.Equal([deactivatedAppUserId], await directory.GetLinkedAsync([deactivatedAppUserId, "nobody"], CancellationToken.None));
+    }
+
     private async Task<Guid[]> SeedEmployeesAsync(int count)
     {
         string[] appUserIds = Enumerable.Range(0, count).Select(i => $"user-{Guid.NewGuid():N}-{i}").ToArray();

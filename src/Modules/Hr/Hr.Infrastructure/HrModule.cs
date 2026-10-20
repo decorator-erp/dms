@@ -43,6 +43,7 @@ internal sealed class HrModule : IModule
             ]));
 
         services.AddScoped<IHrDirectory, HrDirectory>();
+        services.AddScoped<IDepartmentMembershipService, DepartmentMembershipService>();
 
         services.AddModuleCqrs<HrDbContext>(Assembly.Load("Hr.Application"));
 

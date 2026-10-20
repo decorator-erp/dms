@@ -17,3 +17,11 @@ public sealed record EmployeeHiredIntegrationEvent(
 /// </summary>
 public sealed record EmployeeDeactivatedIntegrationEvent(Guid EventId, Guid EmployeeId, DateTimeOffset OccurredAtUtc)
     : IIntegrationEvent;
+
+/// <summary>
+/// HR-1 (Aug 2.6): an employee was re-activated. Published by the activate command in the same save as
+/// the change; HR's own handler (<c>EmployeeActivatedIntegrationEventHandler</c>) re-enables the login
+/// through <c>IUserAdministration.ReactivateAsync</c>, the mirror of deactivation.
+/// </summary>
+public sealed record EmployeeActivatedIntegrationEvent(Guid EventId, Guid EmployeeId, DateTimeOffset OccurredAtUtc)
+    : IIntegrationEvent;

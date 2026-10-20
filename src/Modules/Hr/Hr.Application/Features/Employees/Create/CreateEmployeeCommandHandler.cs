@@ -65,7 +65,10 @@ internal sealed class CreateEmployeeCommandHandler(HrDbContext db, IUserProvisio
 
         string appUserId = userResult.Value!;
 
-        if (await db.Employees.AnyAsync(e => e.AppUserId == appUserId, ct))
+        // IgnoreQueryFilters: a login already linked to a DEACTIVATED employee is still taken. (In practice
+        // provisioning has just created this login, so this is defensive; re-hiring someone is Activate,
+        // since their login, and so their email, still exists.)
+        if (await db.Employees.IgnoreQueryFilters().AnyAsync(e => e.AppUserId == appUserId, ct))
         {
             return EmployeeErrors.InvalidUserId;
         }

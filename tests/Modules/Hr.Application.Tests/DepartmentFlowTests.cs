@@ -134,10 +134,13 @@ public sealed class DepartmentFlowTests(HrApplicationFixture fixture)
         Result removeResult = await remove.HandleAsync(new RemoveEmployeeFromDepartmentCommand(employeeId, departmentBId));
         Assert.True(removeResult.IsSuccess);
 
-        // No membership row at all (never assigned to a third department) is rejected - matches the
-        // backend's own RemoveEmployeeAsync, which likewise checks existence without an IsActive filter,
-        // so removing an ALREADY-inactive row (like departmentA's, left behind by the move above) is
-        // still a no-op success, not an error - that's the backend's real behaviour, not a bug to fix.
+        // HR Phase 2 (K1): removing needs an ACTIVE membership. An already-inactive row (like
+        // departmentA's, left behind by the move above) used to be a no-op success; it is now
+        // UserNotInDepartment, the same as no row at all.
+        Result removeInactive = await remove.HandleAsync(new RemoveEmployeeFromDepartmentCommand(employeeId, departmentAId));
+        Assert.True(removeInactive.IsFailure);
+        Assert.Equal("departments.UserNotInDepartment", removeInactive.Error.Code);
+
         Guid otherDepartmentId = (await sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>()
             .HandleAsync(new CreateDepartmentCommand($"Dept-C-{Guid.NewGuid():N}"))).Value;
         Result removeNeverAssigned = await remove.HandleAsync(new RemoveEmployeeFromDepartmentCommand(employeeId, otherDepartmentId));

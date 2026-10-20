@@ -5,6 +5,7 @@ using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Hr.Infrastructure.Services;
 using SharedKernel;
 
 namespace Hr.Application.Features.Departments.AssignHead;
@@ -20,37 +21,14 @@ internal sealed class AssignDepartmentHeadCommandValidator : AbstractValidator<A
 
 /// <summary>Ported from <c>DepartmentDomainService.AssignDepartmentHeadAsync</c>: assigning a head also
 /// ensures that employee is a member of the department, adding the membership row if it isn't there
-/// already, rather than requiring a separate call first.</summary>
-internal sealed class AssignDepartmentHeadCommandHandler(HrDbContext db) : ICommandHandler<AssignDepartmentHeadCommand>
+/// already, rather than requiring a separate call first.
+///
+/// <para>Phase 2: the head must be an active employee (<c>employees.Inactive</c>, 409) who is not a member
+/// of another department (K1, <c>employees.AlreadyInAnotherDepartment</c>), and a former membership is
+/// restored rather than duplicated. See <see cref="IDepartmentMembershipService.AssignHeadAsync"/>.</para></summary>
+internal sealed class AssignDepartmentHeadCommandHandler(IDepartmentMembershipService memberships)
+    : ICommandHandler<AssignDepartmentHeadCommand>
 {
-    public async Task<Result> HandleAsync(AssignDepartmentHeadCommand command, CancellationToken ct = default)
-    {
-        Department? department = await db.Departments.FindAsync([command.DepartmentId], ct);
-        if (department is null)
-        {
-            return DepartmentErrors.NotFound;
-        }
-
-        if (department.DepartmentHeadId.HasValue)
-        {
-            return DepartmentErrors.AlreadyHaveHead;
-        }
-
-        if (!await db.Employees.AnyAsync(e => e.Id == command.EmployeeId, ct))
-        {
-            return EmployeeErrors.NotFound;
-        }
-
-        bool isMember = await db.EmployeeDepartments.AnyAsync(
-            ed => ed.EmployeeId == command.EmployeeId && ed.DepartmentId == command.DepartmentId, ct);
-        if (!isMember)
-        {
-            db.EmployeeDepartments.Add(EmployeeDepartment.Create(command.EmployeeId, command.DepartmentId));
-        }
-
-        department.AssignHead(command.EmployeeId);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
-    }
+    public Task<Result> HandleAsync(AssignDepartmentHeadCommand command, CancellationToken ct = default) =>
+        memberships.AssignHeadAsync(command.DepartmentId, command.EmployeeId, ct);
 }

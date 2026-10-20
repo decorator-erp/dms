@@ -9,8 +9,14 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
 {
     public void Configure(EntityTypeBuilder<Employee> builder)
     {
-        builder.ToTable("employees");
+        // K9: the database refuses a contract type the enum doesn't define (1..4), whatever path writes it.
+        builder.ToTable("employees", t => t.HasCheckConstraint(
+            "ck_employees_contract_type", "\"ContractType\" BETWEEN 1 AND 4"));
         builder.ConfigureEntityConventions();
+
+        // K3: an inactive (deactivated) employee is invisible by default. Every read that means to see
+        // one says IgnoreQueryFilters() at the call site, with the reason next to it.
+        builder.HasQueryFilter(e => e.IsActive);
 
         builder.Property(e => e.JobTitle).HasMaxLength(200).IsRequired();
         builder.Property(e => e.Notes).HasMaxLength(2000);

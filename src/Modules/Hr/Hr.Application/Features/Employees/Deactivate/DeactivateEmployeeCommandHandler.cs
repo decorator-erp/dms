@@ -6,6 +6,8 @@ using Hr.Contracts.Employees;
 using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
+using Hr.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Hr.Application.Features.Employees.Deactivate;
@@ -29,12 +31,18 @@ internal sealed class DeactivateEmployeeCommandValidator : AbstractValidator<Dea
 /// <c>OutboxProcessor</c> retries until it succeeds, safe because that call is idempotent. The window
 /// between this commit and that handler running is at most one poll interval — strictly better than a
 /// permanent silent gap.
+///
+/// <para>K2: the org side of a deactivation (their headships end) is
+/// <see cref="IDepartmentMembershipService.DeactivateEmployeeAsync"/>, staged in the same save as the event.</para>
 /// </summary>
-internal sealed class DeactivateEmployeeCommandHandler(HrDbContext db) : ICommandHandler<DeactivateEmployeeCommand>
+internal sealed class DeactivateEmployeeCommandHandler(HrDbContext db, IDepartmentMembershipService memberships)
+    : ICommandHandler<DeactivateEmployeeCommand>
 {
     public async Task<Result> HandleAsync(DeactivateEmployeeCommand command, CancellationToken ct = default)
     {
-        Employee? employee = await db.Employees.FindAsync([command.EmployeeId], ct);
+        // Ignores the filter so a deactivated employee answers AlreadyInactive, not NotFound.
+        Employee? employee = await db.Employees.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(e => e.Id == command.EmployeeId, ct);
         if (employee is null)
         {
             return EmployeeErrors.NotFound;
@@ -45,11 +53,8 @@ internal sealed class DeactivateEmployeeCommandHandler(HrDbContext db) : IComman
             return EmployeeErrors.AlreadyInactive;
         }
 
-        employee.Deactivate();
         db.Outbox().Enqueue(new EmployeeDeactivatedIntegrationEvent(Guid.NewGuid(), employee.Id, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await memberships.DeactivateEmployeeAsync(employee, ct);
     }
 }

@@ -154,7 +154,8 @@ public sealed class EmployeeFlowTests(HrApplicationFixture fixture)
         Assert.Equal(appUserId, getResult.Value.AppUserId);
 
         ICommandHandler<UpdateEmployeeCommand> update = sp.GetRequiredService<ICommandHandler<UpdateEmployeeCommand>>();
-        Result updateResult = await update.HandleAsync(new UpdateEmployeeCommand(employeeId, JobTitle: "Senior Engineer"));
+        Result updateResult = await update.HandleAsync(new UpdateEmployeeCommand(
+            employeeId, "Senior Engineer", "FullTime", PhoneNumber: null, EmergencyContactPhone: null, Notes: null, EndDate: null));
         Assert.True(updateResult.IsSuccess);
 
         Result<EmployeeResponse> afterUpdate = await get.HandleAsync(new GetEmployeeQuery(employeeId));

@@ -25,7 +25,10 @@ internal sealed class GetEmployeesQueryHandler(HrDbContext db)
     public async Task<Result<PagedResult<EmployeeResponse>>> HandleAsync(
         GetEmployeesQuery query, CancellationToken ct = default)
     {
-        IQueryable<Employee> baseQuery = db.Employees.AsNoTracking();
+        // K3: active employees unless the caller asks for the deactivated ones too.
+        IQueryable<Employee> baseQuery = query.IncludeInactive
+            ? db.Employees.IgnoreQueryFilters().AsNoTracking()
+            : db.Employees.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(query.JobTitleFilter))
         {
             baseQuery = baseQuery.Where(e => EF.Functions.ILike(e.JobTitle, $"%{query.JobTitleFilter}%"));

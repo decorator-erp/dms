@@ -5,6 +5,7 @@ using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Hr.Infrastructure.Services;
 using SharedKernel;
 
 namespace Hr.Application.Features.Departments.MoveEmployee;
@@ -21,49 +22,18 @@ internal sealed class MoveEmployeeToDepartmentCommandValidator : AbstractValidat
 /// <summary>
 /// Ported from <c>DepartmentDomainService.MoveEmployeeAsync</c>, with the D7 fix: the backend's version
 /// updates EVERY <c>EmployeeDepartment</c> row matching <c>EmployeeId</c> alone
-/// (<c>u => u.EmployeeId == employeeId</c>) — for an employee who somehow belongs to more than one
-/// department, that silently moves ALL of them, ignoring which department the caller actually meant to
-/// move the employee out of. This version requires the source department id and only updates that one
-/// row.
+/// (<c>u =&gt; u.EmployeeId == employeeId</c>), rewriting the employee's whole membership history.
+///
+/// <para>K1 makes the fix structural: an employee is active in at most one department, so "the
+/// department they're moving from" is simply their one active membership, and there is no source id
+/// to pass. (This comment used to say the command required one; it never did.) The move ends that
+/// membership and starts the new one, restoring the pair's row if they were in that department before.
+/// A department head is not moved out from under their department: unassign the head first. The rules
+/// live in <see cref="IDepartmentMembershipService.MoveAsync"/>.</para>
 /// </summary>
-internal sealed class MoveEmployeeToDepartmentCommandHandler(HrDbContext db)
+internal sealed class MoveEmployeeToDepartmentCommandHandler(IDepartmentMembershipService memberships)
     : ICommandHandler<MoveEmployeeToDepartmentCommand>
 {
-    public async Task<Result> HandleAsync(MoveEmployeeToDepartmentCommand command, CancellationToken ct = default)
-    {
-        if (!await db.Employees.AnyAsync(e => e.Id == command.EmployeeId, ct))
-        {
-            return EmployeeErrors.NotFound;
-        }
-
-        if (!await db.Departments.AnyAsync(d => d.Id == command.NewDepartmentId, ct))
-        {
-            return DepartmentErrors.NotFound;
-        }
-
-        if (await db.EmployeeDepartments.AnyAsync(
-            ed => ed.EmployeeId == command.EmployeeId && ed.DepartmentId == command.NewDepartmentId, ct))
-        {
-            return DepartmentErrors.AlreadyInDepartment;
-        }
-
-        EmployeeDepartment? membership = await db.EmployeeDepartments
-            .Where(ed => ed.EmployeeId == command.EmployeeId && ed.IsActive)
-            .OrderByDescending(ed => ed.CreatedAtUtc)
-            .FirstOrDefaultAsync(ct);
-
-        if (membership is null)
-        {
-            db.EmployeeDepartments.Add(EmployeeDepartment.Create(command.EmployeeId, command.NewDepartmentId));
-        }
-        else
-        {
-            membership.Remove();
-            db.EmployeeDepartments.Add(EmployeeDepartment.Create(command.EmployeeId, command.NewDepartmentId));
-        }
-
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
-    }
+    public Task<Result> HandleAsync(MoveEmployeeToDepartmentCommand command, CancellationToken ct = default) =>
+        memberships.MoveAsync(command.EmployeeId, command.NewDepartmentId, ct);
 }

@@ -13,7 +13,13 @@ namespace Hr.Application.Features.Departments.Create;
 
 internal sealed class CreateDepartmentCommandValidator : AbstractValidator<CreateDepartmentCommand>
 {
-    public CreateDepartmentCommandValidator() => RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+    public CreateDepartmentCommandValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+
+        // N8: the column is 2000; longer used to reach the database and come back a 500.
+        RuleFor(x => x.Description).MaximumLength(2000);
+    }
 }
 
 internal sealed class CreateDepartmentCommandHandler(HrDbContext db) : ICommandHandler<CreateDepartmentCommand, Guid>
@@ -22,12 +28,14 @@ internal sealed class CreateDepartmentCommandHandler(HrDbContext db) : ICommandH
     {
         string name = NameCorrection(command.Name);
 
+        // N8: among ACTIVE departments (K3's filter), so a deleted department's name is free again; the
+        // partial unique index says the same.
         if (await db.Departments.AnyAsync(d => d.Name == name, ct))
         {
             return DepartmentErrors.DuplicatedName(command.Name);
         }
 
-        var department = Department.Create(name, command.Description);
+        var department = Department.Create(name, string.IsNullOrWhiteSpace(command.Description) ? null : command.Description);
         db.Departments.Add(department);
         await db.SaveChangesAsync(ct);
 
