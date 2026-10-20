@@ -89,6 +89,7 @@ internal sealed class PermissionService(
     public async Task<IReadOnlyList<ApplicationRoleClaim>> GetRolePermissionsAsync(
         string roleId, CancellationToken ct = default) =>
         await db.RoleClaims
+            .AsNoTracking() // Aug 4.4: a read
             .Where(rc => rc.RoleId == roleId && rc.ClaimType == PermissionClaim.Type)
             .ToListAsync(ct);
 

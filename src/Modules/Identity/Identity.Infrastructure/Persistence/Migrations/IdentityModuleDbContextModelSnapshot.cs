@@ -528,6 +528,10 @@ namespace Identity.Infrastructure.Persistence.Migrations
 
                             b1.HasKey("id");
 
+                            b1.HasIndex("ExpiresOn");
+
+                            b1.HasIndex("RevokedOn");
+
                             b1.HasIndex("TokenHash")
                                 .IsUnique();
 

@@ -30,82 +30,81 @@ namespace Identity.Infrastructure.Services;
 /// read shares (Aug 2.4); the override's own <c>IsActive</c> flag is still not checked (nothing sets it
 /// false yet, Phase 5); and a deactivated user's tokens are refused at every request by the security
 /// stamp check (Phase 1B, N2), so the second gap no longer reaches an API caller.</para>
+///
+/// <para><b>Aug 4.2: one query, same algorithm.</b> It used to load the user entity (tracked, with its
+/// refresh tokens), then the role names, then the role claims, then the overrides: four round trips.
+/// Now the role claims (through <c>user_roles</c>, the same membership <c>GetRolesAsync</c> read) and the
+/// live overrides come back in one <c>UNION ALL</c>, untracked, and the union-then-overrides step runs
+/// in memory exactly as before. A missing user still resolves to nothing: no memberships, no overrides.
+/// The two gaps above are unchanged on purpose (Phase 5).</para>
 /// </summary>
-internal sealed class EffectivePermissionService(IdentityModuleDbContext db, UserManager<ApplicationUser> userManager)
-    : IEffectivePermissionService
+internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : IEffectivePermissionService
 {
+    private const int FromRole = 0;
+    private const int Grant = 1;
+    private const int Deny = 2;
+
     public async Task<IEnumerable<string>> ResolveAsync(string userId, CancellationToken ct = default)
     {
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
-        if (user is null)
-        {
-            return [];
-        }
-
-        IList<string> roleNames = await userManager.GetRolesAsync(user);
-
-        List<string> rolePermissions = await db.Roles
-            .Where(r => roleNames.Contains(r.Name!))
-            .Join(db.RoleClaims, r => r.Id, rc => rc.RoleId, (_, rc) => rc)
-            .Where(rc => rc.ClaimType == PermissionClaim.Type)
-            .Select(rc => rc.ClaimValue!)
-            .Distinct()
-            .ToListAsync(ct);
-
-        List<UserPermissionOverride> overrides = await db.UserPermissionOverrides
+        var rows = await (
+                from ur in db.UserRoles
+                where ur.UserId == userId
+                join rc in db.RoleClaims on ur.RoleId equals rc.RoleId
+                where rc.ClaimType == PermissionClaim.Type
+                select new { Code = rc.ClaimValue!, Kind = FromRole })
+            .Concat(db.UserPermissionOverrides
+                .Where(o => o.UserId == userId)
+                .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
+                .Select(o => new { Code = o.Permission, Kind = o.IsGranted ? Grant : Deny }))
             .AsNoTracking()
-            .Where(o => o.UserId == userId)
-            .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
             .ToListAsync(ct);
 
-        var effective = new HashSet<string>(rolePermissions);
-        foreach (UserPermissionOverride? permissionOverride in overrides)
+        var effective = new HashSet<string>(rows.Where(r => r.Kind == FromRole).Select(r => r.Code));
+        foreach (var permissionOverride in rows.Where(r => r.Kind != FromRole))
         {
-            if (permissionOverride.IsGranted)
+            if (permissionOverride.Kind == Grant)
             {
-                effective.Add(permissionOverride.Permission);
+                effective.Add(permissionOverride.Code);
             }
             else
             {
-                effective.Remove(permissionOverride.Permission);
+                effective.Remove(permissionOverride.Code);
             }
         }
 
         return effective;
     }
 
+    /// <summary>Aug 4.2: for a caller that already holds the user (login, refresh), so nothing loads it
+    /// again. The resolution itself needs only the id.</summary>
+    public Task<IEnumerable<string>> ResolveAsync(ApplicationUser user, CancellationToken ct = default) =>
+        ResolveAsync(user.Id, ct);
+
     /// <summary>
-    /// Candidates are everyone who could hold <paramref name="permission"/> at all: members of a role
-    /// carrying it, plus users with a grant override for it. Each candidate is then resolved with
-    /// <see cref="ResolveAsync"/> itself, so a deny override, an expired grant or a deactivated account
-    /// is weighed exactly as the permission check weighs it. The set is small: a permission's holders,
-    /// not the user table.
+    /// Whether an active user other than <paramref name="excludingUserId"/> effectively holds
+    /// <paramref name="permission"/>, weighed exactly as <see cref="ResolveAsync(string, CancellationToken)"/>
+    /// weighs it: a role grants it and no live deny removes it, or a live grant adds it. An expired
+    /// override counts for nothing, either way.
+    ///
+    /// <para>Aug 4.2: one <c>EXISTS</c> query. It used to collect the candidates, then load and resolve
+    /// each one in turn (an N+1, each step loading the candidate's refresh tokens).</para>
     /// </summary>
     public async Task<bool> HasOtherActiveHolderAsync(
         string permission, string excludingUserId, CancellationToken ct = default)
     {
-        List<string> viaRoles = await db.UserRoles
-            .Join(db.RoleClaims, ur => ur.RoleId, rc => rc.RoleId, (ur, rc) => new { ur.UserId, rc.ClaimType, rc.ClaimValue })
-            .Where(x => x.ClaimType == PermissionClaim.Type && x.ClaimValue == permission)
-            .Select(x => x.UserId)
-            .ToListAsync(ct);
-
-        List<string> viaGrants = await db.UserPermissionOverrides
-            .AsNoTracking()
-            .Where(o => o.Permission == permission && o.IsGranted)
+        IQueryable<UserPermissionOverride> live = db.UserPermissionOverrides
             .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
-            .Select(o => o.UserId)
-            .ToListAsync(ct);
+            .Where(o => o.Permission == permission);
 
-        foreach (string candidate in viaRoles.Concat(viaGrants).Distinct().Where(id => id != excludingUserId))
-        {
-            ApplicationUser? user = await userManager.FindByIdAsync(candidate);
-            if (user is { IsActive: true } && (await ResolveAsync(candidate, ct)).Contains(permission))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return await db.Users
+            .Where(u => u.Id != excludingUserId && u.IsActive)
+            .AnyAsync(u =>
+                // (via a role AND no live deny) OR a live grant; && binds tighter than ||.
+                db.UserRoles.Any(ur => ur.UserId == u.Id
+                        && db.RoleClaims.Any(rc => rc.RoleId == ur.RoleId
+                            && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission))
+                    && !live.Any(o => o.UserId == u.Id && !o.IsGranted)
+                || live.Any(o => o.UserId == u.Id && o.IsGranted),
+                ct);
     }
 }

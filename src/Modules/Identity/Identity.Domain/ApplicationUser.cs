@@ -79,10 +79,34 @@ internal sealed class ApplicationUser : IdentityUser<string>, IAuditable
 
     public const int NameMaxLength = 100;
 
-    public RefreshToken IssueRefreshToken(string token, DateTime utcNow, TimeSpan lifetime)
+    /// <summary>
+    /// Issues a refresh token. Aug 4.1: with <paramref name="maxActive"/>, the oldest active tokens
+    /// beyond the cap are revoked, so one account holds at most that many live sessions and the owned
+    /// collection every user load brings back stays bounded. Rotation needs no cap: it revokes one token
+    /// for every one it issues.
+    ///
+    /// <para><b>The invariant <c>RefreshTokenPruneJob</c> relies on:</b> these methods only ever modify
+    /// <i>active</i> tokens (issue, rotate, revoke), and the pruner only deletes expired rows or rows
+    /// revoked before its retention window. So a request that loaded the user before a sweep never
+    /// updates a row the sweep has deleted.</para>
+    /// </summary>
+    public RefreshToken IssueRefreshToken(string token, DateTime utcNow, TimeSpan lifetime, int? maxActive = null)
     {
         var issued = RefreshToken.Issue(token, utcNow, lifetime);
         _refreshTokens.Add(issued);
+
+        if (maxActive is > 0)
+        {
+            foreach (RefreshToken oldest in _refreshTokens
+                         .Where(t => t.IsActive)
+                         .OrderByDescending(t => t.CreatedOn)
+                         .Skip(maxActive.Value)
+                         .ToList())
+            {
+                oldest.Revoke(utcNow);
+            }
+        }
+
         return issued;
     }
 

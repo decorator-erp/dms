@@ -6,8 +6,10 @@ namespace BuildingBlocks.Jobs;
 /// <para><b>Implementations must be idempotent.</b> The worker gives no at-most-once guarantee and
 /// deliberately does not try to: a restart mid-sweep, an overlapping tick, or a manual flush all
 /// re-run a job. Idempotence comes from the notification dedupe key, which
-/// <c>INotificationService</c> stores per recipient, so re-running never duplicates a reminder. A job
-/// that has a side effect other than notifying does not belong here.</para>
+/// <c>INotificationService</c> stores per recipient, so re-running never duplicates a reminder. Beyond
+/// notifying, only idempotent housekeeping of the module's own data belongs here:
+/// <c>UnlinkedUserReaperJob</c> (abandoned logins) and <c>RefreshTokenPruneJob</c> (unusable refresh
+/// tokens) are the two.</para>
 ///
 /// <para><b>A job reads only its own module's tables.</b> That is the whole reason this interface
 /// lives in BuildingBlocks rather than in <c>Notifications.Contracts</c>: the backend's nine jobs each

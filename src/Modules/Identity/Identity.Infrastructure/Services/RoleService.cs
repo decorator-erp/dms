@@ -166,20 +166,17 @@ internal sealed class RoleService(
     public Task<ApplicationRole?> GetByIdAsync(string roleId, CancellationToken ct = default) =>
         roleManager.FindByIdAsync(roleId);
 
-    public async Task<IReadOnlyList<ApplicationRole>> GetUserRolesAsync(string userId, CancellationToken ct = default)
-    {
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
-        if (user is null)
-        {
-            return [];
-        }
+    // Aug 4.4: one untracked join over the membership table. It used to load the user (with its refresh
+    // tokens), then the role names, then the roles: three statements. An unknown user still answers [].
+    public async Task<IReadOnlyList<ApplicationRole>> GetUserRolesAsync(string userId, CancellationToken ct = default) =>
+        await db.Roles
+            .AsNoTracking()
+            .Where(r => db.UserRoles.Any(ur => ur.UserId == userId && ur.RoleId == r.Id))
+            .ToListAsync(ct);
 
-        IList<string> roleNames = await userManager.GetRolesAsync(user);
-        return await db.Roles.Where(r => roleNames.Contains(r.Name!)).ToListAsync(ct);
-    }
-
+    // Aug 4.4: a read, so untracked.
     public async Task<IReadOnlyList<ApplicationRole>> GetAllRolesAsync(CancellationToken ct = default) =>
-        await db.Roles.ToListAsync(ct);
+        await db.Roles.AsNoTracking().ToListAsync(ct);
 
     /// <summary>N4: one of <see cref="DefaultRoles.All"/>, matched the way Identity matches role names.</summary>
     internal static bool IsSystemRole(string? roleName) =>

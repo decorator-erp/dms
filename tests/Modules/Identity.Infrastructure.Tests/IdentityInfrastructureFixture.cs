@@ -66,6 +66,9 @@ public sealed class IdentityInfrastructureFixture : IAsyncLifetime
 
     public AsyncServiceScope CreateScope() => _provider.CreateAsyncScope();
 
+    /// <summary>For tests that build their own context, e.g. to count the commands a call issues.</summary>
+    public string ConnectionString => _container.GetConnectionString();
+
     public async Task DisposeAsync()
     {
         await _provider.DisposeAsync();

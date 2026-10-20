@@ -1,9 +1,11 @@
 using System.Reflection;
 using BuildingBlocks;
+using BuildingBlocks.Jobs;
 using BuildingBlocks.Web;
 using Identity.Contracts;
 using Identity.Domain;
 using Identity.Infrastructure.Authentication;
+using Identity.Infrastructure.Jobs;
 using Identity.Infrastructure.Persistence;
 using Identity.Infrastructure.Persistence.Seeders;
 using Identity.Infrastructure.Services;
@@ -38,6 +40,9 @@ internal sealed class IdentityModule : IModule
             .Bind(cfg.GetSection(JwtOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        services.AddOptions<RefreshTokenOptions>().Bind(cfg.GetSection(RefreshTokenOptions.SectionName));
+        services.AddScoped<IPeriodicJob, RefreshTokenPruneJob>();
 
         services.AddScoped<IJwtProvider, JwtProvider>();
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();

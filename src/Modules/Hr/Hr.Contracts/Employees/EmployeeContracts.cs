@@ -18,8 +18,8 @@ public sealed record EmployeeResponse(
 /// <summary>
 /// What the employee-detail and profile screens read: every field of <see cref="EmployeeResponse"/>,
 /// plus the name and email that live in Identity and the department membership that lives in HR's own
-/// join table. Composed at the endpoint from one <c>GetEmployeeQuery</c> and one batched
-/// <see cref="IHrDirectory.GetProfilesAsync"/> call — the same two-call shape the LIST route uses.
+/// join table, and (N7) whether the login is active. Built by <c>GetEmployeeDetailQuery</c> (Aug 3.10)
+/// from one HR read, one batched <see cref="IHrDirectory.GetProfilesAsync"/> call and the login's state.
 ///
 /// <para><b>Deliberately not <see cref="EmployeeSummary"/>, and deliberately not a widening of it.</b>
 /// <c>EmployeeSummary</c> is the cross-module lookup type; it carries no name on purpose, because the
@@ -88,5 +88,12 @@ public sealed record GetMyEmployeeDetailQuery : IQuery<EmployeeDetailResponse>;
 /// <summary>K3: deactivated employees are left out unless <paramref name="IncludeInactive"/>.</summary>
 public sealed record GetEmployeesQuery(int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)
     : IQuery<PagedResult<EmployeeResponse>>;
+
+/// <summary>Aug 4.3: the page <c>GET /api/employees</c> serves, names included, from one read of
+/// <c>hr.employees</c> and one batched Identity call. Same filters and order as
+/// <see cref="GetEmployeesQuery"/>.</summary>
+public sealed record GetEmployeeProfilesQuery(
+    int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)
+    : IQuery<PagedResult<EmployeeProfile>>;
 
 public sealed record AssignEmployeeToDepartmentCommand(Guid EmployeeId, Guid DepartmentId) : ICommand;

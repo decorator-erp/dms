@@ -128,41 +128,11 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory, 
 
         string[] appUserIds = summaries.Select(s => s.AppUserId).ToArray();
         IReadOnlyList<UserSummary> users = await userDirectory.GetManyAsync(appUserIds, ct);
-        var usersById = users.ToDictionary(u => u.Id);
-
-        return [.. summaries.Select(s =>
-        {
-            if (!usersById.TryGetValue(s.AppUserId, out UserSummary? user))
-            {
-                // Aug 3.9: an employee whose login is gone renders with an empty name. That is a data
-                // problem someone should see, not a silent blank. Ids only, no personal data.
-                logger.LogWarning(
-                    "Employee {EmployeeId} points at login {AppUserId}, which Identity does not have.",
-                    s.Id, s.AppUserId);
-            }
-
-            return new EmployeeProfile(
-                s.Id, s.AppUserId, user?.DisplayName ?? string.Empty, user?.Email,
-                s.JobTitle, s.PrimaryDepartmentId, s.IsActive);
-        })];
+        return EmployeeProfiles.Zip(summaries, users, logger);
     }
 
-    /// <summary>
-    /// <see cref="Domain.Employee"/> has no <c>PrimaryDepartmentId</c> field of its own - membership
-    /// lives in <see cref="Domain.EmployeeDepartment"/>, so this resolves it as a correlated scalar
-    /// subquery (translates to SQL directly; EF Core supports this pattern) rather than loading the
-    /// join table separately and mapping in memory.
-    ///
-    /// <para>K1: an employee has at most one active membership (a partial unique index enforces it), so
-    /// the subquery has exactly one candidate and needs no ordering. Before, it had to pick arbitrarily
-    /// between several.</para>
-    /// </summary>
-    private System.Linq.Expressions.Expression<Func<Domain.Employee, EmployeeSummary>> ToSummary() => e =>
-        new EmployeeSummary(
-            e.Id, e.AppUserId, e.JobTitle,
-            db.EmployeeDepartments
-                .Where(ed => ed.EmployeeId == e.Id && ed.IsActive)
-                .Select(ed => (Guid?)ed.DepartmentId)
-                .FirstOrDefault(),
-            e.IsActive);
+    /// <summary>The one HR projection to <see cref="EmployeeSummary"/>; see
+    /// <see cref="EmployeeProfiles.ToSummary"/>.</summary>
+    private System.Linq.Expressions.Expression<Func<Domain.Employee, EmployeeSummary>> ToSummary() =>
+        EmployeeProfiles.ToSummary(db);
 }

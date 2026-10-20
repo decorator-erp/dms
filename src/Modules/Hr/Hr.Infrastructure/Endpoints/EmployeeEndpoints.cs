@@ -14,12 +14,11 @@ using SharedKernel;
 namespace Hr.Infrastructure.Endpoints;
 
 /// <summary>
-/// The LIST route doesn't serve what its CQRS query returns. <c>GetEmployeesQuery</c> answers with
-/// <see cref="EmployeeResponse"/>, which never carries a name — names and emails live in Identity, not
-/// HR. So the route enriches the page's ids through <see cref="IHrDirectory.GetProfilesAsync"/>, one
-/// batched call, after the query has run, and puts the profiles back in the page's order. The DETAIL and
-/// <c>/me</c> routes used to do the same composition here; since Aug 3.10 it is
-/// <c>GetEmployeeDetailQuery</c> and <c>GetMyEmployeeDetailQuery</c>.
+/// Every route here is one CQRS query. Names and emails live in Identity, not HR, so the LIST route's
+/// <c>GetEmployeeProfilesQuery</c> (Aug 4.3) answers with profiles directly: one read of the page and one
+/// batched Identity call, where it used to run <c>GetEmployeesQuery</c> and then re-read the same rows
+/// through <see cref="IHrDirectory.GetProfilesAsync"/>. The DETAIL and <c>/me</c> routes are
+/// <c>GetEmployeeDetailQuery</c> and <c>GetMyEmployeeDetailQuery</c> (Aug 3.10).
 ///
 /// <para><b><see cref="EmployeeSummary"/> is deliberately not what any of these routes serve.</b> It is
 /// the cross-module lookup type — no name, by design, because the authorization and assignment paths
@@ -37,25 +36,12 @@ internal sealed class EmployeeEndpoints : IEndpoint
         // that default is 200 and this one is 50.
         group.MapGet("/", async (
             int? pageNumber, int? pageSize, string? jobTitleFilter, bool? includeInactive,
-            IQueryHandler<GetEmployeesQuery, PagedResult<EmployeeResponse>> listHandler,
-            IHrDirectory hrDirectory,
+            IQueryHandler<GetEmployeeProfilesQuery, PagedResult<EmployeeProfile>> handler,
             CancellationToken ct) =>
         {
-            Result<PagedResult<EmployeeResponse>> pageResult = await listHandler.HandleAsync(
-                new GetEmployeesQuery(pageNumber ?? 1, pageSize ?? 50, jobTitleFilter, includeInactive ?? false), ct);
-            if (pageResult.IsFailure)
-            {
-                return pageResult.ToProblem();
-            }
-
-            PagedResult<EmployeeResponse> page = pageResult.Value!;
-            IReadOnlyList<EmployeeProfile> profiles = await hrDirectory.GetProfilesAsync([.. page.Items.Select(e => e.Id)], ct);
-
-            // Aug 3.4: GetProfilesAsync answers in no particular order; the page's order is the query's.
-            var byId = profiles.ToDictionary(p => p.Id);
-            EmployeeProfile[] ordered = [.. page.Items.Where(e => byId.ContainsKey(e.Id)).Select(e => byId[e.Id])];
-
-            return Results.Ok(new PagedResult<EmployeeProfile>(ordered, page.PageNumber, page.PageSize, page.TotalCount));
+            Result<PagedResult<EmployeeProfile>> result = await handler.HandleAsync(
+                new GetEmployeeProfilesQuery(pageNumber ?? 1, pageSize ?? 50, jobTitleFilter, includeInactive ?? false), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.EmployeesRead);
 
         group.MapGet("/{employeeId:guid}", async (

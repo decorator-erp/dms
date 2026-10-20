@@ -28,6 +28,10 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
             refreshToken.Property(t => t.RevokedOn);
 
             refreshToken.HasIndex(t => t.TokenHash).IsUnique();
+
+            // Aug 4.1: what RefreshTokenPruneJob filters on.
+            refreshToken.HasIndex(t => t.ExpiresOn);
+            refreshToken.HasIndex(t => t.RevokedOn);
         });
     }
 }
