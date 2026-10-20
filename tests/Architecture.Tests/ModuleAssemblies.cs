@@ -9,9 +9,9 @@ namespace Architecture.Tests;
 /// here at build time, whereas relying on assemblies already loaded into the process depends on
 /// something having touched them first.
 ///
-/// <b>Empty today.</b> No project matching these suffixes exists yet — every rule built on this scans
-/// zero assemblies and passes vacuously until Identity/HR (and later modules) exist AND are added as
-/// project references to <c>Architecture.Tests.csproj</c>. See that file's comment.
+/// <b>Only what this project references.</b> All nine modules' four projects are referenced by
+/// <c>Architecture.Tests.csproj</c> today; a module project that isn't would be invisible here, and every
+/// rule built on this would pass over it. <see cref="MetaSelfEnforcementTests"/> fails when that happens.
 /// </summary>
 internal static class ModuleAssemblies
 {
