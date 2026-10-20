@@ -25,6 +25,11 @@ namespace Identity.Infrastructure.Services;
 /// own <c>IsActive</c> flag (a deactivated user's permissions still resolve here — deactivation is
 /// enforced only at login/refresh, not at every permission check). Recorded, not silently changed —
 /// changing security semantics mid-port is outside what a port should do.
+///
+/// <para>Since then: expiry is <see cref="UserPermissionOverride.LiveAt"/>, the predicate every override
+/// read shares (Aug 2.4); the override's own <c>IsActive</c> flag is still not checked (nothing sets it
+/// false yet, Phase 5); and a deactivated user's tokens are refused at every request by the security
+/// stamp check (Phase 1B, N2), so the second gap no longer reaches an API caller.</para>
 /// </summary>
 internal sealed class EffectivePermissionService(IdentityModuleDbContext db, UserManager<ApplicationUser> userManager)
     : IEffectivePermissionService
@@ -49,7 +54,8 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db, Use
 
         List<UserPermissionOverride> overrides = await db.UserPermissionOverrides
             .AsNoTracking()
-            .Where(o => o.UserId == userId && (o.ExpiresAt == null || o.ExpiresAt > DateTime.UtcNow))
+            .Where(o => o.UserId == userId)
+            .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
             .ToListAsync(ct);
 
         var effective = new HashSet<string>(rolePermissions);
@@ -87,6 +93,7 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db, Use
         List<string> viaGrants = await db.UserPermissionOverrides
             .AsNoTracking()
             .Where(o => o.Permission == permission && o.IsGranted)
+            .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
             .Select(o => o.UserId)
             .ToListAsync(ct);
 

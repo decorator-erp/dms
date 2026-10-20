@@ -19,7 +19,9 @@ namespace Identity.Application.Features.Permissions;
 /// <item>Nobody writes overrides on their own account (<c>permissions.SelfModification</c>, 403).</item>
 /// <item>A grant confers a permission, so the caller must effectively hold it (N1,
 /// <c>permissions.CannotDelegate</c>, 403).</item>
-/// <item>One override per (user, permission) is a data invariant (409, as before).</item>
+/// <item>One live override per (user, permission) is a data invariant (409, as before). An expired one is
+/// renewed in place with the new direction, reason, expiry and grantor (Aug 2.4), and goes through the
+/// same security-stamp bump as any other write.</item>
 /// <item>Denying <c>permissions.manage</c> must leave at least one other active holder, or nobody
 /// could ever repair permissions again (<c>permissions.LastHolder</c>, 409).</item>
 /// </list>
@@ -62,9 +64,11 @@ internal static class PermissionOverrideWrites
             return UserErrors.NotFound;
         }
 
-        bool alreadyExists = await db.UserPermissionOverrides.AnyAsync(
+        // Aug 2.4: only a LIVE override blocks a new one. An expired one is renewed in place below (the
+        // unique index on (UserId, Permission) covers expired rows too, so it can't be inserted beside).
+        UserPermissionOverride? existing = await db.UserPermissionOverrides.FirstOrDefaultAsync(
             o => o.UserId == write.TargetUserId && o.Permission == write.Permission, ct);
-        if (alreadyExists)
+        if (existing is { IsExpired: false })
         {
             return PermissionErrors.PermissionOverrideAlreadyExists(write.Permission);
         }
@@ -76,11 +80,19 @@ internal static class PermissionOverrideWrites
             return PermissionErrors.LastHolder(write.Permission);
         }
 
-        db.UserPermissionOverrides.Add(write.IsGrant
-            ? UserPermissionOverride.Grant(
-                write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc)
-            : UserPermissionOverride.Deny(
-                write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc));
+        if (existing is not null)
+        {
+            existing.Renew(write.IsGrant, currentUser.UserId, write.Reason, write.ExpiresAtUtc);
+        }
+        else
+        {
+            db.UserPermissionOverrides.Add(write.IsGrant
+                ? UserPermissionOverride.Grant(
+                    write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc)
+                : UserPermissionOverride.Deny(
+                    write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc));
+        }
+
         await db.SaveChangesAsync(ct);
 
         // N2: the target's tokens carry their old permission set.
