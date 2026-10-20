@@ -4,8 +4,8 @@ using Hr.Contracts.Employees;
 using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Hr.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Hr.Application.Features.Employees.AssignToDepartment;
