@@ -82,9 +82,11 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : I
 
     /// <summary>
     /// Whether an active user other than <paramref name="excludingUserId"/> effectively holds
-    /// <paramref name="permission"/>, weighed exactly as <see cref="ResolveAsync(string, CancellationToken)"/>
-    /// weighs it: a role grants it and no live deny removes it, or a live grant adds it. An expired
-    /// override counts for nothing, either way.
+    /// <paramref name="permission"/>, weighed exactly as <see cref="PermissionResolution.Resolve"/> weighs
+    /// it, deny-wins included: a role or a live grant confers it, and no live deny removes it. A dead
+    /// override (inactive, or expired) counts for nothing, either way. (P5-F2: it used to be grant-wins,
+    /// <c>(role and no deny) or grant</c>, which agreed with the resolver only because the unique index
+    /// forbids a grant and a deny for the same code.)
     ///
     /// <para>Aug 4.2: one <c>EXISTS</c> query. It used to collect the candidates, then load and resolve
     /// each one in turn (an N+1, each step loading the candidate's refresh tokens).</para>
@@ -99,12 +101,12 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : I
         return await db.Users
             .Where(u => u.Id != excludingUserId && u.IsActive)
             .AnyAsync(u =>
-                // (via a role AND no live deny) OR a live grant; && binds tighter than ||.
-                db.UserRoles.Any(ur => ur.UserId == u.Id
+                // (via a role OR a live grant) AND no live deny: deny wins, as in PermissionResolution.
+                (db.UserRoles.Any(ur => ur.UserId == u.Id
                         && db.RoleClaims.Any(rc => rc.RoleId == ur.RoleId
                             && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission))
-                    && !live.Any(o => o.UserId == u.Id && !o.IsGranted)
-                || live.Any(o => o.UserId == u.Id && o.IsGranted),
+                    || live.Any(o => o.UserId == u.Id && o.IsGranted))
+                && !live.Any(o => o.UserId == u.Id && !o.IsGranted),
                 ct);
     }
 }

@@ -1,8 +1,10 @@
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Persistence.Configurations;
 using Identity.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -115,6 +117,43 @@ public sealed class Phase4PermissionQueryTests(IdentityInfrastructureFixture fix
 
         Assert.True(await HasOtherAsync(code));
         Assert.False(await HasOtherAsync(inactiveCode));
+    }
+
+    /// <summary>
+    /// P5-F2: a live grant and a live deny for the same user and code is a holder for neither the resolver
+    /// nor the last-holder check: deny wins in both. The unique (UserId, Permission) index forbids that
+    /// pair, so the test drops it inside a transaction (Postgres DDL is transactional) and rolls back,
+    /// which restores the index and removes the rows for every other test.
+    /// </summary>
+    [Fact]
+    public async Task A_live_grant_and_a_live_deny_for_the_same_code_is_not_a_holder_and_the_resolver_agrees()
+    {
+        string code = NewCode();
+        ApplicationUser other = await CreateUserAsync();
+
+        int commands = 0;
+        await using IdentityModuleDbContext db = CountingContext(() => commands++);
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            string dropIndex = "DROP INDEX identity.\"" + UserPermissionOverrideConfiguration.UniqueUserPermissionIndex + "\"";
+            await db.Database.ExecuteSqlRawAsync(dropIndex);
+            db.UserPermissionOverrides.Add(UserPermissionOverride.Grant(other.Id, code, "admin-1"));
+            db.UserPermissionOverrides.Add(UserPermissionOverride.Deny(other.Id, code, "admin-1"));
+            await db.SaveChangesAsync();
+
+            var service = new EffectivePermissionService(db);
+            commands = 0;
+            bool holder = await service.HasOtherActiveHolderAsync(code, Guid.NewGuid().ToString());
+
+            Assert.False(holder);
+            Assert.Equal(1, commands); // still one EXISTS statement
+            Assert.DoesNotContain(code, await service.ResolveAsync(other.Id));
+        }
+        finally
+        {
+            await transaction.RollbackAsync();
+        }
     }
 
     [Fact]
