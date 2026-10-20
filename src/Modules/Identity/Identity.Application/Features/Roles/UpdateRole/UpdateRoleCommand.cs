@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Identity.Contracts.Roles;
 using Identity.Domain;
+using Identity.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using SharedKernel;
 
@@ -30,6 +31,13 @@ internal sealed class UpdateRoleCommandHandler(RoleManager<ApplicationRole> role
         if (role is null)
         {
             return RoleErrors.NotFound;
+        }
+
+        // N4: a system role keeps its exact name (seeders and provisioning find it by name); its
+        // description is still editable.
+        if (RoleService.IsSystemRole(role.Name) && !string.Equals(role.Name, command.Name, StringComparison.Ordinal))
+        {
+            return RoleErrors.SystemRole(role.Name!);
         }
 
         role.Rename(command.Name);

@@ -340,6 +340,12 @@ public sealed class CrossModuleSmokeTests(ApiFixture fixture)
             // made with the client's own token. The employee's token is legitimately Forbidden for
             // them - it only ever worked because the two identities used to be the same row.
             string clientAppUserId = (await client.GetFromJsonAsync<ClientAppUserBody>($"/api/clients/{clientId}"))!.AppUserId;
+
+            // The portal login is activated by ClientCreatedIntegrationEvent. Since N2 a token for an
+            // inactive account is refused (as in production, where it could not have signed in), so the
+            // event is delivered before the client's token is used.
+            await fixture.Services.GetServices<IHostedService>().OfType<OutboxProcessor>().Single()
+                .ProcessPendingAsync(CancellationToken.None);
             HttpClient portalClient = fixture.CreateClient();
             portalClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                 "Bearer", fixture.IssueTestToken(clientAppUserId, "approvals.decide", "approvals.read"));

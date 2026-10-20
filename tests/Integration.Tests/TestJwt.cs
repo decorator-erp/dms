@@ -10,14 +10,18 @@ namespace Integration.Tests;
 /// the test host validates against — see <see cref="ApiFixture"/>.</summary>
 public static class TestJwt
 {
+    /// <param name="securityStamp">The user's current security stamp, sent as <c>sstamp</c> (N2); the
+    /// host refuses a token whose stamp is not the stored one.</param>
     public static string Issue(
-        string signingKey, string issuer, string audience, string userId, params string[] permissions)
+        string signingKey, string issuer, string audience, string userId, string securityStamp,
+        params string[] permissions)
     {
         List<Claim> claims =
         [
             new(JwtRegisteredClaimNames.Sub, userId),
             new(ClaimTypes.NameIdentifier, userId),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("sstamp", securityStamp),
             .. permissions.Select(p => new Claim(PermissionClaim.Type, p)),
         ];
 

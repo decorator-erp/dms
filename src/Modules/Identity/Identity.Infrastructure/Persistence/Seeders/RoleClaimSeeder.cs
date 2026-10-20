@@ -13,6 +13,13 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// <c>Except</c> against the role's existing claim values rather than re-adding (and duplicating) ones
 /// already present. Reads the catalog, never a hard-coded permission list, so this widens automatically
 /// once HR (or any later module) registers its own <c>IModulePermissions</c>.
+///
+/// <para><b>It stays additive on purpose (N3).</b> A full-access role means "every permission the
+/// catalog knows, today and after the next module ships". So the seeder must keep adding new codes,
+/// and it never removes one. That used to clash with the admin API: a claim removed from
+/// <c>manager</c> came back silently at the next boot. Since N3, <c>PermissionService</c> refuses every
+/// claim edit on a full-access role (409 <c>roles.FullAccessLocked</c>), which makes this seeder the
+/// only writer of those roles' claims. Additive is then simply correct.</para>
 /// </summary>
 internal static class RoleClaimSeeder
 {

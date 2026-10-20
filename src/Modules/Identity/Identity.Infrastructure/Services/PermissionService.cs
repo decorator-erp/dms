@@ -1,13 +1,15 @@
 using BuildingBlocks;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Persistence.Seeders;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Identity.Infrastructure.Services;
 
-internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<ApplicationRole> roleManager)
+internal sealed class PermissionService(
+    IdentityModuleDbContext db, RoleManager<ApplicationRole> roleManager, ISecurityStamps securityStamps)
     : IPermissionService
 {
     public async Task<Result> AssignPermissionToRoleAsync(
@@ -19,6 +21,13 @@ internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<
             return RoleErrors.NotFound;
         }
 
+        // N3. RoleClaimSeeder keeps every full-access role at the whole catalog; an edit here would
+        // either be a no-op (add) or be silently undone at the next boot (remove).
+        if (DelegationGuard.IsFullAccess(role.Name))
+        {
+            return RoleErrors.FullAccessLocked(role.Name!);
+        }
+
         bool alreadyAssigned = await db.RoleClaims.AnyAsync(
             rc => rc.RoleId == roleId && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission, ct);
         if (alreadyAssigned)
@@ -28,15 +37,33 @@ internal sealed class PermissionService(IdentityModuleDbContext db, RoleManager<
 
         db.RoleClaims.Add(ApplicationRoleClaim.Create(roleId, PermissionClaim.Type, permission));
         await db.SaveChangesAsync(ct);
+
+        // N2: every holder's tokens now under-state what the role confers.
+        await securityStamps.BumpRoleHoldersAsync(roleId, ct);
         return Result.Success();
     }
 
     public async Task<Result> RemovePermissionFromRoleAsync(
         string roleId, string permission, CancellationToken ct = default)
     {
+        // The role is loaded for N3's check; a missing one is reported rather than answered with a 204.
+        ApplicationRole? role = await roleManager.FindByIdAsync(roleId);
+        if (role is null)
+        {
+            return RoleErrors.NotFound;
+        }
+
+        if (DelegationGuard.IsFullAccess(role.Name))
+        {
+            return RoleErrors.FullAccessLocked(role.Name!);
+        }
+
         await db.RoleClaims
             .Where(rc => rc.RoleId == roleId && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission)
             .ExecuteDeleteAsync(ct);
+
+        // N2: every holder's tokens still claim the removed permission; refuse them.
+        await securityStamps.BumpRoleHoldersAsync(roleId, ct);
         return Result.Success();
     }
 

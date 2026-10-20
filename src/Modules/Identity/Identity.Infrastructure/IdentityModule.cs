@@ -23,10 +23,15 @@ internal sealed class IdentityModule : IModule
     {
         services.AddModuleDbContext<IdentityModuleDbContext>(cfg);
 
-        services.AddIdentityCore<ApplicationUser>()
+        // K4: lockout and password policy live in IdentityPolicy. AddSignInManager is for
+        // CheckPasswordSignInAsync (lockout-aware password checks); its scheme provider comes from
+        // AddAuthenticationCore, which the host's AddAuthentication also registers (TryAdd, so once).
+        services.AddIdentityCore<ApplicationUser>(IdentityPolicy.Configure)
             .AddRoles<ApplicationRole>()
+            .AddSignInManager()
             .AddEntityFrameworkStores<IdentityModuleDbContext>()
             .AddDefaultTokenProviders();
+        services.AddAuthenticationCore();
 
         services
             .AddOptions<JwtOptions>()
@@ -38,6 +43,13 @@ internal sealed class IdentityModule : IModule
         services.AddScoped<IEffectivePermissionService, EffectivePermissionService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IDelegationGuard, DelegationGuard>();
+        services.AddScoped<IPasswordSignIn, PasswordSignIn>();
+        services.AddScoped<ISessionRevocation, SessionRevocation>();
+        services.AddScoped<ISecurityStamps, SecurityStamps>();
+        services.AddScoped<IUserSessionState, UserSessionState>();
+        services.AddSingleton<IUserSessionCache, UserSessionCache>();
+        services.AddMemoryCache();
         services.AddScoped<IUserDirectory, UserDirectory>();
         services.AddScoped<IUserAdministration, UserAdministration>();
         services.AddScoped<IUserProvisioning, UserProvisioning>();

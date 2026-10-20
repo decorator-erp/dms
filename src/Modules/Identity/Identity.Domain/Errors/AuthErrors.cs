@@ -10,6 +10,21 @@ internal static class AuthErrors
     public static readonly Error InvalidCredentials =
         Error.Unauthorized("authentications.InvalidCredentials", "Invalid email or password.");
 
+    /// <summary>K4: too many failed attempts. Says nothing about whether this attempt's password was right.</summary>
+    public static readonly Error LockedOut =
+        Error.Unauthorized(
+            "authentications.LockedOut", "This account is temporarily locked after repeated failed sign-ins. Try again later.");
+
+    /// <summary>N2: the access token predates a change to the account (deactivation, roles, permissions,
+    /// password), or its account no longer exists. Refresh or sign in again.</summary>
+    public static readonly Error StaleToken =
+        Error.Unauthorized("authentications.StaleToken", "This session is no longer valid. Sign in again.");
+
+    /// <summary>K5: a refresh token that was already rotated away was presented again, so the token family
+    /// is treated as stolen and every refresh token of the account has been revoked.</summary>
+    public static readonly Error RefreshTokenReused =
+        Error.Unauthorized("authentications.RefreshTokenReused", "Invalid refresh token.");
+
     public static readonly Error UserNotActive =
         Error.Unauthorized("authentications.UserNotActive", "User account is not active.");
 

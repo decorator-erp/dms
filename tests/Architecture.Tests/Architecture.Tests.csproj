@@ -9,6 +9,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NetArchTest.Rules" />
@@ -31,6 +32,8 @@
       ProjectReference here too - a module assembly that isn't referenced here is invisible to every
       rule that scans by naming convention, so the rule constraining it silently stays vacuous.
     -->
+    <!-- Rule 12 boots the real host (WebApplicationFactory<Program>) to read its endpoint data sources. -->
+    <ProjectReference Include="..\..\src\Api\Api.csproj" />
     <ProjectReference Include="..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />

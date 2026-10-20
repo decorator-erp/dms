@@ -49,7 +49,9 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         ("notify", "identity"),
     ];
 
-    private static readonly IReadOnlyDictionary<string, (string AssemblyName, string ContextTypeName)> Modules =
+    // Internal so Rule 12 (which needs a fully migrated database to boot the real host) migrates from the
+    // same map: a module added here is migrated there too.
+    internal static readonly IReadOnlyDictionary<string, (string AssemblyName, string ContextTypeName)> Modules =
         new Dictionary<string, (string, string)>
         {
             ["identity"] = ("Identity.Infrastructure", "Identity.Infrastructure.Persistence.IdentityModuleDbContext, Identity.Infrastructure"),
@@ -85,7 +87,7 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
                 continue;
             }
 
-            await MigrateModuleSchemaAsync(module.AssemblyName, module.ContextTypeName);
+            await MigrateModuleSchemaAsync(_container.GetConnectionString(), module.AssemblyName, module.ContextTypeName);
         }
     }
 
@@ -232,14 +234,15 @@ public sealed class Rule9CrossSchemaForeignKeyTests : IAsyncLifetime
         Assert.DoesNotContain(found, fk => fk.To == "finance");
     }
 
-    private async Task MigrateModuleSchemaAsync(string moduleAssemblyName, string assemblyQualifiedContextTypeName)
+    internal static async Task MigrateModuleSchemaAsync(
+        string connectionString, string moduleAssemblyName, string assemblyQualifiedContextTypeName)
     {
         IModule module = ModuleDiscovery.DiscoverModules(Assembly.Load(moduleAssemblyName)).Single();
 
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
+                ["ConnectionStrings:DefaultConnection"] = connectionString,
             })
             .Build();
 

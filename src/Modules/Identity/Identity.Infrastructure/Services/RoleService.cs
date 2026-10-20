@@ -1,5 +1,6 @@
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Persistence.Seeders;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
@@ -11,7 +12,10 @@ namespace Identity.Infrastructure.Services;
 /// <see cref="UserManager{TUser}.IsInRoleAsync"/> — the backend passed a role <em>id</em> to that
 /// method, which expects a name, so the check silently always returned false there.</summary>
 internal sealed class RoleService(
-    RoleManager<ApplicationRole> roleManager, UserManager<ApplicationUser> userManager, IdentityModuleDbContext db)
+    RoleManager<ApplicationRole> roleManager,
+    UserManager<ApplicationUser> userManager,
+    IdentityModuleDbContext db,
+    ISecurityStamps securityStamps)
     : IRoleService
 {
     public async Task<Result<string>> CreateRoleAsync(string roleName, CancellationToken ct = default)
@@ -35,6 +39,11 @@ internal sealed class RoleService(
             return RoleErrors.NotFound;
         }
 
+        if (IsSystemRole(role.Name) && !string.Equals(role.Name, newRoleName, StringComparison.Ordinal))
+        {
+            return RoleErrors.SystemRole(role.Name!);
+        }
+
         role.Rename(newRoleName);
         IdentityResult result = await roleManager.UpdateAsync(role);
 
@@ -47,6 +56,31 @@ internal sealed class RoleService(
         if (role is null)
         {
             return RoleErrors.NotFound;
+        }
+
+        // N4. The seeded roles are looked up by name (provisioning, RoleSeeder, RoleClaimSeeder,
+        // AdminUserSeeder), so deleting one only makes RoleSeeder recreate it under a new id.
+        if (IsSystemRole(role.Name))
+        {
+            return RoleErrors.SystemRole(role.Name!);
+        }
+
+        // The user_roles FK cascades: deleting a role still held would strip it from every member
+        // without a trace. Members are removed first, deliberately, one assignment at a time.
+        int memberCount = await db.UserRoles.CountAsync(ur => ur.RoleId == roleId, ct);
+        if (memberCount > 0)
+        {
+            return RoleErrors.RoleInUse(roleId, memberCount);
+        }
+
+        // The role_claims FK cascades too, but a cascade happens in the database, where the audit
+        // interceptor never sees it. Removing the claims through the change tracker first writes one
+        // audit row per claim. Both saves share the command's transaction.
+        List<ApplicationRoleClaim> claims = await db.RoleClaims.Where(rc => rc.RoleId == roleId).ToListAsync(ct);
+        if (claims.Count > 0)
+        {
+            db.RoleClaims.RemoveRange(claims);
+            await db.SaveChangesAsync(ct);
         }
 
         IdentityResult result = await roleManager.DeleteAsync(role);
@@ -69,8 +103,14 @@ internal sealed class RoleService(
         }
 
         IdentityResult result = await userManager.AddToRoleAsync(user, role.Name!);
+        if (!result.Succeeded)
+        {
+            return IdentityErrorsToError("roles.AssignFailed", result);
+        }
 
-        return result.Succeeded ? Result.Success() : IdentityErrorsToError("roles.AssignFailed", result);
+        // N2: the user's tokens list their old roles and permissions; make them refresh.
+        await securityStamps.BumpAsync(user.Id, ct);
+        return Result.Success();
     }
 
     public async Task<Result> RemoveRoleFromUserAsync(string userId, string roleId, CancellationToken ct = default)
@@ -88,8 +128,14 @@ internal sealed class RoleService(
         }
 
         IdentityResult result = await userManager.RemoveFromRoleAsync(user, role.Name!);
+        if (!result.Succeeded)
+        {
+            return IdentityErrorsToError("roles.RemoveFailed", result);
+        }
 
-        return result.Succeeded ? Result.Success() : IdentityErrorsToError("roles.RemoveFailed", result);
+        // N2: a removed role must stop working now, not when the token expires.
+        await securityStamps.BumpAsync(user.Id, ct);
+        return Result.Success();
     }
 
     public async Task<bool> UserInRoleAsync(string userId, string roleId, CancellationToken ct = default)
@@ -134,6 +180,10 @@ internal sealed class RoleService(
 
     public async Task<IReadOnlyList<ApplicationRole>> GetAllRolesAsync(CancellationToken ct = default) =>
         await db.Roles.ToListAsync(ct);
+
+    /// <summary>N4: one of <see cref="DefaultRoles.All"/>, matched the way Identity matches role names.</summary>
+    internal static bool IsSystemRole(string? roleName) =>
+        roleName is not null && DefaultRoles.All.Contains(roleName, StringComparer.OrdinalIgnoreCase);
 
     private static Error IdentityErrorsToError(string code, IdentityResult result) =>
         Error.BadRequest(code, string.Join("; ", result.Errors.Select(e => e.Description)));

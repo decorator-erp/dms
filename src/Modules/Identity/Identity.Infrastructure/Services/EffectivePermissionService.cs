@@ -67,4 +67,38 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db, Use
 
         return effective;
     }
+
+    /// <summary>
+    /// Candidates are everyone who could hold <paramref name="permission"/> at all: members of a role
+    /// carrying it, plus users with a grant override for it. Each candidate is then resolved with
+    /// <see cref="ResolveAsync"/> itself, so a deny override, an expired grant or a deactivated account
+    /// is weighed exactly as the permission check weighs it. The set is small: a permission's holders,
+    /// not the user table.
+    /// </summary>
+    public async Task<bool> HasOtherActiveHolderAsync(
+        string permission, string excludingUserId, CancellationToken ct = default)
+    {
+        List<string> viaRoles = await db.UserRoles
+            .Join(db.RoleClaims, ur => ur.RoleId, rc => rc.RoleId, (ur, rc) => new { ur.UserId, rc.ClaimType, rc.ClaimValue })
+            .Where(x => x.ClaimType == PermissionClaim.Type && x.ClaimValue == permission)
+            .Select(x => x.UserId)
+            .ToListAsync(ct);
+
+        List<string> viaGrants = await db.UserPermissionOverrides
+            .AsNoTracking()
+            .Where(o => o.Permission == permission && o.IsGranted)
+            .Select(o => o.UserId)
+            .ToListAsync(ct);
+
+        foreach (string candidate in viaRoles.Concat(viaGrants).Distinct().Where(id => id != excludingUserId))
+        {
+            ApplicationUser? user = await userManager.FindByIdAsync(candidate);
+            if (user is { IsActive: true } && (await ResolveAsync(candidate, ct)).Contains(permission))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

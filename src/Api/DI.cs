@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using Api.Jobs;
@@ -7,6 +9,7 @@ using BuildingBlocks.Jobs;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
+using Identity.Contracts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +57,10 @@ public static class DI
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.Zero,
+
+                    // Aug 5.1: pinned, as in JwtProvider.ValidateToken. The token's header must not pick
+                    // the algorithm it is verified with.
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
                 };
 
                 // N1-04: SignalR's browser client cannot set an Authorization header on a WebSocket
@@ -69,6 +76,52 @@ public static class DI
                 // authentication is the composition root's job.
                 options.Events = new JwtBearerEvents
                 {
+                    // N2: a validly signed token is not enough, it must also be current. Its sstamp claim
+                    // must equal the user's stored security stamp, and the user must exist and be
+                    // active. Identity bumps the stamp whenever a token's contents would change
+                    // (deactivation, roles, role claims, overrides, password, logout), so this refuses
+                    // tokens issued before the change. IUserSessionState caches briefly
+                    // (Identity:SessionStateCacheSeconds) and is evicted on every bump.
+                    OnTokenValidated = async context =>
+                    {
+                        string? userId = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                            ?? context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                        string? stamp = context.Principal?.FindFirst(SessionClaims.SecurityStamp)?.Value;
+
+                        UserSessionSnapshot? session = userId is null
+                            ? null
+                            : await context.HttpContext.RequestServices.GetRequiredService<IUserSessionState>()
+                                .GetAsync(userId, context.HttpContext.RequestAborted);
+
+                        if (session is null || !session.IsActive || stamp is null || session.SecurityStamp != stamp)
+                        {
+                            context.HttpContext.Items[SessionClaims.StaleTokenItem] = true;
+                            context.Fail(SessionClaims.StaleTokenCode);
+                        }
+                    },
+
+                    // A stale token gets a 401 that says so, with the same problem shape as every other
+                    // error, so the client knows to refresh (or sign in) rather than guess.
+                    OnChallenge = async context =>
+                    {
+                        if (context.HttpContext.Items.ContainsKey(SessionClaims.StaleTokenItem))
+                        {
+                            context.HandleResponse();
+                            await Results.Problem(
+                                    statusCode: StatusCodes.Status401Unauthorized,
+                                    title: SessionClaims.StaleTokenCode,
+                                    detail: "This session is no longer valid. Sign in again.",
+                                    extensions: new Dictionary<string, object?>
+                                    {
+                                        ["errors"] = new Dictionary<string, object?>
+                                        {
+                                            [SessionClaims.StaleTokenCode] = new List<string> { "This session is no longer valid. Sign in again." },
+                                        },
+                                    })
+                                .ExecuteAsync(context.HttpContext);
+                        }
+                    },
+
                     OnMessageReceived = context =>
                     {
                         StringValues accessToken = context.Request.Query["access_token"];
@@ -83,7 +136,13 @@ public static class DI
                 };
             });
 
-        services.AddAuthorization();
+        // K7: deny by default. An endpoint that declares no authorization at all (a new route someone forgot
+        // to gate) now requires an authenticated user instead of being silently anonymous. Anonymous routes
+        // say .AllowAnonymous() explicitly, and Architecture.Tests' Rule 12 checks both directions: every
+        // route is authorized or on the anonymous list, and every authorized route names a permission or
+        // is on the authenticated-only list.
+        services.AddAuthorization(options =>
+            options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
         services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -120,6 +179,23 @@ public static class DI
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
                     }));
+
+            // Phase 1B: the auth routes (login, refresh, revoke, change-password, logout). Same shape as
+            // the public-lead policy: fixed window, keyed by remote IP, rejected at once (no queue). Ten
+            // a minute is several honest retries and far too few for guessing. Configurable so the
+            // integration suite (one host, one IP, hundreds of logins) can raise it, and so one test can
+            // lower it to assert the 429.
+            int authPermitLimit = cfg.GetValue("RateLimiting:AuthLogin:PermitLimit", 10);
+            int authWindowSeconds = cfg.GetValue("RateLimiting:AuthLogin:WindowSeconds", 60);
+            options.AddPolicy(RateLimitPolicies.AuthLogin, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = authPermitLimit,
+                        Window = TimeSpan.FromSeconds(authWindowSeconds),
+                        QueueLimit = 0,
+                    }));
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         });
 
@@ -146,4 +222,13 @@ public static class DI
 
         return services;
     }
+}
+
+/// <summary>N2's names, shared by the token check above. <c>sstamp</c> must match
+/// <c>JwtProvider.SecurityStampClaim</c> in Identity, which Api cannot reference (it is internal).</summary>
+internal static class SessionClaims
+{
+    public const string SecurityStamp = "sstamp";
+    public const string StaleTokenCode = "authentications.StaleToken";
+    public const string StaleTokenItem = "auth:stale-token";
 }
