@@ -723,3 +723,204 @@ Fix each one through the API, not SQL: deactivate → let the outbox process →
    - **`EmployeeFlowTests`, `HrSmokeTests.UpdateEmployee_WithEmergencyContactNameInTheBody_…`:** these now send the required `contractType`. Their intent is unchanged.
    - **Access-guard test stubs** in CRM and Projects implement the two new `IHrDirectory` members by throwing; they are never called.
 8. **The full PUT does not include the employee's name or `LoginActive`.** Both are Phase 3 (N7's second half), as the plan states.
+
+## Phase 3 — Correctness & API gaps
+
+### Setup
+
+- **Branch:** `claude/awesome-einstein-mw5xmb`, restarted from `master` `b464459` after PR #4 merged. Phase 3 goes in a **new** PR.
+- **Plan:** the approved plan "Phase 3: Correctness & API gaps, final", with every review item merged in (B1–B12, C1–C7, D1–D2).
+- **Decision taken before coding (user):** a race on a unique index returns **the same error the check already returns**. There is no frontend status change:
+  - an override grant or deny answers 409;
+  - a duplicate department name and a duplicate employee email stay 400.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| Aug 3.2 remove role permission | fixed | `0758c36` | `Phase3IdentityTests`: `Removing_a_held_permission_removes_it_and_bumps_the_holders`, `Removing_a_held_stale_code_removes_it`, `Removing_a_known_permission_the_role_does_not_hold_is_a_no_op_without_a_bump`, `Removing_an_unknown_code_the_role_does_not_hold_is_400`, `Removing_from_an_unknown_role_is_404`; `Phase3HttpTests.A_held_stale_code_is_removable_over_HTTP` |
+| Aug 3.2 revoke override (audited) | fixed | `0758c36` | `Revoking_an_override_removes_the_row_and_bumps_the_target`, `Revoking_a_missing_override_is_404_and_for_a_missing_user_too`; `A_grant_a_revoke_and_a_role_claim_removal_each_leave_an_audit_row` |
+| Aug 3.3 dedup | fixed | `0758c36` | `A_permission_held_through_two_roles_is_listed_once` |
+| Aug 3.4 paging + literal ILIKE | fixed | `78e5b25` | `Employee_pages_are_stable_on_ties_and_a_huge_page_is_empty_not_a_500`, `Job_title_and_department_filters_match_wildcards_literally`, `Users_list_pages_searches_literally_and_needs_users_read`; unit `LikeAndPageWindowTests` |
+| Aug 3.5 override race | fixed | `0758c36` | `A_grant_that_loses_the_race_to_the_unique_index_is_409` (deterministic); `Two_concurrent_grants_give_one_success_and_one_409_never_a_500` |
+| Aug 3.5 employee-create race | fixed | `0758c36` | `Provisioning_that_loses_the_race_to_UserNameIndex_is_DuplicatedEmail` (deterministic); `Two_concurrent_hires_with_one_email_give_201_and_DuplicatedEmail` |
+| Aug 3.5 department create/rename race | fixed | `78e5b25` | `DepartmentNameRaceTests.A_create_and_a_rename_that_lose_to_the_unique_index_are_DuplicatedName` (deterministic); `Two_concurrent_department_creates_with_one_name_give_200_and_400` |
+| Aug 3.6 update validators | fixed | `78e5b25` | `Update_refuses_a_long_phone_long_notes_and_an_end_date_before_the_hire_date` |
+| Aug 3.7 silent successes | fixed / recorded | `0758c36` | `Assigning_a_held_permission_succeeds_without_a_bump`; the remove no-op above; §6.6 |
+| Aug 3.7 unknown code on assign | already-fixed | — | `Assigning_an_unknown_code_is_400` (the validator already checks the catalog) |
+| Aug 3.9 resolve cache, missing-user log | fixed | `78e5b25` | `ResolveEmployeeIdAsync_does_not_remember_a_miss`, `GetProfilesAsync_warns_about_an_employee_with_no_login` |
+| Aug 3.10 department delete permission | checked, unchanged | — | §6.8 |
+| Aug 3.10 unused permissions | recorded | — | §6.9 |
+| Aug 3.10 CQRS bypasses + members 404 | fixed | `78e5b25` | `Members_of_an_unknown_department_and_me_for_a_non_employee_are_ProblemDetails_404s` |
+| N5 baseline claims behind a marker | fixed | `0758c36` | `BaselineClaimSeedingTests` (fresh, stays-removed, concurrent); `IdentitySchemaTests` (+`seed_markers`) |
+| N6 `GET /api/users` | fixed | `0758c36` | `Users_list_pages_searches_literally_and_needs_users_read`, `Users_list_query_count_does_not_grow_with_the_page` |
+| N6 `GET /api/roles/{id}/users` | fixed | `0758c36` | `Role_members_are_paged_and_an_unknown_role_is_404` |
+| N6 self roles read | fixed | `0758c36` | `A_user_reads_their_own_roles_but_not_someone_elses_unless_they_hold_roles_read` |
+| N6 any-of catalog | fixed | `0758c36` | `The_catalog_is_open_to_roles_read_or_permissions_manage`; Rule 12 |
+| N7 name update + `LoginActive` | fixed | `0758c36`, `78e5b25` | `A_PUT_with_a_name_renames_the_login_and_LoginActive_follows_deactivation`, `A_PUT_with_only_one_name_part_is_400`; `UpdateNameAsync_trims_is_idempotent_and_refuses_bad_names`; unit `ApplicationUserNameTests` |
+| N9 password policy | fixed | `0758c36`, `78e5b25` | `A_weak_password_is_WeakPassword_not_a_vague_provisioning_failure`; `IdentityPasswordPolicy_agrees_with_the_configured_IdentityOptions` (×9) |
+
+**Red-before-green proofs.** Each fix was reverted on its own, its test run, then the file restored from a `cp` backup: see §3a.
+
+**Commits:** `0758c36` (Identity) and `78e5b25` (HR). The new BuildingBlocks helpers (`Like`, `PageWindow`) landed with HR, so the Identity commit alone does not build; the pair does.
+
+### What changed
+
+**Identity**
+- **`PermissionService.RemovePermissionFromRoleAsync`** follows the plan's step table:
+  1. unknown role → 404;
+  2. Phase 1A's full-access lock, unchanged;
+  3. if the code is held, remove it through the change tracker (audited) and bump the holders, **even when the catalog no longer knows the code**;
+  4. if the code isn't held and the catalog doesn't know it → 400 `InvalidPermission`;
+  5. if the code isn't held and is known → 204 no-op, with no bump and no audit row.
+
+  The remove validator never had a catalog rule, so a stale code reaches step 3 (C2).
+- **Revoke** loads and removes the override through the change tracker. A missing target user → `users.NotFound`; a missing row stays 404.
+- **Dedup:** the user and all-permissions lists return one row per code (`OnePerCode`).
+- **Race mapping:**
+  - `PermissionOverrideWrites` maps 23505 on `UserPermissionOverrideConfiguration.UniqueUserPermissionIndex`;
+  - `UserProvisioning` maps 23505 on `UserNameIndex`, **and** ASP.NET Identity's own `DuplicateUserName` result to `users.DuplicatedEmail`. The concurrent test found this second window: when the winner has already committed, Identity's `UserValidator` refuses before any insert, and that used to become the vague `users.CreateFailed`.
+- **N5:**
+  - new `SeedMarker` entity and table `identity.seed_markers` (migration `SeedMarkers`);
+  - new `BaselineClaimSeeder`, run after `RoleSeeder` and `RoleClaimSeeder`;
+  - the `DefaultRoles` comment, which said `client` gets no automatic claims, is corrected.
+- **N6:**
+  - `HasAnyPermissionAttribute`, `RequireAnyPermission` and `AnyPermissionAuthorizationHandler` (registered in `Api/DI.cs`); `HasPermissionAttribute` is untouched;
+  - new `UserEndpoints` (`GET /api/users`), `GET /api/roles/{roleId}/users`, and the shared `UserListing`;
+  - `GetUserRolesQueryHandler` allows self or `roles.read`;
+  - the catalog route takes any-of.
+- **N7:**
+  - `IUserAdministration.UpdateNameAsync`, through `ApplicationUser.UpdateName`, which trims and validates 1..100;
+  - idempotent;
+  - no stamp bump.
+- **N9:**
+  - `Identity.Contracts/IdentityPasswordPolicy` holds the rules;
+  - `IdentityPolicy.Configure` reads it;
+  - the `IdentityPolicy` comment, which claimed HR's and CRM's validators already shared the rule, is corrected.
+
+**HR**
+- **`BuildingBlocks/Persistence/Like`** (`Contains`, `EscapeCharacter`) and **`BuildingBlocks/Pagination/PageWindow`** (long skip) are used by both HR lists and the user list. The lists gain `ThenBy(Id)` and a count/page skew comment.
+- **The employees list** puts profiles back in page order. `GetProfilesAsync` answers unordered, so the sort was lost after the query.
+- **`DepartmentSave`** maps 23505 on `DepartmentConfiguration.UniqueActiveNameIndex` for create and rename.
+- **Update employee:**
+  - phone ≤ 50, emergency phone ≤ 50, notes ≤ 2000;
+  - name both-or-neither, ≤ 100;
+  - `Employee.Update` refuses `EndDate < HireDate`;
+  - the name is applied through `UpdateNameAsync` after HR's save.
+- **New queries:** `GetEmployeeDetailQuery`, `GetMyEmployeeDetailQuery` and `GetDepartmentMembersQuery`, which replace the endpoint compositions. `EmployeeDetailResponse` gains `LoginActive`.
+- **`HrDirectory`:** a miss is no longer memoized, and a missing login is logged as a warning (ids only).
+- **Create employee:** checks `IdentityPasswordPolicy` before provisioning → `employees.WeakPassword` (§6.2).
+
+### 2. Run 0 for this phase
+
+All items were open as recorded in Phase 0 §2.2. Two had moved since:
+- the role lookup in remove-permission had already been added in 1A;
+- assign already validated against the catalog.
+
+Exploration on 2026-10-20 re-confirmed the rest by content.
+
+### 3. Tests written but not run
+
+None.
+
+### 3a. Red-before-green proofs
+
+Each row is one fix, reverted alone, with the file restored from a `cp` backup afterwards.
+
+| Reverted | Went red |
+|---|---|
+| unknown code not held → plain success | `Removing_an_unknown_code_the_role_does_not_hold_is_400` |
+| bump on a not-held removal | `Removing_a_known_permission_the_role_does_not_hold_is_a_no_op_without_a_bump` |
+| catalog check **before** the held check (C2's ordering) | `A_held_stale_code_is_removable_over_HTTP` |
+| role-claim removal back to `ExecuteDeleteAsync` | `A_grant_a_revoke_and_a_role_claim_removal_each_leave_an_audit_row` |
+| revoke back to `ExecuteDeleteAsync` | the same audit test |
+| `OnePerCode` removed | `A_permission_held_through_two_roles_is_listed_once` |
+| override 23505 constraint name changed | `A_grant_that_loses_the_race_to_the_unique_index_is_409` (a `DbUpdateException`, i.e. the old 500) |
+| `UserNameIndex` constraint name changed | `Provisioning_that_loses_the_race_to_UserNameIndex_is_DuplicatedEmail` |
+| `DuplicateUserName` result mapping removed | `Two_concurrent_hires_with_one_email_give_201_and_DuplicatedEmail` |
+| department 23505 constraint name changed | `DepartmentNameRaceTests` |
+| the marker mechanism removed (no marker written) | `A_baseline_claim_an_admin_removed_stays_removed_on_the_next_start`. Removing only the marker **check** stayed green: the marker's primary key then refuses the second save, and the catch discards it, so the claim still isn't re-added. The property holds by two mechanisms; the proof removes both. |
+| marker 23505 catch's key name changed | `Two_concurrent_seeds_apply_the_baseline_once` |
+| catalog route back to `permissions.manage` only | `The_catalog_is_open_to_roles_read_or_permissions_manage` |
+| self/`roles.read` check removed | `A_user_reads_their_own_roles_but_not_someone_elses_unless_they_hold_roles_read` |
+| `Like.Contains` without escaping | `Job_title_and_department_filters_match_wildcards_literally`, `Users_list_pages_searches_literally_and_needs_users_read` |
+| employees list back to `int` skip | `Employee_pages_are_stable_on_ties_and_a_huge_page_is_empty_not_a_500` |
+| update phone rule removed | `Update_refuses_a_long_phone_long_notes_and_an_end_date_before_the_hire_date` |
+| `EndDate < HireDate` check removed | the same test |
+| `UpdateNameAsync` call removed | `A_PUT_with_a_name_renames_the_login_and_LoginActive_follows_deactivation` |
+| `LoginActive` hard-coded true | the same test |
+| handler password check removed | `A_weak_password_is_WeakPassword_not_a_vague_provisioning_failure` |
+| members existence check removed | `Members_of_an_unknown_department_and_me_for_a_non_employee_are_ProblemDetails_404s` |
+| a miss cached again | `ResolveEmployeeIdAsync_does_not_remember_a_miss` |
+| missing-login warning removed | `GetProfilesAsync_warns_about_an_employee_with_no_login` |
+| the symbol rule dropped from `IdentityPasswordPolicy` | `IdentityPasswordPolicy_agrees_with_the_configured_IdentityOptions("Aa11aaaa")` |
+| `UpdateName` without trimming | `ApplicationUserNameTests` (×2) |
+
+Not proved by revert: the users list's fixed query count (there is no older code to revert to; the test pins the shape), and the new Rule 12 catalog check (an arch rule, green on today's routes).
+
+### 4. Migration guards added
+
+None. `SeedMarkers` creates a new, empty table, so there is no existing data to violate it.
+
+**Deploy effect (N5):** on the first start after this deploy there is no marker, so `employee` and `client` gain the baseline once. To see beforehand what will be added, run against a production snapshot:
+
+```sql
+SELECT r."Name" AS role, b.code
+FROM (VALUES ('employee','employees.view_own'), ('employee','notifications.view_own'),
+             ('client','crm.portal'), ('client','crm.briefs.view_own'), ('client','crm.meetings.view_own'),
+             ('client','crm.meetings.request_own'), ('client','crm.meetings.respond_own')) AS b(role, code)
+JOIN identity.roles r ON r."Name" = b.role
+WHERE NOT EXISTS (SELECT 1 FROM identity.role_claims rc
+                  WHERE rc."RoleId" = r."Id" AND rc."ClaimType" = 'permissions' AND rc."ClaimValue" = b.code);
+```
+
+The new claims reach each user's access token **at their next refresh** (C7). The role claims change in the database, but this seed bumps no security stamps, so nobody is signed out.
+
+### 5. Frontend contract changes
+
+| Route / behaviour | Before | After |
+|---|---|---|
+| `GET /api/users?page&pageSize&search` (`users.read`) | — | **new**: `PagedResult<UserListItem(id, email, firstName, lastName, userType, isActive, lastLoginAt, roles[])>`. Includes clients and the seeded admin; `pageSize` ≤ 200 (400 otherwise); search is literal over email and names |
+| `GET /api/roles/{roleId}/users` (`roles.read`) | — | **new**, paged; an unknown role → 404 |
+| `GET /api/roles/users/{userId}` | `roles.read` only | **self, or `roles.read`**; anyone else → 404 |
+| `GET /api/permissions` (catalog) | `permissions.manage` | **`roles.read` or `permissions.manage`** |
+| `DELETE /api/permissions/roles/{roleId}/{permission}` | 204 always, unaudited, bumped every holder | held → 204, audited, holders bumped; **not held → 204 no-op** (C1); unknown code not held → 400 `permissions.InvalidPermission`; unknown role → 404; a held code the catalog no longer knows is still removable |
+| `DELETE /api/permissions/users/{id}/overrides/{permission}` | unaudited | audited; a missing user → 404 `users.NotFound` (was `PermissionOverrideNotFound`) |
+| `GET /api/permissions/users/{id}` | a code held through two roles listed twice | once |
+| `PUT /api/employees/{id}` | — | optional `firstName` + `lastName` (both or neither, 400 otherwise) rename the login; phone/emergency phone > 50 or notes > 2000 → 400; `endDate` before `hireDate` → 400 `employees.EndDateBeforeHireDate` |
+| `GET /api/employees/{id}`, `/me` | — | new `loginActive` |
+| `GET /api/employees/me`, no employee record | bare 404 | ProblemDetails 404 `employees.NotFound` |
+| `GET /api/departments/{id}/members`, unknown or deleted department | `200 []` | 404 `departments.NotFound` |
+| `POST /api/employees`, weak password | 400 `users.CreateFailed` (vague), or a field error for < 8 characters | 400 **`employees.WeakPassword`** for every policy failure |
+| `POST /api/employees`, concurrent duplicate email | 500 or `users.CreateFailed` | 400 `users.DuplicatedEmail` |
+| Override grant/deny, department create/rename, concurrent duplicates | 500 | the check's own error (409 / 400) |
+| `GET /api/employees`, `/api/departments` filters | `%` and `_` were wildcards | literal |
+| `GET /api/employees` | the page came back unordered | ordered by job title, then id |
+| Any list, a huge `pageNumber` | 500 | 200, empty page with the real total |
+| `employee` / `client` roles | no claims | baseline added once at the first start after deploy (§4) |
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **No blockers.**
+2. **N9 is checked in the handler, not the validator.** The pipeline's validation errors use the property name as their code (`ValidationDecorator.CreateValidationError`), so a validator cannot answer `employees.WeakPassword`. The create validator keeps `NotEmpty`; its `MinimumLength(8)` moved into the policy check, so every policy failure gets the one code.
+3. **The users list issues a fixed number of statements per page.** The roles come from a subquery inside the page's projection, not from one query per user, so the count does not grow with the page size; `Users_list_query_count_does_not_grow_with_the_page` asserts that.
+4. **B6:** a concurrent seed's 23505 on `seed_markers` is caught, followed by `ChangeTracker.Clear()`. Chosen over `pg_advisory_xact_lock`, because the marker row already is the lock. A module not registered at the first seed contributes nothing and is never re-tried: the marker is global.
+5. **B1:** `HasAnyPermissionAttribute` is new, and `HasPermissionAttribute` is unchanged.
+   - Rule 12 tier 2 now accepts either attribute.
+   - Rule 12 also gained a check that **every permission a route names is in the catalog**. No such rule existed. It passed on all routes when added.
+   - `/api/roles/users/{userId}` joins `AuthenticatedOnlyRoutes`, with its reason inline.
+6. **Silent successes kept on purpose:**
+   - assign of a held permission (idempotent PUT; it no longer bumps);
+   - `UserAdministration` deactivate/reactivate no-ops (outbox retries);
+   - `UserLifecycleMaintenance` returning success for a missing user (the reaper's retry).
+7. **B3:** `EmailIndex` is **not unique** (model snapshot: `HasIndex("NormalizedEmail")` without `IsUnique`). Only `UserNameIndex` is mapped. HR's `IX_employees_AppUserId` can't collide, because the id was just provisioned, so it is not mapped.
+8. **Aug 3.10, delete permission:** `DELETE /api/departments/{id}` keeps `departments.delete`. It is a soft delete, but its name becomes reusable and no route restores it, so "delete" is what it does.
+9. **Unused permissions, for the owner:** `departments.set_active` and `employees.delete` gate no route. They stay in the catalog.
+10. **Out of scope, recorded:**
+    - other modules still compute `(page - 1) * size` in `int`: Projects `ProjectHandlers`, CRM `GetCrmMeetingsByProjectQueryHandler`, Approvals `GetMyPendingApprovalsQueryHandler`, Notifications `NotificationHandlers` and `AuditAndActivityHandlers`, Sites `GetSitesQueryHandler`;
+    - CRM's `CreateClientCommandHandler` has the same weak-password gap N9 closed for HR;
+    - the employees list's enrichment stays in the endpoint (only the order fix).
+11. **N7 window:** the name write is synchronous and cross-module, as N7 decided. If Identity refuses, the command's transaction rolls HR back. If Identity commits and HR's commit then fails, the name is ahead of HR; the PUT is idempotent, so a retry repairs it.
+12. **B7:** the baseline seed inverts **no** existing test. The full suite passed with it before any test was touched; only `IdentitySchemaTests`' table list changed (+`seed_markers`).
+13. **Tests, a scope per command:** a save that fails on a unique index leaves its entity tracked by that scope's context. In the host, a request is one scope and one command. The department race test therefore uses a fresh scope per command, and the notes record it so nobody "fixes" it by reusing a scope.
+14. **`/me` with no user id** answers 401 `employees.Unauthenticated`. It is unreachable behind the route's permission and is kept only so the handler is total.
