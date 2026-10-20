@@ -2,9 +2,11 @@ using BuildingBlocks;
 using Identity.Contracts;
 using Identity.Domain;
 using Identity.Infrastructure.Persistence;
+using Identity.Infrastructure.Persistence.Configurations;
 using Identity.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SharedKernel;
 
 namespace Identity.Application.Features.Permissions;
@@ -93,7 +95,21 @@ internal static class PermissionOverrideWrites
                     write.TargetUserId, write.Permission, currentUser.UserId, write.Reason, write.ExpiresAtUtc));
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: UserPermissionOverrideConfiguration.UniqueUserPermissionIndex,
+        })
+        {
+            // Aug 3.5: a concurrent write inserted the row between the check above and this save. It is
+            // the same refusal the check gives. Return at once: the failed statement aborted the command's
+            // transaction, so nothing else may run on it (no bump).
+            return PermissionErrors.PermissionOverrideAlreadyExists(write.Permission);
+        }
 
         // N2: the target's tokens carry their old permission set.
         await securityStamps.BumpAsync(write.TargetUserId, ct);

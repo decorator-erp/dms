@@ -39,14 +39,22 @@ internal sealed class RevokePermissionOverrideCommandHandler(
             return PermissionErrors.SelfModification;
         }
 
-        int rowsDeleted = await db.UserPermissionOverrides
-            .Where(o => o.UserId == command.TargetUserId && o.Permission == command.Permission)
-            .ExecuteDeleteAsync(ct);
+        if (!await db.Users.AnyAsync(u => u.Id == command.TargetUserId, ct))
+        {
+            return UserErrors.NotFound;
+        }
 
-        if (rowsDeleted == 0)
+        // Aug 3.2: loaded and removed through the change tracker so the revoke is audited, which
+        // ExecuteDeleteAsync was not. A missing row stays 404: revoke targets one listed override.
+        UserPermissionOverride? existing = await db.UserPermissionOverrides.FirstOrDefaultAsync(
+            o => o.UserId == command.TargetUserId && o.Permission == command.Permission, ct);
+        if (existing is null)
         {
             return PermissionErrors.PermissionOverrideNotFound;
         }
+
+        db.UserPermissionOverrides.Remove(existing);
+        await db.SaveChangesAsync(ct);
 
         // N2: the target's tokens carry the override that no longer exists.
         await securityStamps.BumpAsync(command.TargetUserId, ct);

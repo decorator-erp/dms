@@ -26,6 +26,15 @@ internal static class EmployeeErrors
                 ? $"Employee is already in department '{id}'. Move them instead."
                 : "Employee is already in another department. Move them instead.");
 
+    /// <summary>N9: the password fails Identity's policy (Identity.Contracts.IdentityPasswordPolicy).</summary>
+    public static readonly Error WeakPassword = Error.BadRequest(
+        "employees.WeakPassword",
+        "The password needs at least 8 characters, with a digit, a lower-case letter, an upper-case letter and a symbol.");
+
+    /// <summary>Aug 3.6: an employment can't end before it started.</summary>
+    public static readonly Error EndDateBeforeHireDate = Error.BadRequest(
+        "employees.EndDateBeforeHireDate", "The end date can't be before the hire date.");
+
     public static readonly Error InvalidUserId =
         Error.BadRequest("employees.InvalidUserId", "Invalid user ID for employee.");
 }

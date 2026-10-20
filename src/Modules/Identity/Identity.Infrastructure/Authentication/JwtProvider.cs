@@ -29,7 +29,8 @@ internal sealed class JwtProvider(IOptions<JwtOptions> options, IEffectivePermis
     public async Task<(string Token, int ExpireMinutes)> GenerateTokenAsync(
         ApplicationUser user, IEnumerable<string> roles, CancellationToken ct = default)
     {
-        IEnumerable<string> permissions = await effectivePermissionService.ResolveAsync(user.Id, ct);
+        // Aug 4.1/4.2: the overload that takes the loaded user, so building a token doesn't load it again.
+        IEnumerable<string> permissions = await effectivePermissionService.ResolveAsync(user, ct);
 
         List<Claim> claims =
         [

@@ -22,7 +22,9 @@ internal sealed class CreateEmployeeCommandValidator : AbstractValidator<CreateE
     {
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(256);
 
-        RuleFor(x => x.Password).NotEmpty().MinimumLength(8);
+        // The composition rules are checked by the handler against IdentityPasswordPolicy (N9), so a weak
+        // password answers employees.WeakPassword; a validator failure's code is the property name.
+        RuleFor(x => x.Password).NotEmpty();
 
         RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
@@ -47,6 +49,13 @@ internal sealed class CreateEmployeeCommandHandler(HrDbContext db, IUserProvisio
 {
     public async Task<Result<Guid>> HandleAsync(CreateEmployeeCommand command, CancellationToken ct = default)
     {
+        // N9: the same rule Identity enforces, checked first. Without it, a weak password reached
+        // provisioning and came back as the deliberately vague users.CreateFailed.
+        if (!IdentityPasswordPolicy.IsSatisfiedBy(command.Password))
+        {
+            return EmployeeErrors.WeakPassword;
+        }
+
         Result<string> userResult = await provisioning.CreateAsync(
             new NewUserRequest(
                 command.Email,

@@ -2,6 +2,7 @@ using Hr.Contracts;
 using Hr.Infrastructure.Persistence;
 using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Hr.Infrastructure.Services;
 
@@ -11,19 +12,23 @@ namespace Hr.Infrastructure.Services;
 /// field doesn't pull the whole row. Registered scoped (once per request in the real host), which is
 /// what makes <see cref="_resolveCache"/> a genuine per-request memo rather than a cross-request leak.
 /// </summary>
-internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) : IHrDirectory
+internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory, ILogger<HrDirectory> logger)
+    : IHrDirectory
 {
-    private readonly Dictionary<string, Guid?> _resolveCache = [];
+    private readonly Dictionary<string, Guid> _resolveCache = [];
 
     /// <summary>
     /// The hottest path in the system once Projects exists (per the plan's own framing) — every
     /// authorization check that needs "which employee is this caller" hits this. Memoized per DI scope:
     /// three calls with the same <paramref name="appUserId"/> within one request/scope hit the database
     /// once, not three times.
+    ///
+    /// <para>Only a found employee is memoized (Aug 3.9). A miss used to be cached as well, so a hire
+    /// or an activation later in the same scope still resolved to nobody.</para>
     /// </summary>
     public async Task<Guid?> ResolveEmployeeIdAsync(string appUserId, CancellationToken ct)
     {
-        if (_resolveCache.TryGetValue(appUserId, out Guid? cached))
+        if (_resolveCache.TryGetValue(appUserId, out Guid cached))
         {
             return cached;
         }
@@ -35,7 +40,11 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
             .Select(e => (Guid?)e.Id)
             .FirstOrDefaultAsync(ct);
 
-        _resolveCache[appUserId] = employeeId;
+        if (employeeId is { } found)
+        {
+            _resolveCache[appUserId] = found;
+        }
+
         return employeeId;
     }
 
@@ -119,33 +128,11 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
 
         string[] appUserIds = summaries.Select(s => s.AppUserId).ToArray();
         IReadOnlyList<UserSummary> users = await userDirectory.GetManyAsync(appUserIds, ct);
-        var usersById = users.ToDictionary(u => u.Id);
-
-        return [.. summaries.Select(s =>
-        {
-            usersById.TryGetValue(s.AppUserId, out UserSummary? user);
-            return new EmployeeProfile(
-                s.Id, s.AppUserId, user?.DisplayName ?? string.Empty, user?.Email,
-                s.JobTitle, s.PrimaryDepartmentId, s.IsActive);
-        })];
+        return EmployeeProfiles.Zip(summaries, users, logger);
     }
 
-    /// <summary>
-    /// <see cref="Domain.Employee"/> has no <c>PrimaryDepartmentId</c> field of its own - membership
-    /// lives in <see cref="Domain.EmployeeDepartment"/>, so this resolves it as a correlated scalar
-    /// subquery (translates to SQL directly; EF Core supports this pattern) rather than loading the
-    /// join table separately and mapping in memory.
-    ///
-    /// <para>K1: an employee has at most one active membership (a partial unique index enforces it), so
-    /// the subquery has exactly one candidate and needs no ordering. Before, it had to pick arbitrarily
-    /// between several.</para>
-    /// </summary>
-    private System.Linq.Expressions.Expression<Func<Domain.Employee, EmployeeSummary>> ToSummary() => e =>
-        new EmployeeSummary(
-            e.Id, e.AppUserId, e.JobTitle,
-            db.EmployeeDepartments
-                .Where(ed => ed.EmployeeId == e.Id && ed.IsActive)
-                .Select(ed => (Guid?)ed.DepartmentId)
-                .FirstOrDefault(),
-            e.IsActive);
+    /// <summary>The one HR projection to <see cref="EmployeeSummary"/>; see
+    /// <see cref="EmployeeProfiles.ToSummary"/>.</summary>
+    private System.Linq.Expressions.Expression<Func<Domain.Employee, EmployeeSummary>> ToSummary() =>
+        EmployeeProfiles.ToSummary(db);
 }

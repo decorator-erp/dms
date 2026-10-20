@@ -22,6 +22,9 @@ public sealed record UnassignDepartmentHeadCommand(Guid DepartmentId) : ICommand
 
 public sealed record GetDepartmentQuery(Guid DepartmentId) : IQuery<DepartmentResponse>;
 
+/// <summary>Aug 3.10: a department's active members. An unknown or deleted department is a 404.</summary>
+public sealed record GetDepartmentMembersQuery(Guid DepartmentId) : IQuery<IReadOnlyList<EmployeeProfile>>;
+
 /// <summary>K3: deleted departments are left out unless <paramref name="IncludeInactive"/>.</summary>
 public sealed record GetDepartmentsQuery(int PageNumber, int PageSize, string? NameFilter = null, bool IncludeInactive = false)
     : IQuery<PagedResult<DepartmentResponse>>;

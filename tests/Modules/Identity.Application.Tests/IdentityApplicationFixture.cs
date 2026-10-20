@@ -51,7 +51,10 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDataProtection();
-        services.AddDbContext<IdentityModuleDbContext>(o => o.UseNpgsql(_container.GetConnectionString()));
+        services.AddSingleton(Plant);
+        services.AddDbContext<IdentityModuleDbContext>((sp, o) => o
+            .UseNpgsql(_container.GetConnectionString())
+            .AddInterceptors(sp.GetRequiredService<PlantBeforeSave>()));
         services.AddIdentityCore<ApplicationUser>(IdentityPolicy.Configure)
             .AddRoles<ApplicationRole>()
             .AddSignInManager()
@@ -112,6 +115,11 @@ public sealed class IdentityApplicationFixture : IAsyncLifetime
         await db.Database.MigrateAsync();
         await SeedCallerAsync(scope.ServiceProvider, db);
     }
+
+    /// <summary>B2's deterministic-race seam; see <see cref="PlantBeforeSave"/>.</summary>
+    public PlantBeforeSave Plant { get; } = new();
+
+    public string ConnectionString => _container.GetConnectionString();
 
     /// <summary>The default caller's id: an active user in the seeded <c>admin</c> role.</summary>
     public const string CallerId = "test-caller-id";

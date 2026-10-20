@@ -45,7 +45,8 @@ internal sealed class Employee : Entity, IAuditable
     /// N7: a full replacement of the editable fields. A null clears an optional field; it does not mean
     /// "leave it alone", which is how a client could never clear a phone number before. An inactive
     /// employee is not edited: <see cref="EmployeeErrors.Inactive"/> (409), where this used to return
-    /// silently and the caller got a 204 for a change that never happened.
+    /// silently and the caller got a 204 for a change that never happened. An end date before the hire
+    /// date is refused (Aug 3.6).
     /// </summary>
     public Result Update(
         string jobTitle,
@@ -58,6 +59,11 @@ internal sealed class Employee : Entity, IAuditable
         if (!IsActive)
         {
             return EmployeeErrors.Inactive;
+        }
+
+        if (endDate < HireDate)
+        {
+            return EmployeeErrors.EndDateBeforeHireDate;
         }
 
         JobTitle = jobTitle;

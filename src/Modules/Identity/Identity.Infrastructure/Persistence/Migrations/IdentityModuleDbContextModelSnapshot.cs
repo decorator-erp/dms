@@ -343,6 +343,21 @@ namespace Identity.Infrastructure.Persistence.Migrations
                     b.ToTable("users", "identity");
                 });
 
+            modelBuilder.Entity("Identity.Domain.SeedMarker", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("AppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Key")
+                        .HasName("PK_seed_markers");
+
+                    b.ToTable("seed_markers", "identity");
+                });
+
             modelBuilder.Entity("Identity.Domain.UserPermissionOverride", b =>
                 {
                     b.Property<Guid>("Id")
@@ -387,7 +402,8 @@ namespace Identity.Infrastructure.Persistence.Migrations
                     b.HasIndex("ExpiresAt");
 
                     b.HasIndex("UserId", "Permission")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_user_permission_overrides_UserId_Permission");
 
                     b.ToTable("user_permission_overrides", "identity");
                 });
@@ -511,6 +527,10 @@ namespace Identity.Infrastructure.Persistence.Migrations
                                 .HasColumnType("text");
 
                             b1.HasKey("id");
+
+                            b1.HasIndex("ExpiresOn");
+
+                            b1.HasIndex("RevokedOn");
 
                             b1.HasIndex("TokenHash")
                                 .IsUnique();

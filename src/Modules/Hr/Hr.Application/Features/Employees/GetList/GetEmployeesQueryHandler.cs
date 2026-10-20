@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
+using BuildingBlocks.Persistence;
 using FluentValidation;
 using Hr.Application.Features.Employees.Get;
 using Hr.Contracts.Employees;
@@ -29,16 +30,26 @@ internal sealed class GetEmployeesQueryHandler(HrDbContext db)
         IQueryable<Employee> baseQuery = query.IncludeInactive
             ? db.Employees.IgnoreQueryFilters().AsNoTracking()
             : db.Employees.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(query.JobTitleFilter))
+        // Aug 3.4: the filter is matched literally ("50%" is not a wildcard).
+        if (Like.Contains(query.JobTitleFilter) is { } pattern)
         {
-            baseQuery = baseQuery.Where(e => EF.Functions.ILike(e.JobTitle, $"%{query.JobTitleFilter}%"));
+            baseQuery = baseQuery.Where(e => EF.Functions.ILike(e.JobTitle, pattern, Like.EscapeCharacter));
         }
 
+        // The count and the page are two statements, so a write between them can make the total
+        // disagree with the rows by one. Accepted: the next read corrects it.
         int totalCount = await baseQuery.CountAsync(ct);
+        if (!PageWindow.TrySkip(query.PageNumber, query.PageSize, out int skip))
+        {
+            return new PagedResult<EmployeeResponse>([], query.PageNumber, query.PageSize, totalCount);
+        }
 
+        // ThenBy(Id): job titles repeat, and without a unique tiebreak a row can appear on two pages
+        // or none.
         List<Employee> employees = await baseQuery
             .OrderBy(e => e.JobTitle)
-            .Skip((query.PageNumber - 1) * query.PageSize)
+            .ThenBy(e => e.Id)
+            .Skip(skip)
             .Take(query.PageSize)
             .ToListAsync(ct);
 

@@ -40,14 +40,14 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
     /// <c>UnlinkedUserReaperJob</c> is registered by <c>Api.DI</c> itself, because deciding whether a
     /// provisioned login was ever claimed means reading Identity, HR and CRM contracts together and
     /// Identity is a sink that cannot see the other two. The worker resolves <c>IPeriodicJob</c> from
-    /// the container without caring which assembly registered it, so it appears here beside the eight
+    /// the container without caring which assembly registered it, so it appears here beside the nine
     /// module-owned jobs — which is exactly why this assertion is a SET of names rather than a per-module
     /// count.</para>
     ///
     /// <para><b>The design was built for a ceiling of eight loops.</b> Nine deadline loops in the
     /// backend collapse into one timer here; <c>docs/low-resource-hosting.md</c> §3 is the reasoning.
     /// The reaper does not raise that ceiling — one timer still drives every job — but the count in that
-    /// document is now nine.</para>
+    /// document is now nine, and ten with Identity's <c>RefreshTokenPruneJob</c> (Phase 4).</para>
     /// </summary>
     [Fact]
     public void EveryPeriodicJob_IsRegistered_AcrossTheirOwningModulesAndTheApi()
@@ -67,6 +67,7 @@ public sealed class PeriodicJobTests(ApiFixture fixture)
                 "CrmPeriodCloseJob",             // Crm
                 "InvoiceDueJob",                 // Finance (F1-09)
                 "ProjectDeadlineJob",            // Projects
+                "RefreshTokenPruneJob",          // Identity (Phase 4, Aug 4.1)
                 "StageDeadlineJob",              // Projects
                 "TaskDeadlineJob",               // Projects
                 "UnlinkedUserReaperJob",         // Api - deliberately not a module's

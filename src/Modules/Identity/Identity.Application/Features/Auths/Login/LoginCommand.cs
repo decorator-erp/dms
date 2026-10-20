@@ -32,7 +32,8 @@ internal sealed class LoginCommandHandler(
     IPasswordSignIn passwordSignIn,
     IJwtProvider jwtProvider,
     IdentityModuleDbContext db,
-    IOptions<JwtOptions> jwtOptions)
+    IOptions<JwtOptions> jwtOptions,
+    IOptions<RefreshTokenOptions> refreshTokenOptions)
     : ICommandHandler<LoginCommand, AuthResponse>
 {
     public async Task<Result<AuthResponse>> HandleAsync(LoginCommand command, CancellationToken ct = default)
@@ -59,7 +60,10 @@ internal sealed class LoginCommandHandler(
 
         DateTime utcNow = DateTime.UtcNow;
         string refreshToken = RefreshTokenValues.New();
-        user.IssueRefreshToken(refreshToken, utcNow, TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays));
+        // Aug 4.1: at most MaxActivePerUser live sessions; this login ends the oldest one beyond it.
+        user.IssueRefreshToken(
+            refreshToken, utcNow, TimeSpan.FromDays(jwtOptions.Value.RefreshTokenExpiryDays),
+            refreshTokenOptions.Value.MaxActivePerUser);
         user.UpdateLastLogin();
 
         await db.SaveChangesAsync(ct);

@@ -45,9 +45,7 @@ internal sealed class UpdateDepartmentCommandHandler(HrDbContext db) : ICommandH
         }
 
         department.Update(newName, string.IsNullOrWhiteSpace(command.Description) ? null : command.Description);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await DepartmentSave.SaveAsync(db, command.Name, ct);
     }
 
     private static string NameCorrection(string s)

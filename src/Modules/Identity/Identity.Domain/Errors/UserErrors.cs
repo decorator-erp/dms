@@ -26,6 +26,9 @@ internal static class UserErrors
     public static readonly Error CreateFailed =
         Error.BadRequest("users.CreateFailed", "The user could not be created.");
 
+    public static readonly Error InvalidName = Error.BadRequest(
+        "users.InvalidName", "First and last name must each be 1 to 100 characters.");
+
     public static readonly Error RoleAssignmentFailed =
         Error.BadRequest("users.RoleAssignmentFailed", "The user's role could not be assigned.");
 }

@@ -43,18 +43,16 @@ internal sealed class DepartmentEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsRead);
 
-        // A bare Guid[] cannot render a member row. DepartmentMembersAsync answers with HR's own
-        // employee ids; GetProfilesAsync turns the whole set into names and emails in ONE batched
-        // Identity call - the same two-call shape the employees LIST and DETAIL routes use, and never a
-        // lookup per id. GetProfilesAsync already short-circuits an empty id list, so a memberless
-        // department costs one query here and no cross-module hop at all.
+        // A bare Guid[] cannot render a member row, so GetDepartmentMembersQuery answers with profiles:
+        // HR's own ids, then names and emails in ONE batched Identity call, never a lookup per id. An
+        // unknown or deleted department is a 404 (Aug 3.10).
         group.MapGet("/{departmentId:guid}/members", async (
-            Guid departmentId, IHrDirectory hrDirectory, CancellationToken ct) =>
+            Guid departmentId,
+            IQueryHandler<GetDepartmentMembersQuery, IReadOnlyList<EmployeeProfile>> handler,
+            CancellationToken ct) =>
         {
-            IReadOnlyList<Guid> memberIds = await hrDirectory.DepartmentMembersAsync(departmentId, ct);
-            IReadOnlyList<EmployeeProfile> members = await hrDirectory.GetProfilesAsync(memberIds, ct);
-
-            return Results.Ok(members);
+            Result<IReadOnlyList<EmployeeProfile>> result = await handler.HandleAsync(new GetDepartmentMembersQuery(departmentId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(HrPermissions.DepartmentsViewUsers);
 
         group.MapPost("/", async (
