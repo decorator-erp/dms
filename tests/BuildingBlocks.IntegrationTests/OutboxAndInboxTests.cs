@@ -16,9 +16,15 @@ namespace BuildingBlocks.IntegrationTests;
 [Collection(OutboxCollection.Name)]
 public sealed class OutboxAndInboxTests(OutboxFixture fixture)
 {
-    private ServiceProvider BuildProvider(CallCounter counter, FailureController failure)
+    private ServiceProvider BuildProvider(CallCounter counter, FailureController failure, TimeProvider? clock = null)
     {
         var services = new ServiceCollection();
+        if (clock is not null)
+        {
+            // Before AddOutbox, whose TryAdd would otherwise register the system clock.
+            services.AddSingleton(clock);
+        }
+
         services.AddSingleton(counter);
         services.AddSingleton(failure);
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
@@ -118,7 +124,8 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
     {
         var counter = new CallCounter();
         var failure = new FailureController { FailNextCall = true };
-        await using ServiceProvider provider = BuildProvider(counter, failure);
+        var clock = new ManualTimeProvider();
+        await using ServiceProvider provider = BuildProvider(counter, failure, clock);
         var @event = new TestEvent(Guid.NewGuid(), DateTimeOffset.UtcNow);
 
         await using (AsyncServiceScope scope = provider.CreateAsyncScope())
@@ -143,7 +150,17 @@ public sealed class OutboxAndInboxTests(OutboxFixture fixture)
             Assert.NotNull(message.Error);
         }
 
-        // FailNextCall was consumed (and reset) by the first, failing attempt — this one succeeds.
+        // The failure put the message off by the first backoff step (30 s); a sweep before then skips it.
+        await using (AsyncServiceScope scope = provider.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<OutboxProcessor>()
+                .ProcessPendingAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(1, counter.Count);
+
+        // FailNextCall was consumed (and reset) by the first, failing attempt — once due, this one succeeds.
+        clock.Advance(TimeSpan.FromSeconds(31));
         await using (AsyncServiceScope scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<OutboxProcessor>()
