@@ -18,7 +18,7 @@ namespace BuildingBlocks.Outbox.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("shared")
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -147,9 +147,19 @@ namespace BuildingBlocks.Outbox.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("content");
 
+                    b.Property<DateTimeOffset?>("DeadLetteredUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dead_lettered_utc");
+
                     b.Property<string>("Error")
                         .HasColumnType("text")
                         .HasColumnName("error");
+
+                    b.Property<DateTimeOffset>("NextAttemptUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_utc")
+                        .HasDefaultValueSql("now()");
 
                     b.Property<DateTimeOffset>("OccurredUtc")
                         .HasColumnType("timestamp with time zone")
@@ -166,9 +176,9 @@ namespace BuildingBlocks.Outbox.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OccurredUtc")
+                    b.HasIndex("NextAttemptUtc", "OccurredUtc")
                         .HasDatabaseName("ix_outbox_messages_unprocessed")
-                        .HasFilter("processed_utc IS NULL");
+                        .HasFilter("processed_utc IS NULL AND dead_lettered_utc IS NULL");
 
                     b.ToTable("outbox_messages", "shared");
                 });

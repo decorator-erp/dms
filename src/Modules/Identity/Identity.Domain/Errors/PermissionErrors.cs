@@ -10,9 +10,6 @@ internal static class PermissionErrors
     public static Error InvalidPermission(string permission) =>
         Error.BadRequest("permissions.InvalidPermission", $"'{permission}' is not a recognized permission.");
 
-    public static Error NotFoundForTarget(string permission) =>
-        Error.NotFound("permissions.NotFoundForTarget", $"No override found for permission '{permission}'.");
-
     /// <summary>N1: a caller may only confer what they themselves effectively hold.</summary>
     public static Error CannotDelegate(IEnumerable<string> missingPermissions) =>
         Error.Forbidden(

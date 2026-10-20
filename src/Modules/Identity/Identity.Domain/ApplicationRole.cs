@@ -32,8 +32,4 @@ internal sealed class ApplicationRole : IdentityRole<string>, IAuditable
     }
 
     public void UpdateDescription(string? description) => Description = description;
-
-    public void Deactivate() => IsActive = false;
-
-    public void Activate() => IsActive = true;
 }

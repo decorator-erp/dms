@@ -15,18 +15,10 @@ internal static class AuthErrors
         Error.Unauthorized(
             "authentications.LockedOut", "This account is temporarily locked after repeated failed sign-ins. Try again later.");
 
-    /// <summary>N2: the access token predates a change to the account (deactivation, roles, permissions,
-    /// password), or its account no longer exists. Refresh or sign in again.</summary>
-    public static readonly Error StaleToken =
-        Error.Unauthorized("authentications.StaleToken", "This session is no longer valid. Sign in again.");
-
     /// <summary>K5: a refresh token that was already rotated away was presented again, so the token family
     /// is treated as stolen and every refresh token of the account has been revoked.</summary>
     public static readonly Error RefreshTokenReused =
         Error.Unauthorized("authentications.RefreshTokenReused", "Invalid refresh token.");
-
-    public static readonly Error UserNotActive =
-        Error.Unauthorized("authentications.UserNotActive", "User account is not active.");
 
     public static readonly Error InvalidToken =
         Error.Unauthorized("authentications.InvalidToken", "Invalid token.");
@@ -36,13 +28,4 @@ internal static class AuthErrors
 
     public static readonly Error InvalidUser =
         Error.Unauthorized("authentications.InvalidUser", "Invalid user.");
-
-    public static readonly Error InvalidCode =
-        Error.Unauthorized("authentications.InvalidCode", "Invalid code.");
-
-    public static readonly Error SendResetPasswordError =
-        Error.BadRequest("authentications.SendResetPasswordError", "Could not send the reset password code.");
-
-    public static readonly Error ResetPasswordError =
-        Error.BadRequest("authentications.ResetPasswordError", "Could not reset the password.");
 }

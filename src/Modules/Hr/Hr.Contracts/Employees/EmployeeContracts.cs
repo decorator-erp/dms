@@ -77,21 +77,15 @@ public sealed record DeactivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
 public sealed record ActivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
-public sealed record GetEmployeeQuery(Guid EmployeeId) : IQuery<EmployeeResponse>;
-
 /// <summary>Aug 3.10: the detail route's read (it used to be composed in the endpoint).</summary>
 public sealed record GetEmployeeDetailQuery(Guid EmployeeId) : IQuery<EmployeeDetailResponse>;
 
 /// <summary>Aug 3.10: the caller's own detail, for <c>GET /api/employees/me</c>.</summary>
 public sealed record GetMyEmployeeDetailQuery : IQuery<EmployeeDetailResponse>;
 
-/// <summary>K3: deactivated employees are left out unless <paramref name="IncludeInactive"/>.</summary>
-public sealed record GetEmployeesQuery(int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)
-    : IQuery<PagedResult<EmployeeResponse>>;
-
 /// <summary>Aug 4.3: the page <c>GET /api/employees</c> serves, names included, from one read of
-/// <c>hr.employees</c> and one batched Identity call. Same filters and order as
-/// <see cref="GetEmployeesQuery"/>.</summary>
+/// <c>hr.employees</c> and one batched Identity call. K3: deactivated employees are left out unless
+/// <paramref name="IncludeInactive"/>.</summary>
 public sealed record GetEmployeeProfilesQuery(
     int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)
     : IQuery<PagedResult<EmployeeProfile>>;

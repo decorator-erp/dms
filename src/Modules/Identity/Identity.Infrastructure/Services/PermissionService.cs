@@ -111,12 +111,6 @@ internal sealed class PermissionService(
         return OnePerCode(rows);
     }
 
-    public async Task<IReadOnlyList<ApplicationRoleClaim>> GetAllPermissionsAsync(CancellationToken ct = default) =>
-        OnePerCode(await db.RoleClaims
-            .Where(rc => rc.ClaimType == PermissionClaim.Type)
-            .AsNoTracking()
-            .ToListAsync(ct));
-
     private static List<ApplicationRoleClaim> OnePerCode(List<ApplicationRoleClaim> rows) =>
         [.. rows.OrderBy(rc => rc.ClaimValue, StringComparer.Ordinal).DistinctBy(rc => rc.ClaimValue)];
 }

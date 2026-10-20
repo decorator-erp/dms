@@ -1,5 +1,6 @@
 using BuildingBlocks.Events;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace BuildingBlocks.Outbox;
 
@@ -15,6 +16,10 @@ public static class OutboxServiceCollectionExtensions
     {
         services.AddScoped<IEventBus, EventBus>();
         services.AddSingleton<OutboxSignal>();
+
+        // OutboxProcessor's clock for due-checks and backoff. The same TryAdd as module registration, so
+        // whichever runs first wins and a test's own TimeProvider registered earlier is kept.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddHostedService<OutboxProcessor>();
         return services;
     }

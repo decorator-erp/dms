@@ -230,6 +230,6 @@ public static class DI
 internal static class SessionClaims
 {
     public const string SecurityStamp = "sstamp";
-    public const string StaleTokenCode = "authentications.StaleToken";
+    public const string StaleTokenCode = AuthErrorCodes.StaleToken;
     public const string StaleTokenItem = "auth:stale-token";
 }

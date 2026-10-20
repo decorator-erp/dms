@@ -5,13 +5,14 @@ namespace BuildingBlocks.Web;
 /// docs/cross-schema-foreign-keys.md) never references a table that doesn't exist yet — e.g.
 /// <c>hr.employees.app_user_id → identity.users(id)</c> requires <c>identity.users</c> to exist first.
 ///
-/// This is the SINGLE place that order is recorded. The Api host and the integration test fixture both
-/// read from here — two independently hand-maintained lists would drift, and the failure would surface
-/// as a migration error that only reproduces in one of them.
+/// This is the SINGLE place that order is recorded in code. Only the test fixtures read it today
+/// (<c>ApiFixture</c>, and architecture Rules 9 and 12); the Api host does not migrate at all, so a
+/// deployment applies the migrations in this order itself. Two hand-maintained lists would drift, and
+/// the failure would surface as a migration error that only reproduces in one of them.
 ///
-/// Scoped to what this solution actually builds. Extend — never reorder past an existing dependency —
-/// as later modules are added; the full ten-module order is in docs/cross-schema-foreign-keys.md for
-/// reference.
+/// It lists all ten schemas, the same order as docs/cross-schema-foreign-keys.md. Extend — never
+/// reorder past an existing dependency — as later modules are added; docs/adding-a-module.md has the
+/// rule for deciding between an append and an insertion.
 ///
 /// <para><b>"crm" is an INSERTION, not an append — the one exception to append-only so far.</b> Every
 /// module since G0-08 appended to the end of this list. CRM cannot: <c>projects.projects.ClientId →
@@ -21,10 +22,10 @@ namespace BuildingBlocks.Web;
 /// <c>documents</c>, which is backwards for the FK it needs. The insertion is legal because the rule
 /// this list protects is "never reorder past an EXISTING dependency" — nothing already migrated
 /// (identity/hr/approvals/projects/documents) has ever pointed OUTWARD at <c>crm</c>, since the schema
-/// didn't exist until now, so inserting it here disturbs no prior ordering constraint. See
-/// <c>PLAN-PHASE4.md</c>'s structural item 1 and this insertion's own <c>PROGRESS.md</c> entry (G9-07)
-/// for the full reasoning, and <c>docs/adding-a-module.md</c> (G10-01) for the generalized rule a
-/// future module should apply before assuming append is always safe.</para>
+/// didn't exist until now, so inserting it here disturbs no prior ordering constraint (G9-07). See
+/// <c>docs/cross-schema-foreign-keys.md</c> for the foreign keys involved and
+/// <c>docs/adding-a-module.md</c> (G10-01) for the generalized rule a future module should apply before
+/// assuming append is always safe.</para>
 ///
 /// <para><b>"sites" is an append, and applying that same rule is what proved it.</b> Sites points
 /// OUTWARD at four schemas — <c>projects</c> (ProjectId), <c>hr</c> (CreatedById, DecidedById,

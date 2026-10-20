@@ -35,9 +35,14 @@ public static class OutboxModelConfiguration
             b.Property(x => x.ProcessedUtc).HasColumnName("processed_utc");
             b.Property(x => x.Attempts).HasColumnName("attempts").HasDefaultValue(0);
             b.Property(x => x.Error).HasColumnName("error");
-            b.HasIndex(x => x.OccurredUtc)
+            b.Property(x => x.NextAttemptUtc).HasColumnName("next_attempt_utc").HasDefaultValueSql("now()");
+            b.Property(x => x.DeadLetteredUtc).HasColumnName("dead_lettered_utc");
+
+            // The sweep's own filter: undelivered, not given up on, and due. Leading on next_attempt_utc
+            // so "due" is a range scan; occurred_utc rides along for the sweep's ORDER BY.
+            b.HasIndex(x => new { x.NextAttemptUtc, x.OccurredUtc })
                 .HasDatabaseName("ix_outbox_messages_unprocessed")
-                .HasFilter("processed_utc IS NULL");
+                .HasFilter("processed_utc IS NULL AND dead_lettered_utc IS NULL");
         });
 
         modelBuilder.Entity<InboxMessage>(b =>

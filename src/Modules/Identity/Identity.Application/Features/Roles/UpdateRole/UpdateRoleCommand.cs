@@ -18,10 +18,10 @@ internal sealed class UpdateRoleCommandValidator : AbstractValidator<UpdateRoleC
     }
 }
 
-/// <summary>Goes straight to <see cref="RoleManager{TRole}"/> rather than through
-/// <c>IRoleService.UpdateRoleAsync</c> — that method only renames (it predates this task); updating the
-/// description too needs both <see cref="ApplicationRole.Rename"/> and
-/// <see cref="ApplicationRole.UpdateDescription"/> before the single <c>UpdateAsync</c> call.</summary>
+/// <summary>Goes straight to <see cref="RoleManager{TRole}"/>: updating the name and the description
+/// needs both <see cref="ApplicationRole.Rename"/> and <see cref="ApplicationRole.UpdateDescription"/>
+/// before the single <c>UpdateAsync</c> call. (<c>IRoleService</c> had a rename-only update that
+/// nothing called; Phase 5 deleted it.)</summary>
 internal sealed class UpdateRoleCommandHandler(RoleManager<ApplicationRole> roleManager)
     : ICommandHandler<UpdateRoleCommand>
 {

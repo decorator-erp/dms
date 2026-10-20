@@ -32,6 +32,4 @@ internal sealed class Department : Entity, IAuditable
     public void RemoveHead() => DepartmentHeadId = null;
 
     public void Deactivate() => SetActive(false);
-
-    public void Activate() => SetActive(true);
 }

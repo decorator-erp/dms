@@ -21,9 +21,9 @@ namespace Identity.Application.Features.Permissions;
 /// <item>Nobody writes overrides on their own account (<c>permissions.SelfModification</c>, 403).</item>
 /// <item>A grant confers a permission, so the caller must effectively hold it (N1,
 /// <c>permissions.CannotDelegate</c>, 403).</item>
-/// <item>One live override per (user, permission) is a data invariant (409, as before). An expired one is
-/// renewed in place with the new direction, reason, expiry and grantor (Aug 2.4), and goes through the
-/// same security-stamp bump as any other write.</item>
+/// <item>One live override per (user, permission) is a data invariant (409, as before). A dead one
+/// (expired, or inactive) is renewed in place with the new direction, reason, expiry and grantor (Aug 2.4),
+/// and goes through the same security-stamp bump as any other write.</item>
 /// <item>Denying <c>permissions.manage</c> must leave at least one other active holder, or nobody
 /// could ever repair permissions again (<c>permissions.LastHolder</c>, 409).</item>
 /// </list>
@@ -66,11 +66,12 @@ internal static class PermissionOverrideWrites
             return UserErrors.NotFound;
         }
 
-        // Aug 2.4: only a LIVE override blocks a new one. An expired one is renewed in place below (the
-        // unique index on (UserId, Permission) covers expired rows too, so it can't be inserted beside).
+        // Aug 2.4: only a LIVE override blocks a new one. A dead one (expired, or inactive since Phase 5)
+        // is renewed in place below (the unique index on (UserId, Permission) covers dead rows too, so it
+        // can't be inserted beside).
         UserPermissionOverride? existing = await db.UserPermissionOverrides.FirstOrDefaultAsync(
             o => o.UserId == write.TargetUserId && o.Permission == write.Permission, ct);
-        if (existing is { IsExpired: false })
+        if (existing is not null && existing.IsLiveAt(DateTime.UtcNow))
         {
             return PermissionErrors.PermissionOverrideAlreadyExists(write.Permission);
         }

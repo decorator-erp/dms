@@ -73,6 +73,7 @@
   </Folder>
   <Folder Name="/tests/Modules/">
     <Project Path="tests/Modules/Approvals.Application.Tests/Approvals.Application.Tests.csproj" />
+    <Project Path="tests/Modules/Approvals.Infrastructure.Tests/Approvals.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Approvals.UnitTests/Approvals.UnitTests.csproj" />
     <Project Path="tests/Modules/Crm.Application.Tests/Crm.Application.Tests.csproj" />
     <Project Path="tests/Modules/Crm.Infrastructure.Tests/Crm.Infrastructure.Tests.csproj" />
@@ -89,6 +90,7 @@
     <Project Path="tests/Modules/Identity.Application.Tests/Identity.Application.Tests.csproj" />
     <Project Path="tests/Modules/Identity.Infrastructure.Tests/Identity.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Identity.UnitTests/Identity.UnitTests.csproj" />
+    <Project Path="tests/Modules/Notifications.Application.Tests/Notifications.Application.Tests.csproj" />
     <Project Path="tests/Modules/Notifications.Infrastructure.Tests/Notifications.Infrastructure.Tests.csproj" />
     <Project Path="tests/Modules/Notifications.UnitTests/Notifications.UnitTests.csproj" />
     <Project Path="tests/Modules/Projects.Application.Tests/Projects.Application.Tests.csproj" />

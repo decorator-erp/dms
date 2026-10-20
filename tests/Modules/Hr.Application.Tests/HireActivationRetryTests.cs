@@ -113,6 +113,10 @@ public sealed class HireActivationRetryTests : IAsyncLifetime
                 ["JwtSettings:Audience"] = "hr-hire-retry-tests-client",
                 ["JwtSettings:ExpiryMinutes"] = "60",
                 ["JwtSettings:RefreshTokenExpiryDays"] = "14",
+
+                // No backoff: this is about the retry happening at all, not about when. The backoff
+                // itself is covered by BuildingBlocks' OutboxDeadLetterTests.
+                ["Outbox:BackoffBaseSeconds"] = "0",
             })
             .Build();
 

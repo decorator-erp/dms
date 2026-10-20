@@ -1060,3 +1060,178 @@ The worker sweeps every `Notifications:SweepMinutes` (default 15). Each sweep de
    - the detail route's extra `IUserDirectory.GetAsync` for `LoginActive`, because `EmployeeProfile` doesn't carry the login state and adding it would change a cross-module contract;
    - the duplicate override read in `GetUserEffectivePermissionsQuery`.
 6. **Login still loads the user twice:** once in `PasswordSignIn`'s own scope, by design (K4: the lockout bookkeeping commits outside the command), and once in the handler. The owned tokens come with each load, which is why the cap and the prune, not projections, are what bound the cost.
+
+## Phase 5 — Hygiene
+
+### Setup
+
+- **Branch:** `claude/awesome-einstein-mw5xmb`, fast-forwarded to `master` after PR #5 merged (H2: a new PR, nothing stacked).
+- **Plan:** the approved "Phase 5, revised" (H1–H17), with the review comments R1–R20 resolved against the code before coding.
+- **Decisions (user):** create the two missing test projects; `AnalysisMode=Recommended`; fix stale code comments in place and keep the rest of 5.6 as proposals here; the IL rule is IL type usage in `*.Application`.
+- **Analyzers (5.6) are not in this PR.** They go in their own PR after this one merges (H3), with the per-rule count table in that PR's description.
+
+### First item, owner action before production (R19)
+
+**The committed `JwtSettings:Key` in `src/Api/appsettings.json` (location only; value not copied) defeats the fail-fast.** Phase 1B's check in `Api/DI.cs` (lines 36–41) only fires when the key is *unset*. With a value committed, any environment that doesn't override it runs with a key everyone with repo access has, and anyone holding it can mint a token with any permission claim. Remove the value from the committed file (keep a development value in user-secrets or `appsettings.Development.json`, which Production doesn't load) and rotate the key everywhere it was used. Not changed in code here, as the plan says.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| 5.1 backoff between attempts (H1) | fixed | `904b2f5` | `OutboxDeadLetterTests.A_failing_message_backs_off_doubling_then_is_dead_lettered_at_max_attempts_with_one_error_log` (asserts the 14 waits 30…3600 s, total 29 010 s, and no pick-up a second early) |
+| 5.1 dead letter at `MaxAttempts`, one Error log | fixed | `904b2f5` | the same test (1 Error, 14 Warnings; never selected again after 30 more days) |
+| 5.1 poison payload dead-lettered at once; the sweep goes on (H4) | fixed | `904b2f5` | `A_payload_that_does_not_fit_its_type_is_dead_lettered_at_once_and_the_sweep_goes_on` |
+| 5.1 unknown type retried with backoff (H4) | fixed | `904b2f5` | `An_unknown_type_is_retried_with_backoff_not_dead_lettered` |
+| 5.1 recovery SQL works (H17) | fixed | `904b2f5` | `A_dead_letter_reset_with_the_recovery_sql_is_delivered_on_the_next_sweep` |
+| 5.1 migration backfill order (R17) | fixed | `904b2f5` | `The_migration_backfills_pending_rows_from_occurred_utc_and_leaves_none_null` |
+| 5.1 sweep query uses the index (H16) | fixed | `904b2f5` | `The_sweep_query_can_use_the_unprocessed_index` (EXPLAIN of the captured SQL) |
+| 5.1 existing retry-then-succeed | still passes, adapted | `904b2f5` | `OutboxAndInboxTests.HandlerThrows_RecordsAttemptAndError_RetrySucceeds` (now also asserts no retry before the backoff) |
+| 5.2 explicit deny-wins | fixed | `772273d` | `PermissionResolutionTests` (grant + deny → absent; deny before grant → absent) |
+| 5.2 one live rule at four sites (H6) | fixed | `772273d` | `PermissionResolutionTests` (inactive deny / grant ignored, query and in-memory forms agree); `InactiveOverrideTests` (resolver, last-holder, `/effective`, renew without 409) |
+| 5.3 Rules 13–18 | added | `f7a6c34` | the rules themselves; each proved red (§3a) |
+| 5.3 `Approvals.Infrastructure.Tests` | added | `f7a6c34` | migrates on a fresh database; every handler the module registers resolves |
+| 5.3 `Notifications.Application.Tests` | added | `f7a6c34` | inbox query round-trip: the recipient's two, newest first, not the other user's |
+| 5.4 `ModuleDependencyOrder` comment | fixed | `58a415f` | — (comment) |
+| 5.5 dead code | deleted | `4115a92` | build and full suite green; grep finds only historical comments |
+| 5.5 `StaleToken` constant (H11/R10) | fixed | `4115a92` | `AuthSessionTests` (asserts the code string in the 401 body), unchanged |
+| 5.6 analyzers | separate PR (H3) | — | — |
+
+### What changed
+
+**Outbox (5.1).**
+- **States:** `pending → processed | (failed → waiting(backoff) → pending)* → dead-lettered`. In the `OutboxProcessor` doc comment, with the ordering note: a message waiting out its backoff or dead-lettered no longer holds back later messages for the same aggregate. That is safe because the handlers check current state (HR's since Phase 2). A future handler that needs strict order must do the same.
+- **Settings:** `Outbox:MaxAttempts` (default **15**), `Outbox:BackoffBaseSeconds` (30), `Outbox:BackoffMaxMinutes` (60). Delay = `min(base × 2^(n−1), max)`.
+- **Retry span (H15/R15):** the 14 waits are 30, 60, 120, 240, 480, 960, 1920 s, then 3600 s × 7 = **29 010 s, about 8 h**. That covers an overnight outage. With 10 attempts it would be 11 010 s (about 3 h). **15 is the default chosen.**
+- **Columns:** `next_attempt_utc` (`NOT NULL DEFAULT now()`, set from `occurred_utc` at insert) and `dead_lettered_utc`. `ix_outbox_messages_unprocessed` is now on `(next_attempt_utc, occurred_utc)` with filter `processed_utc IS NULL AND dead_lettered_utc IS NULL`. The sweep keeps `ORDER BY occurred_utc`; the index serves the filter (R2).
+- **Migration `OutboxDeadLetter` (R17):** add the column with its default (Postgres fills every existing row with the migration time), then `UPDATE … SET next_attempt_utc = occurred_utc WHERE processed_utc IS NULL`. No guard needed; the `Down` drops the columns and restores the old index.
+- **Clock:** `OutboxProcessor` takes a `TimeProvider`. `AddOutbox` TryAdds `TimeProvider.System`, like module registration.
+- **Two existing tests adapted, not weakened.** `HandlerThrows_…RetrySucceeds` now advances a manual clock past the 30 s step, and also asserts the message is *not* retried before it. `HireActivationRetryTests` sets `Outbox:BackoffBaseSeconds = 0`, because it is about the retry happening, not when.
+
+**Recovery (H5, H17):** fix the cause first, then reset all three fields, or the next failure dead-letters the message again at once:
+
+```sql
+UPDATE shared.outbox_messages
+SET dead_lettered_utc = NULL, attempts = 0, next_attempt_utc = now()   -- not NULL: `<= now` never matches NULL
+WHERE id = '<id>';
+```
+
+**Deploy notes.**
+- **Rows already at or over `MaxAttempts` (H5)** are dead-lettered on their *next* failure after deploy. List them first with the pre-deploy SQL in §4 and decide on each.
+- **Overlapping deploy (R18).** An old instance still running selects on `processed_utc IS NULL` alone. It ignores `dead_lettered_utc` and `next_attempt_utc`, so it retries dead-lettered and backing-off rows on every sweep. That is harmless only because the inbox makes handlers idempotent. Keep the overlap short. Its own inserts get `next_attempt_utc = now()` from the column default.
+
+**Monitoring (H14).** The Error log alone is easy to miss. Proposed: alert when this count is above 0.
+
+```sql
+SELECT count(*), min(dead_lettered_utc)
+FROM shared.outbox_messages
+WHERE dead_lettered_utc IS NOT NULL;
+```
+
+**Override resolution (5.2).**
+- `UserPermissionOverride.LiveAt(now)` now requires `IsActive` too. It is the one query predicate, used by the resolver, `HasOtherActiveHolderAsync` and the `/effective` listing. The plan called it `IsLive`; the existing name was kept, so there is still one predicate, extended.
+- `UserPermissionOverride.IsLive(isActive, expiresAt, now)` is the same rule over plain values, for rows already in memory (the grant/deny existence check) and for the resolver. A unit truth table pins it to `LiveAt` on every edge (active or not; no expiry, past, now, future).
+- The expiry boundary is unchanged: live while `ExpiresAt >= now` (Phase 2's `>=`; the plan's `>` would have moved it by one tick).
+- **`PermissionResolution.Resolve(roleCodes, overrides, now)`** (Identity.Domain): roles' union, then every live grant added, then every live deny removed. The old loop applied overrides in row order, so a grant read after a deny would have won if the unique index ever allowed both.
+- **Renew** reactivates the row (`SetActive(true)`), so a grant over an inactive override renews it in place instead of hitting the unique index (409).
+- **The resolver's "two known gaps" comment is extended:** gap 1 is closed (nothing sets `IsActive` false yet; revoke is a hard delete, so the check is for a future soft revoke); gap 2 (the user's own `IsActive` in `ResolveAsync`) stays covered by the security stamp at the API.
+- `UserPermissionOverride.IsExpired` now has no code caller (only doc references). It was not on the 5.5 list, so it stays.
+
+**Architecture rules (5.3).** H7: every rule was run against the code as it stood before any probe and found no existing violation. No allow-list entry was added beyond the one the plan names.
+
+| Rule | Checks | Floor |
+|---|---|---|
+| 13 `Rule13ApplicationAspNetIlTests` | no `Microsoft.AspNetCore*` type in any `*.Application` assembly's IL type references (signatures, bodies, locals, generic arguments). Allowed: `Microsoft.AspNetCore.Identity`, in `Identity.Application` only (Rule 2's reason). Rule 2 unchanged. | 9 assemblies |
+| 14 `Rule14LayerDirectionTests` | `X.Infrastructure` never references `X.Application`; no project references another module's Application or Infrastructure. Application → own Infrastructure is **permitted, not required** (R4: all nine have it, but F2 isn't in this checkout and CLAUDE.md doesn't make it mandatory). Reads `ProjectReference` only, never `InternalsVisibleTo`. | 9 Infrastructure projects |
+| 15 `Rule15ContractsIsolationTests` | every `X.Contracts` references only SharedKernel and BuildingBlocks. Identity's and Notifications' own isolation tests stay. | 9 |
+| 16 `Rule16IntegrationEventPublisherTests` | every integration event is constructed (IL `newobj`) in a `src` assembly other than its own Contracts. Test assemblies are never read (R20). | 29 events |
+| 17 `Rule17ModuleListTests` | `Assembly.Load("X.Infrastructure")` names in `Api/Program.cs` equal the module folders in the slnx. | 9 |
+| 18 `Rule18ModuleTestProjectsTests` | every module has `UnitTests`, `Application.Tests` and `Infrastructure.Tests` in the slnx (R8: added after the two new projects). | 27 |
+
+Shared helpers: `ProjectFiles` (slnx and csproj reads) and `IlAssemblies` (Mono.Cecil, already present through NetArchTest). `ModuleAssemblies`' stale "Empty today" comment is fixed.
+
+**New test projects.** `Approvals.Infrastructure.Tests` (2 tests) and `Notifications.Application.Tests` (1 test), in the existing per-module csproj shape, each with its own Testcontainers Postgres. **CI time added:** about 13 s and 11 s of wall time locally (10 s and 9 s of test duration), so roughly 25 s more, mostly container start.
+
+**Docs and tooling (5.4).** The `ModuleDependencyOrder` comment now says what is true: only the test fixtures read `SchemaOrder` (`ApiFixture`, Rules 9 and 12), the Api host doesn't migrate, and the list holds all ten schemas. It points at `docs/cross-schema-foreign-keys.md` and `docs/adding-a-module.md` instead of the deleted PLAN/PROGRESS files. Other code comments still cite those files (31 lines across `src`); they were left alone as outside the item.
+
+**Proposals (notes only, not done):**
+- **README:** `README.md` was deleted (`0c17505`), but CLAUDE.md says it stays in the repo. Either restore a short README or change CLAUDE.md's line.
+- **CLAUDE.md's outbox text** should mention the dead-letter state, `Outbox:MaxAttempts` and the two backoff settings, and the recovery SQL above.
+- **Should the host migrate in `SchemaOrder`?** Today a deployment must apply migrations itself, in that order, and nothing in the repo does it outside the tests.
+- **Connection string:** `Api/DI.cs:209` and `ModuleDbContextRegistration.cs:45` pass `GetConnectionString("DefaultConnection")` unchecked, and a localhost string is committed in `appsettings.json`. Propose a fail-fast like the JWT key's, and the same "not in the committed file" treatment.
+- **JWT key (H10):** see the first item above. The fail-fast exists; the committed value makes it moot.
+
+**Dead code (5.5).** Each item was confirmed by grep to have no `src` caller before it was deleted:
+- **Errors:** `DepartmentErrors.DepartmentAlreadyDeleted`, `DepartmentErrors.NoEmployeesToMove`; `AuthErrors.UserNotActive`, `InvalidCode`, `SendResetPasswordError`, `ResetPasswordError`, and `AuthErrors.StaleToken` (R10: it had no use; the live code string was `SessionClaims.StaleTokenCode`); `PermissionErrors.NotFoundForTarget`; `RoleErrors.Unauthorized`, `RoleErrors.UserNotInRole`.
+- **Services:** `IPermissionService.GetAllPermissionsAsync`; `IRoleService.UpdateRoleAsync`, `UserInRoleAsync`, `UserIsAdminAsync`.
+- **Domain:** `ApplicationRole.Activate`/`Deactivate`; `Department.Activate`.
+- **Test-only queries:** `GetEmployeesQuery` and `GetEmployeeQuery`, their handlers, and `GetEmployeesQueryValidator`. `ResponseMapping` moves to its own file (`Features/Employees/Get/ResponseMapping.cs`); `EmployeeResponse` stays.
+- **`StaleToken` (H11/R10):** `Identity.Contracts.AuthErrorCodes.StaleToken` is now the one place the string lives; `SessionClaims.StaleTokenCode` reads it. Value unchanged.
+- **Comments fixed** where they named a deleted symbol as current: `DeleteDepartmentCommandHandler`, `DepartmentErrors` (D7 note), `RoleService`, `IPermissionService`, `GetAllPermissionsQuery`, `UpdateRoleCommand`, `EmployeeContracts`, `GetEmployeeProfilesQueryHandler`, and one test comment. Comments that say what a code *used to* answer stay as history.
+- **Tests adapted:** `EmployeeFlowTests.Create_then_get_then_update_then_list_roundtrips` now uses `GetEmployeeDetailQuery` and `GetEmployeeProfilesQuery`. `DepartmentTests.Deactivate_ThenActivate_RestoresIsActive` became `Deactivate_ClearsIsActive`. No test was removed.
+- **Rule 11 (H12):** its runtime count was **183** before and **182** after (one validator deleted). The floor of 180 is unchanged. (A grep of `AbstractValidator<` finds 184; the rule's own count is the one recorded.)
+- **Kept, recorded:** `PermissionErrors.InvalidPermission` (live since Phase 3), `employees.Unauthenticated`, and the defensive re-hire check.
+
+### 2. Run 0 for this phase
+
+The read-only checks (R1–R16) were done on 2026-10-20 before coding, and every finding held when coding: the creation column is `occurred_utc`; nothing outside the plan referenced the dead items; all 29 events have a publisher; the Contracts and layer-direction rules passed as is.
+
+**Probe migrations** after `OutboxDeadLetter`: empty for `SharedDbContext` and for all nine module contexts. The module snapshots would only pick up the shared tables they exclude from migrations (`ownsMigration: false`); as in earlier phases, those snapshot edits were discarded with the probes.
+
+### 3. Tests written but not run
+
+None.
+
+### 3a. Red-before-green proofs
+
+Each fix was reverted from a `cp` backup, the named test run, then restored.
+
+| # | Reverted | Went red |
+|---|---|---|
+| O1 | the backoff returns zero | `…backs_off_doubling…`; `An_unknown_type_is_retried_with_backoff_not_dead_lettered` |
+| O2 | never dead-letter at `MaxAttempts` | `…backs_off_doubling…`; `A_dead_letter_reset_with_the_recovery_sql…` |
+| O3 | a bad payload treated as an ordinary failure | `A_payload_that_does_not_fit_its_type…` |
+| O4 | an unknown type dead-lettered at once | `An_unknown_type_is_retried_with_backoff…` |
+| O5 | deserialization back outside the guard (throws out of the sweep) | `A_payload_that_does_not_fit_its_type…sweep_goes_on` |
+| O6 | the backfill keyed on `next_attempt_utc IS NULL` | `The_migration_backfills_pending_rows_from_occurred_utc…` |
+| O7 | the selection drops the due-check | `…backs_off_doubling…`; `The_sweep_query_can_use_the_unprocessed_index` |
+| R1 | the resolver applies overrides in row order | `A_deny_before_a_grant_still_leaves_it_out` |
+| R2 | the resolver skips the live filter | `An_inactive_grant_is_ignored`, `An_inactive_deny_is_ignored`, `An_expired_override_is_ignored_either_way` |
+| R3 | `LiveAt` without `IsActive` | `An_inactive_grant_confers_nothing_and_does_not_count_as_another_holder`, `Effective_permissions_leave_an_inactive_override_out` |
+| R4 | the existence check on `IsExpired` only | `A_grant_over_an_inactive_override_renews_it_and_reactivates_it` (409) |
+| R5 | `Renew` leaves the row inactive | the same test |
+| A13 | the allow-list removed; separately, a body-only `typeof(HttpContext)` in `Hr.Application` | Rule 13 both times. **Rule 2 stayed green on the body-only probe**, which is the gap Rule 13 closes. |
+| A14 | `Hr.Infrastructure → Hr.Application`; separately `Hr.Application → Crm.Infrastructure` | Rule 14 both times |
+| A15 | `Sites.Contracts → Sites.Domain` | Rule 15 |
+| A16 | an `IIntegrationEvent` in `Hr.Contracts` that nothing constructs | Rule 16 |
+| A17 | an extra `Assembly.Load("Probe.Infrastructure")` in `Program.cs` | Rule 17 |
+| A18 | `Approvals.Infrastructure.Tests` removed from the slnx | Rule 18 |
+
+**Not proved by revert:** the `ModuleDependencyOrder` comment (no behaviour) and the dead-code deletions (the proof is the green build and suite, and the grep).
+
+### 4. Migration guards added
+
+None. `OutboxDeadLetter` adds two columns (one nullable, one with a default), backfills idempotently, and rebuilds one index.
+
+**Pre-deploy SQL:** list what is pending and how often it has failed, so the rows already at or over `MaxAttempts` can be decided on before they dead-letter (H5):
+
+```sql
+SELECT id, type, attempts, error
+FROM shared.outbox_messages
+WHERE processed_utc IS NULL
+ORDER BY attempts DESC;
+```
+
+### 5. Frontend contract changes
+
+**None.** The `authentications.StaleToken` code string is unchanged (H11); only where it is defined moved. No endpoint, status code or response shape changed.
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **No blockers.**
+2. **Owner, before production:** the JWT key (first item above).
+3. **Small deviations from the plan's wording, same intent:**
+   - the live predicate keeps its Phase 2 name `LiveAt` (one predicate, extended) and its `>=` expiry boundary; `IsLive` is its in-memory twin, pinned by a test;
+   - `PermissionResolution.Resolve` also takes `now`, because "considers only live overrides" needs a time;
+   - the two existing retry tests were adapted to the backoff (see "What changed"), rather than passing untouched, which they can't once a failure waits 30 s.
+4. **A proof-script mistake, caught and fixed.** One revert-and-restore left the restored file older than the built DLL, so a full-suite run picked up the stale build and failed three outbox tests. The script now touches every restored file; a clean rebuild and every later run were green. Nothing committed was affected.
+5. **Proposals carried in "What changed":** README, CLAUDE.md's outbox text, host migration in `SchemaOrder`, the connection-string fail-fast.

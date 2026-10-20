@@ -31,6 +31,14 @@ namespace Identity.Infrastructure.Services;
 /// false yet, Phase 5); and a deactivated user's tokens are refused at every request by the security
 /// stamp check (Phase 1B, N2), so the second gap no longer reaches an API caller.</para>
 ///
+/// <para><b>Phase 5.</b> Gap 1 is closed: <see cref="UserPermissionOverride.LiveAt"/> now also requires
+/// the override's own <c>IsActive</c>, here, in the last-holder check, in the grant/deny existence check
+/// and in the <c>/effective</c> listing. Nothing sets it false yet (revoke is a hard delete); the check is
+/// for a future soft revoke. Gap 2 stays as the 1B note above says: covered by the security stamp at the
+/// API. And deny-wins is now explicit rather than resting on the unique index: the in-memory step is
+/// <see cref="PermissionResolution.Resolve"/>, which adds every live grant and then removes every live
+/// deny.</para>
+///
 /// <para><b>Aug 4.2: one query, same algorithm.</b> It used to load the user entity (tracked, with its
 /// refresh tokens), then the role names, then the role claims, then the overrides: four round trips.
 /// Now the role claims (through <c>user_roles</c>, the same membership <c>GetRolesAsync</c> read) and the
@@ -46,33 +54,25 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : I
 
     public async Task<IEnumerable<string>> ResolveAsync(string userId, CancellationToken ct = default)
     {
+        DateTime utcNow = DateTime.UtcNow;
         var rows = await (
                 from ur in db.UserRoles
                 where ur.UserId == userId
                 join rc in db.RoleClaims on ur.RoleId equals rc.RoleId
                 where rc.ClaimType == PermissionClaim.Type
-                select new { Code = rc.ClaimValue!, Kind = FromRole })
+                select new { Code = rc.ClaimValue!, Kind = FromRole, IsActive = true, ExpiresAt = (DateTime?)null })
             .Concat(db.UserPermissionOverrides
                 .Where(o => o.UserId == userId)
-                .Where(UserPermissionOverride.LiveAt(DateTime.UtcNow))
-                .Select(o => new { Code = o.Permission, Kind = o.IsGranted ? Grant : Deny }))
+                .Where(UserPermissionOverride.LiveAt(utcNow))
+                .Select(o => new { Code = o.Permission, Kind = o.IsGranted ? Grant : Deny, o.IsActive, o.ExpiresAt }))
             .AsNoTracking()
             .ToListAsync(ct);
 
-        var effective = new HashSet<string>(rows.Where(r => r.Kind == FromRole).Select(r => r.Code));
-        foreach (var permissionOverride in rows.Where(r => r.Kind != FromRole))
-        {
-            if (permissionOverride.Kind == Grant)
-            {
-                effective.Add(permissionOverride.Code);
-            }
-            else
-            {
-                effective.Remove(permissionOverride.Code);
-            }
-        }
-
-        return effective;
+        return PermissionResolution.Resolve(
+            rows.Where(r => r.Kind == FromRole).Select(r => r.Code),
+            rows.Where(r => r.Kind != FromRole)
+                .Select(r => new OverrideState(r.Code, r.Kind == Grant, r.IsActive, r.ExpiresAt)),
+            utcNow);
     }
 
     /// <summary>Aug 4.2: for a caller that already holds the user (login, refresh), so nothing loads it

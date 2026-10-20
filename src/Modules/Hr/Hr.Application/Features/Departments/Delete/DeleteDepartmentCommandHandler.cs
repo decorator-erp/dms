@@ -19,8 +19,9 @@ internal sealed class DeleteDepartmentCommandValidator : AbstractValidator<Delet
 ///
 /// <para>K2: deleting also ends every membership in the department and clears its head, in the same
 /// transaction, where both used to be left pointing at a department nobody can see. A deleted department
-/// is gone to every other read (K3's filter), so deleting it again is 404, not
-/// <c>DepartmentAlreadyDeleted</c>; that error is unreachable now (recorded for Phase 5).</para></summary>
+/// is gone to every other read (K3's filter), so deleting it again is 404. The
+/// <c>DepartmentAlreadyDeleted</c> error that used to answer it was unreachable, and Phase 5 deleted
+/// it.</para></summary>
 internal sealed class DeleteDepartmentCommandHandler(IDepartmentMembershipService memberships)
     : ICommandHandler<DeleteDepartmentCommand>
 {

@@ -30,9 +30,9 @@ internal sealed class GetEmployeeProfilesQueryValidator : AbstractValidator<GetE
 /// <see cref="EmployeeProfiles.ToSummary"/>, the same projection the directory uses, and zipped with one
 /// <see cref="IUserDirectory.GetManyAsync"/>: three statements in all (count, page, Identity).
 ///
-/// <para>Filters, literal ILIKE, the long-safe skip and the <c>JobTitle, Id</c> order are Phase 3's, as
-/// in <c>GetEmployeesQueryHandler</c>. The count and the page are two statements, so a write between them
-/// can make the total disagree with the rows by one; the next read corrects it.</para>
+/// <para>Filters, literal ILIKE, the long-safe skip and the <c>JobTitle, Id</c> order are Phase 3's (the
+/// old list handler had them too; Phase 5 deleted it). The count and the page are two statements, so a
+/// write between them can make the total disagree with the rows by one; the next read corrects it.</para>
 /// </summary>
 internal sealed class GetEmployeeProfilesQueryHandler(
     HrDbContext db, IUserDirectory userDirectory, ILogger<GetEmployeeProfilesQueryHandler> logger)

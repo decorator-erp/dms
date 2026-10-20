@@ -245,10 +245,13 @@ public sealed class TriggerCascadeCommandHandler(TestModuleDbContext db) : IComm
 
 public sealed record TestEvent(Guid EventId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
 
-/// <summary>Toggle to make a handler fail exactly once, to test the "throws, then retry succeeds" path.</summary>
+/// <summary>Toggle to make a handler fail exactly once, to test the "throws, then retry succeeds" path,
+/// or on every call, to drive a message to the dead letter.</summary>
 public sealed class FailureController
 {
     public bool FailNextCall { get; set; }
+
+    public bool AlwaysFail { get; set; }
 }
 
 public sealed class CallCounter
@@ -267,6 +270,11 @@ public sealed class TestEventHandler(TestModuleDbContext db, CallCounter counter
     public Task HandleAsync(TestEvent @event, CancellationToken ct)
     {
         counter.Count++;
+
+        if (failure.AlwaysFail)
+        {
+            throw new InvalidOperationException("forced failure on every call, for the test");
+        }
 
         if (failure.FailNextCall)
         {
