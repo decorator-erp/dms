@@ -20,7 +20,7 @@ public sealed class DepartmentFlowTests(HrApplicationFixture fixture)
         IServiceProvider sp = scope.ServiceProvider;
         string name = $"Engineering-{Guid.NewGuid():N}";
         name = Regex.Replace(name, @"\s+", " ");
-        name = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower());
+        name = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower(CultureInfo.CurrentCulture));
 
         ICommandHandler<CreateDepartmentCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateDepartmentCommand, Guid>>();
         Result<Guid> createResult = await create.HandleAsync(new CreateDepartmentCommand(name, "Builds the product"));

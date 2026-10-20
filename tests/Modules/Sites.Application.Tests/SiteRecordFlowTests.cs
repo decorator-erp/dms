@@ -1,3 +1,4 @@
+using System.Globalization;
 using BuildingBlocks.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -79,7 +80,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         await using var command = new NpgsqlCommand(
             $"""SELECT count(*) FROM sites.site_record_values WHERE "RecordId"='{recordId}';""", connection);
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     private async Task<decimal?> ReadNumberAsync(Guid recordId, Guid itemId)
@@ -454,7 +455,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             $"""SELECT count(*) FROM sites.site_records WHERE "SiteId"='{siteId}' AND "Label" LIKE '%door';""",
             connection);
 
-        Assert.Equal(0, Convert.ToInt32(await command.ExecuteScalarAsync()));
+        Assert.Equal(0, Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
     }
 
     // ── Space validation, through ICrmSpaceReader ──────────────────────────────

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Crm.Contracts;
 using Microsoft.Extensions.Options;
 
@@ -32,8 +33,8 @@ internal sealed class CrmSchedulerService(IOptions<OfficeHoursOptions> options) 
         OfficeHoursOptions o = options.Value;
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(o.TimezoneId);
         var slotSpan = TimeSpan.FromMinutes(o.SlotMinutes);
-        var dayStart = TimeSpan.Parse(o.DayStartLocal);
-        var dayEnd = TimeSpan.Parse(o.DayEndLocal);
+        var dayStart = TimeSpan.Parse(o.DayStartLocal, CultureInfo.InvariantCulture);
+        var dayEnd = TimeSpan.Parse(o.DayEndLocal, CultureInfo.InvariantCulture);
 
         DateTime fromLocal = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, timeZone);
         DateTime toLocal = TimeZoneInfo.ConvertTimeFromUtc(toUtc, timeZone);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using BuildingBlocks.Jobs;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
@@ -197,7 +198,7 @@ public sealed class UnlinkedUserReaperTests(ApiFixture fixture)
         IConfiguration configuration = fixture.Services.GetRequiredService<IConfiguration>();
         string? original = configuration[RetentionDaysKey];
 
-        configuration[RetentionDaysKey] = retentionDays.ToString();
+        configuration[RetentionDaysKey] = retentionDays.ToString(CultureInfo.InvariantCulture);
         try
         {
             await using AsyncServiceScope scope = fixture.Services.CreateAsyncScope();

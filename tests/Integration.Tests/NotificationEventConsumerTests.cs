@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -212,7 +213,7 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
             """, connection);
         command.Parameters.AddWithValue("pattern", $"%{eventTypeName}%");
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture) > 0;
     }
 
     private async Task<int> CountNotificationsAsync(string recipientUserId)
@@ -224,7 +225,7 @@ public sealed class NotificationEventConsumerTests(ApiFixture fixture)
             """SELECT COUNT(*) FROM notify.notifications WHERE "RecipientUserId" = @id""", connection);
         command.Parameters.AddWithValue("id", recipientUserId);
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     private async Task<List<string>> ReadDedupeKeysAsync(string recipientUserId)

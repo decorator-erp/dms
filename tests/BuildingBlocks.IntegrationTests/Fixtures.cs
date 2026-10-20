@@ -256,7 +256,7 @@ public sealed class FailureController
 
 public sealed class CallCounter
 {
-    public int Count;
+    public int Count { get; set; }
 }
 
 /// <summary>

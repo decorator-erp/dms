@@ -280,3 +280,38 @@ dotnet_diagnostic.CA2327.severity = none
 
 # IDE0046: Convert to conditional expression
 dotnet_diagnostic.IDE0046.severity = none
+
+# AnalysisMode=Recommended (Phase 5.6). Each rule turned off below is turned off with its reason.
+
+# CA1862: Use StringComparison overloads for case-insensitive comparison
+# Every hit is inside a LINQ-to-SQL predicate (x.Code.ToLower() == normalized), which EF translates to
+# lower(); string.Equals(..., StringComparison) does not translate.
+dotnet_diagnostic.CA1862.severity = none
+
+# CA1873: Avoid potentially expensive logging
+# Every hit passes a type name, an error code or an int; the cost is a box, not worth an IsEnabled guard
+# or a source-generated logger at each site (CA1848 is already off for the same reason).
+dotnet_diagnostic.CA1873.severity = none
+
+# EF Core migrations are generated, and regenerated, by `dotnet ef`; they are not hand-edited.
+[src/**/Migrations/**.cs]
+
+# CA1825: Avoid zero-length array allocations / CA1861: Avoid constant arrays as arguments
+# Both come from the column and index arrays EF writes into generated migrations.
+dotnet_diagnostic.CA1825.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+[tests/**/*.cs]
+
+# CA1707: Identifiers should not contain underscores
+# Test names are sentences (A_failing_message_backs_off...); the underscores are the convention.
+dotnet_diagnostic.CA1707.severity = none
+
+# CA1001: Types that own disposable fields should be disposable
+# xUnit test classes and fixtures release what they own in IAsyncLifetime.DisposeAsync, which the rule
+# does not recognise.
+dotnet_diagnostic.CA1001.severity = none
+
+# CA1859: Use concrete types when possible for improved performance
+# Test helpers return the interface the code under test takes, on purpose; the gain is irrelevant here.
+dotnet_diagnostic.CA1859.severity = none

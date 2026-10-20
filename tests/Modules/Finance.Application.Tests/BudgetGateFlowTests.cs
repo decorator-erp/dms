@@ -1,3 +1,4 @@
+using System.Globalization;
 using BuildingBlocks.Jobs;
 using BuildingBlocks.Messaging;
 using Finance.Contracts;
@@ -107,7 +108,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
         await using var command = new NpgsqlCommand(
             $"""SELECT "Status" FROM projects.project_tasks WHERE "Id" = '{taskId}';""", connection);
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     // ── Variation → gate ───────────────────────────────────────────────────────
@@ -253,7 +254,7 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
 
         // No UNLINKED Budget gate is ever left behind: every one created is stamped in the same
         // handler that creates it, so a null here would mean the stamp was lost.
-        Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
         Assert.NotEqual(first, second);
     }
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Finance.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -394,7 +395,7 @@ public sealed class FinanceSchemaObjectTests : IAsyncLifetime
     private async Task<long> ScalarAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection);
-        return Convert.ToInt64(await command.ExecuteScalarAsync());
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
 
     private async Task ExecuteAsync(string sql)

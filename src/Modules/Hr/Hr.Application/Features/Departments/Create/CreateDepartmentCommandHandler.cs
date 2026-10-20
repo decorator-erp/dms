@@ -46,7 +46,7 @@ internal sealed class CreateDepartmentCommandHandler(HrDbContext db) : ICommandH
         string name = s.Trim();
 
         name = Regex.Replace(name, @"\s+", " ");
-        name = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower());
+        name = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name.ToLower(CultureInfo.CurrentCulture));
         return name;
     }
 }

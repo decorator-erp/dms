@@ -1,3 +1,4 @@
+using System.Globalization;
 using BuildingBlocks.Auditing;
 using Xunit;
 using ContractsEntityType = Notifications.Contracts.NotificationEntityType;
@@ -44,12 +45,12 @@ public class NotificationEnumParityTests
         where TRight : struct, Enum
     {
         var left = Enum.GetValues<TLeft>()
-            .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v))
+            .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v, CultureInfo.InvariantCulture))
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .ToList();
 
         var right = Enum.GetValues<TRight>()
-            .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v))
+            .ToDictionary(v => v.ToString(), v => Convert.ToInt32(v, CultureInfo.InvariantCulture))
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .ToList();
 

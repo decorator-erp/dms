@@ -29,10 +29,14 @@ internal sealed class CreateSiteModuleCommandValidator : AbstractValidator<Creat
 internal sealed class CreateSiteModuleCommandHandler(SitesDbContext db, ISiteSchemaCache schemaCache)
     : ICommandHandler<CreateSiteModuleCommand, Guid>
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
     public async Task<Result<Guid>> HandleAsync(
         CreateSiteModuleCommand command, CancellationToken ct = default)
     {
-        string normalized = command.Request.Code.Trim().ToLower();
+        string normalized = command.Request.Code.Trim().ToLowerInvariant();
 
         if (await db.SiteModules.AnyAsync(m => m.Code.ToLower() == normalized, ct))
         {
