@@ -77,7 +77,8 @@ internal sealed class IdentityModule : IModule
         app.MapModuleEndpoints(typeof(IdentityModule).Assembly);
 
     /// <summary>Order matters: roles before role claims (claims attach to a role that must already
-    /// exist) before the admin user (it must join an already-claimed role).</summary>
+    /// exist) before the admin user (it must join an already-claimed role). The baseline claims (N5) come
+    /// after both role steps, because they attach to <c>employee</c> and <c>client</c>.</summary>
     public async Task SeedAsync(IServiceProvider services, CancellationToken ct = default)
     {
         RoleManager<ApplicationRole> roleManager = services.GetRequiredService<RoleManager<ApplicationRole>>();
@@ -89,6 +90,7 @@ internal sealed class IdentityModule : IModule
 
         await RoleSeeder.SeedAsync(roleManager);
         await RoleClaimSeeder.SeedAsync(roleManager, db, catalog);
+        await BaselineClaimSeeder.SeedAsync(roleManager, db, catalog, ct);
         await AdminUserSeeder.SeedAsync(userManager, roleManager, configuration, environment);
     }
 }

@@ -62,4 +62,25 @@ internal sealed class UserAdministration(UserManager<ApplicationUser> userManage
             ? Result.Success()
             : Error.BadRequest("users.ReactivateFailed", string.Join("; ", result.Errors.Select(e => e.Description)));
     }
+
+    public async Task<Result> UpdateNameAsync(string userId, string firstName, string lastName, CancellationToken ct)
+    {
+        ApplicationUser? user = await userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return UserErrors.NotFound;
+        }
+
+        Result renamed = user.UpdateName(firstName, lastName);
+        if (renamed.IsFailure)
+        {
+            return renamed;
+        }
+
+        // UpdateAsync, not UpdateSecurityStampAsync: the name is not in the token (B9).
+        IdentityResult result = await userManager.UpdateAsync(user);
+        return result.Succeeded
+            ? Result.Success()
+            : Error.BadRequest("users.UpdateNameFailed", string.Join("; ", result.Errors.Select(e => e.Description)));
+    }
 }

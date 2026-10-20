@@ -61,6 +61,24 @@ internal sealed class ApplicationUser : IdentityUser<string>, IAuditable
 
     public void Reactivate() => IsActive = true;
 
+    /// <summary>N7: the name HR's employee edit carries. Trimmed, 1..100 characters each (the columns'
+    /// width). Setting the name it already has is a success that changes nothing.</summary>
+    public Result UpdateName(string firstName, string lastName)
+    {
+        string first = firstName.Trim();
+        string last = lastName.Trim();
+        if (first.Length is 0 or > NameMaxLength || last.Length is 0 or > NameMaxLength)
+        {
+            return UserErrors.InvalidName;
+        }
+
+        FirstName = first;
+        LastName = last;
+        return Result.Success();
+    }
+
+    public const int NameMaxLength = 100;
+
     public RefreshToken IssueRefreshToken(string token, DateTime utcNow, TimeSpan lifetime)
     {
         var issued = RefreshToken.Issue(token, utcNow, lifetime);

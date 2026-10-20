@@ -1,3 +1,4 @@
+using Identity.Contracts;
 using Microsoft.AspNetCore.Identity;
 
 namespace Identity.Infrastructure.Authentication;
@@ -10,14 +11,16 @@ namespace Identity.Infrastructure.Authentication;
 /// (<c>AllowedForNewUsers</c>); <c>UserManager.CreateAsync</c> stamps <c>LockoutEnabled</c> from it, and
 /// the K5 migration enables it on any existing row that predates this.</para>
 /// <para><b>Password:</b> at least 8 characters with a digit, a lower-case letter, an upper-case letter
-/// and a non-alphanumeric character. HR's and CRM's create validators state the same rule (N9) so the
-/// caller gets a field error instead of a provisioning failure.</para>
+/// and a non-alphanumeric character. The values live in <see cref="IdentityPasswordPolicy"/>
+/// (Identity.Contracts), so HR's employee create checks the same rule before provisioning (N9) and the
+/// caller gets <c>employees.WeakPassword</c> instead of a generic provisioning failure. CRM's client
+/// create does not check it yet (recorded, CRM is out of scope).</para>
 /// </summary>
 internal static class IdentityPolicy
 {
     public const int MaxFailedAccessAttempts = 5;
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
-    public const int RequiredPasswordLength = 8;
+    public const int RequiredPasswordLength = IdentityPasswordPolicy.RequiredLength;
 
     public static void Configure(IdentityOptions options)
     {
@@ -26,9 +29,9 @@ internal static class IdentityPolicy
         options.Lockout.AllowedForNewUsers = true;
 
         options.Password.RequiredLength = RequiredPasswordLength;
-        options.Password.RequireDigit = true;
-        options.Password.RequireLowercase = true;
-        options.Password.RequireUppercase = true;
-        options.Password.RequireNonAlphanumeric = true;
+        options.Password.RequireDigit = IdentityPasswordPolicy.RequireDigit;
+        options.Password.RequireLowercase = IdentityPasswordPolicy.RequireLowercase;
+        options.Password.RequireUppercase = IdentityPasswordPolicy.RequireUppercase;
+        options.Password.RequireNonAlphanumeric = IdentityPasswordPolicy.RequireNonAlphanumeric;
     }
 }

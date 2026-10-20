@@ -14,6 +14,8 @@ public sealed class IdentitySchemaTests(ApiFixture fixture)
         "users", "roles", "role_claims", "refresh_tokens",
         "user_claims", "user_roles", "user_logins", "user_tokens",
         "user_permission_overrides",
+        // N5: one-time seed steps (BaselineClaimSeeder).
+        "seed_markers",
     ];
 
     [Fact]

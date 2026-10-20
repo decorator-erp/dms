@@ -1,9 +1,11 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Identity.Contracts;
 using Identity.Contracts.Roles;
+using Identity.Contracts.Users;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -59,6 +61,16 @@ internal sealed class RoleEndpoints : IEndpoint
             string userId, IQueryHandler<GetUserRolesQuery, IReadOnlyList<RoleResponse>> handler, CancellationToken ct) =>
         {
             Result<IReadOnlyList<RoleResponse>> result = await handler.HandleAsync(new GetUserRolesQuery(userId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequireAuthorization(); // N6: self or roles.read, decided in GetUserRolesQueryHandler (404 otherwise).
+
+        // N6: the members of a role, paged.
+        group.MapGet("/{roleId}/users", async (
+            string roleId, int? page, int? pageSize,
+            IQueryHandler<GetRoleUsersQuery, PagedResult<UserListItem>> handler, CancellationToken ct) =>
+        {
+            Result<PagedResult<UserListItem>> result = await handler.HandleAsync(
+                new GetRoleUsersQuery(roleId, page ?? 1, pageSize ?? 50), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(IdentityPermissions.RolesRead);
 

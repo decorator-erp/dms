@@ -30,6 +30,7 @@ internal sealed class IdentityModuleDbContext(DbContextOptions<IdentityModuleDbC
         IdentityUserToken<string>>(options)
 {
     public DbSet<UserPermissionOverride> UserPermissionOverrides => Set<UserPermissionOverride>();
+    public DbSet<SeedMarker> SeedMarkers => Set<SeedMarker>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

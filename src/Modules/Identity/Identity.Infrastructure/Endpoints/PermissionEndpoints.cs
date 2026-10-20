@@ -26,7 +26,7 @@ internal sealed class PermissionEndpoints : IEndpoint
         {
             Result<IReadOnlyList<ModulePermissionSet>> result = await handler.HandleAsync(new GetAllPermissionsQuery(), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
-        }).RequirePermission(IdentityPermissions.PermissionsManage);
+        }).RequireAnyPermission(IdentityPermissions.RolesRead, IdentityPermissions.PermissionsManage); // N6: role editors need the catalog too.
 
         group.MapGet("/roles/{roleId}", async (
             string roleId, IQueryHandler<GetRolePermissionsQuery, IReadOnlyList<PermissionResponse>> handler, CancellationToken ct) =>

@@ -29,8 +29,11 @@ namespace Architecture.Tests;
 /// <c>DI.cs</c>) protects an undeclared route at runtime anyway; this tier makes forgetting a red test
 /// instead.</item>
 /// <item><b>Tier 2, a named permission.</b> Every authorized route also carries
-/// <see cref="HasPermissionAttribute"/>, except <see cref="AuthenticatedOnlyRoutes"/>, each with the
-/// reason it needs nothing beyond a signed-in caller.</item>
+/// <see cref="HasPermissionAttribute"/> or, since N6, <see cref="HasAnyPermissionAttribute"/>, except
+/// <see cref="AuthenticatedOnlyRoutes"/>, each with the reason it needs nothing beyond a signed-in
+/// caller.</item>
+/// <item><b>Every permission a route names is in the catalog</b> (N6). A misspelt code would gate the
+/// route behind a permission nobody can ever be granted.</item>
 /// </list>
 /// Both lists are checked against the data source in reverse too: an entry whose route no longer exists
 /// fails, so the lists cannot quietly outlive what they excuse.
@@ -70,6 +73,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         // Either crm.briefs.view_any or the brief's own client may read it, so no single permission
         // fits the route; the handler decides with ICurrentUser.HasPermission plus ownership.
         "/api/crm/briefs/{briefId:guid}/rounds/{round:int}/diff",
+        // N6: a user's roles, for themselves or for a roles.read holder. "Self" is not a route claim, so
+        // GetUserRolesQueryHandler decides, answering 404 to anyone else.
+        "/api/roles/users/{userId}",
     ];
 
     /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.
@@ -120,6 +126,8 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
 
         List<string> violations = [];
         HashSet<string> seen = [];
+        HashSet<string> catalog = [.. _host.Services.GetRequiredService<Identity.Contracts.IPermissionCatalog>()
+            .All().SelectMany(m => m.Permissions)];
 
         foreach (RouteEndpoint endpoint in endpoints)
         {
@@ -129,7 +137,16 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
 
             bool allowsAnonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             bool authorized = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0;
-            bool namesPermission = endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Count > 0;
+            string[] named =
+            [
+                .. endpoint.Metadata.GetOrderedMetadata<HasPermissionAttribute>().Select(a => a.Permission),
+                .. endpoint.Metadata.GetOrderedMetadata<HasAnyPermissionAttribute>().SelectMany(a => a.Permissions),
+            ];
+            bool namesPermission = named.Length > 0;
+            foreach (string unknown in named.Where(p => !catalog.Contains(p)))
+            {
+                violations.Add($"{label} requires '{unknown}', which no module registers in the permission catalog.");
+            }
 
             if (IsAnonymous(route))
             {

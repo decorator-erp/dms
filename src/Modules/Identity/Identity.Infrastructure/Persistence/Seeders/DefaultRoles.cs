@@ -14,11 +14,12 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// full-permission-set treatment as <c>Admin</c> and its actual seeded admin user is a member of it, not
 /// <c>Admin</c>.
 ///
-/// <para><b><c>Client</c> is NOT in <see cref="FullAccessRoles"/> and gets no automatic claim
-/// seeding.</b> Its CRM-specific permission grants (<c>crm.portal</c>, <c>crm.briefs.view_own</c>,
-/// <c>requirements.submit_own</c>, …) are assigned the same way <c>Employee</c>'s own permissions
-/// already are in this repo — through the general-purpose role/permission admin endpoints, never
-/// hard-coded here. Identity cannot reference <c>Crm.Contracts.CrmPermissions</c> to do that seeding
+/// <para><b><c>Client</c> is NOT in <see cref="FullAccessRoles"/>, so it never gets the whole catalog.</b>
+/// Since N5 it and <c>Employee</c> get a small baseline once (<see cref="BaselineClaimSeeder"/>): the
+/// codes their own screens need (for <c>Client</c>: <c>crm.portal</c>, <c>crm.briefs.view_own</c> and the
+/// meeting <c>_own</c> codes). They are named there as plain strings, filtered through the catalog, and
+/// applied only once behind a marker; everything beyond the baseline is assigned through the
+/// general-purpose role/permission admin endpoints. Identity cannot reference <c>Crm.Contracts.CrmPermissions</c> to do that seeding
 /// itself even if it wanted to (only <c>Crm.Contracts</c> may be referenced by other modules, and
 /// Identity has no dependency on CRM at all per the module graph) — and CRM cannot write
 /// <c>identity.role_claims</c> directly either (cross-module writes are outbox-only, per

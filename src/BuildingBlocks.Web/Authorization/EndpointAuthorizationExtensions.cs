@@ -18,4 +18,10 @@ public static class EndpointAuthorizationExtensions
     public static TBuilder RequirePermission<TBuilder>(this TBuilder builder, string permission)
         where TBuilder : IEndpointConventionBuilder =>
         builder.WithMetadata(new HasPermissionAttribute(permission)).RequireAuthorization();
+
+    /// <summary>N6: as <see cref="RequirePermission{TBuilder}"/>, but the caller needs only one of
+    /// <paramref name="permissions"/>.</summary>
+    public static TBuilder RequireAnyPermission<TBuilder>(this TBuilder builder, params string[] permissions)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder.WithMetadata(new HasAnyPermissionAttribute(permissions)).RequireAuthorization();
 }
