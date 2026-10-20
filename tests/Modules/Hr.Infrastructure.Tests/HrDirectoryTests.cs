@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -75,7 +76,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
         int commandCount = 0;
         await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
-        var directory = new HrDirectory(db, new ThrowingUserDirectory());
+        var directory = new HrDirectory(db, new ThrowingUserDirectory(), NullLogger<HrDirectory>.Instance);
 
         IReadOnlyList<EmployeeSummary> results = await directory.GetManyAsync(ids, CancellationToken.None);
 
@@ -91,7 +92,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
         int commandCount = 0;
         await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
         var userDirectory = new CountingUserDirectory();
-        var directory = new HrDirectory(db, userDirectory);
+        var directory = new HrDirectory(db, userDirectory, NullLogger<HrDirectory>.Instance);
 
         IReadOnlyList<EmployeeProfile> profiles = await directory.GetProfilesAsync(ids, CancellationToken.None);
 
@@ -110,7 +111,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
         int commandCount = 0;
         await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
-        var directory = new HrDirectory(db, new ThrowingUserDirectory());
+        var directory = new HrDirectory(db, new ThrowingUserDirectory(), NullLogger<HrDirectory>.Instance);
 
         Guid? first = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
         Guid? second = await directory.ResolveEmployeeIdAsync(employee.AppUserId, CancellationToken.None);
@@ -160,7 +161,7 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
         int commandCount = 0;
         await using HrDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
-        var directory = new HrDirectory(db, new ThrowingUserDirectory());
+        var directory = new HrDirectory(db, new ThrowingUserDirectory(), NullLogger<HrDirectory>.Instance);
 
         EmployeeSummary? single = await directory.GetAsync(deactivated, CancellationToken.None);
         IReadOnlyList<EmployeeSummary> many = await directory.GetManyAsync(ids, CancellationToken.None);
@@ -175,6 +176,46 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
         Assert.True(await directory.IsLinkedAsync(deactivatedAppUserId, CancellationToken.None));
         Assert.Equal([deactivatedAppUserId], await directory.GetLinkedAsync([deactivatedAppUserId, "nobody"], CancellationToken.None));
+    }
+
+    /// <summary>Aug 3.9: a miss is not memoized. The employee hired after the first lookup, in the same
+    /// scope, is found by the second.</summary>
+    [Fact]
+    public async Task ResolveEmployeeIdAsync_does_not_remember_a_miss()
+    {
+        Guid[] ids = await SeedEmployeesAsync(1);
+        await using HrDbContext seed = CreateContext(_ => { });
+        Employee employee = await seed.Employees.FirstAsync(e => e.Id == ids[0]);
+        string appUserId = employee.AppUserId;
+        employee.Deactivate();
+        await seed.SaveChangesAsync();
+
+        await using HrDbContext db = CreateContext(_ => { });
+        var directory = new HrDirectory(db, new ThrowingUserDirectory(), NullLogger<HrDirectory>.Instance);
+        Guid? before = await directory.ResolveEmployeeIdAsync(appUserId, CancellationToken.None);
+
+        employee.Activate();
+        await seed.SaveChangesAsync();
+        Guid? after = await directory.ResolveEmployeeIdAsync(appUserId, CancellationToken.None);
+
+        Assert.Null(before);
+        Assert.Equal(ids[0], after);
+    }
+
+    /// <summary>Aug 3.9: an employee whose login Identity no longer has is logged, by id.</summary>
+    [Fact]
+    public async Task GetProfilesAsync_warns_about_an_employee_with_no_login()
+    {
+        Guid[] ids = await SeedEmployeesAsync(1);
+        await using HrDbContext db = CreateContext(_ => { });
+        var logger = new CapturingLogger();
+        var directory = new HrDirectory(db, new EmptyUserDirectory(), logger);
+
+        IReadOnlyList<EmployeeProfile> profiles = await directory.GetProfilesAsync(ids, CancellationToken.None);
+
+        Assert.Equal(string.Empty, Assert.Single(profiles).FullName);
+        string warning = Assert.Single(logger.Warnings);
+        Assert.Contains(ids[0].ToString(), warning);
     }
 
     private async Task<Guid[]> SeedEmployeesAsync(int count)
@@ -229,6 +270,32 @@ public sealed class HrDirectoryTests : IAsyncLifetime
 
         public Task<IReadOnlyList<UserSummary>> GetManyAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
             throw new InvalidOperationException("GetManyAsync must not call IUserDirectory at all.");
+    }
+
+    private sealed class EmptyUserDirectory : IUserDirectory
+    {
+        public Task<UserSummary?> GetAsync(string userId, CancellationToken ct) => Task.FromResult<UserSummary?>(null);
+
+        public Task<IReadOnlyList<UserSummary>> GetManyAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<UserSummary>>([]);
+    }
+
+    private sealed class CapturingLogger : ILogger<HrDirectory>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
     }
 
     private sealed class CountingUserDirectory : IUserDirectory

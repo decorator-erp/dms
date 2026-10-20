@@ -37,9 +37,9 @@ internal sealed class CreateDepartmentCommandHandler(HrDbContext db) : ICommandH
 
         var department = Department.Create(name, string.IsNullOrWhiteSpace(command.Description) ? null : command.Description);
         db.Departments.Add(department);
-        await db.SaveChangesAsync(ct);
 
-        return department.Id;
+        Result saved = await DepartmentSave.SaveAsync(db, command.Name, ct);
+        return saved.IsFailure ? saved.Error : department.Id;
     }
     private static string NameCorrection(string s)
     {

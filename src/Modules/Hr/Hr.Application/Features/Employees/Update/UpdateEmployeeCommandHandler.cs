@@ -4,6 +4,7 @@ using Hr.Contracts.Employees;
 using Hr.Domain;
 using Hr.Domain.Errors;
 using Hr.Infrastructure.Persistence;
+using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
@@ -24,12 +25,28 @@ internal sealed class UpdateEmployeeCommandValidator : AbstractValidator<UpdateE
             .NotEmpty()
             .Must(v => Enum.TryParse(v, out ContractType parsed) && Enum.IsDefined(parsed))
             .WithMessage(x => $"'{x.ContractType}' is not a recognized contract type.");
+
+        // Aug 3.6: the same widths as create (and the columns); longer used to reach the database.
+        RuleFor(x => x.PhoneNumber).MaximumLength(50);
+        RuleFor(x => x.EmergencyContactPhone).MaximumLength(50);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+
+        // N7: the login's name, both or neither. Identity trims and checks it again (1..100).
+        RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100).When(x => x.LastName is not null);
+        RuleFor(x => x.LastName).NotEmpty().MaximumLength(100).When(x => x.FirstName is not null);
     }
 }
 
 /// <summary>N7: replaces the employee's editable fields; a null optional field clears it. An inactive
-/// employee is <c>employees.Inactive</c> (409), where it used to be a silent 204.</summary>
-internal sealed class UpdateEmployeeCommandHandler(HrDbContext db) : ICommandHandler<UpdateEmployeeCommand>
+/// employee is <c>employees.Inactive</c> (409), where it used to be a silent 204.
+///
+/// <para><b>The name lives in Identity.</b> When the request carries one, it is applied through
+/// <see cref="IUserAdministration.UpdateNameAsync"/> only after HR's own checks and save have succeeded.
+/// That is a synchronous cross-module write, as N7 decided. If Identity refuses, the error is returned
+/// and the command's transaction rolls HR's change back. The one window left is Identity committing and
+/// then HR's commit failing; the name call is idempotent, so retrying the PUT repairs it.</para></summary>
+internal sealed class UpdateEmployeeCommandHandler(HrDbContext db, IUserAdministration userAdministration)
+    : ICommandHandler<UpdateEmployeeCommand>
 {
     public async Task<Result> HandleAsync(UpdateEmployeeCommand command, CancellationToken ct = default)
     {
@@ -55,6 +72,8 @@ internal sealed class UpdateEmployeeCommandHandler(HrDbContext db) : ICommandHan
 
         await db.SaveChangesAsync(ct);
 
-        return Result.Success();
+        return command is { FirstName: { } first, LastName: { } last }
+            ? await userAdministration.UpdateNameAsync(employee.AppUserId, first, last, ct)
+            : Result.Success();
     }
 }

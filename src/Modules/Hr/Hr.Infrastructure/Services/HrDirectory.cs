@@ -2,6 +2,7 @@ using Hr.Contracts;
 using Hr.Infrastructure.Persistence;
 using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Hr.Infrastructure.Services;
 
@@ -11,19 +12,23 @@ namespace Hr.Infrastructure.Services;
 /// field doesn't pull the whole row. Registered scoped (once per request in the real host), which is
 /// what makes <see cref="_resolveCache"/> a genuine per-request memo rather than a cross-request leak.
 /// </summary>
-internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) : IHrDirectory
+internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory, ILogger<HrDirectory> logger)
+    : IHrDirectory
 {
-    private readonly Dictionary<string, Guid?> _resolveCache = [];
+    private readonly Dictionary<string, Guid> _resolveCache = [];
 
     /// <summary>
     /// The hottest path in the system once Projects exists (per the plan's own framing) — every
     /// authorization check that needs "which employee is this caller" hits this. Memoized per DI scope:
     /// three calls with the same <paramref name="appUserId"/> within one request/scope hit the database
     /// once, not three times.
+    ///
+    /// <para>Only a found employee is memoized (Aug 3.9). A miss used to be cached as well, so a hire
+    /// or an activation later in the same scope still resolved to nobody.</para>
     /// </summary>
     public async Task<Guid?> ResolveEmployeeIdAsync(string appUserId, CancellationToken ct)
     {
-        if (_resolveCache.TryGetValue(appUserId, out Guid? cached))
+        if (_resolveCache.TryGetValue(appUserId, out Guid cached))
         {
             return cached;
         }
@@ -35,7 +40,11 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
             .Select(e => (Guid?)e.Id)
             .FirstOrDefaultAsync(ct);
 
-        _resolveCache[appUserId] = employeeId;
+        if (employeeId is { } found)
+        {
+            _resolveCache[appUserId] = found;
+        }
+
         return employeeId;
     }
 
@@ -123,7 +132,15 @@ internal sealed class HrDirectory(HrDbContext db, IUserDirectory userDirectory) 
 
         return [.. summaries.Select(s =>
         {
-            usersById.TryGetValue(s.AppUserId, out UserSummary? user);
+            if (!usersById.TryGetValue(s.AppUserId, out UserSummary? user))
+            {
+                // Aug 3.9: an employee whose login is gone renders with an empty name. That is a data
+                // problem someone should see, not a silent blank. Ids only, no personal data.
+                logger.LogWarning(
+                    "Employee {EmployeeId} points at login {AppUserId}, which Identity does not have.",
+                    s.Id, s.AppUserId);
+            }
+
             return new EmployeeProfile(
                 s.Id, s.AppUserId, user?.DisplayName ?? string.Empty, user?.Email,
                 s.JobTitle, s.PrimaryDepartmentId, s.IsActive);

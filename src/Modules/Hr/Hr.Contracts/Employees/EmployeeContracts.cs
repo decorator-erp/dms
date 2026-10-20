@@ -44,7 +44,8 @@ public sealed record EmployeeDetailResponse(
     bool IsActive,
     string FullName,
     string? Email,
-    Guid? PrimaryDepartmentId);
+    Guid? PrimaryDepartmentId,
+    bool LoginActive);
 
 public sealed record CreateEmployeeCommand(
     string Email,
@@ -59,7 +60,8 @@ public sealed record CreateEmployeeCommand(
     string? Notes = null) : ICommand<Guid>;
 
 /// <summary>N7: a full replacement. <see cref="JobTitle"/> and <see cref="ContractType"/> are required;
-/// a null optional field clears it.</summary>
+/// a null optional field clears it. <see cref="FirstName"/> and <see cref="LastName"/> are the login's
+/// name, both or neither; omitted, the name is left as it is.</summary>
 public sealed record UpdateEmployeeCommand(
     Guid EmployeeId,
     string JobTitle,
@@ -67,13 +69,21 @@ public sealed record UpdateEmployeeCommand(
     string? PhoneNumber,
     string? EmergencyContactPhone,
     string? Notes,
-    DateOnly? EndDate) : ICommand;
+    DateOnly? EndDate,
+    string? FirstName = null,
+    string? LastName = null) : ICommand;
 
 public sealed record DeactivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
 public sealed record ActivateEmployeeCommand(Guid EmployeeId) : ICommand;
 
 public sealed record GetEmployeeQuery(Guid EmployeeId) : IQuery<EmployeeResponse>;
+
+/// <summary>Aug 3.10: the detail route's read (it used to be composed in the endpoint).</summary>
+public sealed record GetEmployeeDetailQuery(Guid EmployeeId) : IQuery<EmployeeDetailResponse>;
+
+/// <summary>Aug 3.10: the caller's own detail, for <c>GET /api/employees/me</c>.</summary>
+public sealed record GetMyEmployeeDetailQuery : IQuery<EmployeeDetailResponse>;
 
 /// <summary>K3: deactivated employees are left out unless <paramref name="IncludeInactive"/>.</summary>
 public sealed record GetEmployeesQuery(int PageNumber, int PageSize, string? JobTitleFilter = null, bool IncludeInactive = false)

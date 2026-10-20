@@ -7,6 +7,9 @@ namespace Hr.Infrastructure.Persistence.Configurations;
 
 internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Department>
 {
+    /// <summary>Named so a race on it can be mapped (Aug 3.5). The name EF already gave it.</summary>
+    public const string UniqueActiveNameIndex = "IX_departments_Name";
+
     public void Configure(EntityTypeBuilder<Department> builder)
     {
         builder.ToTable("departments");
@@ -16,7 +19,7 @@ internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departm
         builder.Property(d => d.Description).HasMaxLength(2000);
         // N8: a name is unique among ACTIVE departments only, so a deleted department's name can be
         // reused. A plain unique index counted deleted rows forever.
-        builder.HasIndex(d => d.Name).IsUnique().HasFilter("\"IsActive\"");
+        builder.HasIndex(d => d.Name).IsUnique().HasFilter("\"IsActive\"").HasDatabaseName(UniqueActiveNameIndex);
 
         // K3: a deleted (deactivated) department is invisible by default; see EmployeeConfiguration.
         builder.HasQueryFilter(d => d.IsActive);
