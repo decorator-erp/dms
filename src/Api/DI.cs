@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -12,8 +14,11 @@ using BuildingBlocks.Web.Authorization;
 using Identity.Contracts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Primitives;
+using Microsoft.Net.Http.Headers;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Api;
@@ -156,8 +161,38 @@ public static class DI
         services.AddCors(corsOptions =>
         {
             string[] allowedOrigins = cfg.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+            // PF-D2: Retry-After is exposed so a browser client can read it off a 429 and wait that long.
             corsOptions.AddPolicy(CorsPolicies.Default, policy =>
-                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
+                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()
+                    .WithExposedHeaders(HeaderNames.RetryAfter));
+        });
+
+        // PF-D2: the real client IP behind a reverse proxy, for the IP-keyed rate limits. Only proxies named
+        // in configuration are trusted. The framework trusts loopback by default; that is cleared, so a
+        // proxy on the same host must be listed as 127.0.0.1. With nothing configured, nothing is forwarded
+        // at all: ForwardedHeadersMiddleware skips the known-proxy check when both lists are EMPTY and then
+        // trusts every sender, which would let any client pick its own rate-limit bucket. ForwardLimit 1:
+        // only the entry the trusted proxy itself appended is used.
+        string[] knownProxies = cfg.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+        string[] knownNetworks = cfg.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [];
+        services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.KnownProxies.Clear();
+            options.KnownIPNetworks.Clear();
+            foreach (string proxy in knownProxies)
+            {
+                options.KnownProxies.Add(IPAddress.Parse(proxy));
+            }
+
+            foreach (string network in knownNetworks)
+            {
+                options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
+            }
+
+            options.ForwardLimit = 1;
+            options.ForwardedHeaders = options.KnownProxies.Count + options.KnownIPNetworks.Count == 0
+                ? ForwardedHeaders.None
+                : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
         });
 
         services.AddHealthChecks();
@@ -181,23 +216,47 @@ public static class DI
                         QueueLimit = 0,
                     }));
 
-            // Phase 1B: the auth routes (login, refresh, revoke, change-password, logout). Same shape as
-            // the public-lead policy: fixed window, keyed by remote IP, rejected at once (no queue). Ten
-            // a minute is several honest retries and far too few for guessing. Configurable so the
-            // integration suite (one host, one IP, hundreds of logins) can raise it, and so one test can
-            // lower it to assert the 429.
-            int authPermitLimit = cfg.GetValue("RateLimiting:AuthLogin:PermitLimit", 10);
-            int authWindowSeconds = cfg.GetValue("RateLimiting:AuthLogin:WindowSeconds", 60);
-            options.AddPolicy(RateLimitPolicies.AuthLogin, httpContext =>
-                RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                    factory: _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = authPermitLimit,
-                        Window = TimeSpan.FromSeconds(authWindowSeconds),
-                        QueueLimit = 0,
-                    }));
+            // The auth routes, three policies since PF-D2 (Phase 1B had one, shared by all five routes and
+            // keyed by IP, so everyone behind one NAT shared one bucket). Each is a fixed window, rejected
+            // at once (no queue), and configurable so the integration suite (one host, one IP, hundreds of
+            // logins) can raise it and single tests can lower it to assert the 429.
+            //
+            // AuthLogin, /login only, per IP: ten a minute is several honest retries and far too few for
+            // guessing.
+            Dictionary<string, int> windowSeconds = new(StringComparer.Ordinal) { [RateLimitPolicies.CrmPublicLeads] = 60 };
+            AddFixedWindow(options, cfg, windowSeconds, RateLimitPolicies.AuthLogin, "AuthLogin", 10, ClientIp);
+
+            // AuthRefresh, /refresh and /revoke, per IP: a flood limit, not a guessing defence (refresh
+            // tokens are random), sized for an office refreshing at once after a role edit. The
+            // partitioner never reads the body.
+            AddFixedWindow(options, cfg, windowSeconds, RateLimitPolicies.AuthRefresh, "AuthRefresh", 300, ClientIp);
+
+            // AuthSession, /change-password and /logout, per signed-in user. Needs UseAuthentication
+            // before UseRateLimiter (Program.cs). A request with no valid session (a stale token: the
+            // stamp check leaves it anonymous) falls back to its IP.
+            AddFixedWindow(options, cfg, windowSeconds, RateLimitPolicies.AuthSession, "AuthSession", 10, httpContext =>
+                httpContext.User.Identity?.IsAuthenticated == true
+                && (httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? httpContext.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value) is { } userId
+                    ? $"user:{userId}"
+                    : ClientIp(httpContext));
+
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            // PF-D2: every 429 says when to come back. The limiter knows the time left in the window; the
+            // window length is the fallback. Set once for all policies, so the public lead form gets it too.
+            // The body stays empty.
+            options.OnRejected = (context, _) =>
+            {
+                int seconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter)
+                    ? (int)Math.Max(1, Math.Ceiling(retryAfter.TotalSeconds))
+                    : context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName is { } policy
+                        && windowSeconds.TryGetValue(policy, out int window)
+                        ? window
+                        : 60;
+                context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+                return ValueTask.CompletedTask;
+            };
         });
 
         // SharedDbContext + AddOutbox() were never wired into the composition root before this - every
@@ -222,6 +281,27 @@ public static class DI
         services.AddScoped<IPeriodicJob, UnlinkedUserReaperJob>();
 
         return services;
+    }
+
+    private static string ClientIp(HttpContext httpContext) =>
+        $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+    private static void AddFixedWindow(
+        RateLimiterOptions options, IConfiguration cfg, Dictionary<string, int> windowSeconds,
+        string policyName, string configName, int defaultPermitLimit, Func<HttpContext, string> partitionKey)
+    {
+        int permitLimit = cfg.GetValue($"RateLimiting:{configName}:PermitLimit", defaultPermitLimit);
+        int seconds = cfg.GetValue($"RateLimiting:{configName}:WindowSeconds", 60);
+        windowSeconds[policyName] = seconds;
+        options.AddPolicy(policyName, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = permitLimit,
+                    Window = TimeSpan.FromSeconds(seconds),
+                    QueueLimit = 0,
+                }));
     }
 }
 

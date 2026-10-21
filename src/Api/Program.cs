@@ -66,14 +66,19 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference().AllowAnonymous();
 }
 
+// PF-D2: first, so everything after it (the IP-keyed rate limits included) sees the real client IP. It
+// only trusts the proxies named in ForwardedHeaders:KnownProxies / :KnownNetworks (Api DI.cs).
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseCors(CorsPolicies.Default);
 app.UseHttpsRedirection();
-// Rate limiting runs BEFORE authentication (Phase 1B). A throttled request is refused before any token
-// is validated, so the per-request session check (N2's database read) is not something a flood of
-// requests can make the server do for free.
-app.UseRateLimiter();
+// PF-D2: authentication BEFORE rate limiting, so AuthSession can key /change-password and /logout by the
+// signed-in user rather than by IP. Phase 1B had it the other way round, so a throttled request never
+// reached N2's session check (a database read). What that cost now is bounded: only a validly signed
+// token triggers the read, IUserSessionState caches it, and every non-auth route already ran the check
+// with no rate limit at all.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.UseSerilogRequestLogging();
 

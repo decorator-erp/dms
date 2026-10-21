@@ -185,10 +185,12 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
         builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
-        // Phase 1B. Every test request comes from one IP, and the suite logs in hundreds of times
-        // (TestUsers), so the auth rate limit is raised far out of reach here. The 429 itself is asserted
-        // by AuthSessionTests on a derived host with a tiny limit.
+        // Phase 1B, three policies since PF-D2. Every test request comes from one IP, and the suite logs in
+        // hundreds of times (TestUsers), so the auth rate limits are raised far out of reach here. The 429s
+        // are asserted by AuthRateLimitTests on derived hosts, each setting every limit it relies on.
         builder.UseSetting("RateLimiting:AuthLogin:PermitLimit", "100000");
+        builder.UseSetting("RateLimiting:AuthRefresh:PermitLimit", "100000");
+        builder.UseSetting("RateLimiting:AuthSession:PermitLimit", "100000");
         // N2: no session-state cache, so a security-stamp change is visible on the very next request.
         builder.UseSetting("Identity:SessionStateCacheSeconds", "0");
         // F1-10. Stands down OutboxProcessor's and PeriodicJobWorker's TIMER loops -- both remain
