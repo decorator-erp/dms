@@ -122,14 +122,10 @@ public sealed class UnlinkedUserReaperTests(ApiFixture fixture)
 
         Assert.NotNull(await GetUserAsync(activeLinked));
 
-        // The seeded admin only exists when DMS_SEED_ADMIN_PASSWORD is configured; when it is not,
-        // AdminUserSeeder skips and there is nothing to assert about. Guarding on that rather than
-        // asserting presence keeps this meaningful in both configurations.
-        if (await GetUserAsync(seededAdminId) is not null)
-        {
-            await RunReaperAsync(retentionDays: 0);
-            Assert.NotNull(await GetUserAsync(seededAdminId));
-        }
+        // PF-S1: ApiFixture always supplies DMS_SEED_ADMIN_PASSWORD, so the seeded admin always exists.
+        Assert.NotNull(await GetUserAsync(seededAdminId));
+        await RunReaperAsync(retentionDays: 0);
+        Assert.NotNull(await GetUserAsync(seededAdminId));
 
         // Direct refusal, independent of whether the sweep ever offered it: DeleteUnactivatedAsync must
         // say no to the seed admin id by name.

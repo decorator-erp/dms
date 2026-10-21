@@ -20,12 +20,18 @@ namespace Integration.Tests;
 /// that's just <c>shared</c>; add each module's <c>*.Infrastructure</c> DbContext here (and its
 /// ProjectReference to this test project) as Identity (G1-03) and HR (G2-03) are built.
 ///
-/// The JWT signing key is a fixed test value injected via configuration, never the real dev
-/// user-secrets value — tests must not depend on (or leak into) a developer's local secrets.
+/// The JWT signing key and the seed admin's password are generated per fixture and injected via
+/// configuration. <c>appsettings.json</c> commits neither (PF-S1), and tests must not depend on (or leak
+/// into) a developer's local secrets.
 /// </summary>
 public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string JwtKey = "integration-test-signing-key-at-least-32-bytes-long-000000";
+    public string JwtKey { get; } = $"{Guid.NewGuid():N}{Guid.NewGuid():N}";
+
+    /// <summary>PF-S1: the password <c>AdminUserSeeder</c> seeds the admin with. The fixed suffix meets the
+    /// password policy (upper, lower, digit, symbol) whatever the random part holds.</summary>
+    public string AdminPassword { get; } = $"{Guid.NewGuid():N}aA1!";
+
     public const string JwtIssuer = "DMS.Modular.Api.Tests";
     public const string JwtAudience = "DMS.Modular.Client.Tests";
 
@@ -172,6 +178,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Key", JwtKey);
         builder.UseSetting("JwtSettings:Issuer", JwtIssuer);
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
+        builder.UseSetting("DMS_SEED_ADMIN_PASSWORD", AdminPassword);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
         builder.UseSetting("Crm:PublicLeadIntakeOwnerId", PublicLeadIntakeOwnerId.ToString());
         // Small on purpose (default is 50 MB) - keeps DocumentsSmokeTests' oversized-upload test's payload

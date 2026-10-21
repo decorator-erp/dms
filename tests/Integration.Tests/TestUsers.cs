@@ -4,8 +4,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Identity.Contracts;
 using Identity.Contracts.Auth;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Integration.Tests;
@@ -108,12 +106,7 @@ internal static class TestUsers
     /// <summary>A client logged in as the seeded admin.</summary>
     public static async Task<HttpClient> AdminClientAsync(ApiFixture fixture)
     {
-        string password = fixture.Services.GetRequiredService<IConfiguration>()["DMS_SEED_ADMIN_PASSWORD"]
-            ?? throw new InvalidOperationException(
-                "DMS_SEED_ADMIN_PASSWORD is not configured for the test host, so AdminUserSeeder seeded no "
-                + "admin and TestUsers has nobody to set roles up as.");
-
-        TestSession admin = await LoginAsync(fixture, string.Empty, SeedAdminEmail, password);
+        TestSession admin = await LoginAsync(fixture, string.Empty, SeedAdminEmail, fixture.AdminPassword);
         return admin.Client;
     }
 

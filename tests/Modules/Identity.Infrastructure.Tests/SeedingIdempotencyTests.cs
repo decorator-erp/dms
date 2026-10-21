@@ -39,40 +39,8 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
     public async Task Seeding_twice_produces_the_same_rows()
     {
         IModule module = ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single();
-
-        IConfigurationRoot configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
-                ["JwtSettings:Key"] = "test-signing-key-at-least-32-characters-long-000000",
-                ["JwtSettings:Issuer"] = "identity-infrastructure-tests",
-                ["JwtSettings:Audience"] = "identity-infrastructure-tests-client",
-                ["JwtSettings:ExpiryMinutes"] = "60",
-                ["JwtSettings:RefreshTokenExpiryDays"] = "14",
-                ["DMS_SEED_ADMIN_PASSWORD"] = "SeedTest-P@ssw0rd123!",
-            })
-            .Build();
-
-        // shared FIRST, then identity - ModuleDependencyOrder.SchemaOrder's own order, which this test
-        // previously got away with skipping.
-        //
-        // N1-02 made it load-bearing: ApplicationRole, ApplicationRoleClaim and ApplicationUser are all
-        // IAuditable, so seeding now stages rows into shared.audit_logs through the same SaveChanges,
-        // and a database with only the identity schema fails with 42P01. That is the audit design
-        // working as intended rather than a test needing an accommodation - shared is first in
-        // SchemaOrder precisely so the table exists before any module writes - but this fixture built
-        // its own database and so had to be told. Every *.Application.Tests fixture already did this.
-        await using (var shared = new SharedDbContext(
-            new DbContextOptionsBuilder<SharedDbContext>().UseNpgsql(_container.GetConnectionString()).Options))
-        {
-            await shared.Database.MigrateAsync();
-        }
-
-        await using (ServiceProvider migrateServices = BuildProvider(module, configuration))
-        {
-            using IServiceScope scope = migrateServices.CreateScope();
-            await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
-        }
+        IConfigurationRoot configuration = BuildConfiguration("SeedTest-P@ssw0rd123!");
+        await MigrateAsync(module, configuration);
 
         (int roles1, int claims1, int users1) = await SeedOnceAsync(module, configuration);
         (int roles2, int claims2, int users2) = await SeedOnceAsync(module, configuration);
@@ -89,10 +57,76 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
         Assert.Equal(1, users1);
     }
 
-    private static async Task<(int Roles, int RoleClaims, int Users)> SeedOnceAsync(
-        IModule module, IConfiguration configuration)
+    /// <summary>PF-S1: with nothing committed, an environment that forgets the variable must not boot
+    /// without an admin and without saying so. The existing message names the key.</summary>
+    [Fact]
+    public async Task A_blank_seed_password_on_an_empty_database_fails_fast_outside_Development()
     {
-        await using ServiceProvider services = BuildProvider(module, configuration);
+        IModule module = ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single();
+        IConfigurationRoot configuration = BuildConfiguration(seedPassword: "");
+        await MigrateAsync(module, configuration);
+
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SeedOnceAsync(module, configuration, "Production"));
+
+        Assert.Contains("DMS_SEED_ADMIN_PASSWORD is not configured", thrown.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>PF-S1, pinned rather than changed: Development with no password starts, seeds the roles,
+    /// and creates no admin. docs/local-development.md says so, because nobody can sign in.</summary>
+    [Fact]
+    public async Task A_blank_seed_password_in_Development_skips_the_admin_without_throwing()
+    {
+        IModule module = ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single();
+        IConfigurationRoot configuration = BuildConfiguration(seedPassword: "");
+        await MigrateAsync(module, configuration);
+
+        (int roles, _, int users) = await SeedOnceAsync(module, configuration, "Development");
+
+        Assert.Equal(DefaultRoles.All.Length, roles);
+        Assert.Equal(0, users);
+    }
+
+    private IConfigurationRoot BuildConfiguration(string seedPassword) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
+                ["JwtSettings:Key"] = "test-signing-key-at-least-32-characters-long-000000",
+                ["JwtSettings:Issuer"] = "identity-infrastructure-tests",
+                ["JwtSettings:Audience"] = "identity-infrastructure-tests-client",
+                ["JwtSettings:ExpiryMinutes"] = "60",
+                ["JwtSettings:RefreshTokenExpiryDays"] = "14",
+                ["DMS_SEED_ADMIN_PASSWORD"] = seedPassword,
+            })
+            .Build();
+
+    private async Task MigrateAsync(IModule module, IConfiguration configuration)
+    {
+        // shared FIRST, then identity - ModuleDependencyOrder.SchemaOrder's own order, which this test
+        // previously got away with skipping.
+        //
+        // N1-02 made it load-bearing: ApplicationRole, ApplicationRoleClaim and ApplicationUser are all
+        // IAuditable, so seeding now stages rows into shared.audit_logs through the same SaveChanges,
+        // and a database with only the identity schema fails with 42P01. That is the audit design
+        // working as intended rather than a test needing an accommodation - shared is first in
+        // SchemaOrder precisely so the table exists before any module writes - but this fixture built
+        // its own database and so had to be told. Every *.Application.Tests fixture already did this.
+        await using (var shared = new SharedDbContext(
+            new DbContextOptionsBuilder<SharedDbContext>().UseNpgsql(_container.GetConnectionString()).Options))
+        {
+            await shared.Database.MigrateAsync();
+        }
+
+        await using ServiceProvider migrateServices = BuildProvider(module, configuration);
+        using IServiceScope scope = migrateServices.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IdentityModuleDbContext>().Database.MigrateAsync();
+    }
+
+    private static async Task<(int Roles, int RoleClaims, int Users)> SeedOnceAsync(
+        IModule module, IConfiguration configuration, string environmentName = "Development")
+    {
+        await using ServiceProvider services = BuildProvider(module, configuration, environmentName);
         using IServiceScope scope = services.CreateScope();
 
         await module.SeedAsync(scope.ServiceProvider);
@@ -101,13 +135,14 @@ public sealed class SeedingIdempotencyTests : IAsyncLifetime
         return (await db.Roles.CountAsync(), await db.RoleClaims.CountAsync(), await db.Users.CountAsync());
     }
 
-    private static ServiceProvider BuildProvider(IModule module, IConfiguration configuration)
+    private static ServiceProvider BuildProvider(
+        IModule module, IConfiguration configuration, string environmentName = "Development")
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDataProtection();
         services.AddSingleton(configuration);
-        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment("Development"));
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(environmentName));
         module.Register(services, configuration);
         return services.BuildServiceProvider();
     }

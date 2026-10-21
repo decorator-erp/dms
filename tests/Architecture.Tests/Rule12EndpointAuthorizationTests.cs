@@ -221,7 +221,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         {
             // Development maps the API docs too, so the rule sees the largest route set the host has.
             builder.UseEnvironment("Development");
-            builder.UseSetting("JwtSettings:Key", "rule12-signing-key-at-least-32-bytes-long-0000000000");
+            // PF-S1: appsettings.json commits neither value, so the host supplies its own, per run.
+            builder.UseSetting("JwtSettings:Key", $"{Guid.NewGuid():N}{Guid.NewGuid():N}");
+            builder.UseSetting("DMS_SEED_ADMIN_PASSWORD", $"{Guid.NewGuid():N}aA1!");
             builder.UseSetting("JwtSettings:Issuer", "rule12");
             builder.UseSetting("JwtSettings:Audience", "rule12");
             builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
