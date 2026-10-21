@@ -108,11 +108,65 @@ public sealed class IdentityAuthorizationTests(ApiFixture fixture)
         HttpResponseMessage others = await employee.Client.GetAsync($"/api/permissions/users/{other.UserId}/effective");
         HttpResponseMessage mine = await other.Client.GetAsync("/api/permissions/me/effective");
 
-        Assert.Equal(HttpStatusCode.Forbidden, others.StatusCode);
+        // PF-D1, adapted from 403: the handler decides now (N6, as /api/roles/users/{userId}), and anyone
+        // else gets the 404 an unknown id would, which says nothing about whether the account exists.
+        Assert.Equal(HttpStatusCode.NotFound, others.StatusCode);
         Assert.Equal(HttpStatusCode.OK, mine.StatusCode);
         EffectivePermissionsResponse body = (await mine.Content.ReadFromJsonAsync<EffectivePermissionsResponse>())!;
         Assert.Equal(other.UserId, body.UserId);
         Assert.Equal([IdentityPermissions.RolesRead], body.Permissions);
+    }
+
+    /// <summary>PF-D1: clients poll <c>/users/{id}/effective</c> with their OWN id. Without
+    /// <c>permissions.manage</c> that was a 403; now it is their set, the same one <c>/me/effective</c>
+    /// gives, which the shared handler's guard must not change.</summary>
+    [Fact]
+    public async Task WithoutPermissionsManage_AUserReadsTheirOwnEffectiveSet_ByIdAndThroughMe()
+    {
+        TestSession user = await TestUsers.CreateUserWithPermissionsAsync(fixture, IdentityPermissions.RolesRead);
+
+        HttpResponseMessage byId = await user.Client.GetAsync($"/api/permissions/users/{user.UserId}/effective");
+        HttpResponseMessage me = await user.Client.GetAsync("/api/permissions/me/effective");
+
+        Assert.Equal(HttpStatusCode.OK, byId.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        EffectivePermissionsResponse byIdBody = (await byId.Content.ReadFromJsonAsync<EffectivePermissionsResponse>())!;
+        EffectivePermissionsResponse meBody = (await me.Content.ReadFromJsonAsync<EffectivePermissionsResponse>())!;
+        Assert.Equal(user.UserId, byIdBody.UserId);
+        Assert.Equal([IdentityPermissions.RolesRead], byIdBody.Permissions);
+        Assert.Equal(byIdBody.Permissions, meBody.Permissions);
+    }
+
+    [Fact]
+    public async Task PermissionsManage_ReadsAnotherUsersEffectiveSet()
+    {
+        TestSession caller = await TestUsers.CreateUserWithPermissionsAsync(fixture, IdentityPermissions.PermissionsManage);
+        TestSession target = await TestUsers.CreateUserWithPermissionsAsync(fixture, IdentityPermissions.RolesRead);
+
+        HttpResponseMessage response = await caller.Client.GetAsync($"/api/permissions/users/{target.UserId}/effective");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        EffectivePermissionsResponse body = (await response.Content.ReadFromJsonAsync<EffectivePermissionsResponse>())!;
+        Assert.Equal(target.UserId, body.UserId);
+        Assert.Equal([IdentityPermissions.RolesRead], body.Permissions);
+    }
+
+    /// <summary>PF-D1 records, and does not change, what a permissions.manage holder gets for an id that
+    /// matches nobody: 200 with an empty set. The resolver reads roles and overrides by id and never
+    /// loads the user, so it cannot tell "nobody" from "holds nothing".</summary>
+    [Fact]
+    public async Task PermissionsManage_AnUnknownUserId_Is200WithAnEmptySet()
+    {
+        TestSession caller = await TestUsers.CreateUserWithPermissionsAsync(fixture, IdentityPermissions.PermissionsManage);
+        string unknown = Guid.NewGuid().ToString();
+
+        HttpResponseMessage response = await caller.Client.GetAsync($"/api/permissions/users/{unknown}/effective");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        EffectivePermissionsResponse body = (await response.Content.ReadFromJsonAsync<EffectivePermissionsResponse>())!;
+        Assert.Equal(unknown, body.UserId);
+        Assert.Empty(body.Permissions);
+        Assert.Empty(body.Overrides);
     }
 
     // --- N3: full-access roles are locked ---

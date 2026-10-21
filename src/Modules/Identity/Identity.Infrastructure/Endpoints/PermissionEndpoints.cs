@@ -57,14 +57,16 @@ internal sealed class PermissionEndpoints : IEndpoint
         }).RequirePermission(IdentityPermissions.PermissionsManage);
 
         // K8. Someone else's effective set (with the override rows: who granted what, and why) is an
-        // administrative read, so it needs permissions.manage. It used to be RequireAuthorization() alone,
-        // which let any logged-in user read anyone's. "What can I do" is /me/effective below.
+        // administrative read, so it needs permissions.manage. PF-D1: your OWN id is allowed too, because
+        // clients poll this route with their own id. "Self" is not a route claim, so
+        // GetUserEffectivePermissionsQueryHandler decides, answering 404 to anyone else (N6, as
+        // /api/roles/users/{userId}).
         group.MapGet("/users/{userId}/effective", async (
             string userId, IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse> handler, CancellationToken ct) =>
         {
             Result<EffectivePermissionsResponse> result = await handler.HandleAsync(new GetUserEffectivePermissionsQuery(userId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
-        }).RequirePermission(IdentityPermissions.PermissionsManage);
+        }).RequireAuthorization(); // PF-D1: self or permissions.manage, decided in the handler (404 otherwise).
 
         // K8. The caller's own effective set, for the frontend to decide what to show. Authenticated
         // only, by design: the user id comes from the token, never from the route, so there is nobody

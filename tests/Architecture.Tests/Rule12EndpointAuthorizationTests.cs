@@ -76,6 +76,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         // N6: a user's roles, for themselves or for a roles.read holder. "Self" is not a route claim, so
         // GetUserRolesQueryHandler decides, answering 404 to anyone else.
         "/api/roles/users/{userId}",
+        // PF-D1: a user's effective permissions, for themselves or for a permissions.manage holder. Same
+        // shape as the line above: GetUserEffectivePermissionsQueryHandler decides, answering 404 to anyone else.
+        "/api/permissions/users/{userId}/effective",
     ];
 
     /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.
