@@ -1235,3 +1235,111 @@ ORDER BY attempts DESC;
    - the two existing retry tests were adapted to the backoff (see "What changed"), rather than passing untouched, which they can't once a failure waits 30 s.
 4. **A proof-script mistake, caught and fixed.** One revert-and-restore left the restored file older than the built DLL, so a full-suite run picked up the stale build and failed three outbox tests. The script now touches every restored file; a clean rebuild and every later run were green. Nothing committed was affected.
 5. **Proposals carried in "What changed":** README, CLAUDE.md's outbox text, host migration in `SchemaOrder`, the connection-string fail-fast.
+
+## Phase 5 follow-up
+
+### Setup
+
+- **Branch:** `claude/phase5-followup`, from `master` @ `d3a06e5` (PR #7 merged). One new PR to `master`.
+- **Input:** the Phase 5 implementation review (`reviews/PHASE-5-IMPLEMENTATION-REVIEW.md`, in the docs folder outside this repo), F1–F5. Every file and line it names was re-checked against `master` before coding and matched; the three clarifications are in §6.
+- **Environment:** a cloud container. The .NET SDK pinned by `global.json` was installed into `$HOME/.dotnet`, `dockerd` was started for Testcontainers (`postgres:17`), and `dotnet-ef` 10.0.13 was installed for the migration probe.
+- **Scope:** F1–F3 in code, F4 and F5 recorded here. Nothing else.
+
+### First item, owner action before production (F5)
+
+**Both secrets are still committed, and the seed password reaches Production.** Locations only; no value is copied here.
+
+- `src/Api/appsettings.json` commits a non-empty `JwtSettings:Key` (line 16), the R19 item from Phase 5, still open.
+- The same file commits a non-empty top-level `DMS_SEED_ADMIN_PASSWORD` (line 43).
+- `DMS_SEED_ADMIN_PASSWORD` is read at `src/Modules/Identity/Identity.Infrastructure/Persistence/Seeders/AdminUserSeeder.cs:40`, called from `IdentityModule.SeedAsync` (`src/Modules/Identity/Identity.Infrastructure/IdentityModule.cs:99`).
+- **It runs in Production.** `src/Api/Program.cs:94-100` runs every module's `SeedAsync` on every startup with no environment check. `WebApplication.CreateBuilder` loads `appsettings.json` in every environment; user secrets load only in Development. Only an environment variable, a command-line argument or an `appsettings.Production.json` overrides it, and none is in the repo. So on a database without the seed admin, the first boot creates the admin with the committed password. The seeder's fail-fast (`AdminUserSeeder.cs:41-50`) fires only when the key is unset, so the committed value defeats it, the same way the committed JWT key defeats the Phase 1B check.
+- **Action:**
+  - remove both values from the committed file and keep development values in user-secrets or `appsettings.Development.json`, with real values in environment variables;
+  - rotate the JWT key everywhere it was used;
+  - change the seeded admin's password everywhere it was used.
+- **Also:** while checking key presence for this item, a redaction filter in this session failed and printed both values into the session's tool output. They were not written to any file or commit. Treat both as exposed; the rotation above covers it.
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| F1 any failure in a message's handling is recorded against it; the sweep goes on | fixed | `c460ffe` | `OutboxDeadLetterTests.A_message_whose_save_throws_is_recorded_as_a_failure_and_the_next_message_is_delivered`; `When_recording_the_failure_also_fails_the_sweep_still_goes_on` |
+| F1 every payload failure (incl. `InvalidOperationException`) is a bad payload, dead-lettered at once | fixed | `c460ffe` | `A_payload_whose_type_cannot_be_built_is_dead_lettered_at_once_and_the_sweep_goes_on` (first asserts the exception type is `InvalidOperationException`) |
+| F2 last-holder check is deny-wins, like `PermissionResolution.Resolve` | fixed | `e0e8637` | `Phase4PermissionQueryTests.A_live_grant_and_a_live_deny_for_the_same_code_is_not_a_holder_and_the_resolver_agrees` |
+| F2 still one `EXISTS` statement | unchanged | `e0e8637` | the same test (1 command); `HasOtherActiveHolderAsync_is_one_statement_however_many_candidates`, unchanged; the captured SQL (see "What changed") |
+| F2 existing last-holder semantics | still pass, unchanged | — | `A_holder_only_through_an_expired_grant_is_not_a_holder`, `A_role_holder_with_a_live_deny_is_not_a_holder`, `A_live_grant_without_a_role_is_a_holder_and_an_inactive_one_is_not`, `InactiveOverrideTests` |
+| F3 superseded doc paragraphs marked | fixed | `d7a0577` | — (comment) |
+| F4 single-flight gate is per process | recorded | `c460ffe` (doc sentence) | — (precondition, see "What changed") |
+| F5 committed JWT key and seed password | owner action | — | — (first item above) |
+
+### What changed
+
+- **F1, `OutboxProcessor`:**
+  - `ProcessPendingAsync` wraps each `ProcessOneAsync(id, ct)` in `try … catch (Exception ex) when (ex is not OperationCanceledException)`. The catch logs at Error with the message id and the exception. It then calls the new `RecordSweepFailureAsync`, which opens a fresh scope and `SharedDbContext`, reloads the row, and, unless the row is processed or dead-lettered, applies the existing `Fail(message, ex.Message, ex)` (backoff, or dead letter at `MaxAttempts`) and saves. If that throws too, it is logged at Error and the sweep continues; the row stays due for a later sweep.
+  - `Deserialize` now catches everything except `OperationCanceledException`. Before, its `JsonException`/`NotSupportedException`/`ArgumentException` filter let System.Text.Json's `InvalidOperationException` (a constructor parameter that binds to no property) escape and end the sweep.
+  - The single-flight semaphore is unchanged, and cancellation still propagates.
+  - The class doc gains two sentences: a failure anywhere in a message's handling is recorded against that message and never stops the sweep; and the F4 limit below.
+- **F1, tests:**
+  - A test-only `UnbindableEvent` (a constructor parameter with no property).
+  - A `FailingOutboxSave` `SaveChangesInterceptor`, which throws when one message is saved as processed, or on every save of it. It uses the `interceptor` parameter `BuildProvider` already had, so no new test seam was built.
+  - The JSON options for the exception-type assertion are a cached static, because CA1869 fails the build otherwise.
+- **F2, `EffectivePermissionService.HasOtherActiveHolderAsync`:**
+  - The predicate becomes `(viaRole || liveGrant) && !liveDeny`. The method doc says it weighs exactly as `PermissionResolution.Resolve` does, deny-wins included.
+  - Captured SQL, one command: `SELECT EXISTS (… u."IsActive" AND (EXISTS (role claim) OR EXISTS (live grant)) AND NOT EXISTS (live deny))`.
+- **F2, test:**
+  - It opens a transaction on a context of its own, then runs `DROP INDEX identity."IX_user_permission_overrides_UserId_Permission"` (the name from `UserPermissionOverrideConfiguration.UniqueUserPermissionIndex`).
+  - It inserts a live grant and a live deny for a user with no role, calls the service on that context, and rolls back in `finally`.
+  - The DROP holds an exclusive lock on `user_permission_overrides` only for the test's own transaction. The other tests in the collection run serially, and every other test in the same run passed.
+- **F3:** the three passages are prefixed "(Superseded in Phase 5, see below.)", with no other change and no re-wrap. The first one is a sentence inside the "Algorithm" paragraph, so the prefix sits before that sentence.
+- **F4 (record only):**
+  - The sweep's semaphore is per process. With two instances, both can attempt the same message. The inbox dedupes the effect, but both record the failure, so attempts climb twice as fast and a message dead-letters in about half the planned 8 hours.
+  - **Precondition before running more than one instance:** claim rows (`FOR UPDATE SKIP LOCKED`, or a lease column).
+  - The same sentence is in the `OutboxProcessor` class doc (F1 commit).
+- **Proposal (CLAUDE.md is not edited, per decision 5.4):** add to the outbox rule: "The outbox sweep assumes one instance; claim rows before scaling out (F4)."
+
+### 2. Run 0 for this phase
+
+| | Build | Assemblies | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| Run 0 (`master` @ `d3a06e5`) | 0 warnings, 0 errors | 31 | 1402 | 0 | 0 |
+| Final (`d7a0577`) | 0 warnings, 0 errors | 31 | 1406 | 0 | 0 |
+
+The difference is +3 in `BuildingBlocks.IntegrationTests` (25 → 28) and +1 in `Identity.Infrastructure.Tests` (25 → 26). `Architecture.Tests`: 34 passed, before and after.
+
+**Probe migrations:** `dotnet ef migrations has-pending-model-changes` is clean for `IdentityModuleDbContext` and `SharedDbContext`, the only contexts whose code was touched; no entity or configuration changed.
+
+**Format:** on a clean tree, `dotnet format DMS.Modular.slnx` followed by `git diff --exit-code --ignore-cr-at-eol` shows no real change. Only line endings changed, on 1003 files, and those LF working copies were restored with `git checkout -- .`.
+
+### 3. Tests written but not run
+
+None.
+
+### 3a. Red-before-green proofs
+
+Each fix was backed up with `cp`, reverted, its tests run (red), then restored with `cp`. The restored file was `touch`ed and the project rebuilt before the green run, to avoid the Phase 5 stale-DLL false failure.
+
+| # | Reverted | Went red | Green after restore |
+|---|---|---|---|
+| P1 | F1 step 1 alone: `Deserialize`'s old filter | `A_payload_whose_type_cannot_be_built_is_dead_lettered_at_once_and_the_sweep_goes_on` (`Assert.NotNull` on `DeadLetteredUtc`: the outer guard recorded an ordinary failure with backoff instead) | 9/9 `OutboxDeadLetterTests` |
+| P2 | F1 step 2 alone: the per-message guard removed | `A_message_whose_save_throws_is_recorded_as_a_failure_and_the_next_message_is_delivered`, `When_recording_the_failure_also_fails_the_sweep_still_goes_on` (the save exception left the sweep; the good message was never reached) | 9/9 |
+| P3 | F2: the old grant-wins predicate | `A_live_grant_and_a_live_deny_for_the_same_code_is_not_a_holder_and_the_resolver_agrees` (`Assert.False`: it returned true) | 9/9 `Phase4PermissionQueryTests` |
+
+**Not proved by revert:** F3 (comment). F4 and F5 have no code.
+
+### 4. Migration guards added
+
+None; no migration (see §2).
+
+### 5. Frontend contract changes
+
+**None.** F1 is background processing and F2 changes only an internal check's predicate. No endpoint, status code or response shape changed.
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **No blockers.**
+2. **Owner, before production:** F5 (first item above), which also covers the session-output exposure.
+3. **The red-proof mapping in the prompt, clarified rather than followed literally.**
+   - The prompt expected "revert step 2 alone → the good message stays pending" from the bad-payload test. With step 1 in place, that test still passes: step 1 alone dead-letters the payload, so the outer guard is never reached.
+   - Step 2's red proof comes from the save-failure tests (P2). That is possible because the seam already existed (`BuildProvider`'s `interceptor`). Both proofs were run, as P1 and P2.
+4. **An extra test beyond the prompt's two:** `When_recording_the_failure_also_fails_the_sweep_still_goes_on` covers step 2c (the failure record's own save throws). It is one flag on the same interceptor, not a new seam.
+5. **F3 placement:** the first superseded passage is a sentence mid-paragraph, not a paragraph; the prefix is placed before that sentence.

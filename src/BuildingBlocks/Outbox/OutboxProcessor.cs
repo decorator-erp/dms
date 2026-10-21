@@ -37,7 +37,14 @@ namespace BuildingBlocks.Outbox;
 /// once at Error. A payload that can't be deserialized into its (resolvable) type is dead-lettered at
 /// once, since retrying can't fix it. A type this build can't resolve is an ordinary failure with
 /// backoff, not a dead letter: during an overlapping deploy an older instance meets event types only the
-/// newer build knows. Either way the sweep carries on with the next message.</para>
+/// newer build knows. Either way the sweep carries on with the next message. A failure anywhere in a
+/// message's handling, not only in its handler, is recorded against that message and never stops the
+/// sweep (P5-F1).</para>
+///
+/// <para><b>One instance only (P5-F4).</b> The single-flight gate is per process. Two instances can both
+/// attempt the same message: the inbox dedupes the effect, but both record the failure, so attempts climb
+/// twice as fast and a message dead-letters in about half the planned 8 hours. Before running more than
+/// one instance, claim rows (<c>FOR UPDATE SKIP LOCKED</c>, or a lease column).</para>
 ///
 /// <para><b>Ordering.</b> Sweeps run in occurrence order, but a message waiting out its backoff, or
 /// dead-lettered, no longer holds back later messages for the same aggregate. That is safe because the
@@ -137,7 +144,18 @@ public sealed class OutboxProcessor(
 
             foreach (Guid id in pendingIds)
             {
-                await ProcessOneAsync(id, ct);
+                try
+                {
+                    await ProcessOneAsync(id, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // P5-F1: anything that escapes one message's handling (a payload that throws in an
+                    // unexpected way, its own SaveChangesAsync failing) is recorded against that message,
+                    // never allowed to end the sweep for every message behind it.
+                    logger.LogError(ex, "Outbox message {MessageId} could not be processed", id);
+                    await RecordSweepFailureAsync(id, ex, ct);
+                }
             }
         }
         finally
@@ -196,6 +214,31 @@ public sealed class OutboxProcessor(
         await shared.SaveChangesAsync(ct);
     }
 
+    /// <summary>P5-F1: best effort, in a fresh scope and context (the failed one may hold a broken change
+    /// tracker), records <paramref name="exception"/> against the message as an ordinary failure: backoff,
+    /// or dead letter at <c>Outbox:MaxAttempts</c>. If even that fails (the database is down), it is logged
+    /// and the sweep moves on; the row stays due and a later sweep tries again.</summary>
+    private async Task RecordSweepFailureAsync(Guid messageId, Exception exception, CancellationToken ct)
+    {
+        try
+        {
+            await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
+            SharedDbContext shared = scope.ServiceProvider.GetRequiredService<SharedDbContext>();
+            OutboxMessage? message = await shared.OutboxMessages.FirstOrDefaultAsync(m => m.Id == messageId, ct);
+            if (message is null || message.ProcessedUtc is not null || message.DeadLetteredUtc is not null)
+            {
+                return;
+            }
+
+            Fail(message, exception.Message, exception);
+            await shared.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Outbox message {MessageId}: recording its failure also failed", messageId);
+        }
+    }
+
     /// <summary>Records a failed attempt with backoff, or dead-letters the message when this was the
     /// last one allowed. Earlier failures log at Warning; the dead letter logs once, at Error.</summary>
     private void Fail(OutboxMessage message, string error, Exception? exception)
@@ -252,8 +295,10 @@ public sealed class OutboxProcessor(
             error = "the payload is null or not an integration event";
             return null;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or ArgumentException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // P5-F1: any failure to materialize the payload (System.Text.Json also throws
+            // InvalidOperationException, e.g. for a constructor it can't bind) is a bad payload.
             error = ex.Message;
             return null;
         }

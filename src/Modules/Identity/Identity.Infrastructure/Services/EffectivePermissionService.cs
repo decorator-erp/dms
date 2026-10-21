@@ -14,19 +14,19 @@ namespace Identity.Infrastructure.Services;
 /// Algorithm, exactly as before: resolve the user's role names, union their role claims (role claims
 /// are additive — a user in multiple roles gets the union, never a subtraction), then apply
 /// per-user overrides on top — a grant adds a permission the roles don't confer, a deny removes one
-/// they do. Deny-wins-over-grant is not arbitrated in this loop; it is a data invariant enforced by the
+/// they do. (Superseded in Phase 5, see below.) Deny-wins-over-grant is not arbitrated in this loop; it is a data invariant enforced by the
 /// unique <c>(UserId, Permission)</c> index on <c>user_permission_overrides</c> (see
 /// <c>UserPermissionOverrideConfiguration</c>) — a user can hold at most one override row per
 /// permission, so there is never a "both a grant and a deny exist" case to break the tie on.
 ///
-/// **Two known gaps, ported as-is, not fixed:** this does not check
+/// (Superseded in Phase 5, see below.) **Two known gaps, ported as-is, not fixed:** this does not check
 /// <see cref="UserPermissionOverride.IsExpired"/>'s sibling concept, the override row's own
 /// <c>IsActive</c> soft-delete flag (only <c>ExpiresAt</c> is filtered), and does not check the user's
 /// own <c>IsActive</c> flag (a deactivated user's permissions still resolve here — deactivation is
 /// enforced only at login/refresh, not at every permission check). Recorded, not silently changed —
 /// changing security semantics mid-port is outside what a port should do.
 ///
-/// <para>Since then: expiry is <see cref="UserPermissionOverride.LiveAt"/>, the predicate every override
+/// <para>(Superseded in Phase 5, see below.) Since then: expiry is <see cref="UserPermissionOverride.LiveAt"/>, the predicate every override
 /// read shares (Aug 2.4); the override's own <c>IsActive</c> flag is still not checked (nothing sets it
 /// false yet, Phase 5); and a deactivated user's tokens are refused at every request by the security
 /// stamp check (Phase 1B, N2), so the second gap no longer reaches an API caller.</para>
@@ -82,9 +82,11 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : I
 
     /// <summary>
     /// Whether an active user other than <paramref name="excludingUserId"/> effectively holds
-    /// <paramref name="permission"/>, weighed exactly as <see cref="ResolveAsync(string, CancellationToken)"/>
-    /// weighs it: a role grants it and no live deny removes it, or a live grant adds it. An expired
-    /// override counts for nothing, either way.
+    /// <paramref name="permission"/>, weighed exactly as <see cref="PermissionResolution.Resolve"/> weighs
+    /// it, deny-wins included: a role or a live grant confers it, and no live deny removes it. A dead
+    /// override (inactive, or expired) counts for nothing, either way. (P5-F2: it used to be grant-wins,
+    /// <c>(role and no deny) or grant</c>, which agreed with the resolver only because the unique index
+    /// forbids a grant and a deny for the same code.)
     ///
     /// <para>Aug 4.2: one <c>EXISTS</c> query. It used to collect the candidates, then load and resolve
     /// each one in turn (an N+1, each step loading the candidate's refresh tokens).</para>
@@ -99,12 +101,12 @@ internal sealed class EffectivePermissionService(IdentityModuleDbContext db) : I
         return await db.Users
             .Where(u => u.Id != excludingUserId && u.IsActive)
             .AnyAsync(u =>
-                // (via a role AND no live deny) OR a live grant; && binds tighter than ||.
-                db.UserRoles.Any(ur => ur.UserId == u.Id
+                // (via a role OR a live grant) AND no live deny: deny wins, as in PermissionResolution.
+                (db.UserRoles.Any(ur => ur.UserId == u.Id
                         && db.RoleClaims.Any(rc => rc.RoleId == ur.RoleId
                             && rc.ClaimType == PermissionClaim.Type && rc.ClaimValue == permission))
-                    && !live.Any(o => o.UserId == u.Id && !o.IsGranted)
-                || live.Any(o => o.UserId == u.Id && o.IsGranted),
+                    || live.Any(o => o.UserId == u.Id && o.IsGranted))
+                && !live.Any(o => o.UserId == u.Id && !o.IsGranted),
                 ct);
     }
 }
