@@ -14,9 +14,18 @@ public static class RateLimitPolicies
     /// picking a fixed window over a sliding one).</summary>
     public const string CrmPublicLeads = "crm-public-leads";
 
-    /// <summary>HR/Identity Phase 1B: <c>/api/auth/login</c>, <c>/refresh</c>, <c>/revoke</c>,
-    /// <c>/change-password</c> and <c>/logout</c>. One fixed window, keyed by remote IP and shared across
-    /// all five routes, so a guesser cannot spread attempts across them. Lockout (K4) stops guessing one
-    /// account; this stops one client trying many.</summary>
+    /// <summary>HR/Identity Phase 1B, narrowed by PF-D2 to <c>/api/auth/login</c> only: a strict fixed
+    /// window keyed by client IP. Lockout (K4) stops guessing one account; this stops one client trying
+    /// many.</summary>
     public const string AuthLogin = "auth-login";
+
+    /// <summary>PF-D2: <c>/api/auth/refresh</c> and <c>/revoke</c>. Keyed by client IP, with a generous
+    /// default: refresh tokens are random and unguessable, so this is a flood limit, not a guessing
+    /// defence, and a whole office behind one NAT refreshing at once must fit.</summary>
+    public const string AuthRefresh = "auth-refresh";
+
+    /// <summary>PF-D2: <c>/api/auth/change-password</c> and <c>/logout</c>. Keyed by the signed-in user, so
+    /// colleagues behind one IP do not share a bucket; by client IP when the request carries no valid
+    /// session.</summary>
+    public const string AuthSession = "auth-session";
 }

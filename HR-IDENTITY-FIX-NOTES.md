@@ -1343,3 +1343,162 @@ None; no migration (see §2).
    - Step 2's red proof comes from the save-failure tests (P2). That is possible because the seam already existed (`BuildProvider`'s `interceptor`). Both proofs were run, as P1 and P2.
 4. **An extra test beyond the prompt's two:** `When_recording_the_failure_also_fails_the_sweep_still_goes_on` covers step 2c (the failure record's own save throws). It is one flag on the same interceptor, not a new seam.
 5. **F3 placement:** the first superseded passage is a sentence mid-paragraph, not a paragraph; the prefix is placed before that sentence.
+
+## Pre-frontend (S1, D1, D2)
+
+### Setup
+
+- **Branch:** `claude/stoic-mayer-rpazwi` (the session's designated branch, in place of the prompt's `claude/pre-frontend`), from `master` @ `dfae4e9` (the Phase 5 follow-up merged: `OutboxProcessor.RecordSweepFailureAsync` exists and this file has `## Phase 5 follow-up`). One PR to `master`.
+- **Input:** `plans/PROMPT-BACKEND-PRE-FRONTEND.md` (docs folder, outside this repo), plus the plan review's revisions R1–R9 and two follow-up fixes (the leftover-literal check reads the old values from git; every derived test host sets the limits it relies on). Every file and line the prompt names was re-checked against `master`; the differences are in §6.
+- **Environment:** a cloud container. The .NET SDK pinned by `global.json` in `$HOME/.dotnet`, `dockerd` started for Testcontainers (`postgres:17`), `dotnet-ef` 10.0.13 for the migration probe.
+- **Secrets:** no secret value was read, printed or written in this phase. Presence checks print a boolean and a length. Leftover uses were counted by a scratchpad script that takes the old values from `git show dfae4e9:src/Api/appsettings.json` in memory and prints per-file counts only.
+
+### First item, owner action before production
+
+- **Rotate the JWT signing key and change the seeded admin's password** in every environment that used the values `appsettings.json` committed until PF-S1. Both were also exposed outside the repo: printed in the Phase 5 follow-up session's tool output, and the seed password was quoted again in this phase's planning conversation.
+- **PF-S1 cannot undo either exposure.** It stops the values being committed again; git history still holds them. Whether to purge history (`git filter-repo` plus a force-push, which rewrites every clone) is the owner's call, and this PR doesn't do it.
+- **Ops, Production needs:**
+  - `JwtSettings__Key`, on every start, at least 32 characters (`JwtOptions.Key` is `[MinLength(32)]`, validated at start-up). Without it the API refuses to start.
+  - `DMS_SEED_ADMIN_PASSWORD`, only while the database has no seeded admin. `AdminUserSeeder` returns before reading it once the admin exists (`AdminUserSeeder.cs:35-38`), so **it is not needed on every boot**. On a fresh database outside Development, a missing value stops start-up.
+  - `ForwardedHeaders:KnownProxies` (IPs) / `ForwardedHeaders:KnownNetworks` (CIDRs), naming **the real reverse proxy**. Until they are set, `X-Forwarded-For` is ignored and every client behind the proxy shares the proxy's IP buckets. A proxy on the same host must be listed as `127.0.0.1`.
+  - Optionally, `RateLimiting:AuthLogin|AuthRefresh|AuthSession:PermitLimit` and `:WindowSeconds` (defaults 10, 300 and 10 per 60 s).
+
+### 1. Item table
+
+| Id | Status | Commit | Proving test |
+|---|---|---|---|
+| S1 no secret values in committed configuration | fixed | `7b3d66e` | `CommittedSecretsTests.No_committed_appsettings_file_carries_a_secret_value` |
+| S1 an empty JWT key fails start-up | pinned (existing check, now reachable) | `7b3d66e` | `ConfigurationFailFastTests.A_host_with_an_empty_JWT_key_fails_fast` |
+| S1 a blank seed password: throws outside Development, skips the admin in Development | pinned both ways | `7b3d66e` | `SeedingIdempotencyTests.A_blank_seed_password_on_an_empty_database_fails_fast_outside_Development`; `A_blank_seed_password_in_Development_skips_the_admin_without_throwing` |
+| S1 the suite runs on fixture-supplied values only | done | `7b3d66e` | the full suite; the count-only script finds 0 uses of either old value in `src/` and `tests/` |
+| D1 `{userId}/effective`: self or `permissions.manage` | fixed | `90bf64e` | `IdentityAuthorizationTests.WithoutPermissionsManage_AUserReadsTheirOwnEffectiveSet_ByIdAndThroughMe` |
+| D1 another user without `permissions.manage` → 404 | changed (was 403) | `90bf64e` | `PlainEmployee_CannotReadAnotherUsersEffectivePermissions_ButCanReadTheirOwn` (adapted) |
+| D1 a holder reads anyone; an unknown id | unchanged, now tested | `90bf64e` | `PermissionsManage_ReadsAnotherUsersEffectiveSet`; `PermissionsManage_AnUnknownUserId_Is200WithAnEmptySet` |
+| D2 login stays strict, per IP | narrowed to `/login` | `db0c6f6` | `AuthRateLimitTests.Login_TheEleventhFromOneIp_Is429_WithRetryAfter` |
+| D2 refresh/revoke have their own budget | fixed | `db0c6f6` | `FiftyChainedRefreshes_AreNotThrottledByTheLoginLimit`; `Refresh_BeyondItsOwnLimit_Is429_WithRetryAfter_AndLoginKeepsItsBudget` |
+| D2 change-password/logout per user | fixed | `db0c6f6` | `ChangePassword_IsLimitedPerUser_NotPerIp` |
+| D2 `Retry-After` on every 429, exposed via CORS | fixed | `db0c6f6` | the three above; `ACrossOrigin429_ExposesRetryAfter` |
+| D2 forwarded headers from named proxies only | fixed | `db0c6f6` | `FromATrustedProxy_EachForwardedClientGetsItsOwnLoginBucket`; `FromAnUntrustedSource_XForwardedForIsIgnored` |
+| format | one using reordered | `c15613d` | — |
+
+### What changed
+
+- **S1, configuration:**
+  - `src/Api/appsettings.json`: `JwtSettings:Key` and `DMS_SEED_ADMIN_PASSWORD` are `""`; the keys stay, to document the shape. `appsettings.Development.json` is unchanged (Serilog only).
+  - Both fail-fasts already used `IsNullOrWhiteSpace` (`Api/DI.cs:36-44` and `AdminUserSeeder.cs:40-53` on `master`), so no code changed; the committed values were what kept them from firing.
+  - `Api.csproj` already had `<UserSecretsId>`.
+  - New `docs/local-development.md`: the two `dotnet user-secrets` commands, the Production environment variables, and, plainly, that **without the password secret Development starts but creates no admin, so nobody can sign in** (`AdminUserSeeder` skips silently in Development). Also that the password is read only when the admin is first created.
+- **S1, tests:**
+  - `ApiFixture` generates `JwtKey` (was a literal constant) and a new `AdminPassword` per fixture instance. The password is a random part plus a fixed `aA1!` suffix, so it always meets the policy. `TestUsers.AdminClientAsync` logs in with `fixture.AdminPassword` instead of reading configuration.
+  - Rule 12's host supplies both values per run too.
+  - `UnlinkedUserReaperTests.Active_users_and_the_seeded_admin_are_never_reaped` **was strengthened, not weakened.** It skipped its admin assertions when no admin was seeded; the fixture now always seeds one, so it asserts the admin exists before and after the sweep.
+  - The other fixtures (module `*Fixture`s) already injected their own values and were left alone; none is a `WebApplicationFactory`.
+- **S1, record only:** the committed `ConnectionStrings:DefaultConnection` is local-development configuration for the docker-compose database, not a secret. It is out of scope here.
+- **D1:**
+  - `/api/permissions/users/{userId}/effective` is `.RequireAuthorization()`. `GetUserEffectivePermissionsQueryHandler` takes `ICurrentUser` and refuses with `UserErrors.NotFound` (404) unless the id is the caller's or the caller holds `permissions.manage`: the N6 pattern of `GetUserRolesQueryHandler`, **status code included (404, not 403)**, so a refusal says nothing about whether the account exists.
+  - `/me/effective` goes through the same handler with the caller's own id, so it always passes the guard. Tested for a caller without `permissions.manage`.
+  - **An unknown id with `permissions.manage` is 200 with an empty set, recorded and unchanged.** The resolver reads roles and overrides by id and never loads the user, so it can't tell "nobody" from "holds nothing".
+- **D2, rate limits (`Api/DI.cs`):**
+  - `AuthLogin` (per IP, 10/60 s) on `/login` only. `AuthRefresh` (per IP, 300/60 s) on `/refresh` and `/revoke`; its partitioner reads only the connection, never the body. `AuthSession` (per signed-in user, 10/60 s) on `/change-password` and `/logout`. All three are configurable under `RateLimiting:<Policy>:PermitLimit` / `:WindowSeconds`, and `ApiFixture` raises all three.
+  - `AuthSession` **falls back to the IP when the request has no valid session.** That is the case for a stale token at `/logout` or `/change-password`: N2's stamp check leaves the caller anonymous. This is correct behaviour, not a bug: such a request is refused with 401 anyway, and a per-IP limit is the right one for an anonymous caller.
+  - `OnRejected` writes `Retry-After`: the time left from the lease's `MetadataName.RetryAfter`, rounded up, at least 1 second; the policy's window length if the metadata is absent. The body stays empty. **It is set once for all policies, so the public CRM leads endpoint (`CrmPublicLeads`) gains `Retry-After` on its 429s too.** That is harmless.
+  - CORS: `.WithExposedHeaders("Retry-After")` on `CorsPolicies.Default`.
+- **D2, pipeline order (`Program.cs`, R6): `UseAuthentication` now runs before `UseRateLimiter`.** Before, the partitioner ran before the principal existed, so a per-user policy would silently fall back to the IP for everyone. This reverses a Phase 1B choice, recorded in the old `Program.cs` comment: a throttled request never reached N2's session check (a database read). The cost now is bounded:
+  - only a validly signed token triggers the read;
+  - `IUserSessionState` caches it;
+  - every non-auth route already ran the check with no rate limit at all.
+
+  `UseForwardedHeaders` is first, before `UseExceptionHandler` and `UseCors`. Every existing 429, authorization and session test passed with the new order.
+- **D2, forwarded headers: a correction to the plan (R8).**
+  - The framework's loopback defaults are cleared, as R8 said. But **clearing them and leaving both lists empty doesn't mean "trust nobody"**: `ForwardedHeadersMiddleware` skips the known-proxy check when both lists are empty, and then applies `X-Forwarded-For` from **any** sender. Any client could then pick its own rate-limit bucket.
+  - So with no `KnownProxies`/`KnownNetworks` configured, `ForwardedHeaders` is `None` (nothing is forwarded). With one configured, it is `XForwardedFor | XForwardedProto`, with `ForwardLimit = 1`.
+  - Found by `FromAnUntrustedSource_XForwardedForIsIgnored` failing on the first implementation, and confirmed with a throwaway probe (options read `0` proxies / `0` networks, yet the request's remote IP became the forwarded one).
+- **D2, tests:** a new `AuthRateLimitTests` (7 tests) replaces `AuthSessionTests.BeyondTheWindowsLimit_AuthRoutesAnswer429`.
+  - Every derived host sets all three limits and hour-long windows explicitly, because `ApiFixture`'s raised values would otherwise carry over.
+  - The 50-refresh test logs one user in on the derived host and chains 50 refreshes on the rotated tokens (R9), rather than 50 users needing 50 logins.
+  - The forwarded-header tests use a test-only `IStartupFilter` that gives each request remote address `10.0.0.1`, because `TestServer` has none.
+- **Adapted tests, by name:**
+  - `IdentityAuthorizationTests.PlainEmployee_CannotReadAnotherUsersEffectivePermissions_ButCanReadTheirOwn`: 403 → **404** for another user without `permissions.manage`. Reason: N6 parity with `/api/roles/users/{userId}`, and a 404 is silent in the frontend's `errorInterceptor` (no toast), which is the point.
+  - `ExpiredOverrideTests.Effective_permissions_leave_an_expired_override_out`, `InactiveOverrideTests` (its effective-set read) and `RolesAndPermissionsTests.Grant_then_deny_then_revoke_override_each_change_the_effective_set` call the handler directly for **another** user. The fixture's default caller holds no permissions, so they now read as a `permissions.manage` holder (`new TestCurrentUser(CallerId, PermissionsManage)`), exactly as the API now requires. What they assert is unchanged.
+  - `AuthSessionTests.BeyondTheWindowsLimit_AuthRoutesAnswer429` is removed and split into `AuthRateLimitTests`. Its old assertion, "refresh shares login's bucket", is now intentionally false.
+- **Rule 12 diff (`Rule12EndpointAuthorizationTests.AuthenticatedOnlyRoutes`), one entry added:**
+
+  ```
+  +        // PF-D1: a user's effective permissions, for themselves or for a permissions.manage holder. Same
+  +        // shape as the line above: GetUserEffectivePermissionsQueryHandler decides, answering 404 to anyone else.
+  +        "/api/permissions/users/{userId}/effective",
+  ```
+
+  Nothing else in the rule changed. Its host also now supplies its own JWT key and seed password (S1).
+
+### 2. Run 0 for this phase
+
+| | Build | Assemblies | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| Run 0 (`master` @ `dfae4e9`) | 0 warnings, 0 errors | 31 | 1406 | 0 | 0 |
+| Final (`db0c6f6`; `c15613d` only reorders a `using`, rebuilt clean and `Architecture.Tests` re-run) | 0 warnings, 0 errors | 31 | 1419 | 0 | 0 |
+
+- **The difference, +13:**
+  - `Architecture.Tests` 34 → 35 (the guard);
+  - `Identity.Infrastructure.Tests` 26 → 28 (the two seeder tests);
+  - `Integration.Tests` 186 → 196: +1 S1, +3 D1, +7 D2, −1 removed (the split 429 test).
+- `Identity.Application.Tests` stays at 44 (three adapted).
+- **Run 0's first attempt was not clean, and the cause was the environment, not `master`.**
+  - The first full run started 31 assemblies' Testcontainers at once on a cold `postgres:17` cache. `Integration.Tests` failed all 186 in about a second, and `Approvals.Application` (6), `Approvals.Infrastructure` (1) and `Architecture.Tests` (1) failed too.
+  - `appsettings.json` was also edited (S1) while that run was in progress, and `WebApplicationFactory` reads it from `src/Api` at run time.
+  - With the work stashed (a pristine `master` tree), those assemblies passed alone: 6, 2, 34 and 186. The table counts that clean run.
+- **Probe migrations:** `dotnet ef migrations has-pending-model-changes` is clean for `IdentityModuleDbContext`, the only module context whose project was touched. No entity or configuration changed.
+- **Format:**
+  - On a clean tree, `dotnet format DMS.Modular.slnx` made one real change: the `using Microsoft.Net.Http.Headers;` order in `Api/DI.cs`. It was committed alone (`c15613d`).
+  - A second pass made none.
+  - Everything else was line endings, and the LF working copies were restored with `git checkout -- .`.
+
+### 3. Tests written but not run
+
+None.
+
+### 3a. Red-before-green proofs
+
+Each was `cp` backup → revert → run (red) → `cp` restore → `touch` → rebuild → run (green).
+
+| # | Reverted | Went red | Green after restore |
+|---|---|---|---|
+| P1 | S1: `JwtSettings:Key` set to `"x"` in `appsettings.json` | `No_committed_appsettings_file_carries_a_secret_value`, message `src/Api/appsettings.json: JwtSettings:Key has a value…` (key named, no value) | yes |
+| P2 | S1: `DMS_SEED_ADMIN_PASSWORD` set to `"x"` | the same test, naming `DMS_SEED_ADMIN_PASSWORD` | yes |
+| P3 | D1: the route back to `RequirePermission(PermissionsManage)` | `WithoutPermissionsManage_AUserReadsTheirOwnEffectiveSet_ByIdAndThroughMe` (Expected OK, Actual Forbidden) | 3/3 effective-set tests |
+| P4 | D2: `/refresh` back on `AuthLogin` | `FiftyChainedRefreshes_AreNotThrottledByTheLoginLimit` (a 429 in the chain, after login's ten) | yes |
+| P5 | D2: `UseRateLimiter` back before `UseAuthentication` | `ChangePassword_IsLimitedPerUser_NotPerIp` (B's first call: Expected NoContent, Actual TooManyRequests; the partitioner saw no user and used the IP) | yes |
+| P6 | D2: forward headers even with no proxy configured | `FromAnUntrustedSource_XForwardedForIsIgnored` (Expected TooManyRequests, Actual Unauthorized: the forged header bought a new bucket) | yes |
+
+**Not proved by revert:** the two seeder tests and `A_host_with_an_empty_JWT_key_fails_fast` pin existing code that S1 did not change; there is nothing to revert. `docs/local-development.md` is documentation.
+
+### 4. Migration guards added
+
+None; no migration (see §2).
+
+### 5. Frontend contract changes
+
+The frontend plan (v2 §8, 002b) is outside this repo. The rows below follow the prompt's own reference to 002b A1/A3; check the mapping against the plan.
+
+| Change | Before | After | 002b row |
+|---|---|---|---|
+| `GET /api/permissions/users/{userId}/effective` with the caller's own id | 403 without `permissions.manage` | **200**, the caller's set (same as `/me/effective`) | A1 (permission polling at sign-in, every 10 minutes, on focus) |
+| the same route, another user's id, without `permissions.manage` | 403 | **404** (silent in `errorInterceptor`) | A1 |
+| the same route, unknown id, with `permissions.manage` | 200, empty set | unchanged | — |
+| `/api/auth/refresh`, `/revoke` | shared 10/60 s per IP with login | own budget, 300/60 s per IP | A3 (refresh) |
+| `/api/auth/change-password`, `/logout` | shared 10/60 s per IP with login | own budget, 10/60 s **per user** | A3 |
+| `/api/auth/login` | 10/60 s per IP, shared | 10/60 s per IP, login only | A3 |
+| any 429 | no `Retry-After` | `Retry-After: <seconds>`, readable cross-origin (`Access-Control-Expose-Headers`); body still empty | A3 |
+
+`/api/permissions/me/effective` is unchanged. No response body shape changed.
+
+### 6. Blockers, questions and contradictions with the prompt
+
+1. **No blockers.**
+2. **Owner, before production:** rotate both secrets (first item above). A history purge is the owner's call.
+3. **R8 was wrong as written**, and this PR does what it intended rather than what it said (see "What changed"). Empty `KnownProxies`/`KnownNetworks` make the middleware trust everyone, so "nothing configured" now means "nothing forwarded".
+4. **R6 reverses a recorded Phase 1B decision** (rate limiting before authentication). The trade-off is in "What changed" and in the `Program.cs` comment.
+5. **The prompt says to "check that both fail-fasts use `IsNullOrWhiteSpace`".** Both already did; nothing changed there.
+6. **The prompt says to check `Api.csproj` for `<UserSecretsId>`.** It was already present (`dms-modular-api`).
+7. **Placement:** the D2 tests are a new `AuthRateLimitTests` file in the same collection, not more methods in `AuthSessionTests`. The old combined test was removed from `AuthSessionTests`, whose class doc now points to the new file.
+8. **Three Application tests adapted for D1**, beyond the integration test the prompt names. They called the handler directly for another user with a permission-less caller, which the new guard refuses. The reason is in "What changed".

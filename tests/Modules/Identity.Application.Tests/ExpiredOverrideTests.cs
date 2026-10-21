@@ -78,7 +78,8 @@ public sealed class ExpiredOverrideTests(IdentityApplicationFixture fixture)
         await PlantExpiredAsync(UserPermissionOverride.Grant(
             target, IdentityPermissions.UsersRead, IdentityApplicationFixture.CallerId, "old", DateTime.UtcNow.AddDays(-1)));
 
-        await using AsyncServiceScope scope = fixture.CreateScope();
+        // PF-D1: another user's effective set needs permissions.manage, as through the API.
+        await using AsyncServiceScope scope = fixture.CreateScope(new TestCurrentUser(IdentityApplicationFixture.CallerId, IdentityPermissions.PermissionsManage));
         Result<EffectivePermissionsResponse> result = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse>>()
             .HandleAsync(new GetUserEffectivePermissionsQuery(target));

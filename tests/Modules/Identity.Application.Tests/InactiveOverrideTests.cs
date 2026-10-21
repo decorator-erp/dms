@@ -56,7 +56,8 @@ public sealed class InactiveOverrideTests(IdentityApplicationFixture fixture)
         string target = await CreateTargetAsync();
         await PlantInactiveAsync(UserPermissionOverride.Grant(target, IdentityPermissions.UsersRead, IdentityApplicationFixture.CallerId));
 
-        await using AsyncServiceScope scope = fixture.CreateScope();
+        // PF-D1: another user's effective set needs permissions.manage, as through the API.
+        await using AsyncServiceScope scope = fixture.CreateScope(new TestCurrentUser(IdentityApplicationFixture.CallerId, IdentityPermissions.PermissionsManage));
         Result<EffectivePermissionsResponse> result = await scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse>>()
             .HandleAsync(new GetUserEffectivePermissionsQuery(target));

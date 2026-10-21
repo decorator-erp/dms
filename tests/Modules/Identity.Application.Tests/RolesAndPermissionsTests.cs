@@ -125,7 +125,11 @@ public sealed class RolesAndPermissionsTests(IdentityApplicationFixture fixture)
         await userManager.CreateAsync(user, "P@ssw0rd123!");
         await userManager.AddToRoleAsync(user, role.Name!);
 
-        IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse> getEffective = sp.GetRequiredService<IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse>>();
+        // PF-D1: another user's effective set needs permissions.manage, as through the API. A reader scope
+        // of its own, so the commands above keep the fixture's default caller.
+        await using AsyncServiceScope readerScope = fixture.CreateScope(
+            new TestCurrentUser(IdentityApplicationFixture.CallerId, IdentityPermissions.PermissionsManage));
+        IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse> getEffective = readerScope.ServiceProvider.GetRequiredService<IQueryHandler<GetUserEffectivePermissionsQuery, EffectivePermissionsResponse>>();
 
         // Role alone grants RolesRead but not UsersRead.
         Result<EffectivePermissionsResponse> baseline = await getEffective.HandleAsync(new GetUserEffectivePermissionsQuery(user.Id));

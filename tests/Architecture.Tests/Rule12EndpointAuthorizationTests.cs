@@ -76,6 +76,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         // N6: a user's roles, for themselves or for a roles.read holder. "Self" is not a route claim, so
         // GetUserRolesQueryHandler decides, answering 404 to anyone else.
         "/api/roles/users/{userId}",
+        // PF-D1: a user's effective permissions, for themselves or for a permissions.manage holder. Same
+        // shape as the line above: GetUserEffectivePermissionsQueryHandler decides, answering 404 to anyone else.
+        "/api/permissions/users/{userId}/effective",
     ];
 
     /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.
@@ -221,7 +224,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         {
             // Development maps the API docs too, so the rule sees the largest route set the host has.
             builder.UseEnvironment("Development");
-            builder.UseSetting("JwtSettings:Key", "rule12-signing-key-at-least-32-bytes-long-0000000000");
+            // PF-S1: appsettings.json commits neither value, so the host supplies its own, per run.
+            builder.UseSetting("JwtSettings:Key", $"{Guid.NewGuid():N}{Guid.NewGuid():N}");
+            builder.UseSetting("DMS_SEED_ADMIN_PASSWORD", $"{Guid.NewGuid():N}aA1!");
             builder.UseSetting("JwtSettings:Issuer", "rule12");
             builder.UseSetting("JwtSettings:Audience", "rule12");
             builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);

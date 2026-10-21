@@ -27,7 +27,10 @@ namespace Identity.Infrastructure.Endpoints;
 /// nothing, so leaving authorization off no longer makes a route anonymous. Login, refresh and revoke
 /// carry an explicit <c>.AllowAnonymous()</c>, and Rule 12 holds the list.</para>
 ///
-/// <para>Phase 1B: all five share the IP-keyed <see cref="RateLimitPolicies.AuthLogin"/> window.</para>
+/// <para>PF-D2: three rate-limit policies (Phase 1B had one, shared by all five routes):
+/// <see cref="RateLimitPolicies.AuthLogin"/> on <c>/login</c>, <see cref="RateLimitPolicies.AuthRefresh"/> on
+/// <c>/refresh</c> and <c>/revoke</c>, <see cref="RateLimitPolicies.AuthSession"/> on <c>/change-password</c>
+/// and <c>/logout</c>.</para>
 /// </summary>
 internal sealed class AuthEndpoints : IEndpoint
 {
@@ -49,7 +52,7 @@ internal sealed class AuthEndpoints : IEndpoint
             Result<AuthResponse> result = await handler.HandleAsync(new RefreshTokenCommand(request), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).AllowAnonymous()
-            .RequireRateLimiting(RateLimitPolicies.AuthLogin);
+            .RequireRateLimiting(RateLimitPolicies.AuthRefresh);
 
         group.MapPost("/revoke", async (
             RefreshTokenRequest request, ICommandHandler<RevokeRefreshTokenCommand> handler, CancellationToken ct) =>
@@ -57,14 +60,14 @@ internal sealed class AuthEndpoints : IEndpoint
             Result result = await handler.HandleAsync(new RevokeRefreshTokenCommand(request), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).AllowAnonymous()
-            .RequireRateLimiting(RateLimitPolicies.AuthLogin);
+            .RequireRateLimiting(RateLimitPolicies.AuthRefresh);
 
         group.MapPost("/change-password", async (
             ChangePasswordRequest request, ICommandHandler<ChangePasswordCommand> handler, CancellationToken ct) =>
         {
             Result result = await handler.HandleAsync(new ChangePasswordCommand(request), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequireAuthorization().RequireRateLimiting(RateLimitPolicies.AuthLogin);
+        }).RequireAuthorization().RequireRateLimiting(RateLimitPolicies.AuthSession);
 
         // K5: ends every session of the caller (all refresh tokens, and live access tokens via the
         // security stamp). Authenticated, no permission: it only ever acts on the caller's own account.
@@ -72,6 +75,6 @@ internal sealed class AuthEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new LogoutCommand(), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequireAuthorization().RequireRateLimiting(RateLimitPolicies.AuthLogin);
+        }).RequireAuthorization().RequireRateLimiting(RateLimitPolicies.AuthSession);
     }
 }

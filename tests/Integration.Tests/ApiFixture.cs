@@ -20,12 +20,18 @@ namespace Integration.Tests;
 /// that's just <c>shared</c>; add each module's <c>*.Infrastructure</c> DbContext here (and its
 /// ProjectReference to this test project) as Identity (G1-03) and HR (G2-03) are built.
 ///
-/// The JWT signing key is a fixed test value injected via configuration, never the real dev
-/// user-secrets value — tests must not depend on (or leak into) a developer's local secrets.
+/// The JWT signing key and the seed admin's password are generated per fixture and injected via
+/// configuration. <c>appsettings.json</c> commits neither (PF-S1), and tests must not depend on (or leak
+/// into) a developer's local secrets.
 /// </summary>
 public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string JwtKey = "integration-test-signing-key-at-least-32-bytes-long-000000";
+    public string JwtKey { get; } = $"{Guid.NewGuid():N}{Guid.NewGuid():N}";
+
+    /// <summary>PF-S1: the password <c>AdminUserSeeder</c> seeds the admin with. The fixed suffix meets the
+    /// password policy (upper, lower, digit, symbol) whatever the random part holds.</summary>
+    public string AdminPassword { get; } = $"{Guid.NewGuid():N}aA1!";
+
     public const string JwtIssuer = "DMS.Modular.Api.Tests";
     public const string JwtAudience = "DMS.Modular.Client.Tests";
 
@@ -172,16 +178,19 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Key", JwtKey);
         builder.UseSetting("JwtSettings:Issuer", JwtIssuer);
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
+        builder.UseSetting("DMS_SEED_ADMIN_PASSWORD", AdminPassword);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
         builder.UseSetting("Crm:PublicLeadIntakeOwnerId", PublicLeadIntakeOwnerId.ToString());
         // Small on purpose (default is 50 MB) - keeps DocumentsSmokeTests' oversized-upload test's payload
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
         builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
-        // Phase 1B. Every test request comes from one IP, and the suite logs in hundreds of times
-        // (TestUsers), so the auth rate limit is raised far out of reach here. The 429 itself is asserted
-        // by AuthSessionTests on a derived host with a tiny limit.
+        // Phase 1B, three policies since PF-D2. Every test request comes from one IP, and the suite logs in
+        // hundreds of times (TestUsers), so the auth rate limits are raised far out of reach here. The 429s
+        // are asserted by AuthRateLimitTests on derived hosts, each setting every limit it relies on.
         builder.UseSetting("RateLimiting:AuthLogin:PermitLimit", "100000");
+        builder.UseSetting("RateLimiting:AuthRefresh:PermitLimit", "100000");
+        builder.UseSetting("RateLimiting:AuthSession:PermitLimit", "100000");
         // N2: no session-state cache, so a security-stamp change is visible on the very next request.
         builder.UseSetting("Identity:SessionStateCacheSeconds", "0");
         // F1-10. Stands down OutboxProcessor's and PeriodicJobWorker's TIMER loops -- both remain

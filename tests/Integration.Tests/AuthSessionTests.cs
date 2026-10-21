@@ -19,14 +19,13 @@ namespace Integration.Tests;
 /// HR/Identity Phase 1B, through the whole HTTP pipeline with real login tokens:
 /// <list type="bullet">
 /// <item>K4: lockout, and identical answers for unknown, wrong-password and inactive logins;</item>
-/// <item>the auth rate limit;</item>
 /// <item>K5: family revocation on reuse, revoke on password change, logout, hashed storage;</item>
 /// <item>K8: change-password acts on the caller only;</item>
 /// <item>N2: the security stamp;</item>
 /// <item>Aug 3.10: a malformed token is a 401.</item>
 /// </list>
-/// The shared host runs with a session-state cache TTL of 0 and a very high auth rate limit
-/// (<see cref="ApiFixture"/>). The 429 test builds a derived host with a tiny one.
+/// The shared host runs with a session-state cache TTL of 0 and very high auth rate limits
+/// (<see cref="ApiFixture"/>). The rate limits themselves are <see cref="AuthRateLimitTests"/>.
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class AuthSessionTests(ApiFixture fixture)
@@ -87,35 +86,6 @@ public sealed class AuthSessionTests(ApiFixture fixture)
         }
 
         Assert.Equal(HttpStatusCode.OK, (await PostLoginAsync(user.Email, IdentityTestSeeding.Password)).StatusCode);
-    }
-
-    [Fact]
-    public async Task BeyondTheWindowsLimit_AuthRoutesAnswer429()
-    {
-        // A derived host on the same database, with a limit small enough to reach. The window is long, so
-        // the requests cannot straddle two windows.
-        await using WebApplicationFactory<Program> limited = fixture.WithWebHostBuilder(builder =>
-        {
-            builder.UseSetting("RateLimiting:AuthLogin:PermitLimit", "3");
-            builder.UseSetting("RateLimiting:AuthLogin:WindowSeconds", "3600");
-        });
-        HttpClient client = limited.CreateClient();
-        var body = new LoginRequest($"nobody-{Guid.NewGuid():N}@example.com", WrongPassword);
-
-        var statuses = new HttpStatusCode[4];
-        for (int i = 0; i < statuses.Length; i++)
-        {
-            statuses[i] = (await client.PostAsJsonAsync("/api/auth/login", body)).StatusCode;
-        }
-
-        // The window is shared by every auth route: refresh is throttled too.
-        HttpResponseMessage refresh = await client.PostAsJsonAsync(
-            "/api/auth/refresh", new RefreshTokenRequest("x", "y"));
-
-        Assert.Equal(
-            [HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests],
-            statuses);
-        Assert.Equal(HttpStatusCode.TooManyRequests, refresh.StatusCode);
     }
 
     // --- K5: refresh tokens ---
