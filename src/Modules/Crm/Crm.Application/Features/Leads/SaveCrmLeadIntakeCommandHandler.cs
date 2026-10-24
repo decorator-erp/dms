@@ -19,17 +19,25 @@ internal sealed class SaveCrmLeadIntakeCommandValidator : AbstractValidator<Save
 /// <summary>Creates the intake lazily on first save, otherwise edits in place, and keeps the
 /// <see cref="CrmLeadIntakeResidential"/> child in step with the sector: written from
 /// <see cref="CrmLeadIntakeData.Residential"/> while the sector is Residential (left as it is when the block is
-/// omitted), deleted when the sector moves away, and refused outright when sent with any other sector. The
+/// omitted), deleted when the sector moves away, and refused outright when sent with any other sector. A
+/// converted lead's intake is frozen. The
 /// delete lives here rather than in <c>CrmLeadIntake.Update</c> because Domain has no persistence authority
 /// over a row it doesn't directly own the collection of.</summary>
 internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : ICommandHandler<SaveCrmLeadIntakeCommand>
 {
     public async Task<Result> HandleAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct = default)
     {
-        bool leadExists = await db.CrmLeads.AnyAsync(l => l.Id == command.LeadId, ct);
-        if (!leadExists)
+        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        if (lead is null)
         {
             return CrmLeadErrors.NotFound;
+        }
+
+        // The intake is the pre-client snapshot; once the lead is converted it is frozen, same rule and
+        // same 409 as CrmLead.Update.
+        if (lead.Status == LeadStatus.Converted)
+        {
+            return CrmLeadErrors.AlreadyConverted;
         }
 
         var data = new DomainIntakeData(
