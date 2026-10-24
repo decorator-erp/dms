@@ -49,8 +49,6 @@ internal sealed class UpdateCrmLeadCommandHandler(CrmDbContext db, IHrDirectory 
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await LeadWrites.SaveAsync(db, ct);
     }
 }

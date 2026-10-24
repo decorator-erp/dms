@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SharedKernel;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Crm.Application.Tests;
 
@@ -14,7 +15,7 @@ namespace Crm.Application.Tests;
 /// so the validation decorator, the handlers and Postgres all take part. Needs Docker.
 /// </summary>
 [Collection(CrmApplicationCollection.Name)]
-public sealed partial class LeadIntakeReviewTests(CrmApplicationFixture fixture)
+public sealed partial class LeadIntakeReviewTests(CrmApplicationFixture fixture, ITestOutputHelper output)
 {
     // --- helpers ---
 

@@ -63,7 +63,11 @@ internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHa
         db.Outbox().Enqueue(new LeadConvertedIntegrationEvent(
             Guid.NewGuid(), lead.Id, client.Id, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
+        Result saved = await LeadWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
 
         return client.Id;
     }

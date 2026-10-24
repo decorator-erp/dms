@@ -61,6 +61,9 @@ internal static class CrmLeadErrors
         "crm.leads.ExperienceReasonWithoutExperience",
         "An experience reason requires designer experience to be set.");
 
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.leads.ConcurrentUpdate", "The lead was changed by someone else at the same time. Reload and try again.");
+
     public static readonly Error OwnerNotFound = Error.BadRequest(
         "crm.leads.OwnerNotFound", "The owner must be an active employee.");
 

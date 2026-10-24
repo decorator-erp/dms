@@ -12,6 +12,11 @@ internal sealed class CrmLeadConfiguration : IEntityTypeConfiguration<CrmLead>
         builder.ToTable("crm_leads");
         builder.ConfigureEntityConventions();
 
+        // Postgres' system xmin as the optimistic-concurrency token - the same mapping as
+        // CrmDesignBriefConfiguration. Two converts of one lead race on it (LeadWrites maps the loser to a
+        // 409) instead of both succeeding and publishing LeadConverted twice.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(l => l.FirstName).HasMaxLength(128).IsRequired();
         builder.Property(l => l.LastName).HasMaxLength(128).IsRequired();
         builder.Property(l => l.Email).HasMaxLength(256);

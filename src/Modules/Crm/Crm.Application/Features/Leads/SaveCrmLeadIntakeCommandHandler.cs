@@ -141,9 +141,7 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
             intake.AttachResidential(residential);
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await LeadWrites.SaveAsync(db, ct);
     }
 
     private static ResidentialIntakeData? ToDomain(CrmLeadIntakeResidentialData? r) => r is null
