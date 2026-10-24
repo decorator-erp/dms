@@ -19,7 +19,12 @@ internal sealed class GetCrmLeadIntakeQueryHandler(CrmDbContext db)
 
         if (intake is null)
         {
-            return Result.Failure<CrmLeadIntakeResponse>(CrmLeadErrors.NotFound);
+            // "No lead" is a 404; "a lead with no intake yet" is an empty intake, since the intake is
+            // created lazily on first save.
+            bool leadExists = await db.CrmLeads.AnyAsync(l => l.Id == query.LeadId, ct);
+            return leadExists
+                ? new CrmLeadIntakeResponse(query.LeadId, new Contracts.Leads.CrmLeadIntakeData())
+                : Result.Failure<CrmLeadIntakeResponse>(CrmLeadErrors.NotFound);
         }
 
         CrmLeadIntakeResidential? residentialRow = await db.CrmLeadIntakeResidentials.AsNoTracking()
