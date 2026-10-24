@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 
 namespace Crm.Contracts.Leads;
 
@@ -50,6 +51,11 @@ public sealed record SaveCrmLeadIntakeCommand(Guid LeadId, CrmLeadIntakeData Dat
 
 public sealed record GetCrmLeadByIdQuery(Guid LeadId) : IQuery<CrmLeadResponse>;
 
-public sealed record GetCrmLeadsQuery : IQuery<IReadOnlyList<CrmLeadResponse>>;
+/// <summary>Paged, newest first (then by id, so pages are stable). Every filter is optional and they
+/// combine: <see cref="Status"/>, <see cref="OwnerId"/>, and <see cref="Search"/> — a case-insensitive
+/// contains-match on first name, last name, email and phone, with <c>%</c>/<c>_</c> taken literally.</summary>
+public sealed record GetCrmLeadsQuery(
+    int PageNumber = 1, int PageSize = 50, LeadStatus? Status = null, Guid? OwnerId = null, string? Search = null)
+    : IQuery<PagedResult<CrmLeadResponse>>;
 
 public sealed record GetCrmLeadIntakeQuery(Guid LeadId) : IQuery<CrmLeadIntakeResponse>;
