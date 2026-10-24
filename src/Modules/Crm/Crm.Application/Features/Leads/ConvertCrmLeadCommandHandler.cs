@@ -41,7 +41,8 @@ internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHa
         }
 
         Client? client = await db.Clients.FirstOrDefaultAsync(c => c.Id == command.ExistingClientId, ct);
-        if (client is null)
+        // A soft-deleted client is as absent as a missing one: never convert into it.
+        if (client is null || !client.IsActive)
         {
             return Result.Failure<Guid>(ClientErrors.NotFound);
         }
