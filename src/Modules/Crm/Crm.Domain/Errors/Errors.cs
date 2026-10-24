@@ -60,6 +60,16 @@ internal static class CrmLeadErrors
     public static readonly Error ExperienceReasonWithoutExperience = Error.BadRequest(
         "crm.leads.ExperienceReasonWithoutExperience",
         "An experience reason requires designer experience to be set.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.leads.ConcurrentUpdate", "The lead was changed by someone else at the same time. Reload and try again.");
+
+    public static readonly Error OwnerNotFound = Error.BadRequest(
+        "crm.leads.OwnerNotFound", "The owner must be an active employee.");
+
+    public static readonly Error ResidentialWithoutSector = Error.BadRequest(
+        "crm.leads.ResidentialWithoutSector",
+        "Residential intake details can only be sent when the sector is Residential.");
 }
 
 internal static class CrmBriefErrors
@@ -68,6 +78,10 @@ internal static class CrmBriefErrors
 
     public static readonly Error NotDraft = Error.Conflict(
         "crm.briefs.NotDraft", "Intake can only be seeded onto a Draft head.");
+
+    public static readonly Error UnitDetailsRequired = Error.BadRequest(
+        "crm.briefs.UnitDetailsRequired",
+        "Unit type and unit condition are required unless the client's converted lead intake supplies them.");
 
     public static readonly Error NotPending = Error.Conflict(
         "crm.briefs.NotPending", "Only a PendingApproval entry can be approved or rejected.");

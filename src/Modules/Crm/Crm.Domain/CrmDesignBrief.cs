@@ -195,8 +195,8 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         return Result.Success();
     }
 
-    /// <summary>Hop 2 of lead conversion — copy-once from the converted lead's intake into a freshly
-    /// seeded Draft head. Guard: only while <see cref="Status"/> is Draft; never re-applied.</summary>
+    /// <summary>Hop 2 of lead conversion — copy-once from the converted lead's intake into the project's
+    /// first brief, a freshly created Draft head (<c>CreateCrmDesignBriefCommandHandler</c>). Guard: only while <see cref="Status"/> is Draft; never re-applied.</summary>
     internal Result SeedFromIntake(
         ProjectSector? sector, string? unitAddress, decimal? areaSqm, bool? usedDesignerBefore,
         PastExperience? designerExperience, string? designerExperienceReason,

@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -73,9 +74,11 @@ internal sealed class CrmLeadEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Leads.Read);
 
         leads.MapGet("/", async (
-            IQueryHandler<GetCrmLeadsQuery, IReadOnlyList<CrmLeadResponse>> handler, CancellationToken ct) =>
+            int? pageNumber, int? pageSize, LeadStatus? status, Guid? ownerId, string? search,
+            IQueryHandler<GetCrmLeadsQuery, PagedResult<CrmLeadResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmLeadResponse>> result = await handler.HandleAsync(new GetCrmLeadsQuery(), ct);
+            Result<PagedResult<CrmLeadResponse>> result = await handler.HandleAsync(
+                new GetCrmLeadsQuery(pageNumber ?? 1, pageSize ?? 50, status, ownerId, search), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Read);
     }

@@ -13,21 +13,63 @@ namespace Crm.Application.Features.Leads;
 
 internal sealed class SaveCrmLeadIntakeCommandValidator : AbstractValidator<SaveCrmLeadIntakeCommand>
 {
-    public SaveCrmLeadIntakeCommandValidator() => RuleFor(x => x.LeadId).NotEmpty();
+    public SaveCrmLeadIntakeCommandValidator()
+    {
+        RuleFor(x => x.LeadId).NotEmpty();
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmLeadIntakeDataValidator());
+    }
 }
 
-/// <summary>Creates the intake lazily on first save, otherwise edits in place. Owns the sector-switch
-/// orchestration <c>CrmLeadIntake.Update</c> (G9-03) deliberately left out: detaches the stale
-/// <see cref="CrmLeadIntakeResidential"/> child before applying a new sector, since Domain has no
-/// persistence authority to delete a row it doesn't directly own the collection of.</summary>
+/// <summary>The intake's field rules, kept in step with <c>CrmLeadIntakeConfiguration</c>'s column lengths
+/// (same pattern as <c>CrmBriefHeadDataValidator</c>): over-long values, undefined enums and a non-positive
+/// area are 400s here rather than a 500 or a stored nonsense value.</summary>
+internal sealed class CrmLeadIntakeDataValidator : AbstractValidator<Contracts.Leads.CrmLeadIntakeData>
+{
+    public CrmLeadIntakeDataValidator()
+    {
+        RuleFor(x => x.JobTitle).MaximumLength(128);
+        RuleFor(x => x.ClientAddress).MaximumLength(512);
+        RuleFor(x => x.UnitAddress).MaximumLength(512);
+        RuleFor(x => x.DesignerExperienceReason).MaximumLength(1000);
+        RuleFor(x => x.AreaSqm).GreaterThan(0m).When(x => x.AreaSqm.HasValue);
+        RuleFor(x => x.Sector).IsInEnum();
+        RuleFor(x => x.DesignerExperience).IsInEnum();
+        RuleFor(x => x.Residential!).SetValidator(new CrmLeadIntakeResidentialDataValidator()).When(x => x.Residential is not null);
+    }
+}
+
+internal sealed class CrmLeadIntakeResidentialDataValidator : AbstractValidator<CrmLeadIntakeResidentialData>
+{
+    public CrmLeadIntakeResidentialDataValidator()
+    {
+        RuleFor(x => x.UnitType).IsInEnum();
+        RuleFor(x => x.UnitCondition).IsInEnum();
+        RuleFor(x => x.FinishingPurpose).IsInEnum();
+    }
+}
+
+/// <summary>Creates the intake lazily on first save, otherwise edits in place, and keeps the
+/// <see cref="CrmLeadIntakeResidential"/> child in step with the sector: written from
+/// <see cref="Contracts.Leads.CrmLeadIntakeData.Residential"/> while the sector is Residential (left as it is
+/// when the block is omitted), deleted when the sector moves away, and refused outright when sent with any
+/// other sector. The delete lives here rather than in <c>CrmLeadIntake.Update</c> because Domain has no
+/// persistence authority over a row it doesn't directly own the collection of. A converted lead's intake is
+/// frozen.</summary>
 internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : ICommandHandler<SaveCrmLeadIntakeCommand>
 {
     public async Task<Result> HandleAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct = default)
     {
-        bool leadExists = await db.CrmLeads.AnyAsync(l => l.Id == command.LeadId, ct);
-        if (!leadExists)
+        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        if (lead is null)
         {
             return CrmLeadErrors.NotFound;
+        }
+
+        // The intake is the pre-client snapshot; once the lead is converted it is frozen, same rule and
+        // same 409 as CrmLead.Update.
+        if (lead.Status == LeadStatus.Converted)
+        {
+            return CrmLeadErrors.AlreadyConverted;
         }
 
         var data = new DomainIntakeData(
@@ -37,6 +79,12 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
             command.Data.DesignerExperience is { } experience ? CrmEnumMapping.ToDomain(experience) : null,
             command.Data.DesignerExperienceReason);
 
+        ResidentialIntakeData? residentialData = ToDomain(command.Data.Residential);
+        if (residentialData is not null && data.Sector != ProjectSector.Residential)
+        {
+            return CrmLeadErrors.ResidentialWithoutSector;
+        }
+
         // No .Include(i => i.Residential) - CrmLeadIntakeConfiguration.Ignore(i => i.Residential)
         // means EF has no navigation to traverse there (it's configured from the child's own side,
         // parent-configures-nothing, per that configuration's own remarks); Include on an ignored
@@ -44,41 +92,63 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         CrmLeadIntake? intake = await db.CrmLeadIntakes
             .FirstOrDefaultAsync(i => i.LeadId == command.LeadId, ct);
 
-        Result result;
+        CrmLeadIntakeResidential? residential = null;
         if (intake is null)
         {
-            intake = CrmLeadIntake.Create(command.LeadId, data);
+            Result<CrmLeadIntake> created = CrmLeadIntake.Create(command.LeadId, data);
+            if (created.IsFailure)
+            {
+                return created.Error;
+            }
+
+            intake = created.Value!;
             db.CrmLeadIntakes.Add(intake);
-            result = Result.Success();
         }
         else
         {
-            result = intake.Update(data);
+            Result updated = intake.Update(data);
+            if (updated.IsFailure)
+            {
+                return updated;
+            }
+
+            // Queried directly by LeadIntakeId, same reason Include can't be used above.
+            residential = await db.CrmLeadIntakeResidentials
+                .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
         }
 
-        if (result.IsFailure)
-        {
-            return result;
-        }
-
-        // Sector switch: detach a stale residential child that no longer matches. Re-attaching a fresh
-        // one for the new sector is the caller's own follow-up request against the residential-specific
-        // command set (out of this vertical slice's scope) - this handler only keeps the invariant
-        // "Residential exists only while Sector == Residential" from going stale. Queried directly by
-        // LeadIntakeId, same reason Include can't be used above.
         if (data.Sector != ProjectSector.Residential)
         {
-            CrmLeadIntakeResidential? residential = await db.CrmLeadIntakeResidentials
-                .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
+            // Sector switch: the invariant is "Residential exists only while Sector == Residential".
             if (residential is not null)
             {
                 db.CrmLeadIntakeResidentials.Remove(residential);
                 intake.DetachResidential();
             }
         }
+        else if (residentialData is not null)
+        {
+            if (residential is null)
+            {
+                residential = CrmLeadIntakeResidential.Create(intake.Id, residentialData);
+                db.CrmLeadIntakeResidentials.Add(residential);
+            }
+            else
+            {
+                residential.Update(residentialData);
+            }
 
-        await db.SaveChangesAsync(ct);
+            intake.AttachResidential(residential);
+        }
 
-        return Result.Success();
+        return await LeadWrites.SaveAsync(db, ct);
     }
+
+    private static ResidentialIntakeData? ToDomain(CrmLeadIntakeResidentialData? r) => r is null
+        ? null
+        : new ResidentialIntakeData(
+            r.UnitType is { } unitType ? CrmEnumMapping.ToDomain(unitType) : null,
+            r.UnitCondition is { } unitCondition ? CrmEnumMapping.ToDomain(unitCondition) : null,
+            r.IsLicensed, r.IsRented,
+            r.FinishingPurpose is { } purpose ? CrmEnumMapping.ToDomain(purpose) : null);
 }

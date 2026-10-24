@@ -13,7 +13,7 @@ internal sealed record ResidentialIntakeData(
 /// <summary>
 /// Ported from <c>../backend/Domain/Entities/CrmLeadIntakeResidential.cs</c> — 1:1 child of the
 /// intake, may exist only while <see cref="CrmLeadIntake.Sector"/> is <see cref="ProjectSector.Residential"/>.
-/// Column names deliberately match the design-brief head so the period-open seeding is a straight
+/// Column names deliberately match the design-brief head so seeding the project's first brief is a straight
 /// column-to-column copy (see <c>CrmDesignBrief.SeedFromIntake</c>, G9-04).
 /// </summary>
 internal sealed class CrmLeadIntakeResidential : Entity

@@ -15,7 +15,11 @@ internal sealed class CrmBriefHeadDataValidator : AbstractValidator<CrmBriefHead
     private const HiringReason AllHiringReasons =
         HiringReason.ReliefFromCraftsmen | HiringReason.SaveMoneyAndTime | HiringReason.OrganizeAndComfort;
 
-    public CrmBriefHeadDataValidator()
+    /// <param name="unitDetailsMayBeOmitted">Create only: an omitted <c>UnitType</c>/<c>UnitCondition</c>
+    /// (the JSON field absent, so the enum's default) is a blank the project's first brief fills from the
+    /// converted lead's intake; <see cref="CreateCrmDesignBriefCommandHandler"/> still refuses it if
+    /// nothing fills it.</param>
+    public CrmBriefHeadDataValidator(bool unitDetailsMayBeOmitted = false)
     {
         RuleFor(x => x.Address).MaximumLength(512);
         RuleFor(x => x.VisitorsNote).MaximumLength(1000);
@@ -30,8 +34,8 @@ internal sealed class CrmBriefHeadDataValidator : AbstractValidator<CrmBriefHead
         RuleFor(x => x.UnitsPerFloor).GreaterThanOrEqualTo(1).When(x => x.UnitsPerFloor.HasValue);
         RuleFor(x => x.ExpectedBudget).GreaterThanOrEqualTo(0m).When(x => x.ExpectedBudget.HasValue);
 
-        RuleFor(x => x.UnitType).IsInEnum();
-        RuleFor(x => x.UnitCondition).IsInEnum();
+        RuleFor(x => x.UnitType).IsInEnum().When(x => !unitDetailsMayBeOmitted || x.UnitType != default);
+        RuleFor(x => x.UnitCondition).IsInEnum().When(x => !unitDetailsMayBeOmitted || x.UnitCondition != default);
         RuleFor(x => x.BuildingKind).IsInEnum();
         RuleFor(x => x.Position).IsInEnum();
         RuleFor(x => x.ElevatorStatus).IsInEnum();

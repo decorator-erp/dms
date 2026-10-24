@@ -26,7 +26,8 @@ internal sealed class ConvertCrmLeadCommandValidator : AbstractValidator<Convert
 /// against a real row here — the expensive half of the check <c>CrmLead.Convert</c> (G9-03) left to
 /// this handler, since Domain has no database access. Hop 1 of the two-hop fill-blanks flow:
 /// <see cref="Client.FillBlanksFromIntake"/> here; the brief-seeding hop (G9-04's
-/// <c>CrmDesignBrief.SeedFromIntake</c>) happens at period-open, not here — this handler only converts
+/// <c>CrmDesignBrief.SeedFromIntake</c>) happens when the first brief is created on the project
+/// (<c>CreateCrmDesignBriefCommandHandler</c>), not here — this handler only converts
 /// the lead and touches the client, it never creates a brief.
 /// </summary>
 internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHandler<ConvertCrmLeadCommand, Guid>
@@ -40,7 +41,8 @@ internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHa
         }
 
         Client? client = await db.Clients.FirstOrDefaultAsync(c => c.Id == command.ExistingClientId, ct);
-        if (client is null)
+        // A soft-deleted client is as absent as a missing one: never convert into it.
+        if (client is null || !client.IsActive)
         {
             return Result.Failure<Guid>(ClientErrors.NotFound);
         }
@@ -61,7 +63,11 @@ internal sealed class ConvertCrmLeadCommandHandler(CrmDbContext db) : ICommandHa
         db.Outbox().Enqueue(new LeadConvertedIntegrationEvent(
             Guid.NewGuid(), lead.Id, client.Id, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
+        Result saved = await LeadWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
 
         return client.Id;
     }

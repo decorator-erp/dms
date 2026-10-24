@@ -9,7 +9,13 @@ namespace Crm.Application.Features.Leads;
 
 internal sealed class ChangeCrmLeadStatusCommandValidator : AbstractValidator<ChangeCrmLeadStatusCommand>
 {
-    public ChangeCrmLeadStatusCommandValidator() => RuleFor(x => x.LeadId).NotEmpty();
+    public ChangeCrmLeadStatusCommandValidator()
+    {
+        RuleFor(x => x.LeadId).NotEmpty();
+
+        // Conversion happens only through the convert operation, which links the client back.
+        RuleFor(x => x.Status).IsInEnum().NotEqual(Contracts.LeadStatus.Converted);
+    }
 }
 
 internal sealed class ChangeCrmLeadStatusCommandHandler(CrmDbContext db) : ICommandHandler<ChangeCrmLeadStatusCommand>
@@ -28,8 +34,6 @@ internal sealed class ChangeCrmLeadStatusCommandHandler(CrmDbContext db) : IComm
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await LeadWrites.SaveAsync(db, ct);
     }
 }

@@ -17,8 +17,8 @@ internal sealed record CrmLeadIntakeData(
 /// <summary>
 /// Ported from <c>../backend/Domain/Entities/CrmLeadIntake.cs</c>. Lead qualification intake — 1:1
 /// with the lead, created lazily on first save. The client part feeds <see cref="Client.FillBlanksFromIntake"/>
-/// at convert; the sector part seeds the design-brief draft head when the first requirement period
-/// opens (G9-04's <c>CrmDesignBrief.SeedFromIntake</c>) — a copy-once, since the brief head becomes
+/// at convert; the sector part seeds the design-brief draft head when the first brief is created on
+/// the project (G9-04's <c>CrmDesignBrief.SeedFromIntake</c>) — a copy-once, since the brief head becomes
 /// the live truth afterwards and this row stays the immutable pre-client audit snapshot.
 /// </summary>
 internal sealed class CrmLeadIntake : Entity, IAuditable
@@ -39,8 +39,15 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
 
     private CrmLeadIntake() { }
 
-    public static CrmLeadIntake Create(Guid leadId, CrmLeadIntakeData data)
+    /// <summary>Same field rules as <see cref="Update"/> — the first save is not a way around them.</summary>
+    public static Result<CrmLeadIntake> Create(Guid leadId, CrmLeadIntakeData data)
     {
+        Result valid = Validate(data);
+        if (valid.IsFailure)
+        {
+            return valid.Error;
+        }
+
         var intake = new CrmLeadIntake { LeadId = leadId };
         intake.Apply(data);
         return intake;
@@ -50,6 +57,22 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
     /// new sector) is orchestrated by the Application handler (G9-09), not here — Domain has no
     /// authority to delete a related row it doesn't own the persistence of.</summary>
     public Result Update(CrmLeadIntakeData data)
+    {
+        Result valid = Validate(data);
+        if (valid.IsFailure)
+        {
+            return valid;
+        }
+
+        Apply(data);
+        return Result.Success();
+    }
+
+    internal void AttachResidential(CrmLeadIntakeResidential child) => Residential = child;
+
+    internal void DetachResidential() => Residential = null;
+
+    private static Result Validate(CrmLeadIntakeData data)
     {
         if (data.DesignerExperience is not null && data.UsedDesignerBefore != true)
         {
@@ -61,13 +84,8 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
             return CrmLeadErrors.ExperienceReasonWithoutExperience;
         }
 
-        Apply(data);
         return Result.Success();
     }
-
-    internal void AttachResidential(CrmLeadIntakeResidential child) => Residential = child;
-
-    internal void DetachResidential() => Residential = null;
 
     private void Apply(CrmLeadIntakeData d)
     {

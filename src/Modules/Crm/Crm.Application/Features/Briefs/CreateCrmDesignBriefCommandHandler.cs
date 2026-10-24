@@ -17,7 +17,7 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
         RuleFor(x => x.CreatedById).NotEmpty();
         RuleFor(x => x.ProjectStageId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
-        RuleFor(x => x.Data).NotNull().SetValidator(new CrmBriefHeadDataValidator());
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmBriefHeadDataValidator(unitDetailsMayBeOmitted: true));
     }
 }
 
@@ -26,7 +26,13 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
 /// <see cref="ProjectId"/> is validated against a real project via
 /// <see cref="IProjectDirectory"/> — the application-code check that stands where a constraint would
 /// otherwise be. <see cref="CreateCrmDesignBriefCommand.ProjectStageId"/> is checked the same way, and
-/// must belong to that project (<see cref="BriefReferenceValidator"/>).</summary>
+/// must belong to that project (<see cref="BriefReferenceValidator"/>).
+///
+/// <para>Hop 2 of lead conversion (D1, copy-once): the project's <b>first</b> brief is seeded from the
+/// intake of the lead converted into the project's client — the newest conversion if there are several.
+/// Fill-blanks only: every value the request carries wins, including <c>UnitType</c>/<c>UnitCondition</c>,
+/// which are taken from the intake only when the request omits them. Later briefs on the project are never
+/// seeded; the intake stays the immutable pre-client snapshot and the brief head is the live truth.</para></summary>
 internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<CreateCrmDesignBriefCommand, Guid>
 {
@@ -52,8 +58,46 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
             return Result.Failure<Guid>(CrmBriefErrors.AlreadyExists);
         }
 
-        var brief = CrmDesignBrief.Create(
-            command.ProjectId, command.CreatedById, command.ProjectStageId, BriefMapping.ToDomain(command.Data));
+        bool firstOnProject = !await db.CrmDesignBriefs.AnyAsync(b => b.ProjectId == command.ProjectId, ct);
+        IntakeSeed? seed = firstOnProject ? await FindIntakeSeedAsync(project.ClientId, ct) : null;
+
+        Domain.CrmBriefHeadData head = BriefMapping.ToDomain(command.Data);
+        if (command.Data.UnitType == default)
+        {
+            if (seed?.Residential?.UnitType is not { } unitType)
+            {
+                return Result.Failure<Guid>(CrmBriefErrors.UnitDetailsRequired);
+            }
+
+            head = head with { UnitType = unitType };
+        }
+
+        if (command.Data.UnitCondition == default)
+        {
+            if (seed?.Residential?.UnitCondition is not { } unitCondition)
+            {
+                return Result.Failure<Guid>(CrmBriefErrors.UnitDetailsRequired);
+            }
+
+            head = head with { UnitCondition = unitCondition };
+        }
+
+        var brief = CrmDesignBrief.Create(command.ProjectId, command.CreatedById, command.ProjectStageId, head);
+
+        if (seed is { Intake: var intake, Residential: var residential })
+        {
+            // Unit type/condition were resolved above (request first), so they are not passed again here:
+            // SeedFromIntake overwrites those two rather than filling a blank.
+            Result seeded = brief.SeedFromIntake(
+                intake.Sector, intake.UnitAddress, intake.AreaSqm, intake.UsedDesignerBefore,
+                intake.DesignerExperience, intake.DesignerExperienceReason,
+                residentialUnitType: null, residentialUnitCondition: null,
+                residential?.IsLicensed, residential?.IsRented, residential?.FinishingPurpose);
+            if (seeded.IsFailure)
+            {
+                return Result.Failure<Guid>(seeded.Error);
+            }
+        }
 
         db.CrmDesignBriefs.Add(brief);
         Result saved = await BriefWrites.SaveAsync(db, ct);
@@ -63,5 +107,26 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
         }
 
         return brief.Id;
+    }
+
+    private sealed record IntakeSeed(CrmLeadIntake Intake, CrmLeadIntakeResidential? Residential);
+
+    private async Task<IntakeSeed?> FindIntakeSeedAsync(Guid clientId, CancellationToken ct)
+    {
+        CrmLeadIntake? intake = await (
+                from lead in db.CrmLeads.AsNoTracking()
+                where lead.Status == LeadStatus.Converted && lead.ConvertedClientId == clientId
+                join i in db.CrmLeadIntakes.AsNoTracking() on lead.Id equals i.LeadId
+                orderby lead.ConvertedAtUtc descending, lead.Id descending
+                select i)
+            .FirstOrDefaultAsync(ct);
+        if (intake is null)
+        {
+            return null;
+        }
+
+        CrmLeadIntakeResidential? residential = await db.CrmLeadIntakeResidentials.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.LeadIntakeId == intake.Id, ct);
+        return new IntakeSeed(intake, residential);
     }
 }
