@@ -60,6 +60,10 @@ internal static class CrmLeadErrors
     public static readonly Error ExperienceReasonWithoutExperience = Error.BadRequest(
         "crm.leads.ExperienceReasonWithoutExperience",
         "An experience reason requires designer experience to be set.");
+
+    public static readonly Error ResidentialWithoutSector = Error.BadRequest(
+        "crm.leads.ResidentialWithoutSector",
+        "Residential intake details can only be sent when the sector is Residential.");
 }
 
 internal static class CrmBriefErrors
