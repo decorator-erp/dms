@@ -50,11 +50,11 @@ internal sealed class CrmLeadIntakeResidentialDataValidator : AbstractValidator<
 
 /// <summary>Creates the intake lazily on first save, otherwise edits in place, and keeps the
 /// <see cref="CrmLeadIntakeResidential"/> child in step with the sector: written from
-/// <see cref="CrmLeadIntakeData.Residential"/> while the sector is Residential (left as it is when the block is
-/// omitted), deleted when the sector moves away, and refused outright when sent with any other sector. A
-/// converted lead's intake is frozen. The
-/// delete lives here rather than in <c>CrmLeadIntake.Update</c> because Domain has no persistence authority
-/// over a row it doesn't directly own the collection of.</summary>
+/// <see cref="Contracts.Leads.CrmLeadIntakeData.Residential"/> while the sector is Residential (left as it is
+/// when the block is omitted), deleted when the sector moves away, and refused outright when sent with any
+/// other sector. The delete lives here rather than in <c>CrmLeadIntake.Update</c> because Domain has no
+/// persistence authority over a row it doesn't directly own the collection of. A converted lead's intake is
+/// frozen.</summary>
 internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : ICommandHandler<SaveCrmLeadIntakeCommand>
 {
     public async Task<Result> HandleAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct = default)
