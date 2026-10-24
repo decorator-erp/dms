@@ -46,6 +46,11 @@ public class Rule11ValidatorReachabilityTests
         // CrmBriefHeadData is the head payload nested inside CreateCrmDesignBriefCommand and
         // UpdateCrmBriefHeadCommand; both command validators run it via SetValidator(new ...()).
         "Crm.Application.Features.Briefs.CrmBriefHeadDataValidator",
+
+        // CrmLeadIntakeData is the intake payload nested inside SaveCrmLeadIntakeCommand, run via
+        // SetValidator(new ...()); its Residential block is nested again, run the same way from it.
+        "Crm.Application.Features.Leads.CrmLeadIntakeDataValidator",
+        "Crm.Application.Features.Leads.CrmLeadIntakeResidentialDataValidator",
     ];
 
     private static readonly Type[] DecoratedHandlerShapes =
