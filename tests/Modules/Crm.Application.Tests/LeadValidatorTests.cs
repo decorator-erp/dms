@@ -92,6 +92,36 @@ public sealed class LeadValidatorTests
                 Sector: ProjectSector.Residential, Residential: new CrmLeadIntakeResidentialData(UnitType.Villa)))).IsValid);
     }
 
+    // F1: a blank email is "none", not an invalid address.
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Blank_emails_are_accepted_on_create_and_update(string blank)
+    {
+        Assert.True(new CreateCrmLeadCommandValidator().Validate(Create(email: blank)).IsValid);
+        Assert.True(new UpdateCrmLeadCommandValidator().Validate(Update(email: blank)).IsValid);
+    }
+
+    [Theory]
+    [InlineData("x@")]
+    [InlineData("no-at-sign")]
+    public void Malformed_emails_are_still_rejected(string email)
+    {
+        AssertInvalid(new CreateCrmLeadCommandValidator(), Create(email: email), "Email");
+        AssertInvalid(new UpdateCrmLeadCommandValidator(), Update(email: email), "Email");
+    }
+
+    [Fact]
+    public void A_257_character_email_is_still_rejected()
+    {
+        string email = new string('a', 251) + "@x.com";
+        Assert.Equal(257, email.Length);
+
+        AssertInvalid(new CreateCrmLeadCommandValidator(), Create(email: email), "Email");
+        AssertInvalid(new UpdateCrmLeadCommandValidator(), Update(email: email), "Email");
+    }
+
     private static CrmLeadIntakeData Residential(CrmLeadIntakeResidentialData residential) =>
         new(Sector: ProjectSector.Residential, Residential: residential);
 

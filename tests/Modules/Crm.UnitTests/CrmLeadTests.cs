@@ -107,4 +107,43 @@ public class CrmLeadTests
         Assert.True(result.IsFailure);
         Assert.Equal(CrmLeadErrors.AlreadyConverted, result.Error);
     }
+
+    // F1: a blank email or phone means "none".
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_WithBlankEmailOrPhone_StoresNull(string blank)
+    {
+        CrmLead lead = CrmLead.Create("Jane", "Doe", (LeadSource)1, Guid.NewGuid(), email: blank, phone: blank).Value!;
+
+        Assert.Null(lead.Email);
+        Assert.Null(lead.Phone);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Update_WithBlankEmailOrPhone_StoresNull(string blank)
+    {
+        CrmLead lead = CrmLead.Create("Jane", "Doe", (LeadSource)1, Guid.NewGuid(), "a@b.co", "123").Value!;
+
+        Result result = lead.Update("Jane", "Doe", (LeadSource)1, lead.OwnerId, blank, blank, null);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(lead.Email);
+        Assert.Null(lead.Phone);
+    }
+
+    [Fact]
+    public void Create_And_Update_TrimEmailAndPhone()
+    {
+        CrmLead lead = CrmLead.Create("Jane", "Doe", (LeadSource)1, Guid.NewGuid(), "  a@b.co  ", " 123 ").Value!;
+        Assert.Equal("a@b.co", lead.Email);
+        Assert.Equal("123", lead.Phone);
+
+        Assert.True(lead.Update("Jane", "Doe", (LeadSource)1, lead.OwnerId, "  c@d.co ", "  456  ", null).IsSuccess);
+        Assert.Equal("c@d.co", lead.Email);
+        Assert.Equal("456", lead.Phone);
+    }
 }

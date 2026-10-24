@@ -14,7 +14,7 @@ internal sealed class CreateCrmLeadCommandValidator : AbstractValidator<CreateCr
     {
         RuleFor(x => x.FirstName).LeadName();
         RuleFor(x => x.LastName).LeadName();
-        RuleFor(x => x.Email).LeadEmail().When(x => x.Email is not null);
+        RuleFor(x => x.Email).LeadEmail().When(x => !string.IsNullOrWhiteSpace(x.Email));
         RuleFor(x => x.Phone).MaximumLength(CrmLeadValidationRules.PhoneMaxLength);
         RuleFor(x => x.Notes).MaximumLength(CrmLeadValidationRules.NotesMaxLength);
         RuleFor(x => x.Source).IsInEnum();

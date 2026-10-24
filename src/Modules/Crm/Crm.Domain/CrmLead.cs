@@ -52,8 +52,8 @@ internal sealed class CrmLead : Entity, IAuditable
             Source = source,
             Status = LeadStatus.New,
             OwnerId = ownerId,
-            Email = email,
-            Phone = phone,
+            Email = BlankToNull(email),
+            Phone = BlankToNull(phone),
             Notes = notes,
         };
     }
@@ -76,8 +76,8 @@ internal sealed class CrmLead : Entity, IAuditable
         LastName = lastName;
         Source = source;
         OwnerId = ownerId;
-        Email = email;
-        Phone = phone;
+        Email = BlankToNull(email);
+        Phone = BlankToNull(phone);
         Notes = notes;
         return Result.Success();
     }
@@ -116,4 +116,8 @@ internal sealed class CrmLead : Entity, IAuditable
         ConvertedAtUtc = nowUtc ?? DateTime.UtcNow;
         return Result.Success();
     }
+
+    /// <summary>A form's empty or whitespace-only email/phone means "none": stored as null, never as "".
+    /// Anything else is stored trimmed.</summary>
+    private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
