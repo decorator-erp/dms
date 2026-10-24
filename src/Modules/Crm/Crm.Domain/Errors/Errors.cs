@@ -61,6 +61,9 @@ internal static class CrmLeadErrors
         "crm.leads.ExperienceReasonWithoutExperience",
         "An experience reason requires designer experience to be set.");
 
+    public static readonly Error OwnerNotFound = Error.BadRequest(
+        "crm.leads.OwnerNotFound", "The owner must be an active employee.");
+
     public static readonly Error ResidentialWithoutSector = Error.BadRequest(
         "crm.leads.ResidentialWithoutSector",
         "Residential intake details can only be sent when the sector is Residential.");

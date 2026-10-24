@@ -13,7 +13,39 @@ namespace Crm.Application.Features.Leads;
 
 internal sealed class SaveCrmLeadIntakeCommandValidator : AbstractValidator<SaveCrmLeadIntakeCommand>
 {
-    public SaveCrmLeadIntakeCommandValidator() => RuleFor(x => x.LeadId).NotEmpty();
+    public SaveCrmLeadIntakeCommandValidator()
+    {
+        RuleFor(x => x.LeadId).NotEmpty();
+        RuleFor(x => x.Data).NotNull().SetValidator(new CrmLeadIntakeDataValidator());
+    }
+}
+
+/// <summary>The intake's field rules, kept in step with <c>CrmLeadIntakeConfiguration</c>'s column lengths
+/// (same pattern as <c>CrmBriefHeadDataValidator</c>): over-long values, undefined enums and a non-positive
+/// area are 400s here rather than a 500 or a stored nonsense value.</summary>
+internal sealed class CrmLeadIntakeDataValidator : AbstractValidator<Contracts.Leads.CrmLeadIntakeData>
+{
+    public CrmLeadIntakeDataValidator()
+    {
+        RuleFor(x => x.JobTitle).MaximumLength(128);
+        RuleFor(x => x.ClientAddress).MaximumLength(512);
+        RuleFor(x => x.UnitAddress).MaximumLength(512);
+        RuleFor(x => x.DesignerExperienceReason).MaximumLength(1000);
+        RuleFor(x => x.AreaSqm).GreaterThan(0m).When(x => x.AreaSqm.HasValue);
+        RuleFor(x => x.Sector).IsInEnum();
+        RuleFor(x => x.DesignerExperience).IsInEnum();
+        RuleFor(x => x.Residential!).SetValidator(new CrmLeadIntakeResidentialDataValidator()).When(x => x.Residential is not null);
+    }
+}
+
+internal sealed class CrmLeadIntakeResidentialDataValidator : AbstractValidator<CrmLeadIntakeResidentialData>
+{
+    public CrmLeadIntakeResidentialDataValidator()
+    {
+        RuleFor(x => x.UnitType).IsInEnum();
+        RuleFor(x => x.UnitCondition).IsInEnum();
+        RuleFor(x => x.FinishingPurpose).IsInEnum();
+    }
 }
 
 /// <summary>Creates the intake lazily on first save, otherwise edits in place, and keeps the
