@@ -47,7 +47,13 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
         Result result;
         if (intake is null)
         {
-            intake = CrmLeadIntake.Create(command.LeadId, data);
+            Result<CrmLeadIntake> created = CrmLeadIntake.Create(command.LeadId, data);
+            if (created.IsFailure)
+            {
+                return created.Error;
+            }
+
+            intake = created.Value!;
             db.CrmLeadIntakes.Add(intake);
             result = Result.Success();
         }

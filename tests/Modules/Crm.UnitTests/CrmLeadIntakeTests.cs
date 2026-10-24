@@ -12,7 +12,7 @@ public class CrmLeadIntakeTests
         var data = new CrmLeadIntakeData(JobTitle: "Engineer", Sector: (ProjectSector)1);
         var leadId = Guid.NewGuid();
 
-        var intake = CrmLeadIntake.Create(leadId, data);
+        CrmLeadIntake intake = CrmLeadIntake.Create(leadId, data).Value!;
 
         Assert.Equal(leadId, intake.LeadId);
         Assert.Equal("Engineer", intake.JobTitle);
@@ -20,9 +20,29 @@ public class CrmLeadIntakeTests
     }
 
     [Fact]
+    public void Create_WithExperienceButNoPriorUse_Fails()
+    {
+        Result<CrmLeadIntake> result = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData(
+            UsedDesignerBefore: false, DesignerExperience: (PastExperience)1));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmLeadErrors.DesignerExperienceWithoutUse, result.Error);
+    }
+
+    [Fact]
+    public void Create_WithReasonButNoExperience_Fails()
+    {
+        Result<CrmLeadIntake> result = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData(
+            UsedDesignerBefore: true, DesignerExperienceReason: "it was fine"));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(CrmLeadErrors.ExperienceReasonWithoutExperience, result.Error);
+    }
+
+    [Fact]
     public void Update_WithValidData_Applies()
     {
-        var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData()).Value!;
 
         Result result = intake.Update(new CrmLeadIntakeData(JobTitle: "Architect"));
 
@@ -33,7 +53,7 @@ public class CrmLeadIntakeTests
     [Fact]
     public void Update_WithExperienceButNoPriorUse_Fails()
     {
-        var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData()).Value!;
 
         Result result = intake.Update(new CrmLeadIntakeData(
             UsedDesignerBefore: false, DesignerExperience: (PastExperience)1));
@@ -45,7 +65,7 @@ public class CrmLeadIntakeTests
     [Fact]
     public void Update_WithReasonButNoExperience_Fails()
     {
-        var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData()).Value!;
 
         Result result = intake.Update(new CrmLeadIntakeData(
             UsedDesignerBefore: true, DesignerExperienceReason: "it was fine"));
@@ -57,7 +77,7 @@ public class CrmLeadIntakeTests
     [Fact]
     public void AttachResidential_Then_DetachResidential_RoundTrips()
     {
-        var intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData());
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData()).Value!;
         var residential = CrmLeadIntakeResidential.Create(intake.Id, new ResidentialIntakeData());
 
         intake.AttachResidential(residential);
