@@ -256,3 +256,90 @@ Blocked: **none**.
 ## 9. PR body
 
 The PR was opened with the GitHub connector; its body is the summary above (§0, §1, §8).
+
+## Follow-ups F1, F2 (PR 11)
+
+Branch `fix/crm-lead-followups` off `master` at `d942e71` (the PR #10 merge). PR:
+https://github.com/decorator-erp/dms/pull/11 (ready for review).
+
+### Status
+
+| Item | Status | Commit | Proving tests |
+|---|---|---|---|
+| F1 — blank email/phone means none | **fixed** | `5cff9ee` | `CrmLeadTests.Create_WithBlankEmailOrPhone_StoresNull` (×2), `Update_WithBlankEmailOrPhone_StoresNull` (×2), `Create_And_Update_TrimEmailAndPhone`; `LeadValidatorTests.Blank_emails_are_accepted_on_create_and_update` (×2), `Malformed_emails_are_still_rejected` (×2), `A_257_character_email_is_still_rejected`; `LeadIntakeReviewTests.Create_with_an_empty_email_saves_and_stores_null`, `Update_with_a_whitespace_email_saves_and_stores_null`, `Create_with_a_malformed_email_is_still_400` |
+| F2 — intake save can't race a convert | **fixed** | `40f1274` | `LeadIntakeReviewTests.An_intake_save_waits_for_an_uncommitted_convert_then_is_refused` (main proof), `A_convert_waits_for_a_lock_held_the_way_the_intake_save_takes_it_then_succeeds`, `A_convert_and_a_first_intake_save_in_parallel_never_leave_an_intake_written_after_conversion` (10 rounds); M2, H1 and L1 tests unchanged and green |
+
+Both findings still held on `master` at `d942e71`: the validators ran `LeadEmail()` whenever `Email is not
+null`, and the intake save read the lead with `FindAsync` without writing or locking it. Blocked: none. No
+migration, no data rewrite: existing rows that already hold `""` for email or phone stay as they are.
+
+### Red-before-green
+
+| Item | Test | Observed failure on unchanged code |
+|---|---|---|
+| F1 | `CrmLeadTests.Create_WithBlankEmailOrPhone_StoresNull("" / "   ")`, `Update_WithBlankEmailOrPhone_StoresNull("" / "   ")` | `Assert.Null() Failure: Value is not null` |
+| F1 | `CrmLeadTests.Create_And_Update_TrimEmailAndPhone` | `Assert.Equal() Failure: Strings differ` (not trimmed) |
+| F1 | `LeadValidatorTests.Blank_emails_are_accepted_on_create_and_update("" / "   ")` | `Assert.True() Failure`: `EmailAddress` rejected the blank |
+| F1 | `LeadIntakeReviewTests.Create_with_an_empty_email_saves_and_stores_null`, `Update_with_a_whitespace_email_saves_and_stores_null` | failed: 400 `Validation.General` on `Email` |
+| F1 | `Malformed_emails_are_still_rejected`, `A_257_character_email_is_still_rejected`, `Create_with_a_malformed_email_is_still_400` | passed on old code (regression guards) |
+| F2 | `An_intake_save_waits_for_an_uncommitted_convert_then_is_refused` | `Assert.NotSame() Failure`: the save completed at once and wrote the intake instead of waiting on the lead row |
+| F2 | `A_convert_waits_for_a_lock_held_the_way_the_intake_save_takes_it_then_succeeds` | passed on old code. Expected: the test takes the lock itself, so this guards the convert side. |
+| F2 | `A_convert_and_a_first_intake_save_in_parallel_never_leave_an_intake_written_after_conversion` | passed on old code: 10/10 rounds `convert ok, save ok, intake written`. Timing alone doesn't hit the race window, which is why the deterministic test is the proof. |
+
+### Tests
+
+| | Total | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline (`master` `d942e71`) | 1486 | 1486 | 0 | 0 |
+| Final (`40f1274`) | 1502 | 1502 | 0 | 0 |
+
++16 tests: `Crm.UnitTests` 222 → 227, `Crm.Application.Tests` 166 → 177. Docker ran, so nothing is "written, not
+run". `Integration.Tests` passed 196/196 in both full runs; the known parallel start-up flake didn't occur.
+Gates: `build -warnaserror` clean; `Architecture.Tests` 35/35; `dotnet format` left no real change (only CRLF
+noise, normalized away); `git diff --stat` empty.
+
+### F2 transaction path
+
+**Ambient decorator transaction; no execution strategy; no fallback needed.**
+- `AddModuleDbContext` configures plain `UseNpgsql` with no `EnableRetryOnFailure`, so
+  `CreateExecutionStrategy().ExecuteAsync` doesn't apply.
+- Every CRM command handler is already wrapped by `DomainEventDispatchDecorator`, which opens a transaction
+  before the handler and commits or rolls it back after. The `FOR UPDATE` lock is held by that transaction until
+  it ends.
+- The handler opens its own transaction only when `CurrentTransaction is null` (a caller running it
+  undecorated). The lock approach worked on the first attempt; the `xmin` fallback wasn't used.
+
+Parallel-race outcomes observed with the fix: 10/10 rounds `convert ok, save ok, intake written` (the save won
+the lock each time). The `AlreadyConverted` path is proved deterministically by the main test.
+
+### DEVIATIONs
+
+- **DEVIATION-16:** the prompt asked for an explicit `BeginTransactionAsync` in the handler. Every CRM command
+  already runs inside `DomainEventDispatchDecorator`'s transaction, and a second `BeginTransactionAsync` on the
+  same connection throws. The handler uses the ambient transaction and opens one only when none exists.
+- **DEVIATION-17:** the prompt's lock query `SELECT * … FOR UPDATE` fails with `42703: column c.xmin does not
+  exist`: `SELECT *` omits system columns, and `CrmLead` maps `xmin` (added in L1). The query is
+  `SELECT *, xmin FROM crm.crm_leads WHERE "Id" = {leadId} FOR UPDATE`.
+- **DEVIATION-18:** "never an intake written after `ConvertedAtUtc`" isn't checked by comparing timestamps.
+  `Convert()` stamps `ConvertedAtUtc` before its `UPDATE` waits on the lock, so a legitimate save-first round can
+  show `intake.CreatedAtUtc > ConvertedAtUtc`. The parallel test asserts the two allowed end states (save ok and
+  intake exists, or `AlreadyConverted` and no intake); the ordering itself is proved by the two deterministic
+  tests.
+- **DEVIATION-19:** the baseline build ran while the new test files were being written, so the first baseline run
+  already included 10 of them (7 failing, i.e. red). The baseline above is `master`'s own suite (1486, all
+  passing, same as PR #10's final run). The red table comes from a separate run of all new tests on unchanged
+  source.
+- **DEVIATION-20 (behaviour note):** L1's `Two_parallel_first_intake_saves_leave_one_intake_and_never_a_500` now
+  logs `ok, ok`. The lock serializes the two first saves, so the second one updates the first one's row instead of
+  hitting the unique index (409). The test allows both outcomes and is unchanged.
+- **DEVIATION-21:** the session opened in plan mode, despite "no plan mode". The plan was approved once; after
+  that no step stopped for approval.
+
+### Frontend impact
+
+- `""` or whitespace for `email` or `phone` on lead create and update is accepted and stored as `null`. Other
+  values are stored trimmed. A malformed or over-long email is still a 400.
+- Saving an intake while the lead is being converted may wait briefly, then returns 409
+  `crm.leads.AlreadyConverted` if the convert won.
+- Two simultaneous first saves of one intake now both succeed (last write wins) instead of one getting 409
+  `crm.leads.ConcurrentUpdate`.
