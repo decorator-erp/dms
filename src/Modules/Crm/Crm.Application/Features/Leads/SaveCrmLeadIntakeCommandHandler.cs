@@ -4,6 +4,7 @@ using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SharedKernel;
 // Contracts.Leads.CrmLeadIntakeData and Domain.CrmLeadIntakeData share a name (both ported from the
 // same backend record) - aliasing the Domain side is less noisy than fully qualifying every use below.
@@ -54,12 +55,44 @@ internal sealed class CrmLeadIntakeResidentialDataValidator : AbstractValidator<
 /// when the block is omitted), deleted when the sector moves away, and refused outright when sent with any
 /// other sector. The delete lives here rather than in <c>CrmLeadIntake.Update</c> because Domain has no
 /// persistence authority over a row it doesn't directly own the collection of. A converted lead's intake is
-/// frozen.</summary>
+/// frozen.
+///
+/// <para>The save locks the lead row (<c>FOR UPDATE</c>) before it checks the status, and holds the lock until
+/// the command's transaction ends, so it serializes with a convert of the same lead. The save never writes
+/// the lead row, so the row's <c>xmin</c> alone would not catch the race. If the convert commits first, the
+/// lock waits and then reads Converted (409); if the save locks first, the convert's UPDATE waits until the
+/// intake is committed, so the intake lands before the conversion. The transaction is
+/// <c>DomainEventDispatchDecorator</c>'s, which wraps every command; one is opened here only for a caller
+/// that runs this handler undecorated, since a lock outside a transaction is released at once.</para></summary>
 internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : ICommandHandler<SaveCrmLeadIntakeCommand>
 {
     public async Task<Result> HandleAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct = default)
     {
-        CrmLead? lead = await db.CrmLeads.FindAsync([command.LeadId], ct);
+        if (db.Database.CurrentTransaction is not null)
+        {
+            return await SaveAsync(command, ct);
+        }
+
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(ct);
+        Result result = await SaveAsync(command, ct);
+        if (result.IsSuccess)
+        {
+            await transaction.CommitAsync(ct);
+        }
+        else
+        {
+            await transaction.RollbackAsync(ct);
+        }
+
+        return result;
+    }
+
+    private async Task<Result> SaveAsync(SaveCrmLeadIntakeCommand command, CancellationToken ct)
+    {
+        // xmin is selected explicitly: SELECT * omits system columns, and CrmLead maps xmin as its token.
+        CrmLead? lead = await db.CrmLeads
+            .FromSql($"SELECT *, xmin FROM crm.crm_leads WHERE \"Id\" = {command.LeadId} FOR UPDATE")
+            .SingleOrDefaultAsync(ct);
         if (lead is null)
         {
             return CrmLeadErrors.NotFound;
