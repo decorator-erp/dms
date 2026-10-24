@@ -17,8 +17,8 @@ internal sealed record CrmLeadIntakeData(
 /// <summary>
 /// Ported from <c>../backend/Domain/Entities/CrmLeadIntake.cs</c>. Lead qualification intake — 1:1
 /// with the lead, created lazily on first save. The client part feeds <see cref="Client.FillBlanksFromIntake"/>
-/// at convert; the sector part seeds the design-brief draft head when the first requirement period
-/// opens (G9-04's <c>CrmDesignBrief.SeedFromIntake</c>) — a copy-once, since the brief head becomes
+/// at convert; the sector part seeds the design-brief draft head when the first brief is created on
+/// the project (G9-04's <c>CrmDesignBrief.SeedFromIntake</c>) — a copy-once, since the brief head becomes
 /// the live truth afterwards and this row stays the immutable pre-client audit snapshot.
 /// </summary>
 internal sealed class CrmLeadIntake : Entity, IAuditable

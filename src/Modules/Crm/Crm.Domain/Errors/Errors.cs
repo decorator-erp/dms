@@ -73,6 +73,10 @@ internal static class CrmBriefErrors
     public static readonly Error NotDraft = Error.Conflict(
         "crm.briefs.NotDraft", "Intake can only be seeded onto a Draft head.");
 
+    public static readonly Error UnitDetailsRequired = Error.BadRequest(
+        "crm.briefs.UnitDetailsRequired",
+        "Unit type and unit condition are required unless the client's converted lead intake supplies them.");
+
     public static readonly Error NotPending = Error.Conflict(
         "crm.briefs.NotPending", "Only a PendingApproval entry can be approved or rejected.");
 
