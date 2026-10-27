@@ -189,18 +189,21 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandl
     {
         ProjectResponse? response = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
-            .Select(ToResponse())
+            .Select(ToResponse(db.ProjectStages))
             .FirstOrDefaultAsync(ct);
 
         return response is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : response;
     }
 
-    internal static Expression<Func<Domain.Project, ProjectResponse>> ToResponse() => p =>
+    /// <summary>The response projection. <paramref name="stages"/> is the context's <c>ProjectStages</c>: the
+    /// stage count is a correlated subquery of the same SQL statement (Project has no Stages navigation),
+    /// so a page of projects is still one query, never one count per project.</summary>
+    internal static Expression<Func<Domain.Project, ProjectResponse>> ToResponse(IQueryable<Domain.ProjectStage> stages) => p =>
         new ProjectResponse(
             p.Id, p.Code, p.Name, p.Description, ProjectsEnumMapping.ToContracts(p.Status),
             ProjectsEnumMapping.ToContracts(p.WorkflowType), p.Address, p.Notes, p.ProgressPercentage,
             p.EstimatedStartDate, p.EstimatedEndDate, p.ActualStartDate, p.ActualEndDate,
-            p.ClientId, p.OwnerId, p.IsActive);
+            p.ClientId, p.OwnerId, p.IsActive, stages.Count(s => s.ProjectId == p.Id));
 }
 
 /// <summary>
@@ -246,7 +249,7 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
             .OrderBy(p => p.Name)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(GetProjectQueryHandler.ToResponse())
+            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages))
             .ToListAsync(ct);
 
         return new PagedResult<ProjectResponse>(items, query.PageNumber, query.PageSize, totalCount);

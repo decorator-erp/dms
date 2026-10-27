@@ -10,12 +10,15 @@ namespace Projects.Contracts.Projects;
 /// <c>Projects.Infrastructure</c>. <c>OwnerId</c> is resolved server-side from the caller's identity via
 /// <c>Hr.Contracts.IHrDirectory</c> — never a command field, so it can't be spoofed from the request body.
 /// <c>ClientId</c> stays an unvalidated <c>Guid</c> everywhere (CRM absent).
+///
+/// <para><see cref="StageCount"/> is how many stages the project has (0 until a template or a confirmed scope
+/// of work creates them).</para>
 /// </summary>
 public sealed record ProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,
     string Address, string? Notes, decimal ProgressPercentage,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
-    Guid ClientId, Guid OwnerId, bool IsActive);
+    Guid ClientId, Guid OwnerId, bool IsActive, int StageCount);
 
 public sealed record CreateProjectCommand(
     string Code, string Name, string Address, WorkflowType WorkflowType, Guid ClientId,
