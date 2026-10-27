@@ -39,6 +39,15 @@ public sealed record MeetingScheduledIntegrationEvent(
     Guid EventId, Guid MeetingId, Guid ProjectId, DateTime ScheduledAtUtc, DateTimeOffset OccurredAtUtc)
     : IIntegrationEvent;
 
+/// <summary>B-2 (H3/X-8): a scheduled meeting was moved — its accepted slot demoted, a new time proposed.
+/// The CRM handler tells the meeting's recipients.</summary>
+public sealed record MeetingRescheduledIntegrationEvent(
+    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>B-2 (H3/X-8): a meeting was canceled. The CRM handler tells the meeting's recipients.</summary>
+public sealed record MeetingCanceledIntegrationEvent(
+    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
 /// <summary>
 /// The three gate-satisfaction events. <see cref="CrmBriefApprovedIntegrationEvent"/>/
 /// <see cref="CrmPeriodClosedIntegrationEvent"/> carry a required <c>ProjectStageId</c> — both source

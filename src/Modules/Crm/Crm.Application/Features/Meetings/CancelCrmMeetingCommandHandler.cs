@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using Crm.Contracts.Meetings;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -61,6 +62,8 @@ internal sealed class CancelCrmMeetingCommandHandler(CrmDbContext db, IProjectDi
             }
         }
 
+        db.Outbox().Enqueue(new Crm.Contracts.MeetingCanceledIntegrationEvent(
+            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }

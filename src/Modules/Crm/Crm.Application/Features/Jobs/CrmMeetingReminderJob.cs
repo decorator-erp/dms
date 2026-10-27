@@ -2,6 +2,7 @@ using BuildingBlocks.Jobs;
 using Crm.Contracts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
+using Crm.Infrastructure.Services;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Notifications.Contracts;
@@ -63,7 +64,7 @@ internal sealed class CrmMeetingReminderJob(
                     body: "Your meeting is within the next 24 hours.",
                     entityType: NotificationEntityType.Meeting,
                     entityId: meeting.Id,
-                    dedupeKey: $"crm-meeting-{meeting.Id}-reminder",
+                    dedupeKey: $"crm-meeting-{meeting.Id}-reminder-{MeetingRecipients.Instant(meeting.ScheduledAtUtc!.Value)}",
                     ct: ct);
             }
 
