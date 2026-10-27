@@ -28,7 +28,13 @@ public sealed record BriefHeadBlock(
 
 /// <summary>The client's view of one brief. <see cref="Head"/> is null until the head has been sent at
 /// least once; <see cref="Spaces"/> holds every entry except Drafts (the office's unsent work).</summary>
-public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList<CrmBriefSpaceResponse> Spaces);
+public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList<PortalBriefSpaceResponse> Spaces);
+
+/// <summary>A-14 (B-L6): a brief-space entry as the client sees it — the office DTO
+/// (<see cref="CrmBriefSpaceResponse"/>) minus who wrote it and the office-side task and meeting links.</summary>
+public sealed record PortalBriefSpaceResponse(
+    Guid Id, Guid BriefId, Guid? SpaceId, int? CountOrPieces, string? Requirements,
+    CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent);
 
 /// <summary>Meetings visible to the calling client's own projects only — resolved via
 /// <c>ICrmAccessGuard</c>, never a project id supplied by the caller.</summary>
