@@ -25,8 +25,12 @@ internal sealed class Stage : Entity, IAuditable
         Guid stageTemplateId, string name, int order, decimal weightPercent, string? description = null, decimal? defaultFee = null) =>
         new()
         {
-            StageTemplateId = stageTemplateId, Name = name, Order = order, WeightPercent = weightPercent,
-            Description = description, DefaultFee = defaultFee,
+            StageTemplateId = stageTemplateId,
+            Name = name,
+            Order = order,
+            WeightPercent = weightPercent,
+            Description = description,
+            DefaultFee = defaultFee,
         };
 
     public void Update(
