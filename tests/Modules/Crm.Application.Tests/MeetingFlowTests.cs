@@ -270,7 +270,8 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
         Result result = await accept.HandleAsync(new AcceptCrmMeetingSlotByContactCommand(slotId, strangerContactId));
 
         Assert.True(result.IsFailure);
-        Assert.Equal(Domain.CrmMeetingErrors.NotCounterparty, result.Error);
+        // B-4 (MT-N2): a stranger contact gets the portal 404, not a 403 that confirms the meeting exists.
+        Assert.Equal(Domain.CrmPortalErrors.NotFound, result.Error);
     }
 
     /// <summary>

@@ -380,7 +380,7 @@ internal static class CrmMeetingErrors
 internal static class CrmPortalErrors
 {
     public static readonly Error NotFound = Error.NotFound(
-        "crm.portal.NotFound", "No design brief was found for that project.");
+        "crm.portal.NotFound", "Nothing was found for that request.");
 
     public static readonly Error NotAClient = Error.Forbidden(
         "crm.portal.NotAClient", "This action requires a client actor.");

@@ -56,12 +56,7 @@ internal static class DeclineMeetingSlot
         CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null)
         {
-            return CrmMeetingErrors.SlotNotFound;
-        }
-
-        if (!MeetingSupport.IsCounterpartyKind(slot, actingEmployeeId, actingContactId))
-        {
-            return CrmMeetingErrors.NotCounterparty;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
         }
 
         Guid? meetingProjectId = await db.CrmMeetings.AsNoTracking()
@@ -70,14 +65,20 @@ internal static class DeclineMeetingSlot
             .FirstOrDefaultAsync(ct);
         if (meetingProjectId is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meetingProjectId.Value, actingEmployeeId, actingContactId, ct);
+        // B-4 (MT-N2): tenant before kind.
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
+            db, projectDirectory, meetingProjectId.Value, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
+        }
+
+        if (!MeetingSupport.IsCounterpartyKind(slot, actingEmployeeId, actingContactId))
+        {
+            return CrmMeetingErrors.NotCounterparty;
         }
 
         Result declined = slot.Decline();

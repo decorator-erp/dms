@@ -58,11 +58,12 @@ internal static class RescheduleMeeting
         CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
         if (meeting is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, actingEmployeeId, actingContactId, ct);
+        // B-4 (MT-N2): a stranger contact gets the portal 404. Employees are scoped by the decorator (B-3).
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
+            db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;

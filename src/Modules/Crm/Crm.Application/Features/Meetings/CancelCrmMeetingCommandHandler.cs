@@ -36,7 +36,7 @@ internal sealed class CancelCrmMeetingCommandHandler(CrmDbContext db, IProjectDi
     : ICommandHandler<CancelCrmMeetingCommand>
 {
     public Task<Result> HandleAsync(CancelCrmMeetingCommand command, CancellationToken ct = default) =>
-        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingEmployeeId, null, command.Reason, ct);
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.Reason, ct);
 }
 
 /// <summary>B-3 (M1): the portal cancel — not project-scoped; the core checks the contact's client.</summary>
@@ -44,23 +44,24 @@ internal sealed class CancelCrmMeetingByContactCommandHandler(CrmDbContext db, I
     : ICommandHandler<CancelCrmMeetingByContactCommand>
 {
     public Task<Result> HandleAsync(CancelCrmMeetingByContactCommand command, CancellationToken ct = default) =>
-        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.ActingContactId, command.Reason, ct);
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingContactId, command.Reason, ct);
 }
 
 internal static class CancelMeeting
 {
     public static async Task<Result> RunAsync(
-        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingContactId,
         string reason, CancellationToken ct)
     {
         CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
         if (meeting is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, actingEmployeeId, actingContactId, ct);
+        // B-4 (MT-N2): a stranger contact gets the portal 404. Employees are scoped by the decorator (B-3).
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
+            db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
