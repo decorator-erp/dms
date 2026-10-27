@@ -59,6 +59,12 @@ internal sealed class CreateCrmRequirementItemCommandHandler(CrmDbContext db, IP
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
         }
 
+        Result active = ItemReferenceValidator.EnsureProjectActive(project);
+        if (active.IsFailure)
+        {
+            return Result.Failure<Guid>(active.Error);
+        }
+
         Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
         if (spaceType.IsFailure)
         {

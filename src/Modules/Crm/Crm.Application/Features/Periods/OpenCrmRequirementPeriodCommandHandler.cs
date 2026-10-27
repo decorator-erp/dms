@@ -35,6 +35,11 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
         }
 
+        if (!project.IsActive)
+        {
+            return Result.Failure<Guid>(CrmProjectErrors.Inactive);
+        }
+
         // A-2 (X-5): closing a period satisfies its stage's gate, so the stage must be this project's.
         if (command.ProjectStageId is { } stageId)
         {

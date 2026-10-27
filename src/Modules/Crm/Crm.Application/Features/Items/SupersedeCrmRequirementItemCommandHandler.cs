@@ -52,6 +52,12 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db,
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
         }
 
+        Result active = ItemReferenceValidator.EnsureProjectActive(project);
+        if (active.IsFailure)
+        {
+            return Result.Failure<Guid>(active.Error);
+        }
+
         Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
         if (spaceType.IsFailure)
         {

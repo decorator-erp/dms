@@ -47,6 +47,19 @@ internal static class ItemReferenceValidator
         return Result.Success();
     }
 
+    /// <summary>A-15: office item and period writes need an active project.</summary>
+    public static Result EnsureProjectActive(ProjectSummary project) =>
+        project.IsActive ? Result.Success() : CrmProjectErrors.Inactive;
+
+    /// <summary>A-15: the same rule where only the id is at hand (period extend and close).</summary>
+    public static async Task<Result> EnsureProjectActiveAsync(IProjectDirectory projects, Guid projectId, CancellationToken ct) =>
+        await projects.GetProjectAsync(projectId, ct) switch
+        {
+            null => CrmPeriodErrors.NotFound,
+            { IsActive: false } => CrmProjectErrors.Inactive,
+            _ => Result.Success(),
+        };
+
     /// <summary>A-8 (B-M5): a named space type must exist and be active — a 400, not the FK's 500.</summary>
     public static async Task<Result> ValidateSpaceTypeAsync(CrmDbContext db, Guid? spaceTypeId, CancellationToken ct) =>
         spaceTypeId is { } id && !await db.CrmSpaceTypes.AsNoTracking().AnyAsync(t => t.Id == id && t.IsActive, ct)

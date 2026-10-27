@@ -1,3 +1,5 @@
+using Projects.Contracts;
+using Crm.Application.Features.Items;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Periods;
 using Crm.Domain;
@@ -12,7 +14,7 @@ internal sealed class ExtendCrmRequirementPeriodCommandValidator : AbstractValid
     public ExtendCrmRequirementPeriodCommandValidator() => RuleFor(x => x.PeriodId).NotEmpty();
 }
 
-internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db) : ICommandHandler<ExtendCrmRequirementPeriodCommand>
+internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory) : ICommandHandler<ExtendCrmRequirementPeriodCommand>
 {
     public async Task<Result> HandleAsync(ExtendCrmRequirementPeriodCommand command, CancellationToken ct = default)
     {
@@ -20,6 +22,12 @@ internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db) 
         if (period is null)
         {
             return CrmPeriodErrors.NotFound;
+        }
+
+        Result active = await ItemReferenceValidator.EnsureProjectActiveAsync(projectDirectory, period.ProjectId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         Result result = period.Extend(command.NewClosesAtUtc);

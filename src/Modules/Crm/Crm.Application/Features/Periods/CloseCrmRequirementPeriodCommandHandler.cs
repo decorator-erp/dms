@@ -1,3 +1,5 @@
+using Projects.Contracts;
+using Crm.Application.Features.Items;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Crm.Contracts;
@@ -19,7 +21,7 @@ internal sealed class CloseCrmRequirementPeriodCommandValidator : AbstractValida
 /// is set — a project-wide period (no stage) has no gate to satisfy. <c>Projects.Infrastructure</c>
 /// subscribes at G9-13; publishing here regardless of whether that subscriber exists yet matches every
 /// other module's own "publish with zero knowledge of who reacts" convention.</summary>
-internal sealed class CloseCrmRequirementPeriodCommandHandler(CrmDbContext db) : ICommandHandler<CloseCrmRequirementPeriodCommand>
+internal sealed class CloseCrmRequirementPeriodCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory) : ICommandHandler<CloseCrmRequirementPeriodCommand>
 {
     public async Task<Result> HandleAsync(CloseCrmRequirementPeriodCommand command, CancellationToken ct = default)
     {
@@ -27,6 +29,12 @@ internal sealed class CloseCrmRequirementPeriodCommandHandler(CrmDbContext db) :
         if (period is null)
         {
             return CrmPeriodErrors.NotFound;
+        }
+
+        Result active = await ItemReferenceValidator.EnsureProjectActiveAsync(projectDirectory, period.ProjectId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         Result result = period.Close(DateTime.UtcNow);

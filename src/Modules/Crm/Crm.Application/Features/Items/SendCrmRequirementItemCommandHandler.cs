@@ -54,6 +54,12 @@ internal sealed class SendCrmRequirementItemCommandHandler(
             return CrmItemErrors.NotFound;
         }
 
+        Result active = ItemReferenceValidator.EnsureProjectActive(project);
+        if (active.IsFailure)
+        {
+            return active;
+        }
+
         Client? client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == project.ClientId, ct);
         if (client is null)
         {

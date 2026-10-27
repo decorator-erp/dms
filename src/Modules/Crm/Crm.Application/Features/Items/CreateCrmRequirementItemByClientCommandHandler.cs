@@ -42,7 +42,7 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             .Select(c => (Guid?)c.ClientId)
             .FirstOrDefaultAsync(ct);
         ProjectSummary? project = clientId is null ? null : await projectDirectory.GetProjectAsync(command.ProjectId, ct);
-        if (project is null || project.ClientId != clientId)
+        if (project is null || project.ClientId != clientId || !project.IsActive)
         {
             return Result.Failure<Guid>(CrmPortalErrors.NotFound);
         }

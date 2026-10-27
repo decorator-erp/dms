@@ -385,3 +385,11 @@ internal static class CrmPortalErrors
     public static readonly Error NotAClient = Error.Forbidden(
         "crm.portal.NotAClient", "This action requires a client actor.");
 }
+
+/// <summary>A-15: CRM's view of a project it does not own.</summary>
+internal static class CrmProjectErrors
+{
+    /// <summary>The project is deactivated: office CRM writes on it are refused (the portal answers 404).</summary>
+    public static readonly Error Inactive = Error.Conflict(
+        "crm.projects.Inactive", "This project is inactive and takes no new CRM work.");
+}
