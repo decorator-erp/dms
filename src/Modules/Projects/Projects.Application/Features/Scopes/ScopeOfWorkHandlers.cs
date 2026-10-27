@@ -255,20 +255,39 @@ internal sealed class AddScopeOfWorkTemplateCommandHandler(ProjectsDbContext db)
             return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(Domain.StageTemplateErrors.NotFound);
         }
 
-        Result<ScopeOfWork> scope = await ScopeOfWorkStore.FindOrCreateAsync(db, command.ProjectId, ct);
+        ScopeOfWork? existing = await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct);
+        HashSet<Guid> picked = existing?.Items.Select(i => i.SourceStageId).ToHashSet() ?? [];
+        List<ScopeItemPick> picks = await db.Stages.AsNoTracking()
+            .Where(s => s.StageTemplateId == command.StageTemplateId)
+            .OrderBy(s => s.Order)
+            .Select(s => new ScopeItemPick(s.Id, s.Name, s.Description, s.DefaultFee ?? 0m))
+            .ToListAsync(ct);
+        picks = [.. picks.Where(p => !picked.Contains(p.SourceStageId))];
+
+        // Nothing to add is a no-op: no Draft is created and the scope isn't saved, so its xmin doesn't move and
+        // nobody else's open edit becomes a false ConcurrentUpdate. A confirmed scope still says so.
+        if (picks.Count == 0)
+        {
+            if (existing?.Status == ScopeOfWorkStatus.Confirmed)
+            {
+                return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(ScopeOfWorkErrors.Confirmed);
+            }
+
+            if (existing is null && !await db.Projects.AsNoTracking().AnyAsync(p => p.Id == command.ProjectId, ct))
+            {
+                return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(Domain.ProjectErrors.NotFound);
+            }
+
+            return Result.Success<IReadOnlyList<ScopeOfWorkItemResponse>>([]);
+        }
+
+        Result<ScopeOfWork> scope = existing ?? await ScopeOfWorkStore.FindOrCreateAsync(db, command.ProjectId, ct);
         if (scope.IsFailure)
         {
             return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(scope.Error);
         }
 
-        var picked = scope.Value!.Items.Select(i => i.SourceStageId).ToHashSet();
-        List<Stage> stages = await db.Stages.AsNoTracking()
-            .Where(s => s.StageTemplateId == command.StageTemplateId)
-            .OrderBy(s => s.Order)
-            .ToListAsync(ct);
-
-        Result<IReadOnlyList<ScopeOfWorkItem>> added = ScopeOfWorkStore.AddItems(
-            db, scope.Value!, [.. stages.Where(s => !picked.Contains(s.Id)).Select(AddScopeOfWorkItemsCommandHandler.Pick)]);
+        Result<IReadOnlyList<ScopeOfWorkItem>> added = ScopeOfWorkStore.AddItems(db, scope.Value!, picks);
         if (added.IsFailure)
         {
             return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(added.Error);

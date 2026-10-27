@@ -64,6 +64,44 @@ public sealed class ScopeOfWorkFlowTests(ProjectsApplicationFixture fixture)
     }
 
     [Fact]
+    public async Task Adding_a_template_whose_stages_are_all_picked_changes_nothing()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "noop-add");
+        (Guid templateId, IReadOnlyList<SeededStage> stages) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Noop", 10m, 20m);
+        IReadOnlyList<ScopeOfWorkItemResponse> items = (await AddAsync(p, stages[0].Id, stages[1].Id)).Value!;
+
+        // Another user has the scope open...
+        await using AsyncServiceScope other = fixture.CreateScope();
+        ProjectsDbContext db = other.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+        ScopeOfWork loaded = await db.ScopesOfWork.Include(x => x.Items).SingleAsync(x => x.ProjectId == p.ProjectId);
+
+        // ... while an add of a template whose stages are all already picked adds nothing ...
+        Result<IReadOnlyList<ScopeOfWorkItemResponse>> noop = await SendAsync<AddScopeOfWorkTemplateCommand, IReadOnlyList<ScopeOfWorkItemResponse>>(
+            p, new AddScopeOfWorkTemplateCommand(p.ProjectId, p.OfficeUserId, templateId));
+        Assert.True(noop.IsSuccess, noop.IsFailure ? noop.Error.ToString() : null);
+        Assert.Empty(noop.Value!);
+
+        // ... so the other user's save is not a false ConcurrentUpdate.
+        Assert.True(loaded.UpdateItem(items[0].Id, "Still mine", null, 15m).IsSuccess);
+        Result saved = await ScopeWrites.SaveAsync(db, loaded, CancellationToken.None);
+        Assert.True(saved.IsSuccess, saved.IsFailure ? saved.Error.ToString() : null);
+    }
+
+    [Fact]
+    public async Task Adding_an_empty_template_to_a_project_without_a_scope_creates_no_scope()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "noop-empty");
+        (Guid templateId, _) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Empty");
+
+        Result<IReadOnlyList<ScopeOfWorkItemResponse>> added = await SendAsync<AddScopeOfWorkTemplateCommand, IReadOnlyList<ScopeOfWorkItemResponse>>(
+            p, new AddScopeOfWorkTemplateCommand(p.ProjectId, p.OfficeUserId, templateId));
+
+        Assert.True(added.IsSuccess, added.IsFailure ? added.Error.ToString() : null);
+        Assert.Empty(added.Value!);
+        Assert.Equal(0, await CountScopesAsync(p.ProjectId));
+    }
+
+    [Fact]
     public async Task A_missing_source_stage_is_SourceStageNotFound()
     {
         ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "pick-missing");
