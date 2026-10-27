@@ -98,6 +98,11 @@ internal sealed class CrmMeeting : Entity, IAuditable
         Status = MeetingStatus.Rescheduled;
         ScheduledAtUtc = null;
         ReminderSentAtUtc = null;
+
+        // B-6 (M2): the next accepted slot decides how long the meeting lasts — the first schedule's
+        // duration no longer applies.
+        DurationMinutes = null;
+        AcceptedByEmployeeId = null;
         return Result.Success();
     }
 
