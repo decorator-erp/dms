@@ -47,6 +47,12 @@ internal static class ItemReferenceValidator
         return Result.Success();
     }
 
+    /// <summary>A-8 (B-M5): a named space type must exist and be active — a 400, not the FK's 500.</summary>
+    public static async Task<Result> ValidateSpaceTypeAsync(CrmDbContext db, Guid? spaceTypeId, CancellationToken ct) =>
+        spaceTypeId is { } id && !await db.CrmSpaceTypes.AsNoTracking().AnyAsync(t => t.Id == id && t.IsActive, ct)
+            ? CrmItemErrors.UnknownSpaceType
+            : Result.Success();
+
     /// <summary>A-5 (B-M2): a Closed period's gate may already have fired, so its items are frozen — no
     /// create, update or supersede. An unknown period is 404.</summary>
     public static async Task<Result> EnsurePeriodOpenAsync(CrmDbContext db, Guid periodId, CancellationToken ct)

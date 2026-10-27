@@ -157,6 +157,10 @@ internal static class CrmSpaceErrors
 
     public static readonly Error InvalidData = Error.BadRequest("crm.spaces.InvalidData", "A space name is required.");
 
+    /// <summary>A-8 (B-M5): a space names a space type that does not exist.</summary>
+    public static readonly Error UnknownSpaceType = Error.BadRequest(
+        "crm.spaces.UnknownSpaceType", "The space type does not exist.");
+
     /// <summary>A-7 (B-M4): space names are unique per project, ignoring case.</summary>
     public static readonly Error DuplicateName = Error.Conflict(
         "crm.spaces.DuplicateName", "This project already has a space with that name.");

@@ -15,7 +15,12 @@ internal sealed class SupersedeCrmRequirementItemCommandValidator : AbstractVali
     {
         RuleFor(x => x.OriginalItemId).NotEmpty();
         RuleFor(x => x.EmployeeId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty();
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Room).MaximumLength(128);
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Category).IsInEnum();
+        RuleFor(x => x.Priority).IsInEnum();
+        RuleFor(x => x.SourceType).IsInEnum();
     }
 }
 
@@ -45,6 +50,12 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db,
         if (project is null)
         {
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
+        {
+            return Result.Failure<Guid>(spaceType.Error);
         }
 
         Result references = await ItemReferenceValidator.ValidateAsync(

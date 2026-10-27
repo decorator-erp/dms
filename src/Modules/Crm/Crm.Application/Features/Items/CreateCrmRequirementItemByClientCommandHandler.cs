@@ -61,10 +61,10 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             return Result.Failure<Guid>(CrmPeriodErrors.NotOpen);
         }
 
-        if (command.SpaceTypeId is { } spaceTypeId
-            && !await db.CrmSpaceTypes.AnyAsync(t => t.Id == spaceTypeId && t.IsActive, ct))
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
         {
-            return Result.Failure<Guid>(CrmItemErrors.UnknownSpaceType);
+            return Result.Failure<Guid>(spaceType.Error);
         }
 
         var item = CrmRequirementItem.CreateByClient(

@@ -13,7 +13,12 @@ internal sealed class UpdateCrmRequirementItemCommandValidator : AbstractValidat
     public UpdateCrmRequirementItemCommandValidator()
     {
         RuleFor(x => x.ItemId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty();
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Room).MaximumLength(128);
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Category).IsInEnum();
+        RuleFor(x => x.Priority).IsInEnum();
+        RuleFor(x => x.SourceType).IsInEnum();
     }
 }
 
@@ -38,6 +43,12 @@ internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db, IP
         if (project is null)
         {
             return CrmItemErrors.NotFound;
+        }
+
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
+        {
+            return spaceType;
         }
 
         Result references = await ItemReferenceValidator.ValidateAsync(

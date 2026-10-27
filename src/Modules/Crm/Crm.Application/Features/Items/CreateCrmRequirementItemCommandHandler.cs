@@ -16,7 +16,13 @@ internal sealed class CreateCrmRequirementItemCommandValidator : AbstractValidat
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.PeriodId).NotEmpty();
         RuleFor(x => x.EmployeeId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty();
+        // A-8 (B-M5): bounded like the columns (CrmRequirementItemConfiguration).
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Room).MaximumLength(128);
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Category).IsInEnum();
+        RuleFor(x => x.Priority).IsInEnum();
+        RuleFor(x => x.SourceType).IsInEnum();
     }
 }
 
@@ -51,6 +57,12 @@ internal sealed class CreateCrmRequirementItemCommandHandler(CrmDbContext db, IP
         if (project is null)
         {
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
+        }
+
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
+        {
+            return Result.Failure<Guid>(spaceType.Error);
         }
 
         Result references = await ItemReferenceValidator.ValidateAsync(

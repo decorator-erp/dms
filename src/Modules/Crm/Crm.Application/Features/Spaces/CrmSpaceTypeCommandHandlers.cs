@@ -12,9 +12,9 @@ internal sealed class CreateCrmSpaceTypeCommandValidator : AbstractValidator<Cre
 {
     public CreateCrmSpaceTypeCommandValidator()
     {
-        RuleFor(x => x.Code).NotEmpty();
-        RuleFor(x => x.NameEn).NotEmpty();
-        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
     }
 }
 
@@ -43,7 +43,12 @@ internal sealed class CreateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
 
 internal sealed class UpdateCrmSpaceTypeCommandValidator : AbstractValidator<UpdateCrmSpaceTypeCommand>
 {
-    public UpdateCrmSpaceTypeCommandValidator() => RuleFor(x => x.SpaceTypeId).NotEmpty();
+    public UpdateCrmSpaceTypeCommandValidator()
+    {
+        RuleFor(x => x.SpaceTypeId).NotEmpty();
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
+    }
 }
 
 internal sealed class UpdateCrmSpaceTypeCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmSpaceTypeCommand>

@@ -15,7 +15,8 @@ internal sealed class CreateCrmSpaceCommandValidator : AbstractValidator<CreateC
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.SpaceTypeId).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty();
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Description).MaximumLength(1000);
     }
 }
 
@@ -30,6 +31,11 @@ internal sealed class CreateCrmSpaceCommandHandler(CrmDbContext db, IProjectDire
         if (project is null)
         {
             return Result.Failure<Guid>(CrmSpaceErrors.SpaceNotFound);
+        }
+
+        if (!await db.CrmSpaceTypes.AsNoTracking().AnyAsync(t => t.Id == command.SpaceTypeId, ct))
+        {
+            return Result.Failure<Guid>(CrmSpaceErrors.UnknownSpaceType);
         }
 
         if (await SpaceNames.TakenAsync(db, command.ProjectId, command.Name, exceptSpaceId: null, ct))
@@ -57,7 +63,8 @@ internal sealed class UpdateCrmSpaceCommandValidator : AbstractValidator<UpdateC
     {
         RuleFor(x => x.SpaceId).NotEmpty();
         RuleFor(x => x.SpaceTypeId).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty();
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Description).MaximumLength(1000);
     }
 }
 
@@ -69,6 +76,11 @@ internal sealed class UpdateCrmSpaceCommandHandler(CrmDbContext db) : ICommandHa
         if (space is null)
         {
             return CrmSpaceErrors.SpaceNotFound;
+        }
+
+        if (!await db.CrmSpaceTypes.AsNoTracking().AnyAsync(t => t.Id == command.SpaceTypeId, ct))
+        {
+            return CrmSpaceErrors.UnknownSpaceType;
         }
 
         if (await SpaceNames.TakenAsync(db, space.ProjectId, command.Name, exceptSpaceId: space.Id, ct))
