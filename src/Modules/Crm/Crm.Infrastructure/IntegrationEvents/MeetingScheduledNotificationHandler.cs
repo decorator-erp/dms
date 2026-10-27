@@ -33,7 +33,7 @@ internal sealed class MeetingScheduledNotificationHandler(
         var meeting = await db.CrmMeetings
             .AsNoTracking()
             .Where(m => m.Id == @event.MeetingId)
-            .Select(m => new { m.Title, m.RequestedByEmployeeId, m.Status, m.ScheduledAtUtc })
+            .Select(m => new { m.Title, m.RequestedByEmployeeId, m.AcceptedByEmployeeId, m.Status, m.ScheduledAtUtc })
             .FirstOrDefaultAsync(ct);
 
         // MT-N6: the current state wins. A meeting canceled or moved since this event was raised is not
@@ -44,7 +44,7 @@ internal sealed class MeetingScheduledNotificationHandler(
         }
 
         IReadOnlyList<string> targets = await MeetingRecipients.ResolveAsync(
-            @event.ProjectId, meeting.RequestedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
+            @event.ProjectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
         if (targets.Count == 0)
         {
             return;

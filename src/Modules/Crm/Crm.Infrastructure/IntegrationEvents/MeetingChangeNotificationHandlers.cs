@@ -43,7 +43,7 @@ internal static class MeetingChangeNotices
     {
         var meeting = await db.CrmMeetings.AsNoTracking()
             .Where(m => m.Id == meetingId)
-            .Select(m => new { m.Title, m.RequestedByEmployeeId })
+            .Select(m => new { m.Title, m.RequestedByEmployeeId, m.AcceptedByEmployeeId })
             .FirstOrDefaultAsync(ct);
         if (meeting is null)
         {
@@ -51,7 +51,7 @@ internal static class MeetingChangeNotices
         }
 
         IReadOnlyList<string> targets = await MeetingRecipients.ResolveAsync(
-            projectId, meeting.RequestedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
+            projectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
         if (targets.Count == 0)
         {
             return;

@@ -76,16 +76,8 @@ internal sealed class CrmMeetingReminderJob(
         }
     }
 
-    private async Task<List<string>> ResolveRecipientsAsync(CrmMeeting meeting, CancellationToken ct)
-    {
-        EmployeeSummary? employee = meeting.RequestedByEmployeeId is { } employeeId
-            ? await hrDirectory.GetAsync(employeeId, ct)
-            : null;
-
-        ProjectSummary? project = await projectDirectory.GetProjectAsync(meeting.ProjectId, ct);
-        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
-
-        string?[] candidates = [employee?.AppUserId, client?.AppUserId];
-        return [.. candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!).Distinct(StringComparer.Ordinal)];
-    }
+    private async Task<List<string>> ResolveRecipientsAsync(CrmMeeting meeting, CancellationToken ct) =>
+        [.. await MeetingRecipients.ResolveAsync(
+            meeting.ProjectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId,
+            hrDirectory, projectDirectory, clientDirectory, ct)];
 }

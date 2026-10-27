@@ -104,7 +104,7 @@ internal static class AcceptMeetingSlot
         }
 
         int duration = meeting.DurationMinutes ?? (int)Math.Ceiling((slot.EndsAtUtc - slot.StartsAtUtc).TotalMinutes);
-        Result scheduled = meeting.Schedule(slot.StartsAtUtc, duration);
+        Result scheduled = meeting.Schedule(slot.StartsAtUtc, duration, actingEmployeeId);
         if (scheduled.IsFailure)
         {
             return scheduled.Error;

@@ -1210,6 +1210,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AcceptedByEmployeeId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("CancelReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
