@@ -384,3 +384,20 @@ Kept as is, by decision:
 
 After the fixes: **1567 passed, 0 failed, 0 skipped**; Architecture 35/35; `build -warnaserror` clean; no pending
 model changes for Projects or Crm.
+
+## Follow-up review fixes (PR after 13)
+
+A second review of PR 13, after it merged, found three small issues. Fixed on `fix/scope-of-work-review`, one
+commit each:
+
+| Fix | Commit | Red before green |
+|---|---|---|
+| A template add that adds nothing changes nothing: no Draft created, no save. Before, the save bumped `xmin`, so another user's open edit got a false `ConcurrentUpdate`. A confirmed scope still answers `Confirmed`; a missing project is 404. | `dad846b` | `Adding_a_template_whose_stages_are_all_picked_changes_nothing`: `projects.scope.ConcurrentUpdate` on the other user's save. `Adding_an_empty_template_to_a_project_without_a_scope_creates_no_scope`: expected 0 scope rows, actual 1. |
+| A template stage's `DefaultFee` is capped at 1e12 on create and update, the same cap as a scope item's fee. Before, there was no upper bound: a value past `numeric(18,2)` overflowed at save (500), and values over 1e12 were copied into items. | `14283d5` | `A_default_fee_above_the_cap_is_400_and_the_cap_itself_is_accepted`: a 1e13 fee was accepted. |
+| The task count filters by the stage ids already loaded instead of a correlated re-filter, and is skipped for an empty template. Pure refactor. | `1bdec0a` | Refactor; `TaskCount_counts_each_stages_template_tasks` stays green. |
+
+Tests: 1567 → **1570 passed, 0 failed, 0 skipped**. Architecture 35/35; `build -warnaserror` clean; no migration
+and no pending model changes; `dotnet format` made no content change.
+
+Frontend: adding a template whose stages are all already picked returns `[]` and changes nothing. A stage's
+`defaultFee` must be between 0 and 1e12.
