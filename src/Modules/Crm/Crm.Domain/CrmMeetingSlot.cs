@@ -54,8 +54,15 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
         };
     }
 
-    public Result Accept()
+    /// <summary>B-7 (M3): a slot whose start is at or before <paramref name="nowUtc"/> can no longer be
+    /// accepted — the meeting it would schedule is already in the past.</summary>
+    public Result Accept(DateTime nowUtc)
     {
+        if (Status == MeetingSlotStatus.Proposed && StartsAtUtc <= nowUtc)
+        {
+            return CrmMeetingErrors.SlotExpired;
+        }
+
         if (Status != MeetingSlotStatus.Proposed)
         {
             return CrmMeetingErrors.SlotNotProposed;

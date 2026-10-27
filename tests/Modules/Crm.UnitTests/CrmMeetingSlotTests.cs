@@ -54,7 +54,7 @@ public class CrmMeetingSlotTests
         CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
 
-        Result result = slot.Accept();
+        Result result = slot.Accept(Now);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(MeetingSlotStatus.Accepted, slot.Status);
@@ -65,9 +65,9 @@ public class CrmMeetingSlotTests
     {
         CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
-        Assert.True(slot.Accept().IsSuccess);
+        Assert.True(slot.Accept(Now).IsSuccess);
 
-        Result result = slot.Accept();
+        Result result = slot.Accept(Now);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
@@ -92,7 +92,7 @@ public class CrmMeetingSlotTests
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
         Assert.True(slot.Decline().IsSuccess);
 
-        Result result = slot.Accept();
+        Result result = slot.Accept(Now);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmMeetingErrors.SlotNotProposed, result.Error);
@@ -116,10 +116,21 @@ public class CrmMeetingSlotTests
     {
         CrmMeetingSlot slot = CrmMeetingSlot.Create(
             Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
-        Assert.True(slot.Accept().IsSuccess);
+        Assert.True(slot.Accept(Now).IsSuccess);
 
         slot.Demote();
 
         Assert.Equal(MeetingSlotStatus.Declined, slot.Status);
+    }
+
+    /// <summary>B-7 (M3).</summary>
+    [Fact]
+    public void Accept_AtOrAfterItsStart_IsSlotExpired()
+    {
+        CrmMeetingSlot slot = CrmMeetingSlot.Create(
+            Guid.NewGuid(), Now.AddDays(1), Now.AddDays(1).AddHours(1), Guid.NewGuid(), null, Now).Value!;
+
+        Assert.Equal(CrmMeetingErrors.SlotExpired, slot.Accept(Now.AddDays(1)).Error);
+        Assert.Equal(MeetingSlotStatus.Proposed, slot.Status);
     }
 }

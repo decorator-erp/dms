@@ -352,6 +352,10 @@ internal static class CrmMeetingErrors
     public static readonly Error CancelReasonRequired = Error.BadRequest(
         "crm.meetings.CancelReasonRequired", "A cancellation reason is required.");
 
+    /// <summary>B-7 (M3): the slot's start has passed.</summary>
+    public static readonly Error SlotExpired = Error.Conflict(
+        "crm.meetings.SlotExpired", "This slot's start time has passed. Propose a new time.");
+
     public static readonly Error SlotNotProposed = Error.Conflict(
         "crm.meetings.SlotNotProposed", "Only a proposed slot can be accepted or declined.");
 

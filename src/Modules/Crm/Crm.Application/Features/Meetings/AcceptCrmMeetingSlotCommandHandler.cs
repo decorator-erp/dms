@@ -84,7 +84,7 @@ internal static class AcceptMeetingSlot
             return CrmMeetingErrors.NotCounterparty;
         }
 
-        Result accepted = slot.Accept();
+        Result accepted = slot.Accept(DateTime.UtcNow);
         if (accepted.IsFailure)
         {
             return accepted.Error;
