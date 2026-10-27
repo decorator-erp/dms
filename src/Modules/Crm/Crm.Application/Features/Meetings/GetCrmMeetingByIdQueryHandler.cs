@@ -6,9 +6,7 @@ using SharedKernel;
 
 namespace Crm.Application.Features.Meetings;
 
-/// <summary>No <c>IsActive</c> filter — deliberately matching the backend's own <c>GetDetails</c>, which
-/// has none either (unlike <c>Search</c>, below). Fetching a soft-deleted meeting by its own id is not
-/// the same operation as listing active ones.</summary>
+/// <summary>B-12 (L4): <c>IsActive</c>-filtered like the list — a soft-deleted meeting is 404.</summary>
 internal sealed class GetCrmMeetingByIdQueryHandler(CrmDbContext db)
     : IQueryHandler<GetCrmMeetingByIdQuery, CrmMeetingResponse>
 {

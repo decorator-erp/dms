@@ -47,8 +47,9 @@ internal static class MeetingSupport
 
     public static async Task<CrmMeetingResponse?> ToResponseAsync(CrmDbContext db, Guid meetingId, CancellationToken ct)
     {
+        // B-12 (L4): a soft-deleted meeting is not found, the same as in the list.
         var meeting = await db.CrmMeetings.AsNoTracking()
-            .Where(m => m.Id == meetingId)
+            .Where(m => m.Id == meetingId && m.IsActive)
             .Select(m => new
             {
                 m.Id,
