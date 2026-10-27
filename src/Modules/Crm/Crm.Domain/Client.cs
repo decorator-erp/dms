@@ -70,14 +70,19 @@ internal sealed class Client : Entity, IAuditable
     }
 
     /// <summary>Hop 1 of lead conversion — fill blanks from the converted lead's intake. Never
-    /// overwrites office-entered data: <see cref="JobTitle"/> only when currently null,
-    /// <see cref="Address"/> only when currently empty/whitespace.</summary>
+    /// overwrites office-entered data: a field is blank when it is null or whitespace, and an intake value
+    /// is copied, trimmed, only when it is not null or whitespace itself.</summary>
     public void FillBlanksFromIntake(string? jobTitle, string? clientAddress)
     {
-        JobTitle ??= jobTitle;
+        if (string.IsNullOrWhiteSpace(JobTitle) && !string.IsNullOrWhiteSpace(jobTitle))
+        {
+            JobTitle = jobTitle.Trim();
+        }
+
+        // Currently unreachable: Create requires a non-blank Address. Kept so the rule holds if it becomes optional.
         if (string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(clientAddress))
         {
-            Address = clientAddress;
+            Address = clientAddress.Trim();
         }
     }
 

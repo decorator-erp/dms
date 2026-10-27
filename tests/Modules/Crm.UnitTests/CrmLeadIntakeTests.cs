@@ -19,6 +19,63 @@ public class CrmLeadIntakeTests
         Assert.Equal((ProjectSector)1, intake.Sector);
     }
 
+    // --- LC-L5: intake text is stored trimmed, whitespace-only as null ---
+
+    [Fact]
+    public void Create_And_Update_StoreWhitespaceOnlyTextAsNull()
+    {
+        var blank = new CrmLeadIntakeData(
+            JobTitle: "   ", ClientAddress: " ", UnitAddress: "\t", DesignerExperienceReason: "  ");
+
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), blank).Value!;
+        AssertAllNull(intake);
+
+        intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData(JobTitle: "x")).Value!;
+        Assert.True(intake.Update(blank).IsSuccess);
+        AssertAllNull(intake);
+
+        static void AssertAllNull(CrmLeadIntake i)
+        {
+            Assert.Null(i.JobTitle);
+            Assert.Null(i.ClientAddress);
+            Assert.Null(i.UnitAddress);
+            Assert.Null(i.DesignerExperienceReason);
+        }
+    }
+
+    [Fact]
+    public void Create_And_Update_StorePaddedTextTrimmed()
+    {
+        var padded = new CrmLeadIntakeData(
+            JobTitle: "  Engineer ", ClientAddress: " 1 Main St ", UnitAddress: "\t2 Side St  ",
+            UsedDesignerBefore: true, DesignerExperience: (PastExperience)1, DesignerExperienceReason: "  fine  ");
+
+        CrmLeadIntake intake = CrmLeadIntake.Create(Guid.NewGuid(), padded).Value!;
+        AssertTrimmed(intake);
+
+        intake = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData()).Value!;
+        Assert.True(intake.Update(padded).IsSuccess);
+        AssertTrimmed(intake);
+
+        static void AssertTrimmed(CrmLeadIntake i)
+        {
+            Assert.Equal("Engineer", i.JobTitle);
+            Assert.Equal("1 Main St", i.ClientAddress);
+            Assert.Equal("2 Side St", i.UnitAddress);
+            Assert.Equal("fine", i.DesignerExperienceReason);
+        }
+    }
+
+    [Fact]
+    public void Create_WithAWhitespaceReasonAndNoExperience_IsNotAReasonWithoutExperience()
+    {
+        Result<CrmLeadIntake> result = CrmLeadIntake.Create(Guid.NewGuid(), new CrmLeadIntakeData(
+            UsedDesignerBefore: false, DesignerExperienceReason: "   "));
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+        Assert.Null(result.Value!.DesignerExperienceReason);
+    }
+
     [Fact]
     public void Create_WithExperienceButNoPriorUse_Fails()
     {

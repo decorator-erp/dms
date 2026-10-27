@@ -42,6 +42,7 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
     /// <summary>Same field rules as <see cref="Update"/> — the first save is not a way around them.</summary>
     public static Result<CrmLeadIntake> Create(Guid leadId, CrmLeadIntakeData data)
     {
+        data = Normalize(data);
         Result valid = Validate(data);
         if (valid.IsFailure)
         {
@@ -58,6 +59,7 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
     /// authority to delete a related row it doesn't own the persistence of.</summary>
     public Result Update(CrmLeadIntakeData data)
     {
+        data = Normalize(data);
         Result valid = Validate(data);
         if (valid.IsFailure)
         {
@@ -86,6 +88,18 @@ internal sealed class CrmLeadIntake : Entity, IAuditable
 
         return Result.Success();
     }
+
+    /// <summary>Text is stored trimmed and whitespace-only as null, before the rules run, so a blank reason
+    /// is no reason at all.</summary>
+    private static CrmLeadIntakeData Normalize(CrmLeadIntakeData data) => data with
+    {
+        JobTitle = Clean(data.JobTitle),
+        ClientAddress = Clean(data.ClientAddress),
+        UnitAddress = Clean(data.UnitAddress),
+        DesignerExperienceReason = Clean(data.DesignerExperienceReason),
+    };
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private void Apply(CrmLeadIntakeData d)
     {
