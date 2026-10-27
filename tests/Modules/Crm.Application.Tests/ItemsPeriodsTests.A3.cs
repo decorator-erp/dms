@@ -50,7 +50,11 @@ public sealed partial class ItemsPeriodsTests
         {
             Result<Guid> created = await CommandFor<CreateCrmRequirementItemCommand, Guid>(p.OwnerAppUserId, Item(p, periodId) with
             {
-                ProjectTaskId = taskId, SourceType = source, MeetingId = meeting, BriefId = brief, NoteId = note,
+                ProjectTaskId = taskId,
+                SourceType = source,
+                MeetingId = meeting,
+                BriefId = brief,
+                NoteId = note,
             });
             AssertError(Plain(created), 400, code);
 

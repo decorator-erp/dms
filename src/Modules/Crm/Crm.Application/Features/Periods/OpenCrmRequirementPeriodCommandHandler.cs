@@ -1,5 +1,5 @@
-using Crm.Application.Features.Briefs;
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Briefs;
 using Crm.Contracts.Periods;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;

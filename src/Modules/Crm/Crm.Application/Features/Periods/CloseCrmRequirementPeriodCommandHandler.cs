@@ -1,12 +1,12 @@
-using Projects.Contracts;
-using Crm.Application.Features.Items;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using Crm.Application.Features.Items;
 using Crm.Contracts;
 using Crm.Contracts.Periods;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Periods;
