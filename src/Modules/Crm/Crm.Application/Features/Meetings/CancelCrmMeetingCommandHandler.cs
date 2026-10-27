@@ -74,16 +74,14 @@ internal static class CancelMeeting
             return canceled.Error;
         }
 
-        List<CrmMeetingSlot> proposed = await db.CrmMeetingSlots
-            .Where(s => s.MeetingId == meetingId && s.Status == MeetingSlotStatus.Proposed)
+        // B-11 (L5): a canceled meeting keeps no live slot — the accepted one is demoted too.
+        List<CrmMeetingSlot> live = await db.CrmMeetingSlots
+            .Where(s => s.MeetingId == meetingId
+                && (s.Status == MeetingSlotStatus.Accepted || s.Status == MeetingSlotStatus.Proposed))
             .ToListAsync(ct);
-        foreach (CrmMeetingSlot? slot in proposed)
+        foreach (CrmMeetingSlot slot in live)
         {
-            Result declined = slot.Decline();
-            if (declined.IsFailure)
-            {
-                return declined.Error;
-            }
+            slot.Demote();
         }
 
         db.Outbox().Enqueue(new Crm.Contracts.MeetingCanceledIntegrationEvent(

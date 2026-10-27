@@ -79,9 +79,16 @@ internal static class RescheduleMeeting
             return rescheduling.Error;
         }
 
-        CrmMeetingSlot? accepted = await db.CrmMeetingSlots.FirstOrDefaultAsync(
-            s => s.MeetingId == meetingId && s.Status == MeetingSlotStatus.Accepted, ct);
-        accepted?.Demote();
+        // B-11 (L2): the accepted slot and every still-proposed candidate are retired, so the new slot is
+        // the only live one — an old candidate can no longer be accepted after the reschedule.
+        List<CrmMeetingSlot> live = await db.CrmMeetingSlots
+            .Where(s => s.MeetingId == meetingId
+                && (s.Status == MeetingSlotStatus.Accepted || s.Status == MeetingSlotStatus.Proposed))
+            .ToListAsync(ct);
+        foreach (CrmMeetingSlot slot in live)
+        {
+            slot.Demote();
+        }
 
         Result<CrmMeetingSlot> newSlot = CrmMeetingSlot.Create(
             meetingId, startsAtUtc, endsAtUtc,

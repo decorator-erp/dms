@@ -33,8 +33,6 @@ internal sealed class CrmMeetingReminderJob(
     INotificationService notifications,
     TimeProvider timeProvider) : IPeriodicJob
 {
-    private static readonly MeetingStatus[] UpcomingStatuses = [MeetingStatus.Scheduled, MeetingStatus.Rescheduled];
-
     public string Name => nameof(CrmMeetingReminderJob);
 
     public async Task RunAsync(CancellationToken ct)
@@ -44,7 +42,8 @@ internal sealed class CrmMeetingReminderJob(
 
         List<CrmMeeting> upcoming = await db.CrmMeetings
             .Where(m => m.IsActive
-                        && UpcomingStatuses.Contains(m.Status)
+                        // B-11 (L3): a Rescheduled meeting has no time, so only Scheduled can be upcoming.
+                        && m.Status == MeetingStatus.Scheduled
                         && m.ReminderSentAtUtc == null
                         && m.ScheduledAtUtc != null
                         && m.ScheduledAtUtc > now

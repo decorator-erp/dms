@@ -83,6 +83,6 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
         return Result.Success();
     }
 
-    /// <summary>Reschedule path: demotes the previously accepted slot so a new one can be accepted.</summary>
+    /// <summary>Reschedule and cancel: retires an accepted or still-proposed slot (B-11).</summary>
     internal void Demote() => Status = MeetingSlotStatus.Declined;
 }

@@ -129,9 +129,11 @@ internal sealed class CrmMeeting : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>B-11 (L3): only a Scheduled meeting can complete. A Rescheduled one has no time, so it
+    /// never "started" — the old Rescheduled branch here was unreachable.</summary>
     public Result Complete(DateTime nowUtc)
     {
-        if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        if (Status is not MeetingStatus.Scheduled || !HasStarted(nowUtc))
         {
             return CrmMeetingErrors.InvalidStateTransition;
         }
@@ -142,7 +144,7 @@ internal sealed class CrmMeeting : Entity, IAuditable
 
     public Result MarkNoShow(DateTime nowUtc)
     {
-        if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        if (Status is not MeetingStatus.Scheduled || !HasStarted(nowUtc))
         {
             return CrmMeetingErrors.InvalidStateTransition;
         }
