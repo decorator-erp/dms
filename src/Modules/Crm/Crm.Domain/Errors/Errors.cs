@@ -263,6 +263,15 @@ internal static class CrmItemErrors
 
     /// <summary>A-3 (X-6): an office item belongs to its period's project; a body naming another one is
     /// refused rather than silently corrected.</summary>
+    /// <summary>A-10 (B-M7): the item is already out for approval on a live round.</summary>
+    public static readonly Error AlreadyPending = Error.Conflict(
+        "crm.items.AlreadyPending", "This item is already waiting for the client's decision.");
+
+    /// <summary>A-10: the brief-space bound — a decided-Approved orphan is voided and re-sent at most this
+    /// many times in one send.</summary>
+    public static readonly Error TooManyVoidedRounds = Error.Conflict(
+        "crm.items.TooManyVoidedRounds", "This item's approval was voided too many times. Try again later.");
+
     /// <summary>A-6 (B-M3): an item is superseded at most once — pre-check plus the partial unique index
     /// on <c>SupersedesItemId</c>.</summary>
     public static readonly Error AlreadySuperseded = Error.Conflict(

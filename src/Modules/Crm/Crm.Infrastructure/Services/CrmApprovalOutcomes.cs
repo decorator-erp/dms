@@ -84,6 +84,36 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
         return Result.Success();
     }
 
+    /// <summary>A-10 (B-M7): the item counterpart of <see cref="ApplyToBriefSpaceAsync"/> — same binding rule,
+    /// same flush (through <see cref="ItemWrites"/>, so a lost <c>xmin</c> race is
+    /// <see cref="CrmItemErrors.ConcurrentUpdate"/>), then <see cref="CrmItemsResolvedIntegrationEvent"/> for any
+    /// scope the item just resolved.</summary>
+    public async Task<Result> ApplyToItemAsync(
+        CrmRequirementItem item, Guid approvalId, ApprovalDecision decision, CancellationToken ct)
+    {
+        Result result = decision == ApprovalDecision.Approved
+            ? item.MarkApproved(approvalId)
+            : item.MarkRejected(approvalId);
+        if (result.IsFailure)
+        {
+            return result;
+        }
+
+        Result saved = await ItemWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return saved;
+        }
+
+        Guid? stageId = await db.CrmRequirementPeriods.AsNoTracking()
+            .Where(p => p.Id == item.PeriodId)
+            .Select(p => p.ProjectStageId)
+            .FirstOrDefaultAsync(ct);
+        await PublishIfResolvedAsync(stageId, item.ProjectTaskId, ct);
+
+        return Result.Success();
+    }
+
     /// <summary>Checks both scopes the decided row could belong to and publishes
     /// <see cref="CrmItemsResolvedIntegrationEvent"/> once, per scope, only when its unresolved count
     /// has reached zero — a stage-owned gate and a task-owned gate for the SAME entry are both real

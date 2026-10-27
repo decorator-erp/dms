@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 {
     [DbContext(typeof(CrmDbContext))]
-    [Migration("20261027183908_CrmItemsPeriodsHardening")]
+    [Migration("20261027184628_CrmItemsPeriodsHardening")]
     partial class CrmItemsPeriodsHardening
     {
         /// <inheritdoc />
@@ -1365,6 +1365,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<Guid?>("NoteId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("PendingApprovalId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("PeriodId")
                         .HasColumnType("uuid");
 
@@ -1380,6 +1383,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<string>("Room")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<int>("SendCount")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("SourceType")
                         .HasColumnType("integer");

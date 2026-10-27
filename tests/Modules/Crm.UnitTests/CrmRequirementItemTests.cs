@@ -6,6 +6,9 @@ namespace Crm.UnitTests;
 
 public class CrmRequirementItemTests
 {
+    /// <summary>A-10: sends are bound to an approval round; these tests need one id, not a real round.</summary>
+    private static readonly Guid ApprovalId = Guid.NewGuid();
+
     private static CrmRequirementItem CreateEmployeeItem() =>
         CrmRequirementItem.CreateByEmployee(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1).Value!;
@@ -72,7 +75,7 @@ public class CrmRequirementItemTests
     {
         CrmRequirementItem item = CreateEmployeeItem();
 
-        Result result = item.Send();
+        Result result = item.Send(ApprovalId);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ApprovalState.PendingApproval, item.ApprovalStatus);
@@ -84,7 +87,7 @@ public class CrmRequirementItemTests
         var item = CrmRequirementItem.CreateByClient(
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), (RequirementCategory)1, "Title", (TaskPriority)1);
 
-        Result result = item.Send();
+        Result result = item.Send(ApprovalId);
 
         Assert.True(result.IsFailure);
         Assert.Equal(CrmItemErrors.SendRequiresEmployeeAuthor, result.Error);
@@ -94,8 +97,8 @@ public class CrmRequirementItemTests
     public void Update_WhenLocked_Fails()
     {
         CrmRequirementItem item = CreateEmployeeItem();
-        Assert.True(item.Send().IsSuccess);
-        Assert.True(item.MarkApproved().IsSuccess);
+        Assert.True(item.Send(ApprovalId).IsSuccess);
+        Assert.True(item.MarkApproved(ApprovalId).IsSuccess);
 
         Result result = item.Update((RequirementCategory)2, "New", (TaskPriority)2, null, null, null, null, null, null, null, null);
 
@@ -119,8 +122,8 @@ public class CrmRequirementItemTests
     public void CreateSuperseding_WhenOriginalLocked_Succeeds()
     {
         CrmRequirementItem original = CreateEmployeeItem();
-        Assert.True(original.Send().IsSuccess);
-        Assert.True(original.MarkApproved().IsSuccess);
+        Assert.True(original.Send(ApprovalId).IsSuccess);
+        Assert.True(original.MarkApproved(ApprovalId).IsSuccess);
 
         Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
             original, Guid.NewGuid(), (RequirementCategory)1, "Corrected", (TaskPriority)2);

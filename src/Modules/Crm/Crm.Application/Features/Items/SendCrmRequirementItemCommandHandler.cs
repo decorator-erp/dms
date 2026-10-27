@@ -1,12 +1,17 @@
 using Approvals.Contracts;
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Briefs;
 using Crm.Contracts.Items;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
+using Crm.Infrastructure.Services;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
+using ApprovalDecision = Approvals.Contracts.ApprovalDecision;
+// Crm.Domain's own ApprovalState (the item's status) vs Approvals.Contracts' - this file means CRM's.
+using ApprovalState = Crm.Domain.ApprovalState;
 // Same Approvals.Contracts.ApprovalType / Projects.Contracts.ApprovalType ambiguity as
 // SendCrmBriefCommandHandler (G9-10) - see that file's identical comment.
 using ApprovalType = Approvals.Contracts.ApprovalType;
@@ -22,24 +27,25 @@ internal sealed class SendCrmRequirementItemCommandValidator : AbstractValidator
     }
 }
 
-/// <summary>Same client-approver resolution shape as <c>SendCrmBriefCommandHandler</c> (G9-10) — via
-/// the item's own project, since a requirement item, unlike a brief entry, has <c>ProjectId</c>
-/// directly rather than reaching it through a parent.</summary>
-internal sealed class SendCrmRequirementItemCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory, IApprovalRequester approvalRequester)
+/// <summary>A-10 (B-M7): the brief-space send pattern for requirement items — same client-approver
+/// resolution (via the item's own project), flush-then-request order, deterministic round id
+/// (<see cref="CrmApprovalIds"/> over <see cref="CrmRequirementItem.SendCount"/>), recovery rule (a
+/// Pending item whose approval never committed is re-requested under the same id) and missed-decision
+/// rule (Rejected applied; Approved voided and re-sent, since the client approved content they never
+/// saw). Saves go through <see cref="ItemWrites"/>, so a concurrent send is a 409.</summary>
+internal sealed class SendCrmRequirementItemCommandHandler(
+    CrmDbContext db, IProjectDirectory projectDirectory, IApprovalRequester approvalRequester, CrmApprovalOutcomes outcomes)
     : ICommandHandler<SendCrmRequirementItemCommand>
 {
+    /// <summary>See <c>SendCrmBriefCommandHandler.MaxVoidedRounds</c>.</summary>
+    private const int MaxVoidedRounds = 3;
+
     public async Task<Result> HandleAsync(SendCrmRequirementItemCommand command, CancellationToken ct = default)
     {
         CrmRequirementItem? item = await db.CrmRequirementItems.FirstOrDefaultAsync(i => i.Id == command.ItemId, ct);
         if (item is null)
         {
             return CrmItemErrors.NotFound;
-        }
-
-        Result sendResult = item.Send();
-        if (sendResult.IsFailure)
-        {
-            return sendResult;
         }
 
         ProjectSummary? project = await projectDirectory.GetProjectAsync(item.ProjectId, ct);
@@ -54,20 +60,80 @@ internal sealed class SendCrmRequirementItemCommandHandler(CrmDbContext db, IPro
             return ClientErrors.NotFound;
         }
 
-        Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
-            new ApprovalRequest(
-                Guid.NewGuid(), ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
-                RequestedByUserId: command.SentByUserId,
-                [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                DueAtUtc: null),
-            ct);
-        if (requestResult.IsFailure)
+        Guid approvalId;
+        if (item.ApprovalStatus == ApprovalState.PendingApproval)
         {
-            return requestResult.Error;
+            if (item.PendingApprovalId is not { } pendingId
+                || await approvalRequester.GetAsync(pendingId, ct) is not null)
+            {
+                return CrmItemErrors.AlreadyPending;
+            }
+
+            approvalId = pendingId;
+        }
+        else
+        {
+            approvalId = CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1);
+
+            Result sendResult = item.Send(approvalId);
+            if (sendResult.IsFailure)
+            {
+                return sendResult;
+            }
+
+            Result saveResult = await ItemWrites.SaveAsync(db, ct);
+            if (saveResult.IsFailure)
+            {
+                return saveResult;
+            }
         }
 
-        await db.SaveChangesAsync(ct);
+        for (int voided = 0; ; voided++)
+        {
+            Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
+                new ApprovalRequest(
+                    approvalId, ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
+                    RequestedByUserId: command.SentByUserId,
+                    [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
+                    DueAtUtc: null),
+                ct);
+            if (requestResult.IsFailure)
+            {
+                return requestResult.Error;
+            }
 
-        return Result.Success();
+            if (requestResult.Value!.Decision is not { } missedDecision)
+            {
+                break;
+            }
+
+            if (missedDecision != ApprovalDecision.Approved)
+            {
+                return await outcomes.ApplyToItemAsync(item, approvalId, missedDecision, ct);
+            }
+
+            if (voided == MaxVoidedRounds)
+            {
+                return CrmItemErrors.TooManyVoidedRounds;
+            }
+
+            // Approved on content the client never saw: void this send, send the item again.
+            Guid nextApprovalId = CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1);
+            Result voidResult = item.VoidSend(approvalId, nextApprovalId);
+            if (voidResult.IsFailure)
+            {
+                return voidResult;
+            }
+
+            Result saveNext = await ItemWrites.SaveAsync(db, ct);
+            if (saveNext.IsFailure)
+            {
+                return saveNext;
+            }
+
+            approvalId = nextApprovalId;
+        }
+
+        return await ItemWrites.SaveAsync(db, ct);
     }
 }

@@ -30,6 +30,13 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
     public Guid? CreatedByContactId { get; private set; }
     public Guid? ProjectTaskId { get; private set; }
 
+    /// <summary>A-10 (B-M7): the approval the current send is bound to; a decision for any other approval is
+    /// stale and ignored. Mirrors <see cref="CrmBriefSpace.PendingApprovalId"/>.</summary>
+    public Guid? PendingApprovalId { get; private set; }
+
+    /// <summary>A-10: the item's send round — the round in its deterministic approval id.</summary>
+    public int SendCount { get; private set; }
+
     public bool IsLocked => ApprovalStatus is ApprovalState.Approved or ApprovalState.NotRequired;
 
     private CrmRequirementItem() { }
@@ -137,7 +144,7 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
         return Result.Success();
     }
 
-    public Result Send()
+    public Result Send(Guid approvalId)
     {
         if (CreatedByEmployeeId is null)
         {
@@ -150,28 +157,46 @@ internal sealed class CrmRequirementItem : Entity, IAuditable
         }
 
         ApprovalStatus = ApprovalState.PendingApproval;
+        PendingApprovalId = approvalId;
+        SendCount++;
         return Result.Success();
     }
 
-    internal Result MarkApproved()
+    /// <summary>The item counterpart of <see cref="CrmBriefSpace.VoidSend"/>: rebinds the pending send to
+    /// <paramref name="nextApprovalId"/> and counts it as a new send.</summary>
+    internal Result VoidSend(Guid voidedApprovalId, Guid nextApprovalId)
     {
-        if (ApprovalStatus != ApprovalState.PendingApproval)
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != voidedApprovalId)
+        {
+            return CrmItemErrors.NotPending;
+        }
+
+        PendingApprovalId = nextApprovalId;
+        SendCount++;
+        return Result.Success();
+    }
+
+    internal Result MarkApproved(Guid approvalId)
+    {
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmItemErrors.NotPending;
         }
 
         ApprovalStatus = ApprovalState.Approved;
+        PendingApprovalId = null;
         return Result.Success();
     }
 
-    internal Result MarkRejected()
+    internal Result MarkRejected(Guid approvalId)
     {
-        if (ApprovalStatus != ApprovalState.PendingApproval)
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
         {
             return CrmItemErrors.NotPending;
         }
 
         ApprovalStatus = ApprovalState.Rejected;
+        PendingApprovalId = null;
         return Result.Success();
     }
 
