@@ -1,3 +1,4 @@
+using Crm.Application.Features.Briefs;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Periods;
 using Crm.Domain;
@@ -32,6 +33,16 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
         if (project is null)
         {
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
+        }
+
+        // A-2 (X-5): closing a period satisfies its stage's gate, so the stage must be this project's.
+        if (command.ProjectStageId is { } stageId)
+        {
+            Result stage = await BriefReferenceValidator.ValidateStageAsync(projectDirectory, command.ProjectId, stageId, ct);
+            if (stage.IsFailure)
+            {
+                return Result.Failure<Guid>(stage.Error);
+            }
         }
 
         bool alreadyOpen = await db.CrmRequirementPeriods.AnyAsync(

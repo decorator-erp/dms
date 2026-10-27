@@ -29,9 +29,9 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
-        (string _, Guid clientId) = await CreateClientAsync(sp, "period-client");
-        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
-        var stageId = Guid.NewGuid();
+        // A-2: the stage must be a real stage of this project, so seed a project with one.
+        BriefTestProject seeded = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "period-client");
+        (Guid projectId, Guid employeeId, Guid stageId) = (seeded.ProjectId, seeded.EmployeeId, seeded.StageId);
 
         ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Result<Guid> openResult = await open.HandleAsync(
