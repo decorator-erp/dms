@@ -20,6 +20,18 @@ public sealed record LeadConvertedIntegrationEvent(
 public sealed record ClientCreatedIntegrationEvent(
     Guid EventId, Guid ClientId, string AppUserId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
 
+/// <summary>X-3: published when a client goes from active to inactive — <c>DeleteClientCommand</c> (a soft
+/// delete) or <c>SetClientActiveCommand(false)</c> — in the same save as the change, and only on an actual
+/// change. CRM's own <c>ClientDeactivatedIntegrationEventHandler</c> disables the portal login.</summary>
+public sealed record ClientDeactivatedIntegrationEvent(
+    Guid EventId, Guid ClientId, string AppUserId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>X-3: the inverse of <see cref="ClientDeactivatedIntegrationEvent"/> —
+/// <c>SetClientActiveCommand(true)</c> on an inactive client. CRM's own
+/// <c>ClientReactivatedIntegrationEventHandler</c> re-enables the portal login.</summary>
+public sealed record ClientReactivatedIntegrationEvent(
+    Guid EventId, Guid ClientId, string AppUserId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
 /// <summary>Published when a <c>CrmMeeting</c> is scheduled from an accepted slot — no subscriber in
 /// this repo yet; recorded for the same reason as <see cref="LeadConvertedIntegrationEvent"/>
 /// (Notifications' meeting-reminder seam, explicitly deferred per the phase's scope table).</summary>

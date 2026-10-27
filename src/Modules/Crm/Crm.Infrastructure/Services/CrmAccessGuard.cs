@@ -21,7 +21,7 @@ namespace Crm.Infrastructure.Services;
 /// <c>crm.clients.AppUserId</c>. No cross-module call.</description></item>
 /// </list>
 ///
-/// A caller who is neither (no employee record, no client record for that app user id) is not an
+/// A caller who is neither (no employee record, no active client record for that app user id) is not an
 /// authentication failure — it is a caller with no standing in CRM, surfaced as a 403-shaped error per
 /// <see cref="ICrmAccessGuard.ResolveActorAsync"/>'s own doc comment.
 /// </summary>
@@ -37,10 +37,12 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 
         var client = await db.Clients.AsNoTracking()
             .Where(c => c.AppUserId == appUserId)
-            .Select(c => new { c.Id })
+            .Select(c => new { c.Id, c.IsActive })
             .FirstOrDefaultAsync(ct);
 
-        if (client is not null)
+        // X-3: a deactivated (or soft-deleted) client has no standing. Same error as "no client at all",
+        // so the caller learns nothing about the row.
+        if (client is { IsActive: true })
         {
             // LC-L1: the primary contact acts for the client; the oldest contact only when none is primary.
             Guid? contactId = await db.CrmContacts.AsNoTracking()
@@ -83,7 +85,7 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
         if (remaining.Count > 0)
         {
             var clients = await db.Clients.AsNoTracking()
-                .Where(c => remaining.Contains(c.AppUserId))
+                .Where(c => remaining.Contains(c.AppUserId) && c.IsActive)
                 .Select(c => new { c.Id, c.AppUserId })
                 .ToListAsync(ct);
 
@@ -112,7 +114,7 @@ internal static class CrmAccessErrors
         "crm.access.Unauthenticated", "The current user could not be identified.");
 
     public static readonly Error NoStanding = Error.Forbidden(
-        "crm.access.NoStanding", "This user has no CRM identity (neither an employee nor a client record).");
+        "crm.access.NoStanding", "This user has no active CRM standing.");
 
     /// <summary>G9-14: surfaced by the endpoint layer (<c>CrmEndpointActors</c>), not this guard itself —
     /// several CRM commands (<c>CreatedById</c>/<c>WrittenById</c>/<c>OwnerId</c>-shaped) take a

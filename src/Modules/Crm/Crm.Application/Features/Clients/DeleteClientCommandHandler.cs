@@ -14,7 +14,7 @@ internal sealed class DeleteClientCommandValidator : AbstractValidator<DeleteCli
 
 /// <summary>Soft delete only, matching the module-wide convention (<c>Entity.IsActive = false</c>) —
 /// deactivation, not a row removal, since other rows (contacts, notes, meetings) reference this
-/// client.</summary>
+/// client. X-3: the delete also disables the portal login, through the outbox.</summary>
 internal sealed class DeleteClientCommandHandler(CrmDbContext db) : ICommandHandler<DeleteClientCommand>
 {
     public async Task<Result> HandleAsync(DeleteClientCommand command, CancellationToken ct = default)
@@ -25,7 +25,9 @@ internal sealed class DeleteClientCommandHandler(CrmDbContext db) : ICommandHand
             return ClientErrors.NotFound;
         }
 
+        bool wasActive = client.IsActive;
         client.Deactivate();
+        ClientStandingEvents.EnqueueOnChange(db, client, wasActive);
         await db.SaveChangesAsync(ct);
 
         return Result.Success();

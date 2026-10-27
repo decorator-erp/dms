@@ -1,6 +1,8 @@
 using BuildingBlocks.Events;
 using Crm.Contracts;
+using Crm.Infrastructure.Persistence;
 using Identity.Contracts;
+using Microsoft.Extensions.Logging;
 using SharedKernel;
 
 namespace Crm.Infrastructure.IntegrationEvents;
@@ -23,12 +25,25 @@ namespace Crm.Infrastructure.IntegrationEvents;
 /// Notifications is registered last in <c>Program.cs</c> for unrelated reasons; that ordering is
 /// accidental and must not be relied on. HR's <c>HireActivationRetryTests</c> covers the retry path for
 /// the identical shape on the employee side.</para>
+///
+/// <para><b>X-3: the current state wins.</b> Because activation is retry-dependent, a client can be created
+/// and then deactivated or deleted before this succeeds. Activating then would re-enable a deleted client's
+/// login, so the handler re-reads the client and skips activation unless it is still active.</para>
 /// </summary>
-internal sealed class ClientCreatedIntegrationEventHandler(IUserAdministration userAdministration)
+internal sealed class ClientCreatedIntegrationEventHandler(
+    IUserAdministration userAdministration, CrmDbContext db, ILogger<ClientCreatedIntegrationEventHandler> logger)
     : IIntegrationEventHandler<ClientCreatedIntegrationEvent>
 {
     public async Task HandleAsync(ClientCreatedIntegrationEvent @event, CancellationToken ct)
     {
+        if (await ClientStanding.IsActiveAsync(db, @event.ClientId, ct) is not true)
+        {
+            logger.LogWarning(
+                "Not activating the portal login {AppUserId}: client {ClientId} is no longer active",
+                @event.AppUserId, @event.ClientId);
+            return;
+        }
+
         Result result = await userAdministration.ReactivateAsync(@event.AppUserId, ct);
         if (result.IsFailure)
         {
