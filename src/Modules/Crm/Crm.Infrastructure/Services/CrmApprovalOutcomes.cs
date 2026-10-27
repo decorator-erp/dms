@@ -49,7 +49,7 @@ internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateRe
         return Result.Success();
     }
 
-    /// <summary>Same binding rule as <see cref="ApplyToBrief"/>. On success, flushes (a lost
+    /// <summary>Same binding rule as <see cref="ApplyToBriefAsync"/>. On success, flushes (a lost
     /// <c>xmin</c> race is <see cref="CrmBriefErrors.ConcurrencyConflict"/>) and publishes
     /// <see cref="CrmItemsResolvedIntegrationEvent"/> for any scope the entry just resolved.</summary>
     public async Task<Result> ApplyToBriefSpaceAsync(

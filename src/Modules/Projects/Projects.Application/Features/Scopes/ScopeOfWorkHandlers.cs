@@ -25,6 +25,10 @@ internal sealed class UpdateScopeOfWorkHeaderCommandValidator : AbstractValidato
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
         RuleFor(x => x.DurationDays).InclusiveBetween(1, 3650).When(x => x.DurationDays.HasValue);
+        // Bounded so PlannedStartDate + DurationDays (up to 3650) always stays a valid date.
+        RuleFor(x => x.PlannedStartDate)
+            .InclusiveBetween(new DateOnly(2000, 1, 1), new DateOnly(2100, 12, 31))
+            .When(x => x.PlannedStartDate.HasValue);
         RuleFor(x => x.AdjustmentAmount).InclusiveBetween(-1_000_000_000_000m, 1_000_000_000_000m);
         RuleFor(x => x.AdjustmentNote).MaximumLength(500);
         RuleFor(x => x.Notes).MaximumLength(2000);
@@ -61,7 +65,8 @@ internal sealed class UpdateScopeOfWorkItemCommandValidator : AbstractValidator<
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
         RuleFor(x => x.ItemId).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(256);
+        // ProjectStage.Name's length: confirm copies this name into the stage it creates.
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.Fee).InclusiveBetween(0m, 1_000_000_000_000m);
     }

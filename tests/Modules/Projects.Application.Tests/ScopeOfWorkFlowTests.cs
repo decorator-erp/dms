@@ -175,12 +175,15 @@ public sealed class ScopeOfWorkFlowTests(ProjectsApplicationFixture fixture)
         (_, IReadOnlyList<SeededStage> s) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Val", 5m);
         Guid itemId = (await AddAsync(p, s[0].Id)).Value![0].Id;
 
-        Result longName = await SendAsync(p, new UpdateScopeOfWorkItemCommand(p.ProjectId, p.OfficeUserId, itemId, new string('n', 257), null, 1m));
+        Result longName = await SendAsync(p, new UpdateScopeOfWorkItemCommand(p.ProjectId, p.OfficeUserId, itemId, new string('n', 201), null, 1m));
         Result negativeFee = await SendAsync(p, new UpdateScopeOfWorkItemCommand(p.ProjectId, p.OfficeUserId, itemId, "Ok", null, -1m));
         Result zeroDuration = await SendAsync(p, new UpdateScopeOfWorkHeaderCommand(p.ProjectId, p.OfficeUserId, 0, null, 0m, null, null));
         Result longNote = await SendAsync(p, new UpdateScopeOfWorkHeaderCommand(p.ProjectId, p.OfficeUserId, 10, null, -1m, new string('x', 501), null));
 
-        Assert.All([longName, negativeFee, zeroDuration, longNote], r => Assert.Equal(400, r.Error.Status));
+        // Far enough out that start + duration would overflow DateOnly on every later read.
+        Result farStart = await SendAsync(p, new UpdateScopeOfWorkHeaderCommand(p.ProjectId, p.OfficeUserId, 3650, new DateOnly(9999, 12, 1), 0m, null, null));
+
+        Assert.All([longName, negativeFee, zeroDuration, longNote, farStart], r => Assert.Equal(400, r.Error.Status));
         Assert.Equal(5m, (await GetAsync(p)).Items[0].Fee);
     }
 

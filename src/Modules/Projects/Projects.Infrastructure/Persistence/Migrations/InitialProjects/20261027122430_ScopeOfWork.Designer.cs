@@ -12,7 +12,7 @@ using Projects.Infrastructure.Persistence;
 namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 {
     [DbContext(typeof(ProjectsDbContext))]
-    [Migration("20261027085831_ScopeOfWork")]
+    [Migration("20261027122430_ScopeOfWork")]
     partial class ScopeOfWork
     {
         /// <inheritdoc />
@@ -642,8 +642,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("Order")
                         .HasColumnType("integer");

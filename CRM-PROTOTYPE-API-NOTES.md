@@ -78,7 +78,7 @@ Gates on `1008f3c` (plus the format commit):
 
 Two, both additive.
 
-**Projects — `20261027085831_ScopeOfWork`** (two tables + `stages.DefaultFee`):
+**Projects — `20261027122430_ScopeOfWork`** (two tables + `stages.DefaultFee`):
 
 ```csharp
 protected override void Up(MigrationBuilder migrationBuilder)
@@ -121,7 +121,7 @@ protected override void Up(MigrationBuilder migrationBuilder)
             Id = table.Column<Guid>(type: "uuid", nullable: false),
             ScopeOfWorkId = table.Column<Guid>(type: "uuid", nullable: false),
             SourceStageId = table.Column<Guid>(type: "uuid", nullable: false),
-            Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+            Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
             Description = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
             Order = table.Column<int>(type: "integer", nullable: false),
             Fee = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
@@ -305,7 +305,7 @@ ScopeOfWorkItemResponse {
   tasks, subtasks and teams copied from the source. With a planned start, the project's `estimatedStartDate` becomes
   that date at 00:00Z and `estimatedEndDate` = start + `durationDays`; without one, the project's dates are left
   alone. After confirm, every change is 409.
-- Limits: name 256, description 2000, note 500, notes 2000; `durationDays` 1–3650; fee ≥ 0; adjustment ±1e12;
+- Limits: name 200 (the stage name it becomes), description 2000, note 500, notes 2000; `durationDays` 1–3650; `plannedStartDate` 2000-01-01..2100-12-31; fee ≥ 0; adjustment ±1e12;
   at most 50 items.
 
 ### Changed shapes
@@ -359,3 +359,28 @@ login (see Step 0, Tokens).
 ### Converting a lead into a new client
 
 No API change: `POST /api/clients` to create the client, then `POST /api/crm/leads/{id}/convert` with its id.
+
+## Review fixes (before merge)
+
+A code review of PR 13 found two real 500s and some smaller issues. Fixed on the branch before merging:
+- **Item name vs stage name.** A scope item's name allowed 256 characters, but confirm copies it into
+  `ProjectStage.Name` (`varchar(200)`), so a 201–256 character name made every confirm a 500 (Postgres 22001). The
+  validator and the `scope_of_work_items.Name` column are now 200. The unmerged `ScopeOfWork` migration was
+  regenerated (`20261027122430`), so the PR still has one Projects migration. Tests: the validation test now uses
+  a 201-character name; `An_item_name_at_the_longest_allowed_length_confirms_into_a_stage` confirms a 200-character
+  name.
+- **Planned start overflow.** An unbounded `plannedStartDate` (e.g. 9999-12-01) plus `durationDays` overflowed
+  `DateOnly` on every later GET and on confirm (500). The header validator bounds it to 2000-01-01..2100-12-31.
+  Red on the old validator: the validation test failed.
+- **CRM `/rounds` route** now uses `CrmEndpointActors.RequireUserId` like its siblings (401 instead of a null
+  user id), and sits after the round-diff route so the diff's comment is back on its own route.
+- `CrmApprovalOutcomes`' doc reference points at `ApplyToBriefAsync`; `GetStagesByTemplate` projects in SQL again.
+
+Kept as is, by decision:
+- The notes file at the repo root: the session prompt put it there, as PRs 10–12 did.
+- The confirm handler's own-transaction fallback, which mirrors `SaveCrmLeadIntakeCommandHandler`.
+- `ConfirmedById` from `ICurrentUser`, as the prompt asked ("as `CreateProject` resolves its owner").
+- `ScopeOfWorkStore`, a static helper over the module's `DbContext`, not a repository abstraction.
+
+After the fixes: **1567 passed, 0 failed, 0 skipped**; Architecture 35/35; `build -warnaserror` clean; no pending
+model changes for Projects or Crm.

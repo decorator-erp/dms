@@ -60,7 +60,7 @@ public partial class ScopeOfWork : Migration
                 Id = table.Column<Guid>(type: "uuid", nullable: false),
                 ScopeOfWorkId = table.Column<Guid>(type: "uuid", nullable: false),
                 SourceStageId = table.Column<Guid>(type: "uuid", nullable: false),
-                Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                 Description = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                 Order = table.Column<int>(type: "integer", nullable: false),
                 Fee = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),

@@ -14,7 +14,8 @@ internal sealed class ScopeOfWorkItemConfiguration : IEntityTypeConfiguration<Sc
         builder.ToTable("scope_of_work_items");
         builder.ConfigureEntityConventions();
 
-        builder.Property(i => i.Name).HasMaxLength(256).IsRequired();
+        // 200, not 256: confirm copies the name into ProjectStage.Name, which is varchar(200).
+        builder.Property(i => i.Name).HasMaxLength(200).IsRequired();
         builder.Property(i => i.Description).HasMaxLength(2000);
         builder.Property(i => i.Fee).HasPrecision(18, 2);
 

@@ -639,8 +639,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("Order")
                         .HasColumnType("integer");

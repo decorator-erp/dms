@@ -71,6 +71,24 @@ public sealed class ScopeOfWorkConfirmTests(ProjectsApplicationFixture fixture)
     }
 
     [Fact]
+    public async Task An_item_name_at_the_longest_allowed_length_confirms_into_a_stage()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "long-name");
+        (_, IReadOnlyList<SeededStage> s) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "LongName", 10m);
+        Guid itemId = (await AddAsync(p, s[0].Id)).Value![0].Id;
+        string longest = new('n', 200);
+        Assert.True((await SendAsync(p, new UpdateScopeOfWorkItemCommand(p.ProjectId, p.OfficeUserId, itemId, longest, null, 10m))).IsSuccess);
+        await SetHeaderAsync(p, durationDays: 10);
+
+        Result<ConfirmScopeOfWorkResponse> result = await ConfirmAsync(p);
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+        await using AsyncServiceScope read = fixture.CreateScope();
+        Assert.Equal(longest, (await read.ServiceProvider.GetRequiredService<ProjectsDbContext>().ProjectStages.AsNoTracking()
+            .SingleAsync(x => x.ProjectId == p.ProjectId)).Name);
+    }
+
+    [Fact]
     public async Task Confirm_sets_the_project_dates_from_the_planned_start_at_midnight_utc()
     {
         ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "dates");

@@ -149,15 +149,6 @@ internal sealed class CrmBriefEndpoints : IEndpoint
         // is the office (scoped by CrmProjectScopeDecorator, budget included); otherwise
         // crm.briefs.view_own is the client (own projects only, no budget); neither is a 403. There is no
         // any-of permission helper, hence RequireAuthorization() plus the explicit checks.
-        byId.MapGet("/rounds", async (
-            Guid briefId, ICurrentUser currentUser,
-            IQueryHandler<GetCrmBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>> handler, CancellationToken ct) =>
-        {
-            Result<IReadOnlyList<CrmBriefRoundResponse>> result = await handler.HandleAsync(
-                new GetCrmBriefRoundsQuery(briefId, currentUser.UserId!), ct);
-            return result.Match(Results.Ok, r => r.ToProblem());
-        }).RequirePermission(CrmPermissions.Briefs.Read);
-
         byId.MapGet("/rounds/{round:int}/diff", async (
             Guid briefId, int round, ICurrentUser currentUser,
             IQueryHandler<GetCrmBriefRoundDiffQuery, BriefHeadDiffResponse> officeHandler,
@@ -184,6 +175,22 @@ internal sealed class CrmBriefEndpoints : IEndpoint
 
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequireAuthorization();
+
+        // The office's list of the brief's rounds (voided ones included); the client's is the portal route.
+        byId.MapGet("/rounds", async (
+            Guid briefId, ICurrentUser currentUser,
+            IQueryHandler<GetCrmBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>> handler, CancellationToken ct) =>
+        {
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmBriefRoundResponse>> result = await handler.HandleAsync(
+                new GetCrmBriefRoundsQuery(briefId, userId.Value!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Briefs.Read);
 
         RouteGroupBuilder spaces = app.MapGroup("/api/crm/brief-spaces/{entryId:guid}").WithTags("Crm Briefs");
 

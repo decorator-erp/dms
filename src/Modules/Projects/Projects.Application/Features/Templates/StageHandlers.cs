@@ -84,9 +84,10 @@ internal sealed class GetStagesByTemplateQueryHandler(ProjectsDbContext db)
 {
     public async Task<Result<IReadOnlyList<StageResponse>>> HandleAsync(GetStagesByTemplateQuery query, CancellationToken ct = default)
     {
-        List<Stage> stages = await db.Stages.AsNoTracking()
+        var stages = await db.Stages.AsNoTracking()
             .Where(s => s.StageTemplateId == query.StageTemplateId)
             .OrderBy(s => s.Order)
+            .Select(s => new { s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee })
             .ToListAsync(ct);
 
         // One grouped count for the whole template, never one count per stage.
