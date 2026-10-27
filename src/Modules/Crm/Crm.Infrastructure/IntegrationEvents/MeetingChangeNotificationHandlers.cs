@@ -58,7 +58,7 @@ internal static class MeetingChangeNotices
         }
 
         await notifications.NotifyManyAsync(
-            targets, type, title: $"{titlePrefix} — {meeting.Title}", body: body,
+            targets, type, title: MeetingTimes.Title(titlePrefix, meeting.Title), body: body,
             entityType: NotificationEntityType.Meeting, entityId: meetingId, dedupeKey: dedupeKey, ct: ct);
     }
 }

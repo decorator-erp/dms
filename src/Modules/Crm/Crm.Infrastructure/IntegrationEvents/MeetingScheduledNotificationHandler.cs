@@ -53,8 +53,8 @@ internal sealed class MeetingScheduledNotificationHandler(
         await notifications.NotifyManyAsync(
             targets,
             NotificationType.CrmMeetingScheduled,
-            title: $"Meeting scheduled — {meeting.Title}",
-            body: $"The meeting is confirmed for {@event.ScheduledAtUtc:yyyy-MM-dd HH:mm} UTC.",
+            title: MeetingTimes.Title("Meeting scheduled", meeting.Title),
+            body: $"The meeting is confirmed for {MeetingTimes.Display(@event.ScheduledAtUtc)}.",
             entityType: NotificationEntityType.Meeting,
             entityId: @event.MeetingId,
             dedupeKey: $"crm-meeting-{@event.MeetingId}-scheduled-{MeetingRecipients.Instant(@event.ScheduledAtUtc)}",
