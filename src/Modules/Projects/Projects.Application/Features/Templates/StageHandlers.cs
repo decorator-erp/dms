@@ -15,7 +15,9 @@ internal sealed class CreateStageCommandValidator : AbstractValidator<CreateStag
     {
         RuleFor(x => x.StageTemplateId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
+        // Same cap as a scope item's fee, so any default fee can be copied onto an item, and a value past the
+        // numeric(18,2) column is a 400 rather than an overflow at save.
+        RuleFor(x => x.DefaultFee).InclusiveBetween(0m, 1_000_000_000_000m).When(x => x.DefaultFee.HasValue);
     }
 }
 
@@ -25,7 +27,9 @@ internal sealed class UpdateStageCommandValidator : AbstractValidator<UpdateStag
     {
         RuleFor(x => x.StageId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200).When(x => x.Name is not null);
-        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
+        // Same cap as a scope item's fee, so any default fee can be copied onto an item, and a value past the
+        // numeric(18,2) column is a 400 rather than an overflow at save.
+        RuleFor(x => x.DefaultFee).InclusiveBetween(0m, 1_000_000_000_000m).When(x => x.DefaultFee.HasValue);
     }
 }
 
@@ -90,12 +94,15 @@ internal sealed class GetStagesByTemplateQueryHandler(ProjectsDbContext db)
             .Select(s => new { s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee })
             .ToListAsync(ct);
 
-        // One grouped count for the whole template, never one count per stage.
-        Dictionary<Guid, int> taskCounts = await db.StageTasks.AsNoTracking()
-            .Where(t => db.Stages.Any(s => s.Id == t.StageId && s.StageTemplateId == query.StageTemplateId))
-            .GroupBy(t => t.StageId)
-            .Select(g => new { StageId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.StageId, g => g.Count, ct);
+        // One grouped count over the stage ids already loaded, never one count per stage; none for an empty template.
+        var stageIds = stages.Select(s => s.Id).ToList();
+        Dictionary<Guid, int> taskCounts = stageIds.Count == 0
+            ? []
+            : await db.StageTasks.AsNoTracking()
+                .Where(t => stageIds.Contains(t.StageId))
+                .GroupBy(t => t.StageId)
+                .Select(g => new { StageId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.StageId, g => g.Count, ct);
 
         return Result.Success<IReadOnlyList<StageResponse>>([.. stages.Select(s => new StageResponse(
             s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee,
