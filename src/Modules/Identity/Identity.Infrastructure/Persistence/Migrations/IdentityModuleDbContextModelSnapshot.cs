@@ -153,9 +153,19 @@ namespace Identity.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("content");
 
+                    b.Property<DateTimeOffset?>("DeadLetteredUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dead_lettered_utc");
+
                     b.Property<string>("Error")
                         .HasColumnType("text")
                         .HasColumnName("error");
+
+                    b.Property<DateTimeOffset>("NextAttemptUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_utc")
+                        .HasDefaultValueSql("now()");
 
                     b.Property<DateTimeOffset>("OccurredUtc")
                         .HasColumnType("timestamp with time zone")
@@ -172,9 +182,9 @@ namespace Identity.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OccurredUtc")
+                    b.HasIndex("NextAttemptUtc", "OccurredUtc")
                         .HasDatabaseName("ix_outbox_messages_unprocessed")
-                        .HasFilter("processed_utc IS NULL");
+                        .HasFilter("processed_utc IS NULL AND dead_lettered_utc IS NULL");
 
                     b.ToTable("outbox_messages", "shared", t =>
                         {

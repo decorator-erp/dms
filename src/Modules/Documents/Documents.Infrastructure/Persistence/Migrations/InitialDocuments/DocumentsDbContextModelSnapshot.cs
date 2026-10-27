@@ -18,10 +18,100 @@ namespace Documents.Infrastructure.Persistence.Migrations.InitialDocuments
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("documents")
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("BuildingBlocks.Auditing.AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ChangedColumns")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_columns");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("entity_name");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("new_values");
+
+                    b.Property<string>("OldValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("old_values");
+
+                    b.Property<string>("RequestMethod")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("request_method");
+
+                    b.Property<string>("RequestPath")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("request_path");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<string>("UserAgent")
+                        .HasColumnType("text")
+                        .HasColumnName("user_agent");
+
+                    b.Property<string>("UserEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("user_email");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Timestamp")
+                        .IsDescending()
+                        .HasDatabaseName("ix_audit_logs_timestamp");
+
+                    b.HasIndex("EntityName", "EntityId")
+                        .HasDatabaseName("ix_audit_logs_entity");
+
+                    b.HasIndex("UserId", "Timestamp")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_audit_logs_user_timestamp");
+
+                    b.ToTable("audit_logs", "shared", t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
 
             modelBuilder.Entity("BuildingBlocks.Outbox.InboxMessage", b =>
                 {
@@ -63,9 +153,19 @@ namespace Documents.Infrastructure.Persistence.Migrations.InitialDocuments
                         .HasColumnType("jsonb")
                         .HasColumnName("content");
 
+                    b.Property<DateTimeOffset?>("DeadLetteredUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dead_lettered_utc");
+
                     b.Property<string>("Error")
                         .HasColumnType("text")
                         .HasColumnName("error");
+
+                    b.Property<DateTimeOffset>("NextAttemptUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_utc")
+                        .HasDefaultValueSql("now()");
 
                     b.Property<DateTimeOffset>("OccurredUtc")
                         .HasColumnType("timestamp with time zone")
@@ -82,9 +182,9 @@ namespace Documents.Infrastructure.Persistence.Migrations.InitialDocuments
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OccurredUtc")
+                    b.HasIndex("NextAttemptUtc", "OccurredUtc")
                         .HasDatabaseName("ix_outbox_messages_unprocessed")
-                        .HasFilter("processed_utc IS NULL");
+                        .HasFilter("processed_utc IS NULL AND dead_lettered_utc IS NULL");
 
                     b.ToTable("outbox_messages", "shared", t =>
                         {
