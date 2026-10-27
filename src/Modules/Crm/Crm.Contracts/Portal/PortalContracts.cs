@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using Crm.Contracts.Briefs;
 
 namespace Crm.Contracts.Portal;
@@ -53,9 +54,10 @@ public sealed record PortalBriefSpaceResponse(
     CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent);
 
 /// <summary>Meetings visible to the calling client's own projects only — resolved via
-/// <c>ICrmAccessGuard</c>, never a project id supplied by the caller.</summary>
-public sealed record GetMyPortalMeetingsQuery(string AppUserId)
-    : IQuery<IReadOnlyList<PortalMeetingResponse>>, ICrmScoped;
+/// <c>ICrmAccessGuard</c>, never a project id supplied by the caller. B-15 (MT-N7): paged, newest first —
+/// <see cref="PageNumber"/> from 1, <see cref="PageSize"/> 1..200.</summary>
+public sealed record GetMyPortalMeetingsQuery(string AppUserId, int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<PortalMeetingResponse>>, ICrmScoped;
 
 /// <summary>The client's own brief for one project. With <see cref="StageId"/>, that stage's brief;
 /// without it, the most recently created brief on the project (a project has one brief per

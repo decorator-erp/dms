@@ -6,6 +6,7 @@ using Crm.Infrastructure.Services;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Notifications.Contracts;
 using Projects.Contracts;
 using MeetingStatus = Crm.Domain.MeetingStatus;
@@ -33,6 +34,7 @@ internal sealed class CrmMeetingReminderJob(
     IProjectDirectory projectDirectory,
     INotificationService notifications,
     TimeProvider timeProvider,
+    IOptions<OfficeHoursOptions> officeHours,
     ILogger<CrmMeetingReminderJob> logger) : IPeriodicJob
 {
     public string Name => nameof(CrmMeetingReminderJob);
@@ -92,7 +94,7 @@ internal sealed class CrmMeetingReminderJob(
                 [.. targets],
                 NotificationType.CrmMeetingReminder,
                 title: MeetingTimes.Title("Meeting reminder", meeting.Title),
-                body: $"Your meeting is at {MeetingTimes.Display(at)}.",
+                body: $"Your meeting is at {MeetingTimes.Display(at, officeHours.Value.TimezoneId)}.",
                 entityType: NotificationEntityType.Meeting,
                 entityId: meeting.Id,
                 dedupeKey: $"crm-meeting-{meeting.Id}-reminder-{MeetingRecipients.Instant(at)}",

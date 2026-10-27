@@ -299,11 +299,11 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
             otherProjectId, employeeId, "Someone else's meeting", MeetingType.InOffice,
             [new CrmMeetingSlotRequest(DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1))], UserId: Me(sp)))).IsSuccess);
 
-        IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>> getPortalMeetings = sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>>>();
-        Result<IReadOnlyList<PortalMeetingResponse>> result = await getPortalMeetings.HandleAsync(new GetMyPortalMeetingsQuery(clientAppUserId));
+        IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>> getPortalMeetings = sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>>>();
+        Result<PagedResult<PortalMeetingResponse>> result = await getPortalMeetings.HandleAsync(new GetMyPortalMeetingsQuery(clientAppUserId));
 
         Assert.True(result.IsSuccess);
-        PortalMeetingResponse meeting = Assert.Single(result.Value!);
+        PortalMeetingResponse meeting = Assert.Single(result.Value!.Items);
         Assert.Equal(ownMeetingId, meeting.Id);
         Assert.Equal("My project's meeting", meeting.Title);
     }

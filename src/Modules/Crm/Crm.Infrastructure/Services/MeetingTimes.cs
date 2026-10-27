@@ -9,8 +9,22 @@ internal static class MeetingTimes
     /// <summary>The notification title column's length (Notifications' configuration).</summary>
     private const int TitleMaxLength = 256;
 
-    public static string Display(DateTime utc) =>
-        utc.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+    /// <summary>B-15 (MT-N8): the time in the office zone (<see cref="OfficeHoursOptions.TimezoneId"/>), with
+    /// the zone named — "2026-11-02 14:00 (Africa/Cairo)". An unknown zone id falls back to UTC rather
+    /// than failing the notification.</summary>
+    public static string Display(DateTime utc, string timeZoneId)
+    {
+        var instant = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        try
+        {
+            DateTime local = TimeZoneInfo.ConvertTimeFromUtc(instant, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId));
+            return $"{local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} ({timeZoneId})";
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return $"{instant.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} (UTC)";
+        }
+    }
 
     /// <summary>"{prefix} — {meeting title}", cut to the column: a 256-character meeting title would
     /// otherwise overflow the notification title and fail the send on every attempt.</summary>

@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using BuildingBlocks.Pagination;
 using Crm.Contracts;
 using Crm.Contracts.Briefs;
 using Crm.Contracts.Clients;
@@ -38,7 +39,7 @@ public sealed class ClientStandingTests(CrmApplicationFixture fixture)
             .HandleAsync(new GetMyPortalBriefQuery(user, p.ProjectId, p.StageId))).Error.Code);
         Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>>()
             .HandleAsync(new GetMyPortalBriefRoundsQuery(user, Guid.NewGuid()))).Error.Code);
-        Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>>>()
+        Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>>>()
             .HandleAsync(new GetMyPortalMeetingsQuery(user))).Error.Code);
 
         // Every portal write (item create, meeting request, slot accept/decline, reschedule, cancel) resolves

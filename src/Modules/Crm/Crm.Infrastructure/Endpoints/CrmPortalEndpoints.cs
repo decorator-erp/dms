@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -69,10 +70,12 @@ internal sealed class CrmPortalEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Requirements.SubmitOwn);
 
         portal.MapGet("/meetings", async (
-            ICurrentUser currentUser, IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>> handler,
+            int? pageNumber, int? pageSize,
+            ICurrentUser currentUser, IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>> handler,
             CancellationToken ct) =>
         {
-            Result<IReadOnlyList<PortalMeetingResponse>> result = await handler.HandleAsync(new GetMyPortalMeetingsQuery(currentUser.UserId!), ct);
+            Result<PagedResult<PortalMeetingResponse>> result = await handler.HandleAsync(
+                new GetMyPortalMeetingsQuery(currentUser.UserId!, pageNumber ?? 1, pageSize ?? 50), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
 

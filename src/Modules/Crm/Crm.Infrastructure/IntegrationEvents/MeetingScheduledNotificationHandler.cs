@@ -4,6 +4,7 @@ using Crm.Infrastructure.Persistence;
 using Crm.Infrastructure.Services;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Notifications.Contracts;
 using Projects.Contracts;
 
@@ -26,7 +27,8 @@ internal sealed class MeetingScheduledNotificationHandler(
     IHrDirectory hrDirectory,
     IClientDirectory clientDirectory,
     IProjectDirectory projectDirectory,
-    INotificationService notifications) : IIntegrationEventHandler<MeetingScheduledIntegrationEvent>
+    INotificationService notifications,
+    IOptions<OfficeHoursOptions> officeHours) : IIntegrationEventHandler<MeetingScheduledIntegrationEvent>
 {
     public async Task HandleAsync(MeetingScheduledIntegrationEvent @event, CancellationToken ct)
     {
@@ -54,7 +56,7 @@ internal sealed class MeetingScheduledNotificationHandler(
             targets,
             NotificationType.CrmMeetingScheduled,
             title: MeetingTimes.Title("Meeting scheduled", meeting.Title),
-            body: $"The meeting is confirmed for {MeetingTimes.Display(@event.ScheduledAtUtc)}.",
+            body: $"The meeting is confirmed for {MeetingTimes.Display(@event.ScheduledAtUtc, officeHours.Value.TimezoneId)}.",
             entityType: NotificationEntityType.Meeting,
             entityId: @event.MeetingId,
             dedupeKey: $"crm-meeting-{@event.MeetingId}-scheduled-{MeetingRecipients.Instant(@event.ScheduledAtUtc)}",

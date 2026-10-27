@@ -29,7 +29,8 @@ public sealed partial class MeetingFixTests
                 sp.GetRequiredService<CrmDbContext>(), sp.GetRequiredService<IHrDirectory>(),
                 sp.GetRequiredService<IClientDirectory>(), sp.GetRequiredService<IProjectDirectory>(),
                 new FailingFor(failing, sp.GetRequiredService<INotificationService>()),
-                TimeProvider.System, NullLogger<CrmMeetingReminderJob>.Instance);
+                TimeProvider.System, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OfficeHoursOptions>>(),
+                NullLogger<CrmMeetingReminderJob>.Instance);
 
             await job.RunAsync(CancellationToken.None);
         }
@@ -52,7 +53,7 @@ public sealed partial class MeetingFixTests
 
         NotificationResponse reminder = Assert.Single(await NotificationsAsync(m.P.ClientAppUserId, meetingId),
             n => n.Type == NotificationType.CrmMeetingReminder);
-        Assert.Contains(MeetingTimes.Display(at), reminder.Body, StringComparison.Ordinal);
+        Assert.Contains(MeetingTimes.Display(at, "Africa/Cairo"), reminder.Body, StringComparison.Ordinal);
     }
 
     private async Task<Guid> ScheduleWithinADayAsync(MeetingProject m, int hours)
