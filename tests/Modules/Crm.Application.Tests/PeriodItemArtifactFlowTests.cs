@@ -186,7 +186,10 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         Result<Guid> result = await sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>()
             .HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with
             {
-                SpaceTypeId = spaceTypeId, Room = new string('r', 128), Title = new string('t', 256), Description = new string('d', 2000),
+                SpaceTypeId = spaceTypeId,
+                Room = new string('r', 128),
+                Title = new string('t', 256),
+                Description = new string('d', 2000),
             });
 
         Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);

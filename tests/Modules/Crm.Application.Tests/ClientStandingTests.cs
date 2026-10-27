@@ -1,5 +1,5 @@
-using BuildingBlocks.Outbox;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using Crm.Contracts;
 using Crm.Contracts.Briefs;
 using Crm.Contracts.Clients;
