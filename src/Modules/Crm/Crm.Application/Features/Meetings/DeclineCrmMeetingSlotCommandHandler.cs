@@ -16,6 +16,7 @@ internal sealed class DeclineCrmMeetingSlotCommandValidator : AbstractValidator<
         RuleFor(x => x.SlotId).NotEmpty();
         RuleFor(x => x.ActingEmployeeId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.CounterSlots).AreValidSlots();
     }
 }
 
@@ -25,6 +26,7 @@ internal sealed class DeclineCrmMeetingSlotByContactCommandValidator : AbstractV
     {
         RuleFor(x => x.SlotId).NotEmpty();
         RuleFor(x => x.ActingContactId).NotEmpty();
+        RuleFor(x => x.CounterSlots).AreValidSlots();
     }
 }
 

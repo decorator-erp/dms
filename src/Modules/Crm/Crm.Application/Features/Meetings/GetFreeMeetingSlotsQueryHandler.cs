@@ -14,6 +14,8 @@ internal sealed class GetFreeMeetingSlotsQueryValidator : AbstractValidator<GetF
     public GetFreeMeetingSlotsQueryValidator()
     {
         RuleFor(x => x.ProjectId).NotEmpty();
+        RuleFor(x => x.FromUtc).MustBeUtc();
+        RuleFor(x => x.ToUtc).MustBeUtc();
         RuleFor(x => x).Must(q => q.ToUtc > q.FromUtc).WithMessage("ToUtc must be after FromUtc.");
         RuleFor(x => x).Must(q => (q.ToUtc - q.FromUtc).TotalDays <= 60)
             .WithMessage("The free-slots window cannot exceed 60 days.");

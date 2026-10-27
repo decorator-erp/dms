@@ -17,6 +17,8 @@ internal sealed class RescheduleCrmMeetingCommandValidator : AbstractValidator<R
         RuleFor(x => x.MeetingId).NotEmpty();
         RuleFor(x => x.ActingEmployeeId).NotEmpty();
         RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.StartsAtUtc).MustBeUtc();
+        RuleFor(x => x.EndsAtUtc).MustBeUtc();
         RuleFor(x => x).Must(c => c.EndsAtUtc > c.StartsAtUtc).WithMessage("EndsAtUtc must be after StartsAtUtc.");
     }
 }
@@ -27,6 +29,8 @@ internal sealed class RescheduleCrmMeetingByContactCommandValidator : AbstractVa
     {
         RuleFor(x => x.MeetingId).NotEmpty();
         RuleFor(x => x.ActingContactId).NotEmpty();
+        RuleFor(x => x.StartsAtUtc).MustBeUtc();
+        RuleFor(x => x.EndsAtUtc).MustBeUtc();
         RuleFor(x => x).Must(c => c.EndsAtUtc > c.StartsAtUtc).WithMessage("EndsAtUtc must be after StartsAtUtc.");
     }
 }
