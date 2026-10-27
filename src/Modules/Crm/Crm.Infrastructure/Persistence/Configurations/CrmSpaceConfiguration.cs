@@ -23,8 +23,10 @@ internal sealed class CrmSpaceConfiguration : IEntityTypeConfiguration<CrmSpace>
         builder.HasIndex(s => s.SpaceTypeId);
 
         // Unique per project, case-insensitively - mirroring the backend's ux_crm_spaces_project_name.
-        builder.HasIndex(s => new { s.ProjectId, s.Name })
-            .HasDatabaseName("ux_crm_spaces_project_name")
-            .IsUnique();
+        // A-12 (B-L3): EF cannot model an index on lower("Name"), so it is not in this model: migration
+        // CrmItemsPeriodsHardening creates it with raw SQL as
+        //   ux_crm_spaces_project_name ON crm.crm_spaces ("ProjectId", lower("Name")),
+        // and CatalogWrites maps its violation to crm.spaces.DuplicateName (the handlers pre-check the same
+        // lowercased comparison).
     }
 }

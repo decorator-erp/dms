@@ -1523,10 +1523,6 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("SpaceTypeId");
 
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique()
-                        .HasDatabaseName("ux_crm_spaces_project_name");
-
                     b.ToTable("crm_spaces", "crm");
                 });
 

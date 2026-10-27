@@ -10,14 +10,6 @@ namespace Crm.Application.Features.Items;
 internal sealed class GetCrmRequirementItemsByPeriodQueryHandler(CrmDbContext db)
     : IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>
 {
-    internal static Func<CrmRequirementItem, CrmRequirementItemResponse> ToResponse() => i =>
-        new CrmRequirementItemResponse(
-            i.Id, i.ProjectId, i.PeriodId, CrmEnumMapping.ToContracts(i.Category), i.SpaceTypeId, i.Room,
-            i.Title, i.Description, CrmEnumMapping.ToContracts(i.Priority),
-            i.SourceType != null ? CrmEnumMapping.ToContracts(i.SourceType.Value) : null, i.MeetingId,
-            i.BriefId, i.NoteId, CrmEnumMapping.ToContracts(i.ApprovalStatus), i.SupersedesItemId,
-            i.CreatedByEmployeeId, i.CreatedByContactId, i.ProjectTaskId);
-
     public async Task<Result<IReadOnlyList<CrmRequirementItemResponse>>> HandleAsync(
         GetCrmRequirementItemsByPeriodQuery query, CancellationToken ct = default)
     {

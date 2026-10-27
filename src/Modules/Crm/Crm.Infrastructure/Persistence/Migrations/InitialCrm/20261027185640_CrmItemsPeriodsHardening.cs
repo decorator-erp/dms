@@ -18,6 +18,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm;
 /// wins) with <c>SendCount</c> 1, so its client's decision applies instead of being dropped. A documented one-off
 /// cross-schema read in a migration; the <c>to_regclass</c> guard keeps CRM migratable alone. Pending items with no
 /// open approval stay NULL — count them before deploying.</description></item>
+/// <item><description>A-12: <c>ux_crm_spaces_project_name</c> becomes case-insensitive, on <c>("ProjectId", lower("Name"))</c>,
+/// in raw SQL because EF cannot model an expression index (so it is not in the model snapshot either).</description></item>
 /// </list>
 ///
 /// <para><b>Guards first, before any DDL.</b> A change that could fail on existing data raises a clear error
@@ -39,6 +41,21 @@ public partial class CrmItemsPeriodsHardening : Migration
               END IF;
             END $$;
             """);
+
+        migrationBuilder.Sql("""
+            DO $$ BEGIN
+              IF EXISTS (
+                SELECT 1 FROM crm.crm_spaces
+                GROUP BY "ProjectId", lower("Name") HAVING COUNT(*) > 1)
+              THEN RAISE EXCEPTION 'crm_spaces has two spaces on one project whose names differ only in case — rename one before migrating';
+              END IF;
+            END $$;
+            """);
+
+        migrationBuilder.DropIndex(
+            name: "ux_crm_spaces_project_name",
+            schema: "crm",
+            table: "crm_spaces");
 
         migrationBuilder.DropIndex(
             name: "IX_crm_requirement_items_SupersedesItemId",
@@ -100,11 +117,19 @@ public partial class CrmItemsPeriodsHardening : Migration
               END IF;
             END $$;
             """);
+
+        migrationBuilder.Sql("""
+            CREATE UNIQUE INDEX ux_crm_spaces_project_name ON crm.crm_spaces ("ProjectId", lower("Name"));
+            """);
     }
 
     /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.Sql("""
+            DROP INDEX crm.ux_crm_spaces_project_name;
+            """);
+
         migrationBuilder.DropIndex(
             name: "IX_crm_requirement_items_SupersedesItemId",
             schema: "crm",
@@ -129,6 +154,13 @@ public partial class CrmItemsPeriodsHardening : Migration
             name: "xmin",
             schema: "crm",
             table: "crm_requirement_items");
+
+        migrationBuilder.CreateIndex(
+            name: "ux_crm_spaces_project_name",
+            schema: "crm",
+            table: "crm_spaces",
+            columns: new[] { "ProjectId", "Name" },
+            unique: true);
 
         migrationBuilder.CreateIndex(
             name: "IX_crm_requirement_items_SupersedesItemId",

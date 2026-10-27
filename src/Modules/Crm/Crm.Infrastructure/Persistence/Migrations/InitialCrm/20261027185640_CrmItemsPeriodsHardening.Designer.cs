@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 {
     [DbContext(typeof(CrmDbContext))]
-    [Migration("20261027184628_CrmItemsPeriodsHardening")]
+    [Migration("20261027185640_CrmItemsPeriodsHardening")]
     partial class CrmItemsPeriodsHardening
     {
         /// <inheritdoc />
@@ -1525,10 +1525,6 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("SpaceTypeId");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique()
-                        .HasDatabaseName("ux_crm_spaces_project_name");
 
                     b.ToTable("crm_spaces", "crm");
                 });

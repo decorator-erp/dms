@@ -58,7 +58,7 @@ internal sealed class UpdateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
         CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
         {
-            return CrmSpaceTypeErrors.CodeRequired;
+            return CrmSpaceTypeErrors.NotFound;
         }
 
         Result result = type.Update(command.NameEn, command.NameAr, command.SortOrder);
@@ -85,7 +85,7 @@ internal sealed class SetCrmSpaceTypeActiveCommandHandler(CrmDbContext db) : ICo
         CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
         {
-            return CrmSpaceTypeErrors.CodeRequired;
+            return CrmSpaceTypeErrors.NotFound;
         }
 
         if (command.IsActive)

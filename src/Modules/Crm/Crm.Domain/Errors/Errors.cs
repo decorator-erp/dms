@@ -170,6 +170,9 @@ internal static class CrmSpaceTypeErrors
 {
     public static readonly Error CodeRequired = Error.BadRequest("crm.space_types.CodeRequired", "A code is required.");
 
+    /// <summary>A-12 (B-L2): an unknown space type is a 404, not <see cref="CodeRequired"/>.</summary>
+    public static readonly Error NotFound = Error.NotFound("crm.spaceTypes.NotFound", "Space type was not found.");
+
     /// <summary>A-7 (B-M4): space type codes are unique.</summary>
     public static readonly Error DuplicateCode = Error.Conflict(
         "crm.spaceTypes.DuplicateCode", "A space type with that code already exists.");

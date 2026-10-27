@@ -39,11 +39,11 @@ namespace Crm.Infrastructure.IntegrationEvents;
 /// whatever the head holds now. The application itself lives in <see cref="CrmApprovalOutcomes"/>,
 /// shared with the send handlers' recovery path.</para>
 ///
-/// <para><b>Concurrency:</b> a <c>DbUpdateConcurrencyException</c> (the brief and entry carry an
+/// <para><b>Concurrency:</b> a <c>DbUpdateConcurrencyException</c> (the brief, entry and — A-9 — item carry an
 /// <c>xmin</c> token) propagates out of this handler on purpose. <c>InboxDedupeDecorator</c> rolls the
 /// whole delivery back, and <c>OutboxProcessor</c> records the failure and leaves the message
-/// unprocessed, so the next poll re-runs it against the reloaded row. There is no attempt cap or
-/// dead-letter.</para>
+/// unprocessed, so the next poll re-runs it against the reloaded row, up to <c>Outbox:MaxAttempts</c>
+/// (default 15) before the message is dead-lettered and logged.</para>
 ///
 /// <para>Stages every write via the shared <see cref="CrmDbContext"/> and never calls its own
 /// <c>SaveChangesAsync</c> to COMMIT — that stays <c>InboxDedupeDecorator</c>'s job. <b>E2-03
