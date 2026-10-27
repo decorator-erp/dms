@@ -22,10 +22,16 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// marker's primary key; that means the other instance has applied the step, so the loser clears what
 /// it tracked and returns. Chosen over <c>pg_advisory_xact_lock</c> because the marker row is already
 /// the lock.</para>
+/// <para><b>Steps (B-16).</b> A later baseline is a new step with its own marker, never an edit to an
+/// applied one: v1's marker is already on every running database, so a code added to v1 would never
+/// reach them. v2 gives <c>client</c> <c>notifications.view_own</c>, which v1 missed — without it a
+/// portal client could not read the meeting notifications CRM sends them.</para>
 /// </summary>
 internal static class BaselineClaimSeeder
 {
     public const string MarkerKey = "baseline-claims-v1";
+
+    public const string V2MarkerKey = "baseline-claims-v2";
 
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
@@ -37,20 +43,43 @@ internal static class BaselineClaimSeeder
         ],
     };
 
+    /// <summary>B-16 (I1): the client's own notifications.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV2 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Client] = ["notifications.view_own"],
+    };
+
+    /// <summary>Applied in order, each behind its own marker.</summary>
+    private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
+        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2)];
+
     public static async Task SeedAsync(
         RoleManager<ApplicationRole> roleManager,
         IdentityModuleDbContext db,
         IPermissionCatalog catalog,
         CancellationToken ct = default)
     {
-        if (await db.SeedMarkers.AnyAsync(m => m.Key == MarkerKey, ct))
+        var known = catalog.All().SelectMany(m => m.Permissions).ToHashSet(StringComparer.Ordinal);
+        foreach ((string markerKey, IReadOnlyDictionary<string, string[]> claims) in Steps)
+        {
+            await ApplyStepAsync(roleManager, db, known, markerKey, claims, ct);
+        }
+    }
+
+    private static async Task ApplyStepAsync(
+        RoleManager<ApplicationRole> roleManager,
+        IdentityModuleDbContext db,
+        HashSet<string> known,
+        string markerKey,
+        IReadOnlyDictionary<string, string[]> claims,
+        CancellationToken ct)
+    {
+        if (await db.SeedMarkers.AnyAsync(m => m.Key == markerKey, ct))
         {
             return;
         }
 
-        var known = catalog.All().SelectMany(m => m.Permissions).ToHashSet(StringComparer.Ordinal);
-
-        foreach ((string roleName, string[] codes) in Baseline)
+        foreach ((string roleName, string[] codes) in claims)
         {
             ApplicationRole? role = await roleManager.FindByNameAsync(roleName);
             if (role is null)
@@ -69,7 +98,7 @@ internal static class BaselineClaimSeeder
             }
         }
 
-        db.SeedMarkers.Add(SeedMarker.Create(MarkerKey, DateTime.UtcNow));
+        db.SeedMarkers.Add(SeedMarker.Create(markerKey, DateTime.UtcNow));
 
         try
         {
