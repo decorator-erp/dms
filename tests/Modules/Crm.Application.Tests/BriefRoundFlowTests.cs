@@ -127,6 +127,72 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
     }
 
     [Fact]
+    public async Task Rounds_list_changes_requested_voided_and_approved_and_the_portal_hides_the_voided_round()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "rounds-list");
+        Guid briefId = await CreateBriefAsync(sp, p);
+
+        // Round 1: the client asks for changes.
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+        Assert.True((await DecideAsClientAsync(p, CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 1), ApprovalDecision.Rejected, "Change it")).IsSuccess);
+        await DrainOutboxAsync();
+        Assert.True((await UpdateHeadAsync(p, briefId, Head with { Address = "Fixed Addr" })).IsSuccess);
+
+        // Round 2: its approval was decided before CRM knew of it, so the send voids it and opens round 3.
+        Guid roundTwo = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 2);
+        Assert.True((await RequestDirectlyAsync(sp, p, roundTwo, briefId)).IsSuccess);
+        Assert.True((await DecideAsClientAsync(p, roundTwo, ApprovalDecision.Approved, "Unseen")).IsSuccess);
+        await DrainOutboxAsync();
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+        Assert.Equal(
+            [CrmBriefRoundOutcome.ChangesRequested, CrmBriefRoundOutcome.Voided, CrmBriefRoundOutcome.Pending],
+            (await OfficeRoundsAsync(p, briefId)).Value!.Select(r => r.Outcome));
+
+        // Round 3: approved.
+        Assert.True((await DecideAsClientAsync(p, CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 3), ApprovalDecision.Approved)).IsSuccess);
+        await DrainOutboxAsync();
+
+        IReadOnlyList<CrmBriefRoundResponse> office = (await OfficeRoundsAsync(p, briefId)).Value!;
+        Assert.Equal([1, 2, 3], office.Select(r => r.Round));
+        Assert.Equal(
+            [CrmBriefRoundOutcome.ChangesRequested, CrmBriefRoundOutcome.Voided, CrmBriefRoundOutcome.Approved],
+            office.Select(r => r.Outcome));
+        Assert.All(office, r => Assert.NotNull(r.DecidedAtUtc));
+        Assert.True(office[0].SentAtUtc <= office[1].SentAtUtc && office[1].SentAtUtc <= office[2].SentAtUtc);
+
+        Result<IReadOnlyList<CrmBriefRoundResponse>> portal = await PortalRoundsAsync(p.ClientAppUserId, briefId);
+        Assert.True(portal.IsSuccess, portal.IsFailure ? portal.Error.ToString() : null);
+        Assert.Equal([1, 3], portal.Value!.Select(r => r.Round));
+        Assert.Equal([CrmBriefRoundOutcome.ChangesRequested, CrmBriefRoundOutcome.Approved], portal.Value!.Select(r => r.Outcome));
+    }
+
+    [Fact]
+    public async Task Rounds_are_404_for_another_client_and_for_an_employee_outside_the_project()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "rounds-scope");
+        Guid briefId = await CreateBriefAsync(sp, p);
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+        (_, string otherClient) = await CrmClientSeeding.CreateClientAsync(sp, $"rounds-other-{Guid.NewGuid():N}@example.com");
+        (_, string outsider) = await HrTestSeeding.HireEmployeeAsync(sp, $"rounds-outsider-{Guid.NewGuid():N}@example.com");
+
+        Result<IReadOnlyList<CrmBriefRoundResponse>> asOtherClient = await PortalRoundsAsync(otherClient, briefId);
+        Assert.Equal(404, asOtherClient.Error.Status);
+
+        await using AsyncServiceScope outsiderScope = fixture.CreateScope();
+        outsiderScope.ServiceProvider.GetRequiredService<TestCurrentUser>().UserId = outsider;
+        Result<IReadOnlyList<CrmBriefRoundResponse>> asOutsider = await outsiderScope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetCrmBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>>()
+            .HandleAsync(new GetCrmBriefRoundsQuery(briefId, outsider));
+        Assert.Equal(CrmBriefErrors.NotFound, asOutsider.Error);
+
+        Assert.Equal([CrmBriefRoundOutcome.Pending], (await OfficeRoundsAsync(p, briefId)).Value!.Select(r => r.Outcome));
+    }
+
+    [Fact]
     public async Task EditWhilePending_IsRejectedWith409()
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
@@ -399,6 +465,23 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         await using AsyncServiceScope scope = OwnerScope(p);
         return await scope.ServiceProvider.GetRequiredService<ICommandHandler<SendCrmBriefCommand>>()
             .HandleAsync(new SendCrmBriefCommand(briefId, p.OwnerAppUserId));
+    }
+
+    private async Task<Result<IReadOnlyList<CrmBriefRoundResponse>>> OfficeRoundsAsync(BriefTestProject p, Guid briefId)
+    {
+        await using AsyncServiceScope scope = OwnerScope(p);
+        return await scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetCrmBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>>()
+            .HandleAsync(new GetCrmBriefRoundsQuery(briefId, p.OwnerAppUserId));
+    }
+
+    private async Task<Result<IReadOnlyList<CrmBriefRoundResponse>>> PortalRoundsAsync(string clientAppUserId, Guid briefId)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>().UserId = clientAppUserId;
+        return await scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<Crm.Contracts.Portal.GetMyPortalBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>>()
+            .HandleAsync(new Crm.Contracts.Portal.GetMyPortalBriefRoundsQuery(clientAppUserId, briefId));
     }
 
     private async Task<Result> UpdateHeadAsync(BriefTestProject p, Guid briefId, CrmBriefHeadData data)

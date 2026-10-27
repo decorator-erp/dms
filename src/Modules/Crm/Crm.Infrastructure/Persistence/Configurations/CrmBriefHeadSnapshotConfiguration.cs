@@ -31,11 +31,12 @@ internal sealed class CrmBriefHeadSnapshotConfiguration : IEntityTypeConfigurati
         builder.Property(s => s.ArchitecturalRequests).HasMaxLength(2000);
         builder.Property(s => s.OtherNeeds).HasMaxLength(2000);
         builder.Property(s => s.Sector).HasConversion<int?>();
+        builder.Property(s => s.Outcome).HasConversion<int?>();
         builder.Property(s => s.FinishingPurpose).HasConversion<int?>();
 
         builder.HasOne<CrmDesignBrief>().WithMany().HasForeignKey(s => s.BriefId).OnDelete(DeleteBehavior.Cascade);
 
-        // One row per (BriefId, Round); never updated after creation.
+        // One row per (BriefId, Round); only Outcome/DecidedAtUtc are written after creation, once.
         builder.HasIndex(s => new { s.BriefId, s.Round }).IsUnique();
 
         // ProjectId: bare Guid, deliberately NO FK - see CrmMeetingConfiguration's note (crm precedes

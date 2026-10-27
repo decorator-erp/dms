@@ -4,6 +4,7 @@ using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Crm.Contracts;
+using Crm.Contracts.Briefs;
 using Crm.Contracts.Items;
 using Crm.Contracts.Meetings;
 using Crm.Contracts.Portal;
@@ -38,6 +39,15 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             CancellationToken ct) =>
         {
             Result<PortalBriefViewResponse> result = await handler.HandleAsync(new GetMyPortalBriefQuery(currentUser.UserId!, projectId, stageId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Briefs.ViewOwn);
+
+        portal.MapGet("/briefs/{briefId:guid}/rounds", async (
+            Guid briefId, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>> handler, CancellationToken ct) =>
+        {
+            Result<IReadOnlyList<CrmBriefRoundResponse>> result = await handler.HandleAsync(
+                new GetMyPortalBriefRoundsQuery(currentUser.UserId!, briefId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.ViewOwn);
 

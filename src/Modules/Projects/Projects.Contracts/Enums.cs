@@ -126,3 +126,9 @@ public enum ApprovalType
     ManagerApproval = 1,
     ClientReview = 2,
 }
+
+public enum ScopeOfWorkStatus
+{
+    Draft = 1,
+    Confirmed = 2,
+}

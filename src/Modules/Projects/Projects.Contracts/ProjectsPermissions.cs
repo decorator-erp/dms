@@ -41,6 +41,18 @@ public static class ProjectsPermissions
         public const string Manage = "stage_teams.manage";
     }
 
+    /// <summary>Scope of work (نطاق العمل) — office only; the client role holds none of these.</summary>
+    public static class Scope
+    {
+        public const string Read = "scope.read";
+        public const string Manage = "scope.manage";
+        public const string Confirm = "scope.confirm";
+
+        /// <summary>The three, as <c>ProjectsModule</c> registers them, so a count can't drift from the
+        /// constants.</summary>
+        public static readonly IReadOnlyList<string> All = [Read, Manage, Confirm];
+    }
+
     public static class StageTasks
     {
         public const string Read = "stage_tasks.read";

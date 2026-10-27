@@ -176,6 +176,22 @@ internal sealed class CrmBriefEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequireAuthorization();
 
+        // The office's list of the brief's rounds (voided ones included); the client's is the portal route.
+        byId.MapGet("/rounds", async (
+            Guid briefId, ICurrentUser currentUser,
+            IQueryHandler<GetCrmBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>> handler, CancellationToken ct) =>
+        {
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmBriefRoundResponse>> result = await handler.HandleAsync(
+                new GetCrmBriefRoundsQuery(briefId, userId.Value!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Briefs.Read);
+
         RouteGroupBuilder spaces = app.MapGroup("/api/crm/brief-spaces/{entryId:guid}").WithTags("Crm Briefs");
 
         spaces.MapPut("/", async (

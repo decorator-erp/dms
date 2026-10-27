@@ -15,6 +15,8 @@ namespace Projects.Application;
 /// </summary>
 internal static class ProjectsEnumMapping
 {
+    public static Contracts.ScopeOfWorkStatus ToContracts(Domain.ScopeOfWorkStatus value) => (Contracts.ScopeOfWorkStatus)value;
+
     public static Domain.ProjectStatus ToDomain(Contracts.ProjectStatus value) => (Domain.ProjectStatus)value;
     public static Contracts.ProjectStatus ToContracts(Domain.ProjectStatus value) => (Contracts.ProjectStatus)value;
 

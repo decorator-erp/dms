@@ -51,6 +51,10 @@ public class IntegrationEventConsumerTests
         // event exists for a future subscriber that wants the fact without the mechanism.
         "GateConditionSatisfiedIntegrationEvent",
 
+        // A confirmed scope of work is the future hook for Finance (contract value, invoicing). No module
+        // acts on it in the MVP; the confirm itself creates the stages in-module.
+        "ScopeOfWorkConfirmedIntegrationEvent",
+
         // UserRegisteredIntegrationEvent and UserDeactivatedIntegrationEvent used to be listed here.
         // Both are deleted: the first went with self-registration (nothing announces registration
         // because nothing registers), and the second was the entry this list itself called "the first

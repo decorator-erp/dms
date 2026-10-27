@@ -50,3 +50,8 @@ public sealed record GetMyPortalBriefRoundDiffQuery(string AppUserId, Guid Brief
 /// through <c>Approvals.Contracts</c>, gated by <c>crm.approvals.decide_own</c>.</summary>
 public sealed record DecideMyPortalApprovalCommand(string AppUserId, Guid ApprovalId, bool Approve)
     : ICommand, ICrmScoped;
+
+/// <summary>The client's list of their own brief's rounds — voided rounds left out (the client's decision
+/// on them never counted) — only for a brief on one of the caller's own projects; otherwise 404.</summary>
+public sealed record GetMyPortalBriefRoundsQuery(string AppUserId, Guid BriefId)
+    : IQuery<IReadOnlyList<CrmBriefRoundResponse>>, ICrmScoped;

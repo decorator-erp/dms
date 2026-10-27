@@ -123,6 +123,13 @@ internal sealed class Project : Entity, IAuditable
 
     public void RecalculateProgress(decimal progressPercentage) => ProgressPercentage = progressPercentage;
 
+    /// <summary>Set by a confirmed scope of work from its planned start and duration.</summary>
+    public void SetEstimatedDates(DateTime estimatedStartDate, DateTime estimatedEndDate)
+    {
+        EstimatedStartDate = estimatedStartDate;
+        EstimatedEndDate = estimatedEndDate;
+    }
+
     public void Deactivate() => SetActive(false);
 
     public void Activate() => SetActive(true);

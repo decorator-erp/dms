@@ -137,7 +137,9 @@ internal sealed class SendCrmBriefCommandHandler(
 
             if (missedDecision != ApprovalDecision.Approved)
             {
-                Result applied = outcomes.ApplyToBrief(brief, approvalId, missedDecision);
+                // ApprovalRequestOutcome carries no decision time, so the round's DecidedAtUtc is now:
+                // approximate, in this rare path only.
+                Result applied = await outcomes.ApplyToBriefAsync(brief, approvalId, missedDecision, DateTime.UtcNow, ct);
                 if (applied.IsFailure)
                 {
                     return applied;
@@ -159,6 +161,11 @@ internal sealed class SendCrmBriefCommandHandler(
             {
                 return voidResult;
             }
+
+            // The voided round is the one before nextRound, marked by its number before nextRound exists.
+            CrmBriefHeadSnapshot? voidedRound = await db.CrmBriefHeadSnapshots
+                .FirstOrDefaultAsync(s => s.BriefId == brief.Id && s.Round == nextRound - 1, ct);
+            voidedRound?.RecordOutcome(BriefRoundOutcome.Voided, DateTime.UtcNow);
 
             db.CrmBriefHeadSnapshots.Add(CrmBriefHeadSnapshot.Create(brief, nextRound));
             Result saveNext = await BriefWrites.SaveAsync(db, ct);

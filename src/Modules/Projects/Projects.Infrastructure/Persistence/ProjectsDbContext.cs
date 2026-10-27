@@ -20,6 +20,8 @@ internal sealed class ProjectsDbContext(DbContextOptions<ProjectsDbContext> opti
     public DbSet<StageSubTask> StageSubTasks => Set<StageSubTask>();
     public DbSet<StageDepartment> StageDepartments => Set<StageDepartment>();
     public DbSet<GateCondition> GateConditions => Set<GateCondition>();
+    public DbSet<ScopeOfWork> ScopesOfWork => Set<ScopeOfWork>();
+    public DbSet<ScopeOfWorkItem> ScopeOfWorkItems => Set<ScopeOfWorkItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

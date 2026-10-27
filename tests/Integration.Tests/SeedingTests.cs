@@ -41,4 +41,49 @@ public sealed class SeedingTests(ApiFixture fixture)
         // dropped at G0-06 for having no module that needed it yet).
         Assert.Equal(new HashSet<string> { "admin", "manager", "employee", "client" }, seededRoles);
     }
+
+    /// <summary>SOW-4 (R4): the scope-of-work permissions reach admin and manager through
+    /// <c>RoleClaimSeeder</c>, which adds every catalog permission a full-access role is missing on each
+    /// start, and never reach the client role.</summary>
+    [Fact]
+    public async Task Full_access_roles_hold_the_scope_permissions_and_the_client_role_holds_none()
+    {
+        HttpClient client = fixture.CreateClient();
+        await client.GetAsync("/health");
+
+        Dictionary<string, HashSet<string>> claims = await RoleClaimsAsync(fixture.ConnectionString);
+        string[] scope = ["scope.read", "scope.manage", "scope.confirm"];
+
+        Assert.All(scope, p => Assert.Contains(p, claims["admin"]));
+        Assert.All(scope, p => Assert.Contains(p, claims["manager"]));
+        Assert.DoesNotContain(claims.GetValueOrDefault("client") ?? [], c => c.StartsWith("scope.", StringComparison.Ordinal));
+    }
+
+    /// <summary>Role name → its permission claims, read straight from <c>identity.role_claims</c>.</summary>
+    internal static async Task<Dictionary<string, HashSet<string>>> RoleClaimsAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using NpgsqlCommand command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT r."Name", rc."ClaimValue"
+            FROM identity.role_claims rc JOIN identity.roles r ON r."Id" = rc."RoleId"
+            WHERE rc."ClaimValue" IS NOT NULL;
+            """;
+
+        var claims = new Dictionary<string, HashSet<string>>();
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            string role = reader.GetString(0);
+            if (!claims.TryGetValue(role, out HashSet<string>? set))
+            {
+                claims[role] = set = [];
+            }
+
+            set.Add(reader.GetString(1));
+        }
+
+        return claims;
+    }
 }

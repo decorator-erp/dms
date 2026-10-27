@@ -45,3 +45,9 @@ public sealed record ProjectTaskReopenedIntegrationEvent(
 public sealed record GateConditionSatisfiedIntegrationEvent(
     Guid EventId, Guid ProjectId, Guid GateConditionId, GateOwnerKind OwnerKind, Guid OwnerId,
     DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>A project's scope of work was confirmed and its stages created. <see cref="TotalFees"/> is the
+/// fees plus the adjustment. No consumer yet: it is the hook for Finance (contract value, invoicing).</summary>
+public sealed record ScopeOfWorkConfirmedIntegrationEvent(
+    Guid EventId, Guid ScopeOfWorkId, Guid ProjectId, decimal TotalFees, int DurationDays,
+    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

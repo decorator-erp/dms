@@ -556,6 +556,117 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.ToTable("project_tasks", "projects");
                 });
 
+            modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AdjustmentAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("AdjustmentNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ConfirmedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConfirmedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DurationDays")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateOnly?>("PlannedStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_scopes_of_work_ProjectId");
+
+                    b.ToTable("scopes_of_work", "projects");
+                });
+
+            modelBuilder.Entity("Projects.Domain.ScopeOfWorkItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedStageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<decimal>("Fee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ScopeOfWorkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceStageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeOfWorkId");
+
+                    b.HasIndex("ScopeOfWorkId", "Order");
+
+                    b.HasIndex("ScopeOfWorkId", "SourceStageId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_scope_of_work_items_ScopeOfWorkId_SourceStageId");
+
+                    b.ToTable("scope_of_work_items", "projects");
+                });
+
             modelBuilder.Entity("Projects.Domain.Stage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -563,6 +674,10 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("DefaultFee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(2000)
@@ -834,6 +949,24 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.ToTable("task_comments", "projects");
                 });
 
+            modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Projects.Domain.ScopeOfWorkItem", b =>
+                {
+                    b.HasOne("Projects.Domain.ScopeOfWork", null)
+                        .WithMany("Items")
+                        .HasForeignKey("ScopeOfWorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Projects.Domain.StageDepartment", b =>
                 {
                     b.HasOne("Projects.Domain.Stage", null)
@@ -850,6 +983,11 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         .HasForeignKey("StageTeamId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Projects.Domain.StageTeam", b =>

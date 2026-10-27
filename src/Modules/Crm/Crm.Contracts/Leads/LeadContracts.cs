@@ -58,4 +58,12 @@ public sealed record GetCrmLeadsQuery(
     int PageNumber = 1, int PageSize = 50, LeadStatus? Status = null, Guid? OwnerId = null, string? Search = null)
     : IQuery<PagedResult<CrmLeadResponse>>;
 
+/// <summary>How many leads are in each status, under the same owner and search filters as
+/// <see cref="GetCrmLeadsQuery"/> (there is no status filter: the counts are per status).
+/// <see cref="Total"/> is the sum.</summary>
+public sealed record CrmLeadStatusCountsResponse(int Total, int New, int Contacted, int Qualified, int Unqualified, int Converted);
+
+public sealed record GetCrmLeadStatusCountsQuery(Guid? OwnerId = null, string? Search = null)
+    : IQuery<CrmLeadStatusCountsResponse>;
+
 public sealed record GetCrmLeadIntakeQuery(Guid LeadId) : IQuery<CrmLeadIntakeResponse>;
