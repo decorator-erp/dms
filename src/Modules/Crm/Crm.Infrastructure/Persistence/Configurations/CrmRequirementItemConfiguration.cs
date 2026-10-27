@@ -12,6 +12,9 @@ internal sealed class CrmRequirementItemConfiguration : IEntityTypeConfiguration
         builder.ToTable("crm_requirement_items");
         builder.ConfigureEntityConventions();
 
+        // A-9 (B-M6): Postgres' system row version as the concurrency token; ItemWrites maps a conflict to 409.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(i => i.Category).HasConversion<int>();
         builder.Property(i => i.Room).HasMaxLength(128);
         builder.Property(i => i.Title).HasMaxLength(256).IsRequired();

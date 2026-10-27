@@ -19,7 +19,9 @@ internal static class ItemWrites
         ["ux_crm_requirement_periods_open_per_project"] = CrmPeriodErrors.AlreadyOpen,
     };
 
-    public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)
+    /// <param name="onConflict">The 409 for an <c>xmin</c> conflict; an item's by default, a period
+    /// write passes <see cref="CrmPeriodErrors.ConcurrentUpdate"/>.</param>
+    public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct, Error? onConflict = null)
     {
         try
         {
@@ -28,7 +30,7 @@ internal static class ItemWrites
         }
         catch (DbUpdateConcurrencyException)
         {
-            return CrmItemErrors.ConcurrentUpdate;
+            return onConflict ?? CrmItemErrors.ConcurrentUpdate;
         }
         catch (DbUpdateException ex) when (MapUniqueViolation(ex) is { } mapped)
         {

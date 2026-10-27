@@ -8,6 +8,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm;
 /// PR A of the CRM backend completion (items, periods, spaces). One additive migration:
 /// <list type="bullet">
 /// <item><description>A-6: <c>SupersedesItemId</c> becomes unique where set — the item ledger cannot fork.</description></item>
+/// <item><description>A-9: <c>xmin</c> becomes the concurrency token of items and periods. No-op in SQL: <c>xmin</c>
+/// is Postgres' system row-version column, which Npgsql's generator never emits (as in <c>CrmLeadConcurrencyToken</c>);
+/// EF records it only so the model snapshot knows the token.</description></item>
 /// </list>
 ///
 /// <para><b>Guards first, before any DDL.</b> A change that could fail on existing data raises a clear error
@@ -35,6 +38,24 @@ public partial class CrmItemsPeriodsHardening : Migration
             schema: "crm",
             table: "crm_requirement_items");
 
+        migrationBuilder.AddColumn<uint>(
+            name: "xmin",
+            schema: "crm",
+            table: "crm_requirement_periods",
+            type: "xid",
+            rowVersion: true,
+            nullable: false,
+            defaultValue: 0u);
+
+        migrationBuilder.AddColumn<uint>(
+            name: "xmin",
+            schema: "crm",
+            table: "crm_requirement_items",
+            type: "xid",
+            rowVersion: true,
+            nullable: false,
+            defaultValue: 0u);
+
         migrationBuilder.CreateIndex(
             name: "IX_crm_requirement_items_SupersedesItemId",
             schema: "crm",
@@ -49,6 +70,16 @@ public partial class CrmItemsPeriodsHardening : Migration
     {
         migrationBuilder.DropIndex(
             name: "IX_crm_requirement_items_SupersedesItemId",
+            schema: "crm",
+            table: "crm_requirement_items");
+
+        migrationBuilder.DropColumn(
+            name: "xmin",
+            schema: "crm",
+            table: "crm_requirement_periods");
+
+        migrationBuilder.DropColumn(
+            name: "xmin",
             schema: "crm",
             table: "crm_requirement_items");
 

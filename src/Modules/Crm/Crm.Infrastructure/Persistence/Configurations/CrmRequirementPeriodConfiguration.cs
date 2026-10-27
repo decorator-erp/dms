@@ -12,6 +12,9 @@ internal sealed class CrmRequirementPeriodConfiguration : IEntityTypeConfigurati
         builder.ToTable("crm_requirement_periods");
         builder.ConfigureEntityConventions();
 
+        // A-9 (B-M6): see CrmRequirementItemConfiguration.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(p => p.Status).HasConversion<int>();
 
         // ProjectId/ProjectStageId: bare Guids, deliberately NO FK - see CrmMeetingConfiguration's note

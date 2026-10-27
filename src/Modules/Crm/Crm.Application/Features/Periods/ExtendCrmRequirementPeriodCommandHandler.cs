@@ -28,8 +28,6 @@ internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db) 
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ItemWrites.SaveAsync(db, ct, CrmPeriodErrors.ConcurrentUpdate);
     }
 }

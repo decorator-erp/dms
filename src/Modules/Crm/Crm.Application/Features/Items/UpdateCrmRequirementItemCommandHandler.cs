@@ -68,8 +68,6 @@ internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db, IP
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ItemWrites.SaveAsync(db, ct);
     }
 }

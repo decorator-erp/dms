@@ -73,8 +73,8 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             command.Description);
 
         db.CrmRequirementItems.Add(item);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return item.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : item.Id;
     }
 }

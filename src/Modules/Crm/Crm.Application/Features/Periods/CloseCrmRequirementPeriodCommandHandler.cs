@@ -41,8 +41,6 @@ internal sealed class CloseCrmRequirementPeriodCommandHandler(CrmDbContext db) :
                 Guid.NewGuid(), period.Id, stageId, DateTimeOffset.UtcNow));
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ItemWrites.SaveAsync(db, ct, CrmPeriodErrors.ConcurrentUpdate);
     }
 }
