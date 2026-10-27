@@ -44,3 +44,12 @@ public sealed record RemoveScopeOfWorkItemCommand(Guid ProjectId, string UserId,
 /// <summary><see cref="ItemIds"/> is the full new order: exactly the current items, each once.</summary>
 public sealed record ReorderScopeOfWorkItemsCommand(Guid ProjectId, string UserId, IReadOnlyList<Guid> ItemIds)
     : ICommand, IProjectScoped;
+
+/// <summary>Creates the picked stages, in item order, with each item's name, description and fee as the
+/// stage cost, plus tasks, subtasks and teams copied from each source stage, then locks the scope. Refused for
+/// a project that already has stages.</summary>
+public sealed record ConfirmScopeOfWorkCommand(Guid ProjectId, string UserId)
+    : ICommand<ConfirmScopeOfWorkResponse>, IProjectScoped;
+
+/// <summary>The created <c>ProjectStage</c> ids, in item order.</summary>
+public sealed record ConfirmScopeOfWorkResponse(IReadOnlyList<Guid> CreatedStageIds);

@@ -20,7 +20,7 @@ internal static class ScopeOfWorkSeeding
 {
     public static async Task<ScopeTestProject> CreateProjectAsync(
         ProjectsApplicationFixture fixture, string label, WorkflowType workflowType = WorkflowType.Stage,
-        Guid? stageTemplateId = null)
+        Guid? stageTemplateId = null, DateTime? estimatedStart = null, DateTime? estimatedEnd = null)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         IServiceProvider sp = scope.ServiceProvider;
@@ -34,7 +34,7 @@ internal static class ScopeOfWorkSeeding
         Result<Guid> project = await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
             .HandleAsync(new CreateProjectCommand(
                 $"SOW-{Guid.NewGuid():N}", $"Scope {label}", "1 Scope St", workflowType, clientId,
-                StageTemplateId: stageTemplateId));
+                EstimatedStartDate: estimatedStart, EstimatedEndDate: estimatedEnd, StageTemplateId: stageTemplateId));
         Assert.True(project.IsSuccess, project.IsFailure ? project.Error.ToString() : null);
         return new ScopeTestProject(project.Value, userId, employeeId);
     }

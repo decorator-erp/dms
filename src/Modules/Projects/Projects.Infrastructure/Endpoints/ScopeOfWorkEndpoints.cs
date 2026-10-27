@@ -83,6 +83,15 @@ internal sealed class ScopeOfWorkEndpoints : IEndpoint
             Result result = await handler.HandleAsync(new RemoveScopeOfWorkItemCommand(projectId, currentUser.UserId!, itemId), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Scope.Manage);
+
+        scope.MapPost("/confirm", async (
+            Guid projectId, ICurrentUser currentUser,
+            ICommandHandler<ConfirmScopeOfWorkCommand, ConfirmScopeOfWorkResponse> handler, CancellationToken ct) =>
+        {
+            Result<ConfirmScopeOfWorkResponse> result = await handler.HandleAsync(
+                new ConfirmScopeOfWorkCommand(projectId, currentUser.UserId!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.Scope.Confirm);
     }
 
     private sealed record UpdateHeaderRequest(
