@@ -319,6 +319,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("DesignerExperience")
                         .HasColumnType("integer");
 
@@ -359,6 +362,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<string>("OtherNeeds")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("Outcome")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("Position")
                         .HasColumnType("integer");

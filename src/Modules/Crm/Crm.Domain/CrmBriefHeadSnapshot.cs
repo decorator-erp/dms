@@ -7,7 +7,8 @@ namespace Crm.Domain;
 /// An immutable copy of the brief HEAD captured at each SEND (round creation) — ported from
 /// <c>../backend/Domain/Entities/CrmBriefHeadSnapshot.cs</c>. The head is edit-in-place so pre-edit
 /// values are destroyed on write; this snapshot preserves the approved-state facts per round. One row
-/// per (BriefId, Round); never updated after creation.
+/// per (BriefId, Round); the head fields are never updated after creation, only the round's outcome is
+/// recorded once (<see cref="RecordOutcome"/>).
 ///
 /// <para><see cref="DiffFrom"/> is new in this port — the backend's own doc comment on
 /// <c>CrmBriefDomainService</c> names the snapshot as "FR-029 per-round diff source" but the backend
@@ -49,6 +50,12 @@ internal sealed class CrmBriefHeadSnapshot : Entity
     public FinishingPurpose? FinishingPurpose { get; private set; }
     public Guid? LastMeetingId { get; private set; }
 
+    /// <summary>How the round ended: set once, when the round's approval is decided or the round is voided
+    /// (GAP-2). Null while the round is open, and on every round sent before this was recorded.</summary>
+    public BriefRoundOutcome? Outcome { get; private set; }
+
+    public DateTime? DecidedAtUtc { get; private set; }
+
     private CrmBriefHeadSnapshot() { }
 
     /// <summary>Captures <paramref name="brief"/>'s current head state as the snapshot for
@@ -87,6 +94,19 @@ internal sealed class CrmBriefHeadSnapshot : Entity
             FinishingPurpose = brief.FinishingPurpose,
             LastMeetingId = brief.LastMeetingId,
         };
+
+    /// <summary>Records how this round ended. Set-once: a round has one outcome, so a second call (a
+    /// redelivered decision, say) is a no-op. The head fields stay as captured.</summary>
+    public void RecordOutcome(BriefRoundOutcome outcome, DateTime decidedAtUtc)
+    {
+        if (Outcome is not null)
+        {
+            return;
+        }
+
+        Outcome = outcome;
+        DecidedAtUtc = decidedAtUtc;
+    }
 
     /// <summary>Every editable head field whose value differs between <paramref name="previous"/> and
     /// this snapshot — the per-round diff FR-029 asks for — with both raw values. Compares only the
@@ -157,6 +177,14 @@ internal sealed class CrmBriefHeadSnapshot : Entity
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString(),
     };
+}
+
+/// <summary>How a sent round ended. Stored on its snapshot; an open round has none.</summary>
+internal enum BriefRoundOutcome
+{
+    Approved = 1,
+    ChangesRequested = 2,
+    Voided = 3,
 }
 
 /// <summary>Who a head diff is for. The client sees what they approve, never the office's budget.</summary>

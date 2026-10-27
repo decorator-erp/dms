@@ -89,7 +89,8 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(
             return;
         }
 
-        Result result = outcomes.ApplyToBrief(brief, @event.ApprovalId, @event.Decision);
+        Result result = await outcomes.ApplyToBriefAsync(
+            brief, @event.ApprovalId, @event.Decision, @event.OccurredAtUtc.UtcDateTime, ct);
         if (result.IsFailure)
         {
             LogIgnored(@event, brief.Status, brief.PendingApprovalId);

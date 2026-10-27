@@ -24,6 +24,20 @@ public class CrmBriefHeadSnapshotTests
     }
 
     [Fact]
+    public void RecordOutcome_is_set_once_and_a_second_call_is_a_no_op()
+    {
+        var snapshot = CrmBriefHeadSnapshot.Create(CreateBrief(), round: 1);
+        Assert.Null(snapshot.Outcome);
+        var decidedAt = new DateTime(2026, 11, 2, 10, 0, 0, DateTimeKind.Utc);
+
+        snapshot.RecordOutcome(BriefRoundOutcome.ChangesRequested, decidedAt);
+        snapshot.RecordOutcome(BriefRoundOutcome.Approved, decidedAt.AddHours(1));
+
+        Assert.Equal(BriefRoundOutcome.ChangesRequested, snapshot.Outcome);
+        Assert.Equal(decidedAt, snapshot.DecidedAtUtc);
+    }
+
+    [Fact]
     public void Create_CapturesCurrentHeadState()
     {
         CrmDesignBrief brief = CreateBrief(address: "123 Main St", areaSqm: 120m);

@@ -115,6 +115,32 @@ internal sealed class GetMyPortalBriefRoundDiffQueryHandler(CrmDbContext db, ICr
     }
 }
 
+/// <summary>Same client check as the round diff: a brief on another client's project is a 404.</summary>
+internal sealed class GetMyPortalBriefRoundsQueryHandler(CrmDbContext db, ICrmAccessGuard guard, IProjectDirectory projectDirectory)
+    : IQueryHandler<GetMyPortalBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>
+{
+    public async Task<Result<IReadOnlyList<CrmBriefRoundResponse>>> HandleAsync(GetMyPortalBriefRoundsQuery query, CancellationToken ct = default)
+    {
+        Result<Guid> clientId = await PortalClients.ResolveClientIdAsync(guard, query.AppUserId, ct);
+        if (clientId.IsFailure)
+        {
+            return Result.Failure<IReadOnlyList<CrmBriefRoundResponse>>(clientId.Error);
+        }
+
+        Guid? projectId = await db.CrmDesignBriefs.AsNoTracking()
+            .Where(b => b.Id == query.BriefId)
+            .Select(b => (Guid?)b.ProjectId)
+            .FirstOrDefaultAsync(ct);
+        ProjectSummary? project = projectId is { } id ? await projectDirectory.GetProjectAsync(id, ct) : null;
+        if (project is null || project.ClientId != clientId.Value)
+        {
+            return Result.Failure<IReadOnlyList<CrmBriefRoundResponse>>(CrmPortalErrors.NotFound);
+        }
+
+        return await BriefRounds.BuildAsync(db, query.BriefId, includeVoided: false, ct);
+    }
+}
+
 internal static class PortalClients
 {
     /// <summary>The calling client's id — <c>CrmScopeDecorator</c> only gates, it never passes the actor

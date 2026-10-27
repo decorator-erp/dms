@@ -283,3 +283,16 @@ public enum CrmActorKind
     Employee = 1,
     Client = 2,
 }
+
+/// <summary>How a sent brief round ended (GAP-2). <see cref="Pending"/>: the client hasn't decided yet.
+/// <see cref="Voided"/>: the round was replaced without the client's decision counting.
+/// <see cref="Unknown"/>: a round sent before outcomes were recorded, whose result can't be told from the
+/// brief's current state.</summary>
+public enum CrmBriefRoundOutcome
+{
+    Pending = 1,
+    Approved = 2,
+    ChangesRequested = 3,
+    Voided = 4,
+    Unknown = 5,
+}

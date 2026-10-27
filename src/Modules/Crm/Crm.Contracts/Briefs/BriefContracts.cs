@@ -143,3 +143,14 @@ public sealed record GetCrmBriefRoundDiffQuery(Guid BriefId, int Round, string U
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
 }
+
+/// <summary>One sent round of the brief head, in round order. <see cref="SentAtUtc"/> is when the round's
+/// snapshot was taken.</summary>
+public sealed record CrmBriefRoundResponse(int Round, DateTime SentAtUtc, CrmBriefRoundOutcome Outcome, DateTime? DecidedAtUtc);
+
+/// <summary>The office's list of the brief's rounds, voided ones included.</summary>
+public sealed record GetCrmBriefRoundsQuery(Guid BriefId, string UserId)
+    : IQuery<IReadOnlyList<CrmBriefRoundResponse>>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
+}

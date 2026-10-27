@@ -21,22 +21,30 @@ namespace Crm.Infrastructure.Services;
 internal sealed class CrmApprovalOutcomes(CrmDbContext db, ICrmGateReader gateReader)
 {
     /// <summary>Fails (and changes nothing) unless <paramref name="approvalId"/> is the approval the
-    /// brief's current round was sent under.</summary>
-    public Result ApplyToBrief(CrmDesignBrief brief, Guid approvalId, ApprovalDecision decision)
+    /// brief's current round was sent under. On success, also records the outcome on that round's snapshot
+    /// (GAP-2): snapshots are created only on send, so the round being decided is the brief's highest one.
+    /// <paramref name="decidedAtUtc"/> is the decision's time where the caller knows it.</summary>
+    public async Task<Result> ApplyToBriefAsync(
+        CrmDesignBrief brief, Guid approvalId, ApprovalDecision decision, DateTime decidedAtUtc, CancellationToken ct)
     {
-        if (decision != ApprovalDecision.Approved)
-        {
-            return brief.MarkRejected(approvalId);
-        }
-
-        Result result = brief.MarkApproved(approvalId);
+        bool approved = decision == ApprovalDecision.Approved;
+        Result result = approved ? brief.MarkApproved(approvalId) : brief.MarkRejected(approvalId);
         if (result.IsFailure)
         {
             return result;
         }
 
-        db.Outbox().Enqueue(new CrmBriefApprovedIntegrationEvent(
-            Guid.NewGuid(), brief.Id, brief.ProjectStageId, DateTimeOffset.UtcNow));
+        CrmBriefHeadSnapshot? round = await db.CrmBriefHeadSnapshots
+            .Where(s => s.BriefId == brief.Id)
+            .OrderByDescending(s => s.Round)
+            .FirstOrDefaultAsync(ct);
+        round?.RecordOutcome(approved ? BriefRoundOutcome.Approved : BriefRoundOutcome.ChangesRequested, decidedAtUtc);
+
+        if (approved)
+        {
+            db.Outbox().Enqueue(new CrmBriefApprovedIntegrationEvent(
+                Guid.NewGuid(), brief.Id, brief.ProjectStageId, DateTimeOffset.UtcNow));
+        }
 
         return Result.Success();
     }
