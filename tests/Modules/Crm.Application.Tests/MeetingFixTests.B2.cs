@@ -70,10 +70,10 @@ public sealed partial class MeetingFixTests
     }
 
     private async Task<Result> RescheduleAsEmployeeAsync(MeetingProject m, Guid meetingId, CrmMeetingSlotRequest slot) =>
-        await Command(m.P.OwnerAppUserId, new RescheduleCrmMeetingCommand(meetingId, m.P.EmployeeId, null, slot.StartsAtUtc, slot.EndsAtUtc));
+        await Command(m.P.OwnerAppUserId, new RescheduleCrmMeetingCommand(meetingId, m.P.EmployeeId, m.P.OwnerAppUserId, slot.StartsAtUtc, slot.EndsAtUtc));
 
     private async Task<Result> CancelAsEmployeeAsync(MeetingProject m, Guid meetingId) =>
-        await Command(m.P.OwnerAppUserId, new CancelCrmMeetingCommand(meetingId, m.P.EmployeeId, null, "Client travelling"));
+        await Command(m.P.OwnerAppUserId, new CancelCrmMeetingCommand(meetingId, m.P.EmployeeId, m.P.OwnerAppUserId, "Client travelling"));
 
     private async Task RunReminderJobAsync()
     {

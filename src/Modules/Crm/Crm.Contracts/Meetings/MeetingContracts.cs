@@ -52,8 +52,11 @@ public sealed record CrmMeetingSlotRequest(DateTime StartsAtUtc, DateTime EndsAt
 /// </summary>
 public sealed record ProposeCrmMeetingCommand(
     Guid ProjectId, Guid RequestedByEmployeeId, string Title, MeetingType Type,
-    IReadOnlyList<CrmMeetingSlotRequest> Slots,
-    Guid? PeriodId = null, string? Location = null, int? DurationMinutes = null) : ICommand<Guid>;
+    IReadOnlyList<CrmMeetingSlotRequest> Slots, string UserId,
+    Guid? PeriodId = null, string? Location = null, int? DurationMinutes = null) : ICommand<Guid>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}
 
 /// <summary>
 /// The client-side create, the backend's <c>RequestMeetingByClientCommand</c>: a contact requests a
@@ -70,34 +73,68 @@ public sealed record RequestCrmMeetingByClientCommand(
 /// <c>MeetingScheduledIntegrationEvent</c> in the same <c>SaveChangesAsync</c>. The actor is required:
 /// only the counterparty of whoever proposed the slot may accept it, and the G9-01 record carried no
 /// actor at all, so that rule was unenforceable.</summary>
-public sealed record AcceptCrmMeetingSlotCommand(
-    Guid SlotId, Guid? ActingEmployeeId, Guid? ActingContactId) : ICommand;
+/// <summary>B-3 (M1): the office accept — always project-scoped through the slot's meeting. The portal
+/// sends <see cref="AcceptCrmMeetingSlotByContactCommand"/> instead.</summary>
+public sealed record AcceptCrmMeetingSlotCommand(Guid SlotId, Guid ActingEmployeeId, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.MeetingSlot(SlotId);
+}
+
+/// <summary>B-3 (M1): the client's accept. Not project-scoped (the client holds no project access); its
+/// handler runs the tenant check against the contact's own client instead.</summary>
+public sealed record AcceptCrmMeetingSlotByContactCommand(Guid SlotId, Guid ActingContactId) : ICommand;
 
 /// <summary>Declining may offer counter-slots in the same call — the backend's
 /// <c>DeclineSlotRequest.CounterSlots</c>, absent from the G9-01 record.</summary>
 public sealed record DeclineCrmMeetingSlotCommand(
-    Guid SlotId, Guid? ActingEmployeeId, Guid? ActingContactId,
-    IReadOnlyList<CrmMeetingSlotRequest>? CounterSlots = null) : ICommand;
+    Guid SlotId, Guid ActingEmployeeId, string UserId,
+    IReadOnlyList<CrmMeetingSlotRequest>? CounterSlots = null) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.MeetingSlot(SlotId);
+}
+
+public sealed record DeclineCrmMeetingSlotByContactCommand(
+    Guid SlotId, Guid ActingContactId, IReadOnlyList<CrmMeetingSlotRequest>? CounterSlots = null) : ICommand;
 
 /// <summary>Moves the meeting back to <see cref="MeetingStatus.Rescheduled"/>, demotes the accepted
 /// slot, and proposes a new time. The new time is the whole point of the operation and was missing
 /// from the G9-01 record, which took only a meeting id.</summary>
 public sealed record RescheduleCrmMeetingCommand(
-    Guid MeetingId, Guid? ActingEmployeeId, Guid? ActingContactId,
-    DateTime StartsAtUtc, DateTime EndsAtUtc) : ICommand;
+    Guid MeetingId, Guid ActingEmployeeId, string UserId, DateTime StartsAtUtc, DateTime EndsAtUtc)
+    : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
 
-public sealed record CancelCrmMeetingCommand(
-    Guid MeetingId, Guid? ActingEmployeeId, Guid? ActingContactId, string Reason) : ICommand;
+public sealed record RescheduleCrmMeetingByContactCommand(
+    Guid MeetingId, Guid ActingContactId, DateTime StartsAtUtc, DateTime EndsAtUtc) : ICommand;
+
+public sealed record CancelCrmMeetingCommand(Guid MeetingId, Guid ActingEmployeeId, string UserId, string Reason)
+    : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
+
+public sealed record CancelCrmMeetingByContactCommand(Guid MeetingId, Guid ActingContactId, string Reason) : ICommand;
 
 /// <summary>Office-only, and takes no actor: the backend gates these two on
 /// <c>Kind != Employee → AccessDenied</c> at the handler and has no portal route for either. Here the
 /// permission strings (<c>crm.meetings.complete</c>/<c>crm.meetings.mark_no_show</c>, held by office
 /// roles only) carry that, so the command stays a bare id.</summary>
-public sealed record CompleteCrmMeetingCommand(Guid MeetingId) : ICommand;
+public sealed record CompleteCrmMeetingCommand(Guid MeetingId, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
 
-public sealed record MarkCrmMeetingNoShowCommand(Guid MeetingId) : ICommand;
+public sealed record MarkCrmMeetingNoShowCommand(Guid MeetingId, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
 
-public sealed record GetCrmMeetingByIdQuery(Guid MeetingId) : IQuery<CrmMeetingResponse>;
+public sealed record GetCrmMeetingByIdQuery(Guid MeetingId, string UserId) : IQuery<CrmMeetingResponse>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
 
 /// <summary>
 /// Paged, using this repo's own <see cref="PagedResult{T}"/> convention (<c>Hr.GetDepartmentsQuery</c>,
@@ -112,11 +149,17 @@ public sealed record GetCrmMeetingByIdQuery(Guid MeetingId) : IQuery<CrmMeetingR
 /// project-id scoping — so the cross-project search is a capability CRM cannot currently answer, not a
 /// shape mismatch. It is recorded in the scope-boundaries table rather than silently dropped.</para>
 /// </summary>
-public sealed record GetCrmMeetingsByProjectQuery(Guid ProjectId, int PageNumber, int PageSize)
-    : IQuery<PagedResult<CrmMeetingResponse>>;
+public sealed record GetCrmMeetingsByProjectQuery(Guid ProjectId, string UserId, int PageNumber, int PageSize)
+    : IQuery<PagedResult<CrmMeetingResponse>>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}
 
-public sealed record GetCrmMeetingSlotsByMeetingQuery(Guid MeetingId)
-    : IQuery<IReadOnlyList<CrmMeetingSlotResponse>>;
+public sealed record GetCrmMeetingSlotsByMeetingQuery(Guid MeetingId, string UserId)
+    : IQuery<IReadOnlyList<CrmMeetingSlotResponse>>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
 
 /// <summary>The scheduler's free-slot proposal. Pure and stateless — no persistence, no calendar
 /// lookup, just office-hours-driven candidate windows.</summary>
@@ -130,5 +173,8 @@ public sealed record FreeSlotResponse(DateTime StartsAtUtc, DateTime EndsAtUtc);
 /// mistake it for a bug. It was missing entirely from the G9-01 record, which left the query
 /// unauthorizable.
 /// </summary>
-public sealed record GetFreeMeetingSlotsQuery(Guid ProjectId, DateTime FromUtc, DateTime ToUtc)
-    : IQuery<IReadOnlyList<FreeSlotResponse>>;
+public sealed record GetFreeMeetingSlotsQuery(Guid ProjectId, string UserId, DateTime FromUtc, DateTime ToUtc)
+    : IQuery<IReadOnlyList<FreeSlotResponse>>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}

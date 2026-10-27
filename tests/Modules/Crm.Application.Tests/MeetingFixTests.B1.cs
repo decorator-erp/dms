@@ -51,5 +51,5 @@ public sealed partial class MeetingFixTests
     }
 
     private async Task<Result> AcceptAsContactAsync(MeetingProject m, Guid slotId) =>
-        await Command(m.P.ClientAppUserId, new AcceptCrmMeetingSlotCommand(slotId, null, m.ContactId), readAll: false);
+        await Command(m.P.ClientAppUserId, new AcceptCrmMeetingSlotByContactCommand(slotId, m.ContactId), readAll: false);
 }

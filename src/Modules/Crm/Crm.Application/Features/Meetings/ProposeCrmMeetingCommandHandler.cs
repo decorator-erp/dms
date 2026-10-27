@@ -13,6 +13,7 @@ internal sealed class ProposeCrmMeetingCommandValidator : AbstractValidator<Prop
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.RequestedByEmployeeId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
         RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Type).IsInEnum();
         RuleFor(x => x.Location).MaximumLength(500);

@@ -92,7 +92,7 @@ public sealed partial class MeetingFixTests(CrmApplicationFixture fixture)
 
     private async Task<Result<Guid>> TryProposeAsync(MeetingProject m, params CrmMeetingSlotRequest[] slots) =>
         await CommandFor<ProposeCrmMeetingCommand, Guid>(m.P.OwnerAppUserId,
-            new ProposeCrmMeetingCommand(m.P.ProjectId, m.P.EmployeeId, "Kickoff", MeetingType.InOffice, slots));
+            new ProposeCrmMeetingCommand(m.P.ProjectId, m.P.EmployeeId, "Kickoff", MeetingType.InOffice, slots, m.P.OwnerAppUserId));
 
     private async Task<Guid> ProposeAsync(MeetingProject m, params CrmMeetingSlotRequest[] slots)
     {

@@ -15,43 +15,66 @@ internal sealed class CancelCrmMeetingCommandValidator : AbstractValidator<Cance
     public CancelCrmMeetingCommandValidator()
     {
         RuleFor(x => x.MeetingId).NotEmpty();
-        RuleFor(x => x).Must(c => c.ActingEmployeeId.HasValue != c.ActingContactId.HasValue)
-            .WithMessage("Exactly one of ActingEmployeeId or ActingContactId must be set.");
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
         RuleFor(x => x.Reason).NotEmpty().MaximumLength(1000);
     }
 }
 
-/// <summary>Matches <c>CrmMeetingDomainService.CancelAsync</c>: cancels the meeting, then declines
-/// every slot still <see cref="MeetingSlotStatus.Proposed"/> — an accepted slot has already been
-/// superseded by the meeting's own <c>Scheduled</c>→<c>Canceled</c> transition and is left as-is,
-/// matching the backend.</summary>
+internal sealed class CancelCrmMeetingByContactCommandValidator : AbstractValidator<CancelCrmMeetingByContactCommand>
+{
+    public CancelCrmMeetingByContactCommandValidator()
+    {
+        RuleFor(x => x.MeetingId).NotEmpty();
+        RuleFor(x => x.ActingContactId).NotEmpty();
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(1000);
+    }
+}
+
+/// <summary>B-3 (M1): the office cancel, project-scoped by the decorator (target Meeting).</summary>
 internal sealed class CancelCrmMeetingCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<CancelCrmMeetingCommand>
 {
-    public async Task<Result> HandleAsync(CancelCrmMeetingCommand command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(CancelCrmMeetingCommand command, CancellationToken ct = default) =>
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingEmployeeId, null, command.Reason, ct);
+}
+
+/// <summary>B-3 (M1): the portal cancel — not project-scoped; the core checks the contact's client.</summary>
+internal sealed class CancelCrmMeetingByContactCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<CancelCrmMeetingByContactCommand>
+{
+    public Task<Result> HandleAsync(CancelCrmMeetingByContactCommand command, CancellationToken ct = default) =>
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.ActingContactId, command.Reason, ct);
+}
+
+internal static class CancelMeeting
+{
+    public static async Task<Result> RunAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
+        string reason, CancellationToken ct)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
         if (meeting is null)
         {
             return CrmMeetingErrors.NotFound;
         }
 
         Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
+            db, projectDirectory, meeting.ProjectId, actingEmployeeId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
         }
 
         DateTime now = DateTime.UtcNow;
-        Result canceled = meeting.Cancel(command.Reason, now);
+        Result canceled = meeting.Cancel(reason, now);
         if (canceled.IsFailure)
         {
             return canceled.Error;
         }
 
         List<CrmMeetingSlot> proposed = await db.CrmMeetingSlots
-            .Where(s => s.MeetingId == command.MeetingId && s.Status == MeetingSlotStatus.Proposed)
+            .Where(s => s.MeetingId == meetingId && s.Status == MeetingSlotStatus.Proposed)
             .ToListAsync(ct);
         foreach (CrmMeetingSlot? slot in proposed)
         {
