@@ -77,12 +77,9 @@ internal sealed class CreateProjectCommandHandler(
     }
 
     /// <summary>
-    /// Copies a <c>StageTemplate</c>'s stages/tasks/subtasks/departments into runtime
-    /// <c>ProjectStage</c>/<c>ProjectTask</c>/<c>ProjectSubTask</c>/<c>StageTeam</c> rows, all staged
-    /// (not yet saved) onto <paramref name="project"/>'s own <c>SaveChangesAsync</c> call. Department
-    /// heads for every active <c>StageDepartment</c> referenced are resolved BEFORE any row is staged —
-    /// if any is missing, the whole operation fails and nothing from this method is added to the
-    /// tracker (decision #7: hard-fail, no partial materialization).
+    /// Materializes every stage of the template, with the template's own names, order and descriptions and
+    /// no cost, through <see cref="StageInstantiator"/> — which stages nothing if a department head is
+    /// missing (decision #7: hard-fail, no partial materialization).
     /// </summary>
     private async Task<Result> InstantiateAsync(Domain.Project project, Guid stageTemplateId, CancellationToken ct)
     {
@@ -92,72 +89,18 @@ internal sealed class CreateProjectCommandHandler(
             return Domain.StageTemplateErrors.NotFound;
         }
 
-        List<Stage> stages = await db.Stages.AsNoTracking()
+        List<StagePick> picks = await db.Stages.AsNoTracking()
             .Where(s => s.StageTemplateId == stageTemplateId)
             .OrderBy(s => s.Order)
+            .Select(s => new StagePick(s.Id, s.Name, s.Description, s.Order, null))
             .ToListAsync(ct);
-        if (stages.Count == 0)
+        if (picks.Count == 0)
         {
             return Domain.StageTemplateErrors.StagesNotFound;
         }
 
-        var stageIds = stages.Select(s => s.Id).ToList();
-        List<StageTask> stageTasks = await db.StageTasks.AsNoTracking().Where(t => stageIds.Contains(t.StageId)).ToListAsync(ct);
-        var taskIds = stageTasks.Select(t => t.Id).ToList();
-        List<StageSubTask> stageSubTasks = taskIds.Count == 0
-            ? []
-            : await db.StageSubTasks.AsNoTracking().Where(st => taskIds.Contains(st.StageTaskId)).ToListAsync(ct);
-        List<StageDepartment> stageDepartments = await db.StageDepartments.AsNoTracking()
-            .Where(sd => stageIds.Contains(sd.StageId) && sd.IsActive)
-            .ToListAsync(ct);
-
-        var departmentIds = stageDepartments.Select(sd => sd.DepartmentId).Distinct().ToList();
-        IReadOnlyList<DepartmentHeadSummary> heads = departmentIds.Count == 0 ? [] : await hrDirectory.GetDepartmentHeadsAsync(departmentIds, ct);
-        var headsByDepartment = heads.ToDictionary(h => h.DepartmentId, h => h.HeadEmployeeId);
-        foreach (Guid departmentId in departmentIds)
-        {
-            if (headsByDepartment.GetValueOrDefault(departmentId) is null)
-            {
-                return Domain.TeamErrors.MissingHead;
-            }
-        }
-
-        foreach (Stage? stage in stages)
-        {
-            var tasksForStage = stageTasks.Where(t => t.StageId == stage.Id).ToList();
-            var projectStage = Domain.ProjectStage.Create(
-                stage.Name, stage.Order, project.Id, tasksForStage.Count, stage.Id, stage.Description);
-            db.ProjectStages.Add(projectStage);
-
-            foreach (StageTask? task in tasksForStage)
-            {
-                var subTasksForTask = stageSubTasks.Where(st => st.StageTaskId == task.Id).ToList();
-                Result<ProjectTask> taskResult = Domain.ProjectTask.Create(
-                    project.Id, task.Name, task.Order, project.WorkflowType, task.Weight,
-                    projectStage.Id, task.Id, Domain.TaskPriority.Medium, Domain.ProjectTaskStatus.Open,
-                    task.Description, subTasksForTask.Count, task.DepartmentId);
-                if (taskResult.IsFailure)
-                {
-                    return taskResult.Error;
-                }
-
-                db.ProjectTasks.Add(taskResult.Value!);
-
-                foreach (StageSubTask? subTask in subTasksForTask.OrderBy(st => st.Order))
-                {
-                    db.ProjectSubTasks.Add(Domain.ProjectSubTask.Create(
-                        taskResult.Value!.Id, subTask.Title, subTask.Order, subTask.IsRequired, subTask.Description));
-                }
-            }
-
-            foreach (Guid departmentId in stageDepartments.Where(sd => sd.StageId == stage.Id).Select(sd => sd.DepartmentId))
-            {
-                Guid headId = headsByDepartment[departmentId]!.Value;
-                db.StageTeams.Add(Domain.StageTeam.CreateProjectDepartmentTeam(projectStage.Id, departmentId, headId));
-            }
-        }
-
-        return Result.Success();
+        Result<IReadOnlyList<Guid>> instantiated = await new StageInstantiator(db, hrDirectory).InstantiateAsync(project, picks, ct);
+        return instantiated.IsFailure ? instantiated.Error : Result.Success();
     }
 }
 
