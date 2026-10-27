@@ -149,3 +149,47 @@ internal static class GateConditionErrors
         "gate_conditions.UnsupportedConditionType",
         "No handler is registered for this gate condition type.");
 }
+
+/// <summary>Scope of work (SOW-3). Codes as in the plan's §3.2, plus <see cref="TooManyItems"/>,
+/// <see cref="ItemNotFound"/> and <see cref="NegativeFee"/> for rules the plan states without naming.</summary>
+internal static class ScopeOfWorkErrors
+{
+    public static readonly Error Confirmed = Error.Conflict(
+        "projects.scope.Confirmed", "The scope of work is confirmed and can no longer be changed.");
+
+    public static readonly Error Empty = Error.BadRequest(
+        "projects.scope.Empty", "A scope of work needs at least one item to be confirmed.");
+
+    public static readonly Error DurationRequired = Error.BadRequest(
+        "projects.scope.DurationRequired", "Set the duration before confirming the scope of work.");
+
+    public static readonly Error NegativeTotal = Error.BadRequest(
+        "projects.scope.NegativeTotal", "The total (fees plus adjustment) cannot be negative.");
+
+    public static readonly Error AdjustmentNoteRequired = Error.BadRequest(
+        "projects.scope.AdjustmentNoteRequired", "An adjustment needs a note explaining it.");
+
+    public static readonly Error ProjectHasStages = Error.Conflict(
+        "projects.scope.ProjectHasStages", "The project already has stages; a scope of work can't be confirmed into it.");
+
+    public static readonly Error SourceStageNotFound = Error.BadRequest(
+        "projects.scope.SourceStageNotFound", "A picked template stage no longer exists.");
+
+    public static readonly Error DuplicateItem = Error.Conflict(
+        "projects.scope.DuplicateItem", "That template stage is already in the scope of work.");
+
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "projects.scope.InvalidOrder", "The new order must list every item of the scope exactly once.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.scope.ConcurrentUpdate", "The scope of work was changed by someone else. Reload and try again.");
+
+    public static readonly Error TooManyItems = Error.BadRequest(
+        "projects.scope.TooManyItems", $"A scope of work holds at most {ScopeOfWork.MaxItems} items.");
+
+    public static readonly Error ItemNotFound = Error.NotFound(
+        "projects.scope.ItemNotFound", "That item is not in the scope of work.");
+
+    public static readonly Error NegativeFee = Error.BadRequest(
+        "projects.scope.NegativeFee", "A fee cannot be negative.");
+}
