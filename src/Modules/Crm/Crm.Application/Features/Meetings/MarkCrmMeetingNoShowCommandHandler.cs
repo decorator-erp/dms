@@ -31,7 +31,6 @@ internal sealed class MarkCrmMeetingNoShowCommandHandler(CrmDbContext db) : ICom
             return noShow.Error;
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

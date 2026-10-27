@@ -105,7 +105,6 @@ internal static class DeclineMeetingSlot
             }
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

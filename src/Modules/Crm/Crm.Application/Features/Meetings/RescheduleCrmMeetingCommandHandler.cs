@@ -91,7 +91,6 @@ internal static class RescheduleMeeting
         db.CrmMeetingSlots.Add(newSlot.Value!);
         db.Outbox().Enqueue(new Crm.Contracts.MeetingRescheduledIntegrationEvent(
             Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

@@ -10,12 +10,15 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm;
 /// <list type="bullet">
 /// <item><description>B-5: <c>crm_meetings.AcceptedByEmployeeId</c> (nullable) — the employee who accepted the slot, so
 /// they are notified and reminded too.</description></item>
+/// <item><description>B-8: <c>xmin</c> becomes the meetings' concurrency token. No-op in SQL (Postgres' system row
+/// version; see <c>CrmLeadConcurrencyToken</c>).</description></item>
 /// </list>
 /// </summary>
 public partial class CrmMeetingsHardening : Migration
 {
     /// <inheritdoc />
-    protected override void Up(MigrationBuilder migrationBuilder) =>
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
         migrationBuilder.AddColumn<Guid>(
             name: "AcceptedByEmployeeId",
             schema: "crm",
@@ -23,10 +26,27 @@ public partial class CrmMeetingsHardening : Migration
             type: "uuid",
             nullable: true);
 
+        migrationBuilder.AddColumn<uint>(
+            name: "xmin",
+            schema: "crm",
+            table: "crm_meetings",
+            type: "xid",
+            rowVersion: true,
+            nullable: false,
+            defaultValue: 0u);
+    }
+
     /// <inheritdoc />
-    protected override void Down(MigrationBuilder migrationBuilder) =>
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
         migrationBuilder.DropColumn(
             name: "AcceptedByEmployeeId",
             schema: "crm",
             table: "crm_meetings");
+
+        migrationBuilder.DropColumn(
+            name: "xmin",
+            schema: "crm",
+            table: "crm_meetings");
+    }
 }

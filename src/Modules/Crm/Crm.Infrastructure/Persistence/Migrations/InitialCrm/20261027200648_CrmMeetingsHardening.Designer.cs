@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 {
     [DbContext(typeof(CrmDbContext))]
-    [Migration("20261027195418_CrmMeetingsHardening")]
+    [Migration("20261027200648_CrmMeetingsHardening")]
     partial class CrmMeetingsHardening
     {
         /// <inheritdoc />
@@ -1267,6 +1267,12 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 

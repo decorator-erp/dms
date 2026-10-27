@@ -69,8 +69,8 @@ internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db, I
 
         db.CrmMeetings.Add(meeting);
         db.CrmMeetingSlots.Add(slotResult.Value!);
-        await db.SaveChangesAsync(ct);
+        Result saved = await MeetingWrites.SaveAsync(db, ct);
 
-        return meeting.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : meeting.Id;
     }
 }

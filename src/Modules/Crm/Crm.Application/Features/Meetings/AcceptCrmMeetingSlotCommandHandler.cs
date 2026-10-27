@@ -113,7 +113,6 @@ internal static class AcceptMeetingSlot
         db.Outbox().Enqueue(new MeetingScheduledIntegrationEvent(
             Guid.NewGuid(), meeting.Id, meeting.ProjectId, slot.StartsAtUtc, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

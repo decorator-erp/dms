@@ -88,7 +88,6 @@ internal static class CancelMeeting
 
         db.Outbox().Enqueue(new Crm.Contracts.MeetingCanceledIntegrationEvent(
             Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }
