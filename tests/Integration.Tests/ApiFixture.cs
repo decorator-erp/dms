@@ -116,13 +116,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _container = new Testcontainers.PostgreSql.PostgreSqlBuilder("postgres:17").Build();
-        await _container.StartAsync();
-
-        foreach (string schema in ModuleDependencyOrder.SchemaOrder)
-        {
-            await MigrateSchemaAsync(schema);
-        }
+        await StartAndMigrateAsync();
 
         await SeedPublicLeadIntakeOwnerAsync();
 
@@ -153,6 +147,75 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // Force the host to build now (rather than lazily on first request) so a configuration or
         // startup failure surfaces here, in InitializeAsync, not confusingly inside the first test.
         _ = Services;
+    }
+
+    private const int StartAttempts = 3;
+    private static readonly TimeSpan StartTimeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// F5: a failure here fails every test in the collection at once (~1 ms each), so start-up is hardened
+    /// rather than left to a single try. Each attempt gets a fresh container with a start timeout, waits until
+    /// Postgres actually accepts a query (the container's readiness check can pass while the server is still
+    /// restarting after init), then migrates. A failed attempt's container is disposed and the next one starts
+    /// after a short backoff; the third failure is rethrown with the earlier ones attached.
+    /// </summary>
+    private async Task StartAndMigrateAsync()
+    {
+        var failures = new List<Exception>();
+        for (int attempt = 1; attempt <= StartAttempts; attempt++)
+        {
+            _container = new Testcontainers.PostgreSql.PostgreSqlBuilder("postgres:17").Build();
+            try
+            {
+                using (var startTimeout = new CancellationTokenSource(StartTimeout))
+                {
+                    await _container.StartAsync(startTimeout.Token);
+                }
+
+                await WaitUntilAcceptingQueriesAsync();
+
+                foreach (string schema in ModuleDependencyOrder.SchemaOrder)
+                {
+                    await MigrateSchemaAsync(schema);
+                }
+
+                return;
+            }
+            catch (Exception ex) when (attempt < StartAttempts)
+            {
+                failures.Add(ex);
+                await _container.DisposeAsync();
+                await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+                throw new AggregateException(
+                    $"The Api fixture's Postgres failed to start and migrate {StartAttempts} times.", failures);
+            }
+        }
+    }
+
+    private async Task WaitUntilAcceptingQueriesAsync()
+    {
+        DateTime deadline = DateTime.UtcNow + ReadyTimeout;
+        while (true)
+        {
+            try
+            {
+                await using var connection = new NpgsqlConnection(ConnectionString);
+                await connection.OpenAsync();
+                await using NpgsqlCommand command = connection.CreateCommand();
+                command.CommandText = "SELECT 1";
+                await command.ExecuteScalarAsync();
+                return;
+            }
+            catch (NpgsqlException) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+            }
+        }
     }
 
     public async Task ResetAsync()
