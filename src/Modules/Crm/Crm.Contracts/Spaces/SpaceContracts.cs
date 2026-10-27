@@ -17,14 +17,26 @@ public sealed record UpdateCrmSpaceTypeCommand(Guid SpaceTypeId, string NameEn, 
 public sealed record SetCrmSpaceTypeActiveCommand(Guid SpaceTypeId, bool IsActive) : ICommand;
 
 public sealed record CreateCrmSpaceCommand(
-    Guid ProjectId, Guid SpaceTypeId, string Name, int SortOrder = 0, string? Description = null)
-    : ICommand<Guid>;
+    Guid ProjectId, Guid SpaceTypeId, string Name, string UserId, int SortOrder = 0, string? Description = null)
+    : ICommand<Guid>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}
 
-public sealed record UpdateCrmSpaceCommand(Guid SpaceId, Guid SpaceTypeId, string Name, string? Description)
-    : ICommand;
+public sealed record UpdateCrmSpaceCommand(Guid SpaceId, Guid SpaceTypeId, string Name, string? Description, string UserId)
+    : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
+}
 
-public sealed record SetCrmSpaceActiveCommand(Guid SpaceId, bool IsActive) : ICommand;
+public sealed record SetCrmSpaceActiveCommand(Guid SpaceId, bool IsActive, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
+}
 
 public sealed record GetCrmSpaceTypesQuery : IQuery<IReadOnlyList<CrmSpaceTypeResponse>>;
 
-public sealed record GetCrmSpacesByProjectQuery(Guid ProjectId) : IQuery<IReadOnlyList<CrmSpaceResponse>>;
+public sealed record GetCrmSpacesByProjectQuery(Guid ProjectId, string UserId) : IQuery<IReadOnlyList<CrmSpaceResponse>>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}

@@ -35,19 +35,19 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Result<Guid> openResult = await open.HandleAsync(
-            new OpenCrmRequirementPeriodCommand(projectId, stageId, DateTime.UtcNow.AddDays(7), employeeId));
+            new OpenCrmRequirementPeriodCommand(projectId, stageId, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)));
         Assert.True(openResult.IsSuccess);
         Guid periodId = openResult.Value;
 
         ICommandHandler<ExtendCrmRequirementPeriodCommand> extend = sp.GetRequiredService<ICommandHandler<ExtendCrmRequirementPeriodCommand>>();
         Assert.True((await extend.HandleAsync(
-            new ExtendCrmRequirementPeriodCommand(periodId, DateTime.UtcNow.AddDays(14)))).IsSuccess);
+            new ExtendCrmRequirementPeriodCommand(periodId, DateTime.UtcNow.AddDays(14), Me(sp)))).IsSuccess);
 
         ICommandHandler<CloseCrmRequirementPeriodCommand> close = sp.GetRequiredService<ICommandHandler<CloseCrmRequirementPeriodCommand>>();
-        Assert.True((await close.HandleAsync(new CloseCrmRequirementPeriodCommand(periodId))).IsSuccess);
+        Assert.True((await close.HandleAsync(new CloseCrmRequirementPeriodCommand(periodId, Me(sp)))).IsSuccess);
 
         IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse> getById = sp.GetRequiredService<IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse>>();
-        CrmRequirementPeriodResponse period = (await getById.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId))).Value!;
+        CrmRequirementPeriodResponse period = (await getById.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId, Me(sp)))).Value!;
         Assert.Equal(RequirementPeriodStatus.Closed, period.Status);
     }
 
@@ -61,10 +61,10 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Assert.True((await open.HandleAsync(
-            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).IsSuccess);
+            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)))).IsSuccess);
 
         Result<Guid> secondResult = await open.HandleAsync(
-            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId));
+            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)));
 
         Assert.True(secondResult.IsFailure);
     }
@@ -78,11 +78,11 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
         ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Guid periodId = (await open.HandleAsync(
-            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
+            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)))).Value;
 
         ICommandHandler<CreateCrmRequirementItemCommand, Guid> createItem = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemCommand, Guid>>();
         Result<Guid> itemResult = await createItem.HandleAsync(new CreateCrmRequirementItemCommand(
-            projectId, periodId, employeeId, RequirementCategory.Materials, "Matte flooring", RequirementPriority.High));
+            projectId, periodId, employeeId, RequirementCategory.Materials, "Matte flooring", RequirementPriority.High, Me(sp)));
         Assert.True(itemResult.IsSuccess);
         Guid itemId = itemResult.Value;
 
@@ -91,7 +91,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<SupersedeCrmRequirementItemCommand, Guid> supersede = sp.GetRequiredService<ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>>();
         Result<Guid> supersedeResult = await supersede.HandleAsync(new SupersedeCrmRequirementItemCommand(
-            itemId, Guid.NewGuid(), RequirementCategory.Materials, "Corrected flooring", RequirementPriority.High));
+            itemId, Guid.NewGuid(), RequirementCategory.Materials, "Corrected flooring", RequirementPriority.High, Me(sp)));
 
         // Only a locked (Approved/NotRequired) item can be superseded - a PendingApproval item must
         // be rejected here, proving the ledger rule survives the round-trip through DI.
@@ -107,7 +107,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
         ICommandHandler<OpenCrmRequirementPeriodCommand, Guid> open = sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>();
         Guid periodId = (await open.HandleAsync(
-            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
+            new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)))).Value;
         Guid contactId = await SeedContactAsync(sp, clientId);
 
         ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid> createByClient = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>();
@@ -116,7 +116,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         Assert.True(result.IsSuccess);
 
         IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>>();
-        IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId))).Value!;
+        IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId, Me(sp)))).Value!;
         Assert.Equal(CrmApprovalState.NotRequired, items.Single().ApprovalStatus);
     }
 
@@ -139,7 +139,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         // Own project and period, but closed: 409.
         Assert.True((await sp.GetRequiredService<ICommandHandler<CloseCrmRequirementPeriodCommand>>()
-            .HandleAsync(new CloseCrmRequirementPeriodCommand(own.PeriodId))).IsSuccess);
+            .HandleAsync(new CloseCrmRequirementPeriodCommand(own.PeriodId, Me(sp)))).IsSuccess);
         AssertError(409, "crm.periods.NotOpen", await create.HandleAsync(Item(own.ProjectId, own.PeriodId, own.ContactId)));
     }
 
@@ -202,7 +202,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         (string _, Guid clientId) = await CreateClientAsync(sp, label);
         (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
         Guid periodId = (await sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>()
-            .HandleAsync(new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
+            .HandleAsync(new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId, Me(sp)))).Value;
         return new PortalItemSetup(projectId, periodId, await SeedContactAsync(sp, clientId));
     }
 
@@ -270,6 +270,8 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerAppUserId;
+        // Office item/period/space messages are project-scoped (A-1); the owner acts with project-wide read.
+        currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
         ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
         Guid projectId = (await createProject.HandleAsync(
@@ -319,4 +321,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         return documentId;
     }
+
+    /// <summary>The scope's acting user, for messages that carry their caller's id.</summary>
+    private static string Me(IServiceProvider sp) => sp.GetRequiredService<TestCurrentUser>().UserId!;
 }

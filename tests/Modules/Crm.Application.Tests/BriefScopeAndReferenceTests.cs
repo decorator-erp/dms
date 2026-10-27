@@ -302,7 +302,7 @@ public sealed class BriefScopeAndReferenceTests(CrmApplicationFixture fixture)
         Guid typeId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
             .HandleAsync(new CreateCrmSpaceTypeCommand($"room-{Guid.NewGuid():N}", "Room", "غرفة"))).Value;
         Result<Guid> space = await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
-            .HandleAsync(new CreateCrmSpaceCommand(p.ProjectId, typeId, "Room"));
+            .HandleAsync(new CreateCrmSpaceCommand(p.ProjectId, typeId, "Room", p.OwnerAppUserId));
         Assert.True(space.IsSuccess, space.Error?.Description);
         return space.Value;
     }
