@@ -12,6 +12,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm;
 /// they are notified and reminded too.</description></item>
 /// <item><description>B-8: <c>xmin</c> becomes the meetings' concurrency token. No-op in SQL (Postgres' system row
 /// version; see <c>CrmLeadConcurrencyToken</c>).</description></item>
+/// <item><description>B-14: <c>ix_crm_meeting_slots_meeting_id</c>, a plain index on slot <c>MeetingId</c>. The model
+/// meant to have it all along, but two unnamed indexes on one column are one index to EF, so only the
+/// partial unique "one accepted slot" index existed.</description></item>
 /// </list>
 /// </summary>
 public partial class CrmMeetingsHardening : Migration
@@ -34,11 +37,22 @@ public partial class CrmMeetingsHardening : Migration
             rowVersion: true,
             nullable: false,
             defaultValue: 0u);
+
+        migrationBuilder.CreateIndex(
+            name: "ix_crm_meeting_slots_meeting_id",
+            schema: "crm",
+            table: "crm_meeting_slots",
+            column: "MeetingId");
     }
 
     /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.DropIndex(
+            name: "ix_crm_meeting_slots_meeting_id",
+            schema: "crm",
+            table: "crm_meeting_slots");
+
         migrationBuilder.DropColumn(
             name: "AcceptedByEmployeeId",
             schema: "crm",

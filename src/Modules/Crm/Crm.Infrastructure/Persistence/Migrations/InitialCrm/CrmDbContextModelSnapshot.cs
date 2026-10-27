@@ -1322,15 +1322,16 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MeetingId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_crm_meeting_slots_meeting_accepted")
-                        .HasFilter("\"Status\" = 2");
-
                     b.HasIndex("ProposedByContactId");
 
                     b.HasIndex("ProposedByEmployeeId")
                         .HasFilter("\"ProposedByEmployeeId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "MeetingId" }, "ix_crm_meeting_slots_meeting_id");
+
+                    b.HasIndex(new[] { "MeetingId" }, "ux_crm_meeting_slots_meeting_accepted")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 2");
 
                     b.ToTable("crm_meeting_slots", "crm");
                 });
