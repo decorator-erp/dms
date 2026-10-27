@@ -59,6 +59,15 @@ internal sealed class CrmLeadEndpoints : IEndpoint
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Update);
 
+        // Same owner and search filters as the list below; one count per status.
+        leads.MapGet("/status-counts", async (
+            Guid? ownerId, string? search,
+            IQueryHandler<GetCrmLeadStatusCountsQuery, CrmLeadStatusCountsResponse> handler, CancellationToken ct) =>
+        {
+            Result<CrmLeadStatusCountsResponse> result = await handler.HandleAsync(new GetCrmLeadStatusCountsQuery(ownerId, search), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Leads.Read);
+
         leads.MapGet("/{leadId:guid}/intake", async (
             Guid leadId, IQueryHandler<GetCrmLeadIntakeQuery, CrmLeadIntakeResponse> handler, CancellationToken ct) =>
         {

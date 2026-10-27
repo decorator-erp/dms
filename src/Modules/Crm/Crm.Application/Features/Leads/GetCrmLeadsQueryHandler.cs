@@ -33,20 +33,7 @@ internal sealed class GetCrmLeadsQueryHandler(CrmDbContext db)
             leads = leads.Where(l => l.Status == domainStatus);
         }
 
-        if (query.OwnerId is { } ownerId)
-        {
-            leads = leads.Where(l => l.OwnerId == ownerId);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            string pattern = $"%{EscapeLike(query.Search.Trim())}%";
-            leads = leads.Where(l =>
-                EF.Functions.ILike(l.FirstName, pattern, @"\")
-                || EF.Functions.ILike(l.LastName, pattern, @"\")
-                || EF.Functions.ILike(l.Email!, pattern, @"\")
-                || EF.Functions.ILike(l.Phone!, pattern, @"\"));
-        }
+        leads = LeadFilters.Apply(leads, query.OwnerId, query.Search);
 
         int totalCount = await leads.CountAsync(ct);
 
@@ -61,6 +48,59 @@ internal sealed class GetCrmLeadsQueryHandler(CrmDbContext db)
             .ToListAsync(ct);
 
         return new PagedResult<CrmLeadResponse>(items, query.PageNumber, query.PageSize, totalCount);
+    }
+}
+
+internal sealed class GetCrmLeadStatusCountsQueryValidator : AbstractValidator<GetCrmLeadStatusCountsQuery>
+{
+    public GetCrmLeadStatusCountsQueryValidator() => RuleFor(x => x.Search).MaximumLength(200);
+}
+
+/// <summary>One <c>GROUP BY</c> over the same owner and search filters as the paged list
+/// (<see cref="LeadFilters"/>), so the counts and the list's totals always agree.</summary>
+internal sealed class GetCrmLeadStatusCountsQueryHandler(CrmDbContext db)
+    : IQueryHandler<GetCrmLeadStatusCountsQuery, CrmLeadStatusCountsResponse>
+{
+    public async Task<Result<CrmLeadStatusCountsResponse>> HandleAsync(GetCrmLeadStatusCountsQuery query, CancellationToken ct = default)
+    {
+        Dictionary<LeadStatus, int> counts = await LeadFilters.Apply(db.CrmLeads.AsNoTracking(), query.OwnerId, query.Search)
+            .GroupBy(l => l.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Status, g => g.Count, ct);
+
+        return new CrmLeadStatusCountsResponse(
+            counts.Values.Sum(),
+            counts.GetValueOrDefault(LeadStatus.New),
+            counts.GetValueOrDefault(LeadStatus.Contacted),
+            counts.GetValueOrDefault(LeadStatus.Qualified),
+            counts.GetValueOrDefault(LeadStatus.Unqualified),
+            counts.GetValueOrDefault(LeadStatus.Converted));
+    }
+}
+
+/// <summary>The owner and search filters shared by the paged lead list and the status counts. Search is a
+/// case-insensitive contains on first name, last name, email and phone, with <c>%</c> and <c>_</c> taken
+/// literally.</summary>
+internal static class LeadFilters
+{
+    public static IQueryable<CrmLead> Apply(IQueryable<CrmLead> leads, Guid? ownerId, string? search)
+    {
+        if (ownerId is { } owner)
+        {
+            leads = leads.Where(l => l.OwnerId == owner);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{EscapeLike(search.Trim())}%";
+            leads = leads.Where(l =>
+                EF.Functions.ILike(l.FirstName, pattern, @"\")
+                || EF.Functions.ILike(l.LastName, pattern, @"\")
+                || EF.Functions.ILike(l.Email!, pattern, @"\")
+                || EF.Functions.ILike(l.Phone!, pattern, @"\"));
+        }
+
+        return leads;
     }
 
     private static string EscapeLike(string value) =>
