@@ -58,6 +58,28 @@ public sealed class StageFeeTests(ProjectsApplicationFixture fixture)
     }
 
     [Fact]
+    public async Task A_default_fee_above_the_cap_is_400_and_the_cap_itself_is_accepted()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid templateId = await CreateTemplateAsync(sp);
+        ICommandHandler<CreateStageCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateStageCommand, Guid>>();
+
+        // Above the cap (the same 1e12 a scope item's fee allows) is a 400, not a numeric overflow (500).
+        Result<Guid> tooBig = await create.HandleAsync(new CreateStageCommand(templateId, "Big", 1, 50m, DefaultFee: 10_000_000_000_000m));
+        Assert.True(tooBig.IsFailure);
+        Assert.Equal(400, tooBig.Error.Status);
+
+        Result<Guid> atCap = await create.HandleAsync(new CreateStageCommand(templateId, "Cap", 1, 50m, DefaultFee: 1_000_000_000_000m));
+        Assert.True(atCap.IsSuccess, atCap.IsFailure ? atCap.Error.ToString() : null);
+
+        Result updated = await sp.GetRequiredService<ICommandHandler<UpdateStageCommand>>()
+            .HandleAsync(new UpdateStageCommand(atCap.Value, DefaultFee: 1_000_000_000_000.01m));
+        Assert.True(updated.IsFailure);
+        Assert.Equal(400, updated.Error.Status);
+    }
+
+    [Fact]
     public async Task TaskCount_counts_each_stages_template_tasks()
     {
         await using AsyncServiceScope scope = fixture.CreateScope();

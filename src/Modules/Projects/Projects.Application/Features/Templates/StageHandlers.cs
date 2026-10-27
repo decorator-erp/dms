@@ -15,7 +15,9 @@ internal sealed class CreateStageCommandValidator : AbstractValidator<CreateStag
     {
         RuleFor(x => x.StageTemplateId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
+        // Same cap as a scope item's fee, so any default fee can be copied onto an item, and a value past the
+        // numeric(18,2) column is a 400 rather than an overflow at save.
+        RuleFor(x => x.DefaultFee).InclusiveBetween(0m, 1_000_000_000_000m).When(x => x.DefaultFee.HasValue);
     }
 }
 
@@ -25,7 +27,9 @@ internal sealed class UpdateStageCommandValidator : AbstractValidator<UpdateStag
     {
         RuleFor(x => x.StageId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200).When(x => x.Name is not null);
-        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
+        // Same cap as a scope item's fee, so any default fee can be copied onto an item, and a value past the
+        // numeric(18,2) column is a 400 rather than an overflow at save.
+        RuleFor(x => x.DefaultFee).InclusiveBetween(0m, 1_000_000_000_000m).When(x => x.DefaultFee.HasValue);
     }
 }
 
