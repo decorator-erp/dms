@@ -26,6 +26,7 @@ public class EnumMappingParityTests
         yield return [typeof(Projects.Contracts.GateStatus), typeof(Domain.GateStatus)];
         yield return [typeof(Projects.Contracts.GateTrigger), typeof(Domain.GateTrigger)];
         yield return [typeof(Projects.Contracts.ApprovalType), typeof(Domain.ApprovalType)];
+        yield return [typeof(Projects.Contracts.ScopeOfWorkStatus), typeof(Domain.ScopeOfWorkStatus)];
     }
 
     [Theory]

@@ -68,7 +68,8 @@ internal sealed class TemplateEndpoints : IEndpoint
             ICommandHandler<CreateStageCommand, Guid> handler, CancellationToken ct) =>
         {
             Result<Guid> result = await handler.HandleAsync(
-                new CreateStageCommand(stageTemplateId, request.Name, request.Order, request.WeightPercent, request.Description), ct);
+                new CreateStageCommand(
+                    stageTemplateId, request.Name, request.Order, request.WeightPercent, request.Description, request.DefaultFee), ct);
             return result.Match(id => Results.Ok(new { StageId = id }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
@@ -78,7 +79,8 @@ internal sealed class TemplateEndpoints : IEndpoint
             Guid stageId, UpdateStageRequest request, ICommandHandler<UpdateStageCommand> handler, CancellationToken ct) =>
         {
             Result result = await handler.HandleAsync(
-                new UpdateStageCommand(stageId, request.Name, request.Order, request.WeightPercent, request.Description), ct);
+                new UpdateStageCommand(
+                    stageId, request.Name, request.Order, request.WeightPercent, request.Description, request.DefaultFee), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);
 
@@ -181,8 +183,9 @@ internal sealed class TemplateEndpoints : IEndpoint
     }
 
     private sealed record UpdateStageTemplateRequest(string? Name, string? Description, bool? IsDefault);
-    private sealed record CreateStageRequest(string Name, int Order, decimal WeightPercent, string? Description);
-    private sealed record UpdateStageRequest(string? Name, int? Order, decimal? WeightPercent, string? Description);
+    private sealed record CreateStageRequest(string Name, int Order, decimal WeightPercent, string? Description, decimal? DefaultFee);
+    private sealed record UpdateStageRequest(
+        string? Name, int? Order, decimal? WeightPercent, string? Description, decimal? DefaultFee);
     private sealed record CreateStageTaskRequest(string Name, int Order, decimal Weight, string? Description, Guid? DepartmentId);
     private sealed record UpdateStageTaskRequest(string? Name, int? Order, decimal? Weight, string? Description, Guid? DepartmentId);
     private sealed record CreateStageSubTaskRequest(string Title, int Order, bool IsRequired, string? Description);

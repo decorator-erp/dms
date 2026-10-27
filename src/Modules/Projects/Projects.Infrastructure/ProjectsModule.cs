@@ -85,6 +85,9 @@ internal sealed class ProjectsModule : IModule
                 ProjectsPermissions.StageTasks.RequestApproval,
                 ProjectsPermissions.StageTasks.DecideApproval,
                 ProjectsPermissions.StageTasks.ManageGates,
+                ProjectsPermissions.Scope.Read,
+                ProjectsPermissions.Scope.Manage,
+                ProjectsPermissions.Scope.Confirm,
             ]));
 
         return services;

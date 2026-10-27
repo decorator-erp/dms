@@ -41,6 +41,14 @@ public static class ProjectsPermissions
         public const string Manage = "stage_teams.manage";
     }
 
+    /// <summary>Scope of work (نطاق العمل) — office only; the client role holds none of these.</summary>
+    public static class Scope
+    {
+        public const string Read = "scope.read";
+        public const string Manage = "scope.manage";
+        public const string Confirm = "scope.confirm";
+    }
+
     public static class StageTasks
     {
         public const string Read = "stage_tasks.read";
