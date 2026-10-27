@@ -1410,7 +1410,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("SpaceTypeId");
 
-                    b.HasIndex("SupersedesItemId");
+                    b.HasIndex("SupersedesItemId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesItemId\" IS NOT NULL");
 
                     b.ToTable("crm_requirement_items", "crm");
                 });

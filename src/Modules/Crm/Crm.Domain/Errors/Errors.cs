@@ -243,6 +243,15 @@ internal static class CrmItemErrors
 
     /// <summary>A-3 (X-6): an office item belongs to its period's project; a body naming another one is
     /// refused rather than silently corrected.</summary>
+    /// <summary>A-6 (B-M3): an item is superseded at most once — pre-check plus the partial unique index
+    /// on <c>SupersedesItemId</c>.</summary>
+    public static readonly Error AlreadySuperseded = Error.Conflict(
+        "crm.items.AlreadySuperseded", "This item has already been superseded.");
+
+    /// <summary>A-9 (B-M6): an <c>xmin</c> conflict on an item row.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.items.ConcurrentUpdate", "The item was changed by someone else at the same time. Reload and try again.");
+
     public static readonly Error ProjectMismatch = Error.BadRequest(
         "crm.items.ProjectMismatch", "The project does not match the period's project.");
 

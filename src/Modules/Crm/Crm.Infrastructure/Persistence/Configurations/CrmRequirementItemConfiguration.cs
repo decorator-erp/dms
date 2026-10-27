@@ -36,6 +36,10 @@ internal sealed class CrmRequirementItemConfiguration : IEntityTypeConfiguration
         // orphaned reference after a hard delete elsewhere can never block this row's own lifecycle.
         builder.HasOne<CrmRequirementItem>().WithMany().HasForeignKey(i => i.SupersedesItemId).OnDelete(DeleteBehavior.Restrict);
 
+        // A-6 (B-M3): an item is superseded at most once, so the correction ledger cannot fork. Unique
+        // where set; ItemWrites maps the violation to crm.items.AlreadySuperseded.
+        builder.HasIndex(i => i.SupersedesItemId).IsUnique().HasFilter("\"SupersedesItemId\" IS NOT NULL");
+
         builder.HasOne<CrmContact>().WithMany().HasForeignKey(i => i.CreatedByContactId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(i => i.ApprovalStatus);

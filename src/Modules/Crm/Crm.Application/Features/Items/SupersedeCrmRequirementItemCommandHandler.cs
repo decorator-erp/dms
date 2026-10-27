@@ -3,6 +3,7 @@ using Crm.Contracts.Items;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
 
@@ -27,6 +28,11 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db,
         if (original is null)
         {
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        if (await db.CrmRequirementItems.AnyAsync(i => i.SupersedesItemId == original.Id, ct))
+        {
+            return Result.Failure<Guid>(CrmItemErrors.AlreadySuperseded);
         }
 
         Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, original.PeriodId, ct);
@@ -60,8 +66,8 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db,
 
         CrmRequirementItem superseding = result.Value!;
         db.CrmRequirementItems.Add(superseding);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return superseding.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : superseding.Id;
     }
 }
