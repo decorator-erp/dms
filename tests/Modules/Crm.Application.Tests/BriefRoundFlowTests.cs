@@ -16,6 +16,7 @@ using Xunit;
 using ApprovalDecision = Approvals.Contracts.ApprovalDecision;
 using ApprovalState = Crm.Domain.ApprovalState;
 using CrmBriefHeadData = Crm.Contracts.Briefs.CrmBriefHeadData;
+using ProjectSector = Crm.Contracts.ProjectSector;
 using UnitCondition = Crm.Contracts.UnitCondition;
 using UnitType = Crm.Contracts.UnitType;
 
@@ -95,6 +96,34 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         Assert.Equal(ApprovalState.PendingApproval, resent.Status);
         Assert.Equal(CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 2), resent.PendingApprovalId);
         Assert.Equal(2, await CountSnapshotsAsync(briefId));
+    }
+
+    [Fact]
+    public async Task RoundDiff_ShowsASectorChange()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "round-sector-diff");
+        Guid briefId = await CreateBriefAsync(sp, p);
+        Assert.True((await UpdateHeadAsync(p, briefId, Head with { Sector = ProjectSector.Medical })).IsSuccess);
+
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+        Guid roundOne = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 1);
+        Assert.True((await DecideAsClientAsync(p, roundOne, ApprovalDecision.Rejected, "Wrong sector")).IsSuccess);
+        await DrainOutboxAsync();
+        Assert.True((await UpdateHeadAsync(p, briefId, Head with { Sector = ProjectSector.Residential })).IsSuccess);
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+
+        await using AsyncServiceScope diffScope = OwnerScope(p);
+        Result<BriefHeadDiffResponse> diff = await diffScope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetCrmBriefRoundDiffQuery, BriefHeadDiffResponse>>()
+            .HandleAsync(new GetCrmBriefRoundDiffQuery(briefId, 2, p.OwnerAppUserId));
+
+        Assert.True(diff.IsSuccess, diff.IsFailure ? diff.Error.ToString() : null);
+        BriefFieldChangeResponse change = Assert.Single(diff.Value!.Changes);
+        Assert.Equal("Sector", change.Field);
+        Assert.Equal(((int)ProjectSector.Medical).ToString(System.Globalization.CultureInfo.InvariantCulture), change.PreviousValue);
+        Assert.Equal(((int)ProjectSector.Residential).ToString(System.Globalization.CultureInfo.InvariantCulture), change.CurrentValue);
     }
 
     [Fact]

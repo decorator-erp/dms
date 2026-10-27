@@ -29,7 +29,8 @@ internal sealed record CrmBriefHeadData(
     string? ArchitecturalRequests = null,
     string? OtherNeeds = null,
     bool? IsRented = null,
-    FinishingPurpose? FinishingPurpose = null);
+    FinishingPurpose? FinishingPurpose = null,
+    ProjectSector? Sector = null);
 
 /// <summary>
 /// Ported from <c>../backend/Domain/Entities/CrmDesignBrief.cs</c> — the digitized "Application Form"
@@ -97,7 +98,9 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     public string? ArchitecturalRequests { get; private set; }
     public string? OtherNeeds { get; private set; }
 
-    /// <summary>Stamped from the intake at seeding; never edited via the head form.</summary>
+    /// <summary>Set from the head form when sent; on create, otherwise filled from the intake (first brief)
+    /// or the project's latest brief (later briefs). A null in the form keeps the stored value, so once set
+    /// it can be changed but never cleared back to null — intended: a project always keeps its sector.</summary>
     public ProjectSector? Sector { get; private set; }
 
     public bool? IsRented { get; private set; }
@@ -208,7 +211,7 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
             return CrmBriefErrors.NotDraft;
         }
 
-        Sector = sector;
+        Sector ??= sector;
         Address ??= unitAddress;
         AreaSqm ??= areaSqm;
         UsedDesignerBefore ??= usedDesignerBefore;
@@ -259,5 +262,9 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         OtherNeeds = d.OtherNeeds;
         IsRented = d.IsRented;
         FinishingPurpose = d.FinishingPurpose;
+        if (d.Sector is not null)
+        {
+            Sector = d.Sector;
+        }
     }
 }

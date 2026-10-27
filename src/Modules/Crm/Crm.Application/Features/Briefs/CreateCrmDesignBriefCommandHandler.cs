@@ -31,8 +31,9 @@ internal sealed class CreateCrmDesignBriefCommandValidator : AbstractValidator<C
 /// <para>Hop 2 of lead conversion (D1, copy-once): the project's <b>first</b> brief is seeded from the
 /// intake of the lead converted into the project's client — the newest conversion if there are several.
 /// Fill-blanks only: every value the request carries wins, including <c>UnitType</c>/<c>UnitCondition</c>,
-/// which are taken from the intake only when the request omits them. Later briefs on the project are never
-/// seeded; the intake stays the immutable pre-client snapshot and the brief head is the live truth.</para></summary>
+/// which are taken from the intake only when the request omits them, and <c>Sector</c>. Later briefs on the
+/// project are never seeded; the intake stays the immutable pre-client snapshot and the brief head is the
+/// live truth. A later brief without a sector takes the project's most recent brief's (F3).</para></summary>
 internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<CreateCrmDesignBriefCommand, Guid>
 {
@@ -80,6 +81,18 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
             }
 
             head = head with { UnitCondition = unitCondition };
+        }
+
+        // Sector: the request's when set; on the first brief, the intake's (SeedFromIntake below only fills
+        // a blank); on a later brief, the project's most recent brief's.
+        if (head.Sector is null && !firstOnProject)
+        {
+            ProjectSector? latestSector = await db.CrmDesignBriefs.AsNoTracking()
+                .Where(b => b.ProjectId == command.ProjectId)
+                .OrderByDescending(b => b.CreatedAtUtc).ThenByDescending(b => b.Id)
+                .Select(b => b.Sector)
+                .FirstOrDefaultAsync(ct);
+            head = head with { Sector = latestSector };
         }
 
         var brief = CrmDesignBrief.Create(command.ProjectId, command.CreatedById, command.ProjectStageId, head);

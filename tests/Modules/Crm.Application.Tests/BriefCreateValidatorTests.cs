@@ -3,6 +3,7 @@ using Crm.Contracts.Briefs;
 using FluentValidation.Results;
 using Xunit;
 using CrmBriefHeadData = Crm.Contracts.Briefs.CrmBriefHeadData;
+using ProjectSector = Crm.Contracts.ProjectSector;
 using UnitType = Crm.Contracts.UnitType;
 
 namespace Crm.Application.Tests;
@@ -28,6 +29,15 @@ public sealed class BriefCreateValidatorTests
             Command(new CrmBriefHeadData((UnitType)99, default)));
 
         Assert.Contains(result.Errors, e => e.PropertyName == "Data.UnitType");
+    }
+
+    [Fact]
+    public void An_undefined_sector_is_rejected_on_create_and_on_update()
+    {
+        var head = new CrmBriefHeadData(UnitType.Villa, Crm.Contracts.UnitCondition.BareBrick, Sector: (ProjectSector)99);
+
+        Assert.Contains(new CreateCrmDesignBriefCommandValidator().Validate(Command(head)).Errors, e => e.PropertyName == "Data.Sector");
+        Assert.Contains(new CrmBriefHeadDataValidator().Validate(head).Errors, e => e.PropertyName == "Sector");
     }
 
     [Fact]

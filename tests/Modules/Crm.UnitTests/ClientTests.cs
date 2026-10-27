@@ -94,6 +94,41 @@ public class ClientTests
         Assert.Equal("addr", client.Address);
     }
 
+    // --- LC-L5: whitespace counts as blank on both sides ---
+
+    [Fact]
+    public void FillBlanksFromIntake_FillsAWhitespaceJobTitle_WithTheTrimmedIntakeValue()
+    {
+        Client client = Client.Create("user-1", "addr").Value!;
+        client.UpdateProfile(jobTitle: "   ");
+
+        client.FillBlanksFromIntake(jobTitle: "  Engineer ", clientAddress: null);
+
+        Assert.Equal("Engineer", client.JobTitle);
+    }
+
+    [Fact]
+    public void FillBlanksFromIntake_KeepsARealJobTitle()
+    {
+        Client client = Client.Create("user-1", "addr").Value!;
+        client.UpdateProfile(jobTitle: "Architect");
+
+        client.FillBlanksFromIntake(jobTitle: "Engineer", clientAddress: "  ");
+
+        Assert.Equal("Architect", client.JobTitle);
+        Assert.Equal("addr", client.Address);
+    }
+
+    [Fact]
+    public void FillBlanksFromIntake_NeverCopiesAWhitespaceIntakeValue()
+    {
+        Client client = Client.Create("user-1", "addr").Value!;
+
+        client.FillBlanksFromIntake(jobTitle: "   ", clientAddress: null);
+
+        Assert.Null(client.JobTitle);
+    }
+
     [Fact]
     public void AddChild_AppendsToChildren()
     {
