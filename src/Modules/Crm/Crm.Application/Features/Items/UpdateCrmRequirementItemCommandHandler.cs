@@ -3,6 +3,7 @@ using Crm.Contracts.Items;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Items;
@@ -16,7 +17,8 @@ internal sealed class UpdateCrmRequirementItemCommandValidator : AbstractValidat
     }
 }
 
-internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmRequirementItemCommand>
+internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<UpdateCrmRequirementItemCommand>
 {
     public async Task<Result> HandleAsync(UpdateCrmRequirementItemCommand command, CancellationToken ct = default)
     {
@@ -24,6 +26,19 @@ internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db) : 
         if (item is null)
         {
             return CrmItemErrors.NotFound;
+        }
+
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(item.ProjectId, ct);
+        if (project is null)
+        {
+            return CrmItemErrors.NotFound;
+        }
+
+        Result references = await ItemReferenceValidator.ValidateAsync(
+            db, projectDirectory, project, command.ProjectTaskId, command.MeetingId, command.BriefId, command.NoteId, ct);
+        if (references.IsFailure)
+        {
+            return references;
         }
 
         Result result = item.Update(

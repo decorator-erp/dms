@@ -240,6 +240,23 @@ internal static class CrmItemErrors
     /// in the request body), distinct from the catalog's own 404 <c>crm.catalog.SpaceTypeNotFound</c>.</summary>
     public static readonly Error UnknownSpaceType = Error.BadRequest(
         "crm.items.UnknownSpaceType", "The space type does not exist or is inactive.");
+
+    /// <summary>A-3 (X-6): an office item belongs to its period's project; a body naming another one is
+    /// refused rather than silently corrected.</summary>
+    public static readonly Error ProjectMismatch = Error.BadRequest(
+        "crm.items.ProjectMismatch", "The project does not match the period's project.");
+
+    public static readonly Error TaskProjectMismatch = Error.BadRequest(
+        "crm.items.TaskProjectMismatch", "The task does not belong to this item's project.");
+
+    public static readonly Error MeetingProjectMismatch = Error.BadRequest(
+        "crm.items.MeetingProjectMismatch", "The meeting does not belong to this item's project.");
+
+    public static readonly Error BriefProjectMismatch = Error.BadRequest(
+        "crm.items.BriefProjectMismatch", "The brief does not belong to this item's project.");
+
+    public static readonly Error NoteProjectMismatch = Error.BadRequest(
+        "crm.items.NoteProjectMismatch", "The note does not belong to this item's project or client.");
 }
 
 internal static class CrmArtifactErrors

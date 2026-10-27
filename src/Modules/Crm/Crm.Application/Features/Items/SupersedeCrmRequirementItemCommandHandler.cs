@@ -3,6 +3,7 @@ using Crm.Contracts.Items;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Items;
@@ -17,7 +18,7 @@ internal sealed class SupersedeCrmRequirementItemCommandValidator : AbstractVali
     }
 }
 
-internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
+internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(SupersedeCrmRequirementItemCommand command, CancellationToken ct = default)
@@ -26,6 +27,19 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
         if (original is null)
         {
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(original.ProjectId, ct);
+        if (project is null)
+        {
+            return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        Result references = await ItemReferenceValidator.ValidateAsync(
+            db, projectDirectory, project, command.ProjectTaskId, command.MeetingId, command.BriefId, command.NoteId, ct);
+        if (references.IsFailure)
+        {
+            return Result.Failure<Guid>(references.Error);
         }
 
         Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
