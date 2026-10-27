@@ -30,14 +30,12 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
 
     public async Task<int> CountUnresolvedForStageAsync(Guid projectStageId, CancellationToken ct)
     {
-        int unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
+        int unresolvedBriefSpaces = await UnresolvedBriefSpaces()
             .Where(e => db.CrmDesignBriefs.Any(b => b.Id == e.BriefId && b.ProjectStageId == projectStageId))
-            .Where(e => e.ApprovalStatus == ApprovalState.Draft || e.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
-        int unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
+        int unresolvedItems = await UnresolvedItems()
             .Where(i => db.CrmRequirementPeriods.Any(p => p.Id == i.PeriodId && p.ProjectStageId == projectStageId))
-            .Where(i => i.ApprovalStatus == ApprovalState.Draft || i.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
         return unresolvedBriefSpaces + unresolvedItems;
@@ -45,16 +43,31 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
 
     public async Task<int> CountUnresolvedForTaskAsync(Guid projectTaskId, CancellationToken ct)
     {
-        int unresolvedBriefSpaces = await db.CrmBriefSpaces.AsNoTracking()
+        int unresolvedBriefSpaces = await UnresolvedBriefSpaces()
             .Where(e => e.ProjectTaskId == projectTaskId)
-            .Where(e => e.ApprovalStatus == ApprovalState.Draft || e.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
-        int unresolvedItems = await db.CrmRequirementItems.AsNoTracking()
+        int unresolvedItems = await UnresolvedItems()
             .Where(i => i.ProjectTaskId == projectTaskId)
-            .Where(i => i.ApprovalStatus == ApprovalState.Draft || i.ApprovalStatus == ApprovalState.PendingApproval)
             .CountAsync(ct);
 
         return unresolvedBriefSpaces + unresolvedItems;
     }
+
+    /// <summary>A-4 (B-M1, owner decision): resolved means Approved or NotRequired, or superseded by a later
+    /// row. Draft, PendingApproval AND Rejected are unresolved — a rejection is a request for a correction,
+    /// not an answer. Gates already satisfied under the old rule stay satisfied; this applies from now on.</summary>
+    private IQueryable<Domain.CrmBriefSpace> UnresolvedBriefSpaces() =>
+        db.CrmBriefSpaces.AsNoTracking()
+            .Where(e => e.ApprovalStatus == ApprovalState.Draft
+                || e.ApprovalStatus == ApprovalState.PendingApproval
+                || e.ApprovalStatus == ApprovalState.Rejected)
+            .Where(e => !db.CrmBriefSpaces.Any(next => next.SupersedesSpaceId == e.Id));
+
+    private IQueryable<Domain.CrmRequirementItem> UnresolvedItems() =>
+        db.CrmRequirementItems.AsNoTracking()
+            .Where(i => i.ApprovalStatus == ApprovalState.Draft
+                || i.ApprovalStatus == ApprovalState.PendingApproval
+                || i.ApprovalStatus == ApprovalState.Rejected)
+            .Where(i => !db.CrmRequirementItems.Any(next => next.SupersedesItemId == i.Id));
 }
