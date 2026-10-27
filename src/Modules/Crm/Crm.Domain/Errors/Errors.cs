@@ -235,6 +235,11 @@ internal static class CrmItemErrors
     public static readonly Error SendRequiresEmployeeAuthor = Error.BadRequest(
         "crm.items.SendRequiresEmployeeAuthor",
         "Only an employee-authored item can be sent for approval — a client-authored item is already trusted.");
+
+    /// <summary>X-1: a portal item named a space type that does not exist or is inactive. A 400 (a bad value
+    /// in the request body), distinct from the catalog's own 404 <c>crm.catalog.SpaceTypeNotFound</c>.</summary>
+    public static readonly Error UnknownSpaceType = Error.BadRequest(
+        "crm.items.UnknownSpaceType", "The space type does not exist or is inactive.");
 }
 
 internal static class CrmArtifactErrors

@@ -3,6 +3,7 @@ using Crm.Contracts.Meetings;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Meetings;
@@ -24,12 +25,23 @@ internal sealed class RequestCrmMeetingByClientCommandValidator : AbstractValida
 /// endpoint resolves <c>RequestedByContactId</c> via <c>CrmEndpointActors.ResolveContactIdAsync</c>,
 /// which already fails the request when the caller has no contact on file (the backend's
 /// <c>CrmContactErrors.NoContactOnFile</c> case), so the handler has nothing left to check there.
+///
+/// <para>X-2: the project must be the contact's own client's. Any failure of that check (another client's
+/// project, an unknown project, a contact with no client) is the portal's 404, so a caller cannot probe which
+/// projects exist. Only this create maps to 404; the slot and meeting operations keep their own errors.</para>
 /// </summary>
-internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db)
+internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<RequestCrmMeetingByClientCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(RequestCrmMeetingByClientCommand command, CancellationToken ct = default)
     {
+        Result ownProject = await MeetingSupport.EnsureActorCanActOnProjectAsync(
+            db, projectDirectory, command.ProjectId, null, command.RequestedByContactId, ct);
+        if (ownProject.IsFailure)
+        {
+            return Result.Failure<Guid>(CrmPortalErrors.NotFound);
+        }
+
         Result periodCheck = await MeetingSupport.ValidatePeriodAsync(db, command.ProjectId, command.PeriodId, ct);
         if (periodCheck.IsFailure)
         {

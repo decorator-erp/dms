@@ -5,7 +5,9 @@ using Crm.Contracts.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Contracts.Meetings;
 using Crm.Contracts.Portal;
+using Crm.Infrastructure.Persistence;
 using Hr.Contracts.Employees;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
@@ -66,6 +68,49 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
         Assert.Equal(MeetingSlotStatus.Declined, afterAccept.Single(s => s.Id == secondSlotId).Status);
 
         await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+    }
+
+    /// <summary>X-2: a client may request a meeting only on its own project. Another client's project and an
+    /// unknown project are both the portal's 404, and nothing is written.</summary>
+    [Fact]
+    public async Task RequestByClient_OnAnotherClientsOrAnUnknownProject_Is404_AndWritesNothing()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid foreignProjectId, _, _) = await SeedProjectAsync(sp, "x2-foreign-owner");
+        (_, Guid ownClientId, _) = await SeedProjectAsync(sp, "x2-own-owner");
+        Guid contactId = await SeedContactAsync(sp, ownClientId);
+        ICommandHandler<RequestCrmMeetingByClientCommand, Guid> request = sp.GetRequiredService<ICommandHandler<RequestCrmMeetingByClientCommand, Guid>>();
+
+        foreach (Guid projectId in new[] { foreignProjectId, Guid.NewGuid() })
+        {
+            Result<Guid> result = await request.HandleAsync(new RequestCrmMeetingByClientCommand(
+                projectId, contactId, "Sneaky visit", MeetingType.OnSite,
+                DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1)));
+
+            Assert.True(result.IsFailure);
+            Assert.Equal(404, result.Error.Status);
+            Assert.Equal("crm.portal.NotFound", result.Error.Code);
+        }
+
+        Assert.Equal(0, await sp.GetRequiredService<CrmDbContext>().CrmMeetings.AsNoTracking()
+            .CountAsync(m => m.RequestedByContactId == contactId));
+    }
+
+    [Fact]
+    public async Task RequestByClient_OnItsOwnProject_Succeeds()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        (Guid projectId, Guid clientId, _) = await SeedProjectAsync(sp, "x2-happy-owner");
+        Guid contactId = await SeedContactAsync(sp, clientId);
+
+        Result<Guid> result = await sp.GetRequiredService<ICommandHandler<RequestCrmMeetingByClientCommand, Guid>>()
+            .HandleAsync(new RequestCrmMeetingByClientCommand(
+                projectId, contactId, "Site visit", MeetingType.OnSite,
+                DateTime.UtcNow.AddDays(1), DateTime.UtcNow.AddDays(1).AddHours(1)));
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
     }
 
     [Fact]

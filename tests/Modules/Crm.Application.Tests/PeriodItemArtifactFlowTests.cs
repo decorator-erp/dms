@@ -6,6 +6,7 @@ using Crm.Contracts.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Contracts.Items;
 using Crm.Contracts.Periods;
+using Crm.Contracts.Spaces;
 using Hr.Contracts.Employees;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -117,6 +118,101 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>>();
         IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId))).Value!;
         Assert.Equal(CrmApprovalState.NotRequired, items.Single().ApprovalStatus);
+    }
+
+    /// <summary>X-1: a client may file an item only into an open period of its own project.</summary>
+    [Fact]
+    public async Task RequirementItem_ByClient_IsTenantChecked_AndNeedsAnOpenPeriodOfThatProject()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        PortalItemSetup own = await CreatePortalItemSetupAsync(sp, "x1-own");
+        PortalItemSetup other = await CreatePortalItemSetupAsync(sp, "x1-other");
+        ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>();
+
+        // Another client's project (with its own period) and an unknown project: 404.
+        AssertError(404, "crm.portal.NotFound", await create.HandleAsync(Item(other.ProjectId, other.PeriodId, own.ContactId)));
+        AssertError(404, "crm.portal.NotFound", await create.HandleAsync(Item(Guid.NewGuid(), own.PeriodId, own.ContactId)));
+
+        // Own project, but another project's period: 404.
+        AssertError(404, "crm.portal.NotFound", await create.HandleAsync(Item(own.ProjectId, other.PeriodId, own.ContactId)));
+
+        // Own project and period, but closed: 409.
+        Assert.True((await sp.GetRequiredService<ICommandHandler<CloseCrmRequirementPeriodCommand>>()
+            .HandleAsync(new CloseCrmRequirementPeriodCommand(own.PeriodId))).IsSuccess);
+        AssertError(409, "crm.periods.NotOpen", await create.HandleAsync(Item(own.ProjectId, own.PeriodId, own.ContactId)));
+    }
+
+    /// <summary>X-1: the space type must exist and be active; the body is bounded like the columns.</summary>
+    [Fact]
+    public async Task RequirementItem_ByClient_RejectsAnUnknownOrInactiveSpaceType_AndAnInvalidBody()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        PortalItemSetup p = await CreatePortalItemSetupAsync(sp, "x1-body");
+        ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid> create = sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>();
+
+        AssertError(400, "crm.items.UnknownSpaceType",
+            await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { SpaceTypeId = Guid.NewGuid() }));
+
+        Guid spaceTypeId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
+            .HandleAsync(new CreateCrmSpaceTypeCommand($"X1{Guid.NewGuid():N}"[..20], "Kitchen", "مطبخ"))).Value;
+        Assert.True((await sp.GetRequiredService<ICommandHandler<SetCrmSpaceTypeActiveCommand>>()
+            .HandleAsync(new SetCrmSpaceTypeActiveCommand(spaceTypeId, false))).IsSuccess);
+        AssertError(400, "crm.items.UnknownSpaceType",
+            await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { SpaceTypeId = spaceTypeId }));
+
+        Result<Guid> longTitle = await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { Title = new string('t', 257) });
+        Assert.Equal(400, longTitle.Error.Status);
+        Result<Guid> longRoom = await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { Room = new string('r', 129) });
+        Assert.Equal(400, longRoom.Error.Status);
+        Result<Guid> longDescription = await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { Description = new string('d', 2001) });
+        Assert.Equal(400, longDescription.Error.Status);
+        Result<Guid> badCategory = await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { Category = (RequirementCategory)999 });
+        Assert.Equal(400, badCategory.Error.Status);
+        Result<Guid> badPriority = await create.HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with { Priority = (RequirementPriority)999 });
+        Assert.Equal(400, badPriority.Error.Status);
+    }
+
+    [Fact]
+    public async Task RequirementItem_ByClient_OnItsOwnOpenPeriod_WithAnActiveSpaceType_Succeeds()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        PortalItemSetup p = await CreatePortalItemSetupAsync(sp, "x1-happy");
+        Guid spaceTypeId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
+            .HandleAsync(new CreateCrmSpaceTypeCommand($"X1{Guid.NewGuid():N}"[..20], "Living", "معيشة"))).Value;
+
+        Result<Guid> result = await sp.GetRequiredService<ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid>>()
+            .HandleAsync(Item(p.ProjectId, p.PeriodId, p.ContactId) with
+            {
+                SpaceTypeId = spaceTypeId,
+                Room = new string('r', 128),
+                Title = new string('t', 256),
+                Description = new string('d', 2000),
+            });
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+    }
+
+    private sealed record PortalItemSetup(Guid ProjectId, Guid PeriodId, Guid ContactId);
+
+    private static async Task<PortalItemSetup> CreatePortalItemSetupAsync(IServiceProvider sp, string label)
+    {
+        (string _, Guid clientId) = await CreateClientAsync(sp, label);
+        (Guid projectId, Guid employeeId) = await CreateProjectAsync(sp, clientId);
+        Guid periodId = (await sp.GetRequiredService<ICommandHandler<OpenCrmRequirementPeriodCommand, Guid>>()
+            .HandleAsync(new OpenCrmRequirementPeriodCommand(projectId, null, DateTime.UtcNow.AddDays(7), employeeId))).Value;
+        return new PortalItemSetup(projectId, periodId, await SeedContactAsync(sp, clientId));
+    }
+
+    private static CreateCrmRequirementItemByClientCommand Item(Guid projectId, Guid periodId, Guid contactId) =>
+        new(projectId, periodId, contactId, RequirementCategory.Style, "Warm colors", RequirementPriority.Medium);
+
+    private static void AssertError(int status, string code, Result<Guid> result)
+    {
+        Assert.True(result.IsFailure, "Expected a failure, got success.");
+        Assert.Equal((status, code), (result.Error.Status, result.Error.Code));
     }
 
     [Fact]
