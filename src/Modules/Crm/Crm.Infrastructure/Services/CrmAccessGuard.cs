@@ -42,8 +42,10 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
 
         if (client is not null)
         {
+            // LC-L1: the primary contact acts for the client; the oldest contact only when none is primary.
             Guid? contactId = await db.CrmContacts.AsNoTracking()
                 .Where(c => c.ClientId == client.Id)
+                .OrderByDescending(c => c.IsPrimary).ThenBy(c => c.CreatedAtUtc).ThenBy(c => c.Id)
                 .Select(c => (Guid?)c.Id)
                 .FirstOrDefaultAsync(ct);
 
@@ -88,6 +90,7 @@ internal sealed class CrmAccessGuard(CrmDbContext db, IHrDirectory hrDirectory) 
             var clientIds = clients.Select(c => c.Id).ToList();
             var primaryContactsByClient = await db.CrmContacts.AsNoTracking()
                 .Where(c => clientIds.Contains(c.ClientId))
+                .OrderByDescending(c => c.IsPrimary).ThenBy(c => c.CreatedAtUtc).ThenBy(c => c.Id)
                 .Select(c => new { c.ClientId, c.Id })
                 .ToListAsync(ct);
 

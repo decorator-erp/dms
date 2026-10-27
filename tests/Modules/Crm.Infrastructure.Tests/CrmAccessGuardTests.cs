@@ -127,6 +127,43 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
         Assert.False(result.ContainsKey("nobody-at-all"));
     }
 
+    /// <summary>LC-L1: the actor is the client's primary contact, even when another contact was created first.</summary>
+    [Fact]
+    public async Task ResolveActorAsync_WithTwoContacts_PicksThePrimaryEvenWhenItWasCreatedSecond()
+    {
+        string appUserId = await SeedIdentityUserAsync();
+        Guid clientId = await SeedClientAsync(appUserId);
+        await SeedContactAsync(clientId, isPrimary: false);
+        Guid primaryId = await SeedContactAsync(clientId, isPrimary: true);
+
+        await using CrmDbContext db = CreateContext();
+        var guard = new CrmAccessGuard(db, new StubHrDirectory());
+
+        Result<Contracts.CrmActor> result = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(primaryId, result.Value!.ContactId);
+    }
+
+    /// <summary>LC-L1: the batch path picks the same contact as the single path.</summary>
+    [Fact]
+    public async Task ResolveActorsAsync_WithTwoContacts_PicksThePrimaryLikeTheSinglePath()
+    {
+        string appUserId = await SeedIdentityUserAsync();
+        Guid clientId = await SeedClientAsync(appUserId);
+        await SeedContactAsync(clientId, isPrimary: false);
+        Guid primaryId = await SeedContactAsync(clientId, isPrimary: true);
+
+        await using CrmDbContext db = CreateContext();
+        var guard = new CrmAccessGuard(db, new StubHrDirectory());
+
+        IReadOnlyDictionary<string, Contracts.CrmActor> batch = await guard.ResolveActorsAsync([appUserId], CancellationToken.None);
+        Result<Contracts.CrmActor> single = await guard.ResolveActorAsync(appUserId, CancellationToken.None);
+
+        Assert.Equal(primaryId, batch[appUserId].ContactId);
+        Assert.Equal(single.Value!.ContactId, batch[appUserId].ContactId);
+    }
+
     [Fact]
     public async Task ResolveActorsAsync_EmptyList_ReturnsEmpty()
     {
@@ -166,10 +203,10 @@ public sealed class CrmAccessGuardTests : IAsyncLifetime
         return client.Id;
     }
 
-    private async Task<Guid> SeedContactAsync(Guid clientId)
+    private async Task<Guid> SeedContactAsync(Guid clientId, bool isPrimary = true)
     {
         await using CrmDbContext db = CreateContext();
-        CrmContact contact = CrmContact.Create(clientId, "Jane", "Doe", (ContactRole)1, isPrimary: true).Value!;
+        CrmContact contact = CrmContact.Create(clientId, "Jane", "Doe", (ContactRole)1, isPrimary).Value!;
         db.CrmContacts.Add(contact);
         await db.SaveChangesAsync();
         return contact.Id;
