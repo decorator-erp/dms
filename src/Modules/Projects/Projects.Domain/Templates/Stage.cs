@@ -12,16 +12,31 @@ internal sealed class Stage : Entity, IAuditable
     public int Order { get; private set; }
     public decimal WeightPercent { get; private set; }
 
+    /// <summary>The fee a scope of work copies when it picks this stage (0 when unset). Never negative
+    /// (validated at the command boundary). Can be changed, not cleared: a null on update keeps it.</summary>
+    public decimal? DefaultFee { get; private set; }
+
     private Stage()
     {
         // EF materialization.
     }
 
-    public static Stage Create(Guid stageTemplateId, string name, int order, decimal weightPercent, string? description = null) =>
-        new() { StageTemplateId = stageTemplateId, Name = name, Order = order, WeightPercent = weightPercent, Description = description };
+    public static Stage Create(
+        Guid stageTemplateId, string name, int order, decimal weightPercent, string? description = null, decimal? defaultFee = null) =>
+        new()
+        {
+            StageTemplateId = stageTemplateId, Name = name, Order = order, WeightPercent = weightPercent,
+            Description = description, DefaultFee = defaultFee,
+        };
 
-    public void Update(string? name = null, int? order = null, decimal? weightPercent = null, string? description = null)
+    public void Update(
+        string? name = null, int? order = null, decimal? weightPercent = null, string? description = null, decimal? defaultFee = null)
     {
+        if (defaultFee is not null)
+        {
+            DefaultFee = defaultFee;
+        }
+
         if (name is not null)
         {
             Name = name;

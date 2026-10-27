@@ -19,12 +19,20 @@ public sealed record GetStageTemplateQuery(Guid StageTemplateId) : IQuery<StageT
 
 public sealed record GetStageTemplatesQuery : IQuery<IReadOnlyList<StageTemplateResponse>>;
 
-public sealed record StageResponse(Guid Id, Guid StageTemplateId, string Name, string? Description, int Order, decimal WeightPercent);
+/// <summary><see cref="DefaultFee"/> is the fee a scope of work copies when it picks this stage (0 when
+/// unset); <see cref="TaskCount"/> is how many template tasks the stage has.</summary>
+public sealed record StageResponse(
+    Guid Id, Guid StageTemplateId, string Name, string? Description, int Order, decimal WeightPercent,
+    decimal? DefaultFee, int TaskCount);
 
-public sealed record CreateStageCommand(Guid StageTemplateId, string Name, int Order, decimal WeightPercent, string? Description = null)
+public sealed record CreateStageCommand(
+    Guid StageTemplateId, string Name, int Order, decimal WeightPercent, string? Description = null, decimal? DefaultFee = null)
     : ICommand<Guid>;
 
-public sealed record UpdateStageCommand(Guid StageId, string? Name = null, int? Order = null, decimal? WeightPercent = null, string? Description = null)
+/// <summary>A null field keeps the stored value, <see cref="DefaultFee"/> included.</summary>
+public sealed record UpdateStageCommand(
+    Guid StageId, string? Name = null, int? Order = null, decimal? WeightPercent = null, string? Description = null,
+    decimal? DefaultFee = null)
     : ICommand;
 
 public sealed record DeleteStageCommand(Guid StageId) : ICommand;

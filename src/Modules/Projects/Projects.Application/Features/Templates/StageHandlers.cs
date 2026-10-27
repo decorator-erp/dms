@@ -15,6 +15,17 @@ internal sealed class CreateStageCommandValidator : AbstractValidator<CreateStag
     {
         RuleFor(x => x.StageTemplateId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
+    }
+}
+
+internal sealed class UpdateStageCommandValidator : AbstractValidator<UpdateStageCommand>
+{
+    public UpdateStageCommandValidator()
+    {
+        RuleFor(x => x.StageId).NotEmpty();
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200).When(x => x.Name is not null);
+        RuleFor(x => x.DefaultFee).GreaterThanOrEqualTo(0m).When(x => x.DefaultFee.HasValue);
     }
 }
 
@@ -28,7 +39,8 @@ internal sealed class CreateStageCommandHandler(ProjectsDbContext db) : ICommand
             return Result.Failure<Guid>(Domain.StageTemplateErrors.NotFound);
         }
 
-        var stage = Domain.Stage.Create(command.StageTemplateId, command.Name, command.Order, command.WeightPercent, command.Description);
+        var stage = Domain.Stage.Create(
+            command.StageTemplateId, command.Name, command.Order, command.WeightPercent, command.Description, command.DefaultFee);
         db.Stages.Add(stage);
         await db.SaveChangesAsync(ct);
         return stage.Id;
@@ -45,7 +57,7 @@ internal sealed class UpdateStageCommandHandler(ProjectsDbContext db) : ICommand
             return Domain.TemplateEntityErrors.StageNotFound;
         }
 
-        stage.Update(command.Name, command.Order, command.WeightPercent, command.Description);
+        stage.Update(command.Name, command.Order, command.WeightPercent, command.Description, command.DefaultFee);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -72,12 +84,20 @@ internal sealed class GetStagesByTemplateQueryHandler(ProjectsDbContext db)
 {
     public async Task<Result<IReadOnlyList<StageResponse>>> HandleAsync(GetStagesByTemplateQuery query, CancellationToken ct = default)
     {
-        List<StageResponse> stages = await db.Stages.AsNoTracking()
+        List<Stage> stages = await db.Stages.AsNoTracking()
             .Where(s => s.StageTemplateId == query.StageTemplateId)
             .OrderBy(s => s.Order)
-            .Select(s => new StageResponse(s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent))
             .ToListAsync(ct);
 
-        return Result.Success<IReadOnlyList<StageResponse>>(stages);
+        // One grouped count for the whole template, never one count per stage.
+        Dictionary<Guid, int> taskCounts = await db.StageTasks.AsNoTracking()
+            .Where(t => db.Stages.Any(s => s.Id == t.StageId && s.StageTemplateId == query.StageTemplateId))
+            .GroupBy(t => t.StageId)
+            .Select(g => new { StageId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.StageId, g => g.Count, ct);
+
+        return Result.Success<IReadOnlyList<StageResponse>>([.. stages.Select(s => new StageResponse(
+            s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee,
+            taskCounts.GetValueOrDefault(s.Id)))]);
     }
 }
