@@ -47,6 +47,10 @@ public static class ProjectsPermissions
         public const string Read = "scope.read";
         public const string Manage = "scope.manage";
         public const string Confirm = "scope.confirm";
+
+        /// <summary>The three, as <c>ProjectsModule</c> registers them, so a count can't drift from the
+        /// constants.</summary>
+        public static readonly IReadOnlyList<string> All = [Read, Manage, Confirm];
     }
 
     public static class StageTasks

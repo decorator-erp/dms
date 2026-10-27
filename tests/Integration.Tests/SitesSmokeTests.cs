@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Finance.Contracts;
 using Identity.Contracts;
 using Notifications.Contracts;
+using Projects.Contracts;
 using Sites.Contracts;
 using Xunit;
 
@@ -41,11 +42,15 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// the only literal in this expression is the frozen historical figure. Re-typing the new total
     /// would make this test agree with itself and with nothing else — which is exactly how
     /// <c>PLAN-PHASE5.md</c> arrived at 62 when the answer was 114.</para>
+    ///
+    /// <para><b>The scope of work (SOW-4) adds Projects' 3 <c>scope.*</c> codes the same way</b>, from
+    /// <c>ProjectsPermissions.Scope.All</c> — the list <c>ProjectsModule</c> registers.</para>
     /// </summary>
     private const int PermissionsThroughPhase5 = 114;
 
     private static int TotalPermissionsAcrossAllModules =>
-        PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count;
+        PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count
+        + ProjectsPermissions.Scope.All.Count;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()
