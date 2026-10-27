@@ -16,6 +16,7 @@ internal static class ItemWrites
     private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
     {
         ["IX_crm_requirement_items_SupersedesItemId"] = CrmItemErrors.AlreadySuperseded,
+        ["ux_crm_requirement_periods_open_per_project"] = CrmPeriodErrors.AlreadyOpen,
     };
 
     public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)

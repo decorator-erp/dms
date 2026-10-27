@@ -3,6 +3,7 @@ using Crm.Contracts.Spaces;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
 
@@ -31,6 +32,11 @@ internal sealed class CreateCrmSpaceCommandHandler(CrmDbContext db, IProjectDire
             return Result.Failure<Guid>(CrmSpaceErrors.SpaceNotFound);
         }
 
+        if (await SpaceNames.TakenAsync(db, command.ProjectId, command.Name, exceptSpaceId: null, ct))
+        {
+            return Result.Failure<Guid>(CrmSpaceErrors.DuplicateName);
+        }
+
         Result<CrmSpace> result = CrmSpace.Create(command.ProjectId, command.SpaceTypeId, command.Name, command.SortOrder, command.Description);
         if (result.IsFailure)
         {
@@ -39,9 +45,9 @@ internal sealed class CreateCrmSpaceCommandHandler(CrmDbContext db, IProjectDire
 
         CrmSpace space = result.Value!;
         db.CrmSpaces.Add(space);
-        await db.SaveChangesAsync(ct);
+        Result saved = await CatalogWrites.SaveAsync(db, ct);
 
-        return space.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : space.Id;
     }
 }
 
@@ -65,15 +71,18 @@ internal sealed class UpdateCrmSpaceCommandHandler(CrmDbContext db) : ICommandHa
             return CrmSpaceErrors.SpaceNotFound;
         }
 
+        if (await SpaceNames.TakenAsync(db, space.ProjectId, command.Name, exceptSpaceId: space.Id, ct))
+        {
+            return CrmSpaceErrors.DuplicateName;
+        }
+
         Result result = space.Update(command.SpaceTypeId, command.Name, command.Description);
         if (result.IsFailure)
         {
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await CatalogWrites.SaveAsync(db, ct);
     }
 }
 
@@ -104,5 +113,22 @@ internal sealed class SetCrmSpaceActiveCommandHandler(CrmDbContext db) : IComman
         await db.SaveChangesAsync(ct);
 
         return Result.Success();
+    }
+}
+
+/// <summary>A-7 (M5): a space name is taken when another space on the project has it, ignoring case — the
+/// same comparison as the <c>lower("Name")</c> unique index.</summary>
+internal static class SpaceNames
+{
+    public static Task<bool> TakenAsync(CrmDbContext db, Guid projectId, string name, Guid? exceptSpaceId, CancellationToken ct)
+    {
+        string lowered = name.ToLowerInvariant();
+
+        // ToLower() runs in SQL as lower(), the index's own function; Npgsql cannot translate
+        // ToLowerInvariant(), and the client culture never applies to a server-side call.
+#pragma warning disable CA1304, CA1311
+        return db.CrmSpaces.AsNoTracking().AnyAsync(
+            s => s.ProjectId == projectId && s.Name.ToLower() == lowered && s.Id != exceptSpaceId, ct);
+#pragma warning restore CA1304, CA1311
     }
 }

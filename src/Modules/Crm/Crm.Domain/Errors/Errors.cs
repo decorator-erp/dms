@@ -156,11 +156,19 @@ internal static class CrmSpaceErrors
         "crm.spaces.ItemNotFound", "Space item was not found.");
 
     public static readonly Error InvalidData = Error.BadRequest("crm.spaces.InvalidData", "A space name is required.");
+
+    /// <summary>A-7 (B-M4): space names are unique per project, ignoring case.</summary>
+    public static readonly Error DuplicateName = Error.Conflict(
+        "crm.spaces.DuplicateName", "This project already has a space with that name.");
 }
 
 internal static class CrmSpaceTypeErrors
 {
     public static readonly Error CodeRequired = Error.BadRequest("crm.space_types.CodeRequired", "A code is required.");
+
+    /// <summary>A-7 (B-M4): space type codes are unique.</summary>
+    public static readonly Error DuplicateCode = Error.Conflict(
+        "crm.spaceTypes.DuplicateCode", "A space type with that code already exists.");
 
     public static readonly Error NameRequired = Error.BadRequest(
         "crm.space_types.NameRequired", "English and Arabic names are required.");
@@ -210,6 +218,14 @@ internal static class CrmPeriodErrors
 
     public static readonly Error NotOpen = Error.Conflict(
         "crm.periods.NotOpen", "This operation requires the period to be open.");
+
+    /// <summary>A-7/A-12 (B-M4, B-L2): a project already has an open period.</summary>
+    public static readonly Error AlreadyOpen = Error.Conflict(
+        "crm.periods.AlreadyOpen", "This project already has an open requirement period.");
+
+    /// <summary>A-9 (B-M6): an <c>xmin</c> conflict on a period row.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.periods.ConcurrentUpdate", "The period was changed by someone else at the same time. Reload and try again.");
 
     public static readonly Error InvalidCloseTime = Error.BadRequest(
         "crm.periods.InvalidCloseTime", "The close time must be in the future.");

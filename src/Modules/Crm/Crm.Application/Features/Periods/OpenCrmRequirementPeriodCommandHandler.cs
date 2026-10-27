@@ -49,7 +49,7 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
             p => p.ProjectId == command.ProjectId && p.Status == RequirementPeriodStatus.Open, ct);
         if (alreadyOpen)
         {
-            return Result.Failure<Guid>(CrmPeriodErrors.NotOpen);
+            return Result.Failure<Guid>(CrmPeriodErrors.AlreadyOpen);
         }
 
         Result<CrmRequirementPeriod> result = CrmRequirementPeriod.Create(
@@ -61,8 +61,8 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
 
         CrmRequirementPeriod period = result.Value!;
         db.CrmRequirementPeriods.Add(period);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return period.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : period.Id;
     }
 }
