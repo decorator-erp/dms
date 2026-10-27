@@ -28,6 +28,22 @@ public sealed record BriefHeadBlock(
 
 /// <summary>The client's view of one brief. <see cref="Head"/> is null until the head has been sent at
 /// least once; <see cref="Spaces"/> holds every entry except Drafts (the office's unsent work).</summary>
+/// <summary>B-1 (H2/X-7): one of the client's own meetings with its slots — what the client needs to
+/// answer a staff proposal. No employee ids: <see cref="PortalMeetingSlotResponse.ProposedByMe"/> says only
+/// whether the client's side proposed the slot.</summary>
+public sealed record PortalMeetingDetailResponse(
+    Guid Id, Guid ProjectId, string Title, MeetingType Type, MeetingStatus Status, DateTime? ScheduledAtUtc,
+    int? DurationMinutes, string? Location, DateTime? CanceledAtUtc, string? CancelReason,
+    IReadOnlyList<PortalMeetingSlotResponse> Slots);
+
+public sealed record PortalMeetingSlotResponse(
+    Guid Id, DateTime StartsAtUtc, DateTime EndsAtUtc, MeetingSlotStatus Status, bool ProposedByMe);
+
+/// <summary>B-1: the calling client's own meeting by id — 404 for any other client's or an unknown one.
+/// Portal-only; the client never holds <c>crm.meetings.read</c> (MT-N1).</summary>
+public sealed record GetMyPortalMeetingByIdQuery(string AppUserId, Guid MeetingId)
+    : IQuery<PortalMeetingDetailResponse>, ICrmScoped;
+
 public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList<PortalBriefSpaceResponse> Spaces);
 
 /// <summary>A-14 (B-L6): a brief-space entry as the client sees it — the office DTO

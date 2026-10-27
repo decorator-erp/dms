@@ -76,6 +76,16 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
 
+        // B-1 (H2/X-7): the portal-only meeting detail, with slots — never crm.meetings.read (MT-N1).
+        portal.MapGet("/meetings/{meetingId:guid}", async (
+            Guid meetingId, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalMeetingByIdQuery, PortalMeetingDetailResponse> handler, CancellationToken ct) =>
+        {
+            Result<PortalMeetingDetailResponse> result = await handler.HandleAsync(
+                new GetMyPortalMeetingByIdQuery(currentUser.UserId!, meetingId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
+
         portal.MapPost("/meetings/request", async (
             RequestMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<RequestCrmMeetingByClientCommand, Guid> handler, CancellationToken ct) =>
@@ -90,7 +100,7 @@ internal sealed class CrmPortalEndpoints : IEndpoint
                 request.ProjectId, contactId.Value, request.Title, request.Type,
                 request.StartsAtUtc, request.EndsAtUtc, request.PeriodId, request.Location), ct);
             return result.Match(
-                id => Results.Created($"/api/crm/meetings/{id}", new { MeetingId = id }), r => r.ToProblem());
+                id => Results.Created($"/api/crm/portal/meetings/{id}", new { MeetingId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RequestOwn);
 
         portal.MapPut("/meetings/slots/{slotId:guid}/accept", async (
