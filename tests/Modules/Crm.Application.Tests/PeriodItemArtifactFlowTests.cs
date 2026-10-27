@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using Crm.Contracts;
 using Crm.Contracts.Artifacts;
 using Crm.Contracts.Briefs;
@@ -115,8 +116,8 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
             projectId, periodId, contactId, RequirementCategory.Style, "I want warm colors", RequirementPriority.Medium));
         Assert.True(result.IsSuccess);
 
-        IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>>();
-        IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId, Me(sp)))).Value!;
+        IQueryHandler<GetCrmRequirementItemsByPeriodQuery, PagedResult<CrmRequirementItemResponse>> getByPeriod = sp.GetRequiredService<IQueryHandler<GetCrmRequirementItemsByPeriodQuery, PagedResult<CrmRequirementItemResponse>>>();
+        IReadOnlyList<CrmRequirementItemResponse> items = (await getByPeriod.HandleAsync(new GetCrmRequirementItemsByPeriodQuery(periodId, Me(sp)))).Value!.Items;
         Assert.Equal(CrmApprovalState.NotRequired, items.Single().ApprovalStatus);
     }
 

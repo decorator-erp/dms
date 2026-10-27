@@ -1,3 +1,4 @@
+using BuildingBlocks.Pagination;
 using Crm.Contracts;
 using Crm.Contracts.Items;
 using Crm.Contracts.Periods;
@@ -37,9 +38,9 @@ public sealed partial class ItemsPeriodsTests
             await Command(outsider, new SendCrmRequirementItemCommand(itemId, outsider)),
             Plain(await CommandFor<SupersedeCrmRequirementItemCommand, Guid>(outsider, new SupersedeCrmRequirementItemCommand(
                 itemId, outsiderEmployeeId, RequirementCategory.Style, "x", RequirementPriority.Low, outsider))),
-            Plain(await QueryFor<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>(outsider,
+            Plain(await QueryFor<GetCrmRequirementItemsByPeriodQuery, PagedResult<CrmRequirementItemResponse>>(outsider,
                 new GetCrmRequirementItemsByPeriodQuery(periodId, outsider))),
-            Plain(await QueryFor<GetCrmRequirementItemsByTaskQuery, IReadOnlyList<CrmRequirementItemResponse>>(outsider,
+            Plain(await QueryFor<GetCrmRequirementItemsByTaskQuery, PagedResult<CrmRequirementItemResponse>>(outsider,
                 new GetCrmRequirementItemsByTaskQuery(p.TaskId, outsider))),
             Plain(await CommandFor<CreateCrmSpaceCommand, Guid>(outsider, new CreateCrmSpaceCommand(p.ProjectId, typeId, "Sneaky", outsider))),
             await Command(outsider, new UpdateCrmSpaceCommand(spaceId, typeId, "Renamed", null, outsider)),
@@ -70,10 +71,10 @@ public sealed partial class ItemsPeriodsTests
             Item(p, periodId) with { EmployeeId = memberEmployeeId, UserId = member }, readAll: false);
         Assert.True(byMember.IsSuccess, byMember.Error?.Description);
 
-        Result<IReadOnlyList<CrmRequirementItemResponse>> byReader = await QueryFor<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>>(
+        Result<PagedResult<CrmRequirementItemResponse>> byReader = await QueryFor<GetCrmRequirementItemsByPeriodQuery, PagedResult<CrmRequirementItemResponse>>(
             reader, new GetCrmRequirementItemsByPeriodQuery(periodId, reader), readAll: true);
         Assert.True(byReader.IsSuccess, byReader.Error?.Description);
-        Assert.Single(byReader.Value!);
+        Assert.Single(byReader.Value!.Items);
 
         Result<IReadOnlyList<CrmSpaceResponse>> spaces = await QueryFor<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>>(
             member, new GetCrmSpacesByProjectQuery(p.ProjectId, member), readAll: false);

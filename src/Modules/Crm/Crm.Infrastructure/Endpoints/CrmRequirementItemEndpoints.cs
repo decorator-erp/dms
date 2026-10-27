@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -41,8 +42,8 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Items.Create);
 
         byPeriod.MapGet("/", async (
-            Guid periodId, ICurrentUser currentUser,
-            IQueryHandler<GetCrmRequirementItemsByPeriodQuery, IReadOnlyList<CrmRequirementItemResponse>> handler, CancellationToken ct) =>
+            Guid periodId, int? pageNumber, int? pageSize, ICurrentUser currentUser,
+            IQueryHandler<GetCrmRequirementItemsByPeriodQuery, PagedResult<CrmRequirementItemResponse>> handler, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -50,14 +51,14 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmRequirementItemResponse>> result = await handler.HandleAsync(
-                new GetCrmRequirementItemsByPeriodQuery(periodId, userId.Value!), ct);
+            Result<PagedResult<CrmRequirementItemResponse>> result = await handler.HandleAsync(
+                new GetCrmRequirementItemsByPeriodQuery(periodId, userId.Value!, pageNumber ?? 1, pageSize ?? 50), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Items.Read);
 
         app.MapGet("/api/crm/project-tasks/{taskId:guid}/requirement-items", async (
-            Guid taskId, ICurrentUser currentUser,
-            IQueryHandler<GetCrmRequirementItemsByTaskQuery, IReadOnlyList<CrmRequirementItemResponse>> handler, CancellationToken ct) =>
+            Guid taskId, int? pageNumber, int? pageSize, ICurrentUser currentUser,
+            IQueryHandler<GetCrmRequirementItemsByTaskQuery, PagedResult<CrmRequirementItemResponse>> handler, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -65,8 +66,8 @@ internal sealed class CrmRequirementItemEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmRequirementItemResponse>> result = await handler.HandleAsync(
-                new GetCrmRequirementItemsByTaskQuery(taskId, userId.Value!), ct);
+            Result<PagedResult<CrmRequirementItemResponse>> result = await handler.HandleAsync(
+                new GetCrmRequirementItemsByTaskQuery(taskId, userId.Value!, pageNumber ?? 1, pageSize ?? 50), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).WithTags("Crm Requirement Items").RequirePermission(CrmPermissions.Items.Read);
 

@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 
 namespace Crm.Contracts.Items;
 
@@ -52,14 +53,16 @@ public sealed record SupersedeCrmRequirementItemCommand(
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Item(OriginalItemId);
 }
 
-public sealed record GetCrmRequirementItemsByPeriodQuery(Guid PeriodId, string UserId)
-    : IQuery<IReadOnlyList<CrmRequirementItemResponse>>, ICrmProjectScoped
+/// <summary>A-13 (B-L4): paged, newest first — <see cref="PageNumber"/> from 1, <see cref="PageSize"/> 1..200.</summary>
+public sealed record GetCrmRequirementItemsByPeriodQuery(Guid PeriodId, string UserId, int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<CrmRequirementItemResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Period(PeriodId);
 }
 
-public sealed record GetCrmRequirementItemsByTaskQuery(Guid ProjectTaskId, string UserId)
-    : IQuery<IReadOnlyList<CrmRequirementItemResponse>>, ICrmProjectScoped
+/// <summary>A-13 (B-L4): paged like <see cref="GetCrmRequirementItemsByPeriodQuery"/>.</summary>
+public sealed record GetCrmRequirementItemsByTaskQuery(Guid ProjectTaskId, string UserId, int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<CrmRequirementItemResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.ProjectTask(ProjectTaskId);
 }
