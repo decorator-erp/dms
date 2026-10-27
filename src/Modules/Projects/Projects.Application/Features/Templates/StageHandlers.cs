@@ -94,12 +94,15 @@ internal sealed class GetStagesByTemplateQueryHandler(ProjectsDbContext db)
             .Select(s => new { s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee })
             .ToListAsync(ct);
 
-        // One grouped count for the whole template, never one count per stage.
-        Dictionary<Guid, int> taskCounts = await db.StageTasks.AsNoTracking()
-            .Where(t => db.Stages.Any(s => s.Id == t.StageId && s.StageTemplateId == query.StageTemplateId))
-            .GroupBy(t => t.StageId)
-            .Select(g => new { StageId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.StageId, g => g.Count, ct);
+        // One grouped count over the stage ids already loaded, never one count per stage; none for an empty template.
+        var stageIds = stages.Select(s => s.Id).ToList();
+        Dictionary<Guid, int> taskCounts = stageIds.Count == 0
+            ? []
+            : await db.StageTasks.AsNoTracking()
+                .Where(t => stageIds.Contains(t.StageId))
+                .GroupBy(t => t.StageId)
+                .Select(g => new { StageId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.StageId, g => g.Count, ct);
 
         return Result.Success<IReadOnlyList<StageResponse>>([.. stages.Select(s => new StageResponse(
             s.Id, s.StageTemplateId, s.Name, s.Description, s.Order, s.WeightPercent, s.DefaultFee,
