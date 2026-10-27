@@ -41,6 +41,12 @@ internal sealed class CreateCrmRequirementItemCommandHandler(CrmDbContext db, IP
             return Result.Failure<Guid>(CrmItemErrors.ProjectMismatch);
         }
 
+        Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, command.PeriodId, ct);
+        if (open.IsFailure)
+        {
+            return Result.Failure<Guid>(open.Error);
+        }
+
         ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
         if (project is null)
         {

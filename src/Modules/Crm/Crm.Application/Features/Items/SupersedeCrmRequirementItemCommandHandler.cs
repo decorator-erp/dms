@@ -29,6 +29,12 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db,
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
         }
 
+        Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, original.PeriodId, ct);
+        if (open.IsFailure)
+        {
+            return Result.Failure<Guid>(open.Error);
+        }
+
         ProjectSummary? project = await projectDirectory.GetProjectAsync(original.ProjectId, ct);
         if (project is null)
         {

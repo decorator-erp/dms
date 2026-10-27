@@ -28,6 +28,12 @@ internal sealed class UpdateCrmRequirementItemCommandHandler(CrmDbContext db, IP
             return CrmItemErrors.NotFound;
         }
 
+        Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, item.PeriodId, ct);
+        if (open.IsFailure)
+        {
+            return open;
+        }
+
         ProjectSummary? project = await projectDirectory.GetProjectAsync(item.ProjectId, ct);
         if (project is null)
         {

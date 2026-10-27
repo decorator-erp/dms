@@ -46,4 +46,21 @@ internal static class ItemReferenceValidator
 
         return Result.Success();
     }
+
+    /// <summary>A-5 (B-M2): a Closed period's gate may already have fired, so its items are frozen — no
+    /// create, update or supersede. An unknown period is 404.</summary>
+    public static async Task<Result> EnsurePeriodOpenAsync(CrmDbContext db, Guid periodId, CancellationToken ct)
+    {
+        RequirementPeriodStatus? status = await db.CrmRequirementPeriods.AsNoTracking()
+            .Where(p => p.Id == periodId)
+            .Select(p => (RequirementPeriodStatus?)p.Status)
+            .FirstOrDefaultAsync(ct);
+
+        return status switch
+        {
+            null => CrmPeriodErrors.NotFound,
+            RequirementPeriodStatus.Open => Result.Success(),
+            _ => CrmPeriodErrors.NotOpen,
+        };
+    }
 }
