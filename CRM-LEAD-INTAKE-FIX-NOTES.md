@@ -343,3 +343,171 @@ the lock each time). The `AlreadyConverted` path is proved deterministically by 
   `crm.leads.AlreadyConverted` if the convert won.
 - Two simultaneous first saves of one intake now both succeed (last write wins) instead of one getting 409
   `crm.leads.ConcurrentUpdate`.
+
+## Open items F3, F4, F5, LC-L5, LC-L6 (PR 12)
+
+Branch `claude/gifted-planck-x3lvtg` off `master` at `2e48b80` (the PR #11 merge); see DEVIATION-22. PR:
+https://github.com/decorator-erp/dms/pull/12 (ready for review).
+
+All five items still held on `master` at `2e48b80`; none was `skipped-invalid`. Blocked: **none**.
+
+### Status
+
+| Item | Status | Commit | Proving tests |
+|---|---|---|---|
+| LC-L6 — convert takes the lead lock | **fixed** | `a397050` | `LeadIntakeReviewTests.A_convert_waits_for_an_uncommitted_intake_save_then_fills_the_client_from_the_new_intake`; L1, M5 and F2 convert tests unchanged and green |
+| LC-L5 — whitespace counts as blank | **fixed** | `f8798c3` | `ClientTests.FillBlanksFromIntake_FillsAWhitespaceJobTitle_WithTheTrimmedIntakeValue`, `FillBlanksFromIntake_KeepsARealJobTitle`, `FillBlanksFromIntake_NeverCopiesAWhitespaceIntakeValue`; `CrmLeadIntakeTests.Create_And_Update_StoreWhitespaceOnlyTextAsNull`, `Create_And_Update_StorePaddedTextTrimmed`, `Create_WithAWhitespaceReasonAndNoExperience_IsNotAReasonWithoutExperience` |
+| F3 — brief `Sector` | **fixed** | `d12e80a` | `LeadIntakeReviewTests.FirstBrief_with_a_sector_in_the_request_keeps_it_over_the_intakes`, `FirstBrief_without_a_sector_takes_the_intakes`, `A_later_stage_brief_without_a_sector_inherits_the_projects_latest_brief_sector`, `A_brief_for_a_client_without_a_converted_lead_stores_the_requested_sector`, `Update_with_a_sector_replaces_it_and_without_one_keeps_it`, `An_undefined_sector_is_400_on_create_and_on_update`, `A_brief_for_a_second_stage_is_not_seeded` (assertion updated, DEVIATION-24); `BriefCreateValidatorTests.An_undefined_sector_is_rejected_on_create_and_on_update`; `BriefRoundFlowTests.RoundDiff_ShowsASectorChange` |
+| F4 — module snapshots match the model | **fixed** | `eb5da3a` | `has-pending-model-changes` clean for all 10 contexts; `migrations script` emits no DDL for each of the 8 kept migrations; every fixture migrates a fresh DB (all `*.Infrastructure.Tests`, `*.Application.Tests` and `Integration.Tests` green) |
+| F5 — `Integration.Tests` start-up | **fixed (not reproduced)** | `66102b2` | 3 baseline runs plus 1 forced-parallel run with 0 failures; 3 final runs with 0 failures |
+
+### Red-before-green
+
+Red was run on unchanged source. For F3, only the trailing `Sector` contract parameter had been added at that
+point, so the tests compiled and failed on behaviour rather than at compile time.
+
+| Item | Test | Observed failure on unchanged code |
+|---|---|---|
+| LC-L6 | `A_convert_waits_for_an_uncommitted_intake_save_then_fills_the_client_from_the_new_intake` | `Assert.Equal() Failure: Strings differ`. Expected `"New title"`, got the stale `"Old title"`. The convert did wait (its UPDATE blocked on the lock), but it had already read the old intake. |
+| LC-L5 | `FillBlanksFromIntake_FillsAWhitespaceJobTitle_WithTheTrimmedIntakeValue` | `Assert.Equal() Failure: Strings differ` (the whitespace title counted as filled) |
+| LC-L5 | `FillBlanksFromIntake_NeverCopiesAWhitespaceIntakeValue` | `Assert.Null() Failure: Value is not null` |
+| LC-L5 | `Create_And_Update_StoreWhitespaceOnlyTextAsNull`, `Create_And_Update_StorePaddedTextTrimmed` | `Assert.Null()` / `Assert.Equal()` failures (stored as sent) |
+| LC-L5 | `Create_WithAWhitespaceReasonAndNoExperience_IsNotAReasonWithoutExperience` | `crm.leads.ExperienceReasonWithoutExperience`: a blank reason counted as a reason |
+| LC-L5 | `FillBlanksFromIntake_KeepsARealJobTitle` | passed on old code (regression guard) |
+| F3 | `FirstBrief_with_a_sector_in_the_request_keeps_it_over_the_intakes` | expected `Medical`, actual `Residential` (`SeedFromIntake` overwrote it) |
+| F3 | `A_later_stage_brief_without_a_sector_inherits_…`, `A_brief_for_a_second_stage_is_not_seeded` | expected `Residential`, actual `null` |
+| F3 | `A_brief_for_a_client_without_a_converted_lead_stores_the_requested_sector` | expected `Medical`, actual `null` |
+| F3 | `Update_with_a_sector_replaces_it_and_without_one_keeps_it` | expected `Residential`, actual `null` |
+| F3 | `An_undefined_sector_is_400_on_create_and_on_update`, `BriefCreateValidatorTests.An_undefined_sector_is_rejected_…` | `Assert.True() Failure` / no validation error (accepted) |
+| F3 | `BriefRoundFlowTests.RoundDiff_ShowsASectorChange` | `Assert.Single() Failure: The collection was empty` (sector never reached the head) |
+| F3 | `FirstBrief_without_a_sector_takes_the_intakes` | passed on old code (H2 regression guard) |
+
+F4 and F5 have no red test; their proof is below.
+
+### Tests
+
+| Run | Total | Passed | Failed | Skipped | `Integration.Tests` |
+|---|---|---|---|---|---|
+| Baseline 1 (`2e48b80`) | 1502 | 1502 | 0 | 0 | 196/196 |
+| Baseline 2 | 1502 | 1502 | 0 | 0 | 196/196 |
+| Baseline 3 | 1502 | 1502 | 0 | 0 | 196/196 |
+| Forced parallel (full run + a second `Integration.Tests` run at once, before the F5 change) | 1517 | 1517 | 0 | 0 | 196/196 and 196/196 |
+| Final 1 (`66102b2`) | 1517 | 1517 | 0 | 0 | 196/196 |
+| Final 2 (`66102b2`) | 1517 | 1517 | 0 | 0 | 196/196 |
+| Final 3 (`66102b2`) | 1517 | 1517 | 0 | 0 | 196/196 |
+
++15 tests: `Crm.UnitTests` 227 → 233, `Crm.Application.Tests` 177 → 186. Docker ran, so nothing is "written, not
+run". No test was deleted, skipped or ignored.
+Gates on `66102b2`: `build -warnaserror` gave 0 warnings and 0 errors. `dotnet test DMS.Modular.slnx` passed 3
+consecutive runs with 0 failures, and `Architecture.Tests` passed 35/35. `dotnet format` changed only line endings
+(the CRLF noise from DEVIATION-12, normalised by `.gitattributes`): `git diff --ignore-cr-at-eol` showed no content
+change, so nothing was committed for it. `git diff --stat` is empty after the notes commit.
+
+### F3 as implemented
+
+`CreateCrmDesignBriefCommandHandler` resolves the effective sector in this order:
+1. the request's `Sector`, when set (validated with `IsInEnum`);
+2. on the project's first brief, the converted lead's intake sector. `SeedFromIntake` now does `Sector ??= sector`,
+   so it only fills a blank, like every other field;
+3. on a later brief, the `Sector` of the project's most recent brief, ordered by `CreatedAtUtc desc`, then `Id desc`;
+4. otherwise null.
+
+On update, `Apply` sets `Sector` only when the request carries one. Null means keep, the same rule as
+`LastMeetingId`. **A sector can be changed but never cleared back to null. This is intended:** a project keeps its
+sector once it has one.
+
+Snapshot, diff and portal: `CrmBriefHeadSnapshot` already captured `Sector` field by field, `DiffFrom` already
+compared it, and the portal `BriefHeadBlock` already exposed it (it was always null before). Its column
+`crm_brief_head_snapshots.Sector` already exists, so **F3 needs no migration**. `has-pending-model-changes` for
+`CrmDbContext` stayed clean after F3 landed.
+
+### F4 per module
+
+`has-pending-model-changes` (`--project`/`--startup-project` = the module's Infrastructure project, which carries its
+design-time factory) reported **no changes for all 10 contexts, both before and after F3.** That check can't see the
+problem: the stale part is the shared `outbox_messages` and `audit_logs` model, which every module maps with
+`ExcludeFromMigrations`, so the differ produces no operations for it (DEVIATION-25). A `grep` of the snapshots showed
+8 of them still lacked `dead_lettered_utc`, `next_attempt_utc` and the widened unprocessed index.
+`migrations add SyncModelSnapshot` regenerated each one; every generated `Up()` was empty.
+
+| Context | Snapshot stale? | `Up()` | Result |
+|---|---|---|---|
+| `SharedDbContext` (owns `outbox_messages`) | no | — | no migration needed |
+| `CrmDbContext` | no (caught up in L1, DEVIATION-10) | — | no migration needed |
+| `IdentityModuleDbContext` | yes (outbox) | empty | kept `20261027052914_SyncModelSnapshot` |
+| `HrDbContext` | yes (outbox, plus an explicit `IX_departments_Name` name equal to the default) | empty | kept `20261027052917_SyncModelSnapshot` |
+| `ProjectsDbContext` | yes (outbox) | empty | kept `20261027052907_SyncModelSnapshot` |
+| `ApprovalsDbContext` | yes (outbox, `audit_logs`) | empty | kept `20261027052920_SyncModelSnapshot` |
+| `DocumentsDbContext` | yes (outbox, `audit_logs`) | empty | kept `20261027052900_SyncModelSnapshot` |
+| `NotificationsDbContext` | yes (outbox) | empty | kept `20261027052910_SyncModelSnapshot` |
+| `SitesDbContext` | yes (outbox, `audit_logs`) | empty | kept `20261027052924_SyncModelSnapshot` |
+| `FinanceDbContext` | yes (outbox) | empty | kept `20261027052904_SyncModelSnapshot` |
+
+Each kept migration has empty `Up()`/`Down()` bodies in the repo's file-scoped style, plus a comment saying it's an
+intentional no-op. The generated code failed `-warnaserror` on IDE0161 (file-scoped namespace). Empty block bodies
+pass the analyzers. Afterwards `has-pending-model-changes` is clean for all 10 contexts, and `migrations script
+<previous> SyncModelSnapshot` emits only the history row for all 8. For example, HR
+(`20261020045733_HrDataIntegrity` → `SyncModelSnapshot`):
+
+```sql
+START TRANSACTION;
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES ('20261027052917_SyncModelSnapshot', '10.0.13');
+
+COMMIT;
+```
+
+### F5
+
+**The root-cause exception was not captured: the flake did not reproduce.** All 3 baseline full runs passed
+`Integration.Tests` 196/196. So did one forced-parallel attempt, a full solution run with a second
+`Integration.Tests` run started at the same moment. Per the amended instructions it was not retried further.
+
+The fixture hardening is low-risk and stays in. `ApiFixture.InitializeAsync` now calls `StartAndMigrateAsync`, which
+makes up to 3 attempts. Each attempt uses a fresh `postgres:17` container with a 3-minute start timeout, waits until
+Postgres actually answers `SELECT 1` (up to 30 s; the container's readiness check can pass while the server restarts
+after init), then migrates every schema. A failed attempt's container is disposed, and the next one starts after a
+2 s or 4 s backoff. The third failure is rethrown as an `AggregateException` holding all three, so if the flake comes
+back its cause is in the first failing test's output. No test is skipped, the project stays in the solution run, and
+parallelization is unchanged. Run evidence is in the Tests table above.
+
+### Self-audit
+
+- Every item is `fixed` (F5 as `fixed (not reproduced)`). Each code item has its red-before-green entry above.
+- Migrations: only F4's 8 `SyncModelSnapshot` no-ops. F3 needed none.
+- No test deleted, skipped or ignored. One assertion changed on purpose (DEVIATION-24).
+- No secret committed: the fixture still generates its JWT key and admin password per run, and the diff contains no
+  key or password value.
+- Gates: recorded in the Tests section.
+
+### DEVIATIONs
+
+- **DEVIATION-22 — branch.** The session's harness pins all pushes to `claude/gifted-planck-x3lvtg` (already at
+  `master` `2e48b80`), so work went there instead of `fix/crm-lead-open-items`. One commit per item with the
+  `crm-leads: <id>` prefix, as asked.
+- **DEVIATION-23 — plan mode.** The session switched into plan mode despite "no plan mode". The plan was approved
+  once, with the owner's amendments A1–A3, and nothing stopped for approval after that.
+- **DEVIATION-24 — H2 assertion.** `A_brief_for_a_second_stage_is_not_seeded` asserted `Sector == null` on a stage-2
+  brief. F3's decided rule makes it inherit the first brief's sector, so that one assertion now expects `Residential`
+  (with a comment). The test's other assertions, which check that nothing else is seeded, are unchanged.
+- **DEVIATION-25 — F4 detection.** `has-pending-model-changes` reported no changes for every context, which read
+  literally would make F4 `skipped-invalid`. The problem described does hold: 8 snapshots were stale on excluded
+  shared tables, which that command can't see. The safer reading was to sync those 8 with empty, no-DDL migrations,
+  the outcome the item asks for.
+- **DEVIATION-26 — LC-L5 placement.** Intake text is cleaned in `CrmLeadIntake.Create`/`Update`, before the field
+  rules run, rather than inside `Apply`. The stored values are the same, and a whitespace-only
+  `DesignerExperienceReason` no longer trips `ExperienceReasonWithoutExperience`.
+- **DEVIATION-27 — `dotnet-ef` needed `DOTNET_ROOT`.** The global tool couldn't find the runtime in `~/.dotnet`
+  until `DOTNET_ROOT` was set. Environment only, no repo change.
+
+### Frontend impact
+
+- The brief head has an optional `sector`. Send it on create or update; omitting it keeps the stored value, and a
+  sector can't be cleared back to null. An undefined value is a 400.
+- On create without a `sector`, the project's first brief takes the converted lead's intake sector, and later-stage
+  briefs inherit the sector from the project's latest brief.
+- The round diff and the portal head may now show a `Sector` change or value.
+- Lead intake text (`jobTitle`, `clientAddress`, `unitAddress`, `designerExperienceReason`) comes back trimmed, and
+  whitespace-only is stored as null. A client's blank job title is now filled from the intake on convert.
+- A convert may wait briefly while an intake save of the same lead is in progress. It then fills the client from the
+  saved intake.
