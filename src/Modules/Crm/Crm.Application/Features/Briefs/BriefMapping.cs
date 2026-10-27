@@ -27,7 +27,8 @@ internal static class BriefMapping
         d.ExpectedBudget,
         d.TimelinePressure is { } tp ? CrmEnumMapping.ToDomain(tp) : null,
         d.ArchitecturalRequests, d.OtherNeeds, d.IsRented,
-        d.FinishingPurpose is { } fp ? CrmEnumMapping.ToDomain(fp) : null);
+        d.FinishingPurpose is { } fp ? CrmEnumMapping.ToDomain(fp) : null,
+        d.Sector is { } sector ? CrmEnumMapping.ToDomain(sector) : null);
 
     public static Contracts.Briefs.CrmDesignBriefResponse ToResponse(CrmDesignBrief brief)
     {
@@ -44,7 +45,8 @@ internal static class BriefMapping
             brief.FurnitureStatus is { } fs ? CrmEnumMapping.ToContracts(fs) : null, brief.ExpectedBudget,
             brief.TimelinePressure is { } tp ? CrmEnumMapping.ToContracts(tp) : null,
             brief.ArchitecturalRequests, brief.OtherNeeds, brief.IsRented,
-            brief.FinishingPurpose is { } fp ? CrmEnumMapping.ToContracts(fp) : null);
+            brief.FinishingPurpose is { } fp ? CrmEnumMapping.ToContracts(fp) : null,
+            brief.Sector is { } sector ? CrmEnumMapping.ToContracts(sector) : null);
 
         return new Contracts.Briefs.CrmDesignBriefResponse(
             brief.Id, brief.ProjectId, brief.ProjectStageId, brief.CreatedById, brief.LastMeetingId,

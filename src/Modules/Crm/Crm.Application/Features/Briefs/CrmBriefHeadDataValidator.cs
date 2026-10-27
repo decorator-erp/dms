@@ -43,6 +43,7 @@ internal sealed class CrmBriefHeadDataValidator : AbstractValidator<CrmBriefHead
         RuleFor(x => x.FurnitureStatus).IsInEnum();
         RuleFor(x => x.TimelinePressure).IsInEnum();
         RuleFor(x => x.FinishingPurpose).IsInEnum();
+        RuleFor(x => x.Sector).IsInEnum();
 
         // A flags enum: any combination of the defined bits, nothing else.
         RuleFor(x => x.HiringReasons)

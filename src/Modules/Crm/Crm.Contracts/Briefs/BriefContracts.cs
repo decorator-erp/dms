@@ -3,7 +3,10 @@ using BuildingBlocks.Messaging;
 namespace Crm.Contracts.Briefs;
 
 /// <summary>All editable head fields in one carrier, mirroring the backend's
-/// <c>CrmBriefHeadData</c>. Sent atomically by <see cref="UpdateCrmBriefHeadCommand"/>.</summary>
+/// <c>CrmBriefHeadData</c>. Sent atomically by <see cref="UpdateCrmBriefHeadCommand"/>.
+/// <see cref="Sector"/> is optional: omitted on create, it comes from the converted lead's intake (the
+/// project's first brief) or the project's most recent brief; omitted on update, the stored value is
+/// kept, so a sector can be changed but not cleared.</summary>
 public sealed record CrmBriefHeadData(
     UnitType UnitType,
     UnitCondition UnitCondition,
@@ -29,7 +32,8 @@ public sealed record CrmBriefHeadData(
     string? ArchitecturalRequests = null,
     string? OtherNeeds = null,
     bool? IsRented = null,
-    FinishingPurpose? FinishingPurpose = null);
+    FinishingPurpose? FinishingPurpose = null,
+    ProjectSector? Sector = null);
 
 public sealed record CrmDesignBriefResponse(
     Guid Id, Guid ProjectId, Guid ProjectStageId, Guid CreatedById, Guid? LastMeetingId,

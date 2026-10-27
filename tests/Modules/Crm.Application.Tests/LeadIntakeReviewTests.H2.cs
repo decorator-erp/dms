@@ -86,7 +86,8 @@ public sealed partial class LeadIntakeReviewTests
 
         Assert.True(second.IsSuccess, second.IsFailure ? second.Error.ToString() : null);
         CrmDesignBrief brief = await LoadBriefAsync(second.Value);
-        Assert.Null(brief.Sector);
+        // F3: the sector is inherited from the project's latest brief, not seeded from the intake.
+        Assert.Equal(Domain.ProjectSector.Residential, brief.Sector);
         Assert.Null(brief.Address);
         Assert.Null(brief.AreaSqm);
         Assert.Null(brief.FinishingPurpose);
