@@ -256,6 +256,27 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
             .HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, p.OwnerAppUserId))).Value!);
     }
 
+    /// <summary>FINDING-P1-14: the document must belong to the subject's own project — another project's
+    /// document is "not found" from here, and nothing is linked.</summary>
+    [Fact]
+    public async Task LinkArtifactDocument_FromAnotherProject_Is404_AndLinksNothing()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "artifact-cross");
+        BriefTestProject other = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "artifact-cross-other");
+        Guid foreignDocumentId = await SeedProjectDocumentAsync(other.ProjectId, other.EmployeeId);
+        Guid briefId = (await sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>().HandleAsync(new CreateCrmDesignBriefCommand(
+            p.ProjectId, p.EmployeeId, p.StageId, new CrmBriefHeadData((UnitType)1, (UnitCondition)1), p.OwnerAppUserId))).Value;
+
+        Result<Guid> linked = await sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>()
+            .HandleAsync(new LinkCrmArtifactDocumentCommand(foreignDocumentId, briefId, null, null, null, p.EmployeeId, null, p.OwnerAppUserId));
+
+        AssertError(404, "crm.artifacts.DocumentNotFound", linked);
+        Assert.Empty((await sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>()
+            .HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, p.OwnerAppUserId))).Value!);
+    }
+
     [Fact]
     public async Task LinkArtifactDocument_ThenQueryByBrief_RoundTrips()
     {
