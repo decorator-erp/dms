@@ -17,7 +17,7 @@ internal sealed class GetClientsQueryValidator : AbstractValidator<GetClientsQue
     public GetClientsQueryValidator()
     {
         RuleFor(x => x.UserId).NotEmpty();
-        RuleFor(x => x.PageNumber).GreaterThan(0);
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, CrmPaging.MaxPageNumber);
         RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
         RuleFor(x => x.Search).MaximumLength(200);
     }

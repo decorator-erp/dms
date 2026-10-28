@@ -22,7 +22,7 @@ internal sealed class GetMyPortalMeetingsQueryValidator : AbstractValidator<GetM
 {
     public GetMyPortalMeetingsQueryValidator()
     {
-        RuleFor(x => x.PageNumber).GreaterThan(0);
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, CrmPaging.MaxPageNumber);
         RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
     }
 }
