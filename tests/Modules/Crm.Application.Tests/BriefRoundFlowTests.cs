@@ -441,6 +441,39 @@ public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)
         Assert.Equal(1, entry.SendCount);
     }
 
+    /// <summary>D-6: a round sent before outcomes were recorded reads as Unknown. The office still sees it;
+    /// the portal hides it unless it is the latest round, as it hides a voided one. Round numbers can then
+    /// have gaps on the portal.</summary>
+    [Fact]
+    public async Task D6_AnOlderRoundWithAnUnknownOutcome_IsHiddenOnThePortal_AndShownInTheOffice()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "rounds-unknown");
+        Guid briefId = await CreateBriefAsync(sp, p);
+
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+        Assert.True((await DecideAsClientAsync(p, CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, briefId, 1), ApprovalDecision.Rejected, "Change it")).IsSuccess);
+        await DrainOutboxAsync();
+        Assert.True((await UpdateHeadAsync(p, briefId, Head with { Address = "Fixed Addr" })).IsSuccess);
+        Assert.True((await SendAsync(p, briefId)).IsSuccess);
+
+        // Round 1 as a brief sent before outcomes were recorded left it: no stored outcome.
+        await using (var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using Npgsql.NpgsqlCommand command = connection.CreateCommand();
+            command.CommandText = """UPDATE crm.crm_brief_head_snapshots SET "Outcome" = NULL, "DecidedAtUtc" = NULL WHERE "BriefId" = @id AND "Round" = 1""";
+            command.Parameters.AddWithValue("id", briefId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+
+        Assert.Equal(
+            [CrmBriefRoundOutcome.Unknown, CrmBriefRoundOutcome.Pending],
+            (await OfficeRoundsAsync(p, briefId)).Value!.Select(r => r.Outcome));
+        Assert.Equal([2], (await PortalRoundsAsync(p.ClientAppUserId, briefId)).Value!.Select(r => r.Round));
+    }
+
     private static async Task<Guid> CreateBriefAsync(IServiceProvider sp, BriefTestProject p)
     {
         Result<Guid> result = await sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>()
