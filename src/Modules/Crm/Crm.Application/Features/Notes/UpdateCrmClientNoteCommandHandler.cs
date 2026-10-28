@@ -29,17 +29,18 @@ internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db, ICurren
             return CrmClientNoteErrors.NotFound;
         }
 
-        // D-16 / C-F4: a deactivated client's notes are frozen, as every other write on it is (C-5).
-        Result active = await ActiveClient.EnsureAsync(db, note.ClientId, ct);
-        if (active.IsFailure)
-        {
-            return active;
-        }
-
         Result mayChange = NoteAuthorship.EnsureMayChange(note, command.ActingEmployeeId, currentUser);
         if (mayChange.IsFailure)
         {
             return mayChange;
+        }
+
+        // D-16 / C-F4: a deactivated client's notes are frozen, as every other write on it is (C-5) — a
+        // state check, so after authorship (403 before 409).
+        Result active = await ActiveClient.EnsureAsync(db, note.ClientId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         note.Update(command.Content);

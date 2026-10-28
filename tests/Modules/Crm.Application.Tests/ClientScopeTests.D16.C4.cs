@@ -23,5 +23,12 @@ public sealed partial class ClientScopeTests
         ];
 
         Assert.All(results, r => AssertError(r, 409, "crm.clients.Inactive"));
+
+        // FINDING-P1-6: authorship (403) is checked before the client's state (409).
+        (Guid colleagueId, string colleague) = await HireEmployeeAsync("d16-c4-colleague");
+        AssertError(await Command(colleague, new UpdateCrmClientNoteCommand(c.NoteId, "Not mine", colleagueId, colleague), Office),
+            403, "crm.notes.NotAuthor");
+        AssertError(await Command(colleague, new DeleteCrmClientNoteCommand(c.NoteId, colleagueId, colleague), Office),
+            403, "crm.notes.NotAuthor");
     }
 }
