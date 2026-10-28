@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Clients;
 using Crm.Domain;
@@ -9,7 +10,11 @@ namespace Crm.Application.Features.Clients;
 
 internal sealed class AddClientChildCommandValidator : AbstractValidator<AddClientChildCommand>
 {
-    public AddClientChildCommandValidator() => RuleFor(x => x.ClientId).NotEmpty();
+    public AddClientChildCommandValidator()
+    {
+        RuleFor(x => x.ClientId).NotEmpty();
+        ClientChildRules.Apply(this, x => x.Gender, x => x.Age);
+    }
 }
 
 internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHandler<AddClientChildCommand, Guid>
@@ -40,6 +45,19 @@ internal sealed class UpdateClientChildCommandValidator : AbstractValidator<Upda
     {
         RuleFor(x => x.ClientId).NotEmpty();
         RuleFor(x => x.ChildId).NotEmpty();
+        ClientChildRules.Apply(this, x => x.Gender, x => x.Age);
+    }
+}
+
+/// <summary>C-4 (LC-L6): the domain's own child rule (<c>ClientChild.Validate</c>), checked up front so it
+/// answers like every other field.</summary>
+internal static class ClientChildRules
+{
+    public static void Apply<T>(AbstractValidator<T> validator, Expression<Func<T, char>> gender,
+        Expression<Func<T, short>> age)
+    {
+        validator.RuleFor(gender).Must(g => g is 'M' or 'F').WithMessage("Gender must be 'M' or 'F'.");
+        validator.RuleFor(age).InclusiveBetween((short)0, (short)120);
     }
 }
 

@@ -13,7 +13,7 @@ internal sealed class CreateCrmClientNoteCommandValidator : AbstractValidator<Cr
     public CreateCrmClientNoteCommandValidator()
     {
         RuleFor(x => x.ClientId).NotEmpty();
-        RuleFor(x => x.Content).NotEmpty();
+        RuleFor(x => x.Content).NotEmpty().MaximumLength(4000);
         RuleFor(x => x.WrittenById).NotEmpty();
     }
 }

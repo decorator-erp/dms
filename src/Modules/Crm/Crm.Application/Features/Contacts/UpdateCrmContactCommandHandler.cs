@@ -14,6 +14,14 @@ internal sealed class UpdateCrmContactCommandValidator : AbstractValidator<Updat
         RuleFor(x => x.ContactId).NotEmpty();
         RuleFor(x => x.FirstName).NotEmpty();
         RuleFor(x => x.LastName).NotEmpty();
+        // C-4 (LC-M4): the column lengths, a real email address and a defined role.
+        RuleFor(x => x.FirstName).MaximumLength(128);
+        RuleFor(x => x.LastName).MaximumLength(128);
+        RuleFor(x => x.Email).MaximumLength(256).EmailAddress().When(x => !string.IsNullOrEmpty(x.Email));
+        RuleFor(x => x.Phone).MaximumLength(32);
+        RuleFor(x => x.Mobile).MaximumLength(32);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+        RuleFor(x => x.Role).IsInEnum();
     }
 }
 
