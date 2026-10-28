@@ -224,9 +224,36 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
 
         Result<Guid> result = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
-            Guid.NewGuid(), Guid.NewGuid(), null, null, null, Guid.NewGuid(), null));
+            Guid.NewGuid(), Guid.NewGuid(), null, null, null, Guid.NewGuid(), null, "someone"));
 
         Assert.True(result.IsFailure);
+    }
+
+    /// <summary>FINDING-P1-13 (adjacent to D-12): the link write is project-scoped on the subject it names, as
+    /// the lookups are — an outsider gets 404 and nothing is linked.</summary>
+    [Fact]
+    public async Task LinkArtifactDocument_ByAnOutsider_Is404_AndLinksNothing()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        BriefTestProject p = await BriefTestSeeding.CreateProjectWithStageAsync(sp, "artifact-outsider");
+        Guid documentId = await SeedProjectDocumentAsync(p.ProjectId, p.EmployeeId);
+        Guid briefId = (await sp.GetRequiredService<ICommandHandler<CreateCrmDesignBriefCommand, Guid>>().HandleAsync(new CreateCrmDesignBriefCommand(
+            p.ProjectId, p.EmployeeId, p.StageId, new CrmBriefHeadData((UnitType)1, (UnitCondition)1), p.OwnerAppUserId))).Value;
+        (Guid outsiderId, string outsider) = await HrTestSeeding.HireEmployeeAsync(sp, $"artifact-outsider-{Guid.NewGuid():N}@example.com");
+
+        Result<Guid> linked;
+        await using (AsyncServiceScope outsiderScope = fixture.CreateScope())
+        {
+            // A fresh scope: the seeding above granted read_all on its own.
+            outsiderScope.ServiceProvider.GetRequiredService<TestCurrentUser>().UserId = outsider;
+            linked = await outsiderScope.ServiceProvider.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>()
+                .HandleAsync(new LinkCrmArtifactDocumentCommand(documentId, briefId, null, null, null, outsiderId, null, outsider));
+        }
+
+        AssertError(404, "crm.briefs.NotFound", linked);
+        Assert.Empty((await sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>()
+            .HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, p.OwnerAppUserId))).Value!);
     }
 
     [Fact]
@@ -244,7 +271,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> link = sp.GetRequiredService<ICommandHandler<LinkCrmArtifactDocumentCommand, Guid>>();
         Result<Guid> linkResult = await link.HandleAsync(new LinkCrmArtifactDocumentCommand(
-            documentId, briefId, null, null, null, employeeId, null));
+            documentId, briefId, null, null, null, employeeId, null, p.OwnerAppUserId));
         Assert.True(linkResult.IsSuccess);
 
         IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> getByBrief = sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>();

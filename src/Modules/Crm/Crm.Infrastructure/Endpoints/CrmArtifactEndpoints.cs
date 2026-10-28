@@ -23,10 +23,18 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
         RouteGroupBuilder artifacts = app.MapGroup("/api/crm/artifacts").WithTags("Crm Artifacts");
 
         artifacts.MapPost("/", async (
-            LinkCrmArtifactDocumentCommand command, ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> handler,
+            LinkArtifactRequest request, ICurrentUser currentUser, ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> handler,
             CancellationToken ct) =>
         {
-            Result<Guid> result = await handler.HandleAsync(command, ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<Guid> result = await handler.HandleAsync(new LinkCrmArtifactDocumentCommand(
+                request.DocumentId, request.BriefId, request.SpaceId, request.RequirementItemId, request.MeetingId,
+                request.AddedByEmployeeId, request.AddedByContactId, userId.Value!), ct);
             return result.Match(id => Results.Created($"/api/crm/artifacts/{id}", new { ArtifactDocumentId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Manage);
 
@@ -87,4 +95,9 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
     }
+
+    /// <summary>The link body: the command's fields without <c>UserId</c>, which comes from the token.</summary>
+    private sealed record LinkArtifactRequest(
+        Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId,
+        Guid? AddedByEmployeeId, Guid? AddedByContactId);
 }
