@@ -6,6 +6,10 @@ internal static class ClientErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.clients.NotFound", "Client was not found.");
 
+    /// <summary>D-16 / C-F5: the client list's <c>isActive</c> is all, true or false.</summary>
+    public static readonly Error InvalidActiveFilter = Error.BadRequest(
+        "crm.clients.InvalidActiveFilter", "isActive must be all, true or false.");
+
     public static readonly Error AppUserIdRequired = Error.BadRequest(
         "crm.clients.AppUserIdRequired", "A linked user id is required.");
 
