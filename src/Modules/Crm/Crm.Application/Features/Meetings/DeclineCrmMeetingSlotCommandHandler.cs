@@ -63,7 +63,7 @@ internal static class DeclineMeetingSlot
 
         // D-13 (B-F2): the meeting is tracked, not read-only — the save below marks it modified, so a
         // decline and an accept of the same meeting collide on its xmin (one of them is a 409).
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);

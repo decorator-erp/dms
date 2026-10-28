@@ -53,7 +53,7 @@ internal static class CancelMeeting
         CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
         string reason, CancellationToken ct)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);

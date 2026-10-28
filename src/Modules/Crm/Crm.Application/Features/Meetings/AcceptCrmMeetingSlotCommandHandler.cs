@@ -66,7 +66,7 @@ internal static class AcceptMeetingSlot
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
         }
 
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
