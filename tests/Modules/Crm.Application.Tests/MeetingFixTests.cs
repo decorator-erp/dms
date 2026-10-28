@@ -37,7 +37,7 @@ public sealed partial class MeetingFixTests(CrmApplicationFixture fixture)
         _owners.Add(p.OwnerAppUserId);
         await using AsyncServiceScope contactScope = fixture.CreateScope();
         Result<Guid> contact = await contactScope.ServiceProvider.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>()
-            .HandleAsync(new CreateCrmContactCommand(p.ClientId, "Jane", "Client", ContactRole.Owner, IsPrimary: true));
+            .HandleAsync(new CreateCrmContactCommand(p.ClientId, "Jane", "Client", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(contactScope.ServiceProvider)));
         Assert.True(contact.IsSuccess, contact.Error?.Description);
         return new MeetingProject(p, contact.Value);
     }

@@ -13,6 +13,12 @@ namespace Integration.Tests;
 /// projection with no cross-module lookup at all, so — like Documents' own version — this is the
 /// stronger claim: no permission-driven bypass path to reason about, just "this query never joins
 /// across schemas," full stop.
+///
+/// <para><b>C-1 (client scope).</b> A caller without <c>crm.clients.read_all</c> is now checked by
+/// <c>CrmClientScope</c>, which asks Projects for the client's projects through <c>IProjectDirectory</c> and
+/// <c>IProjectAccessGuard</c> — a depth-1 Contracts call that Projects answers from its own schema. That
+/// is the module boundary working, not a CRM query crossing it, so the caller here holds
+/// <c>crm.clients.read_all</c> and the window measures the CRM read alone.</para>
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class CrmSchemaIsolationTests(ApiFixture fixture)
@@ -26,7 +32,7 @@ public sealed class CrmSchemaIsolationTests(ApiFixture fixture)
         string appUserId = await IdentityTestSeeding.ProvisionActiveUserAsync(
             fixture, $"crm-schema-{suffix}@example.com");
 
-        string token = fixture.IssueTestToken(appUserId, "clients.create", "clients.read");
+        string token = fixture.IssueTestToken(appUserId, "clients.create", "clients.read", "crm.clients.read_all");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // clients.AppUserId -> identity.users is a real cross-schema FK (G9-08) - a fabricated app user

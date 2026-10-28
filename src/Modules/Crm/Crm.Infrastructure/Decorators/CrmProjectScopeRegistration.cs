@@ -12,17 +12,31 @@ namespace Crm.Infrastructure.Decorators;
 /// </summary>
 internal static class CrmProjectScopeRegistration
 {
-    public static IServiceCollection AddCrmProjectScopeDecorator(this IServiceCollection services, Assembly assembly)
+    public static IServiceCollection AddCrmProjectScopeDecorator(this IServiceCollection services, Assembly assembly) =>
+        services.AddScopeDecorator(assembly, typeof(ICrmProjectScoped),
+            typeof(CrmProjectScopeDecorator.CommandHandler<>), typeof(CrmProjectScopeDecorator.CommandHandler<,>),
+            typeof(CrmProjectScopeDecorator.QueryHandler<,>));
+
+    /// <summary>C-1: the same wiring for <see cref="ICrmClientScoped"/>. Called right after the project scope;
+    /// no message carries both markers.</summary>
+    public static IServiceCollection AddCrmClientScopeDecorator(this IServiceCollection services, Assembly assembly) =>
+        services.AddScopeDecorator(assembly, typeof(ICrmClientScoped),
+            typeof(CrmClientScopeDecorator.CommandHandler<>), typeof(CrmClientScopeDecorator.CommandHandler<,>),
+            typeof(CrmClientScopeDecorator.QueryHandler<,>));
+
+    private static IServiceCollection AddScopeDecorator(
+        this IServiceCollection services, Assembly assembly, Type marker,
+        Type commandDecorator, Type commandWithResponseDecorator, Type queryDecorator)
     {
         IEnumerable<Type> scopedTypes = assembly.GetTypes()
-            .Where(t => t is { IsAbstract: false, IsInterface: false } && typeof(ICrmProjectScoped).IsAssignableFrom(t));
+            .Where(t => t is { IsAbstract: false, IsInterface: false } && marker.IsAssignableFrom(t));
 
         foreach (Type? type in scopedTypes)
         {
             if (typeof(ICommand).IsAssignableFrom(type))
             {
                 DecorateIfRegistered(services, typeof(ICommandHandler<>).MakeGenericType(type),
-                    typeof(CrmProjectScopeDecorator.CommandHandler<>).MakeGenericType(type));
+                    commandDecorator.MakeGenericType(type));
                 continue;
             }
 
@@ -32,7 +46,7 @@ internal static class CrmProjectScopeRegistration
             {
                 Type tResponse = commandInterface.GetGenericArguments()[0];
                 DecorateIfRegistered(services, typeof(ICommandHandler<,>).MakeGenericType(type, tResponse),
-                    typeof(CrmProjectScopeDecorator.CommandHandler<,>).MakeGenericType(type, tResponse));
+                    commandWithResponseDecorator.MakeGenericType(type, tResponse));
                 continue;
             }
 
@@ -42,7 +56,7 @@ internal static class CrmProjectScopeRegistration
             {
                 Type tResponse = queryInterface.GetGenericArguments()[0];
                 DecorateIfRegistered(services, typeof(IQueryHandler<,>).MakeGenericType(type, tResponse),
-                    typeof(CrmProjectScopeDecorator.QueryHandler<,>).MakeGenericType(type, tResponse));
+                    queryDecorator.MakeGenericType(type, tResponse));
             }
         }
 

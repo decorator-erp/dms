@@ -367,7 +367,7 @@ public sealed class MeetingFlowTests(CrmApplicationFixture fixture)
     {
         ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
         Result<Guid> result = await createContact.HandleAsync(
-            new CreateCrmContactCommand(clientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true));
+            new CreateCrmContactCommand(clientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(sp)));
         Assert.True(result.IsSuccess);
         return result.Value;
     }

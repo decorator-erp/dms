@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Crm.Contracts;
 using Finance.Contracts;
 using Identity.Contracts;
 using Notifications.Contracts;
@@ -45,12 +46,19 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     ///
     /// <para><b>The scope of work (SOW-4) adds Projects' 3 <c>scope.*</c> codes the same way</b>, from
     /// <c>ProjectsPermissions.Scope.All</c> — the list <c>ProjectsModule</c> registers.</para>
+    ///
+    /// <para><b>The CRM backend completion (PR C) adds CRM codes the same way</b>, named from their
+    /// constants in <see cref="CrmAddedByBackendCompletion"/>, so the frozen 114 stays the historical
+    /// figure.</para>
     /// </summary>
     private const int PermissionsThroughPhase5 = 114;
 
+    /// <summary>C-1 <c>crm.clients.read_all</c>.</summary>
+    private static readonly string[] CrmAddedByBackendCompletion = [CrmPermissions.Clients.ReadAll];
+
     private static int TotalPermissionsAcrossAllModules =>
         PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count
-        + ProjectsPermissions.Scope.All.Count;
+        + ProjectsPermissions.Scope.All.Count + CrmAddedByBackendCompletion.Length;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()

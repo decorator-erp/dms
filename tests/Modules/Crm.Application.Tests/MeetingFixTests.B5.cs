@@ -43,7 +43,7 @@ public sealed partial class MeetingFixTests
         await using (AsyncServiceScope scope = fixture.CreateScope())
         {
             Assert.True((await scope.ServiceProvider.GetRequiredService<ICommandHandler<SetClientActiveCommand>>()
-                .HandleAsync(new SetClientActiveCommand(m.P.ClientId, false))).IsSuccess);
+                .HandleAsync(new SetClientActiveCommand(m.P.ClientId, false, CrmTestAccess.Office(scope.ServiceProvider)))).IsSuccess);
         }
 
         await DrainOutboxAsync();

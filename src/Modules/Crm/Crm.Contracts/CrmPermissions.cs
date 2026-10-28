@@ -29,6 +29,11 @@ public static class CrmPermissions
         public const string ManageChildren = "clients.manage_children";
         public const string Create = "clients.create";
         public const string Delete = "clients.delete";
+
+        /// <summary>C-1 (LC-M2): sees every client. Without it a client is visible only through a project
+        /// the caller can reach, or while the client has no project yet (owner amendment M2). Named under
+        /// <c>crm.</c> as the owner decided; it is new, so no existing role row holds it.</summary>
+        public const string ReadAll = "crm.clients.read_all";
     }
 
     /// <summary>Portal shell/nav flag, not a resource gate — holding it grants no data by itself.</summary>
@@ -156,7 +161,7 @@ public static class CrmPermissions
     public static readonly IReadOnlyList<string> All =
     [
         Clients.Read, Clients.Update, Clients.SetActive, Clients.ManageChildren, Clients.Create,
-        Clients.Delete,
+        Clients.Delete, Clients.ReadAll,
 
         Portal,
 

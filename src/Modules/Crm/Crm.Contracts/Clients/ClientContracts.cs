@@ -42,19 +42,40 @@ public sealed record CreateClientCommand(
     string? Notes = null) : ICommand<Guid>;
 
 public sealed record UpdateClientProfileCommand(
-    Guid ClientId, string? JobTitle = null, string? MaritalStatus = null, string? RepresentativeName = null)
-    : ICommand;
+    Guid ClientId, string UserId, string? JobTitle = null, string? MaritalStatus = null, string? RepresentativeName = null)
+    : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record SetClientActiveCommand(Guid ClientId, bool IsActive) : ICommand;
+public sealed record SetClientActiveCommand(Guid ClientId, bool IsActive, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record DeleteClientCommand(Guid ClientId) : ICommand;
+public sealed record DeleteClientCommand(Guid ClientId, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record AddClientChildCommand(Guid ClientId, char Gender, short Age) : ICommand<Guid>;
+public sealed record AddClientChildCommand(Guid ClientId, char Gender, short Age, string UserId) : ICommand<Guid>, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record UpdateClientChildCommand(Guid ClientId, Guid ChildId, char Gender, short Age) : ICommand;
+public sealed record UpdateClientChildCommand(Guid ClientId, Guid ChildId, char Gender, short Age, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record RemoveClientChildCommand(Guid ClientId, Guid ChildId) : ICommand;
+public sealed record RemoveClientChildCommand(Guid ClientId, Guid ChildId, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record GetClientByIdQuery(Guid ClientId) : IQuery<ClientResponse>;
+public sealed record GetClientByIdQuery(Guid ClientId, string UserId) : IQuery<ClientResponse>, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
 public sealed record GetClientsQuery : IQuery<IReadOnlyList<ClientResponse>>;

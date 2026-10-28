@@ -34,32 +34,52 @@ internal sealed class CrmClientNoteEndpoints : IEndpoint
             }
 
             Result<Guid> result = await handler.HandleAsync(
-                new CreateCrmClientNoteCommand(clientId, request.ProjectId, request.Content, writtenById.Value), ct);
+                new CreateCrmClientNoteCommand(clientId, request.ProjectId, request.Content, writtenById.Value, currentUser.UserId!), ct);
             return result.Match(
                 id => Results.Created($"/api/crm/notes/{id}", new { NoteId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Create);
 
         byClient.MapGet("/", async (
             Guid clientId, IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>> handler,
-            CancellationToken ct) =>
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmClientNoteResponse>> result = await handler.HandleAsync(new GetCrmClientNotesByClientQuery(clientId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmClientNoteResponse>> result = await handler.HandleAsync(
+                new GetCrmClientNotesByClientQuery(clientId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Read);
 
         RouteGroupBuilder byId = app.MapGroup("/api/crm/notes/{noteId:guid}").WithTags("Crm Client Notes");
 
         byId.MapPut("/", async (
-            Guid noteId, UpdateNoteRequest request, ICommandHandler<UpdateCrmClientNoteCommand> handler, CancellationToken ct) =>
+            Guid noteId, UpdateNoteRequest request, ICommandHandler<UpdateCrmClientNoteCommand> handler,
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new UpdateCrmClientNoteCommand(noteId, request.Content), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new UpdateCrmClientNoteCommand(noteId, request.Content, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Update);
 
         byId.MapDelete("/", async (
-            Guid noteId, ICommandHandler<DeleteCrmClientNoteCommand> handler, CancellationToken ct) =>
+            Guid noteId, ICommandHandler<DeleteCrmClientNoteCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new DeleteCrmClientNoteCommand(noteId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new DeleteCrmClientNoteCommand(noteId, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Delete);
     }
