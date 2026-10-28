@@ -103,6 +103,14 @@ internal sealed class SendCrmRequirementItemCommandHandler(
         }
         else
         {
+            // D-11 (A-F2): a Closed period is frozen (A-5) for a new send too. Recovering an item that is
+            // already pending (above) is not a new send and stays allowed, so a lost decision still lands.
+            Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, item.PeriodId, ct);
+            if (open.IsFailure)
+            {
+                return open;
+            }
+
             approvalId = CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1);
 
             Result sendResult = item.Send(approvalId);
