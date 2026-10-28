@@ -79,15 +79,25 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
     }
 
     /// <summary>A-1: the 404 names the area the caller asked about — an item route never answers "brief
-    /// not found". Chosen by the message's contract namespace; every brief message keeps
-    /// <see cref="CrmBriefErrors.NotFound"/>.</summary>
-    private static Error NotFoundFor(ICrmProjectScoped message) => message.GetType().Namespace switch
+    /// not found". D-16 / A-F7: chosen by the target's kind (an item created in an unknown period is
+    /// "period not found"); a project, stage, task or brief-space-entry target falls back to the message's
+    /// contract namespace, as before.</summary>
+    private static Error NotFoundFor(ICrmProjectScoped message) => message.ScopeTarget.Kind switch
     {
-        "Crm.Contracts.Periods" => CrmPeriodErrors.NotFound,
-        "Crm.Contracts.Items" => CrmItemErrors.NotFound,
-        "Crm.Contracts.Spaces" => CrmSpaceErrors.SpaceNotFound,
-        "Crm.Contracts.Meetings" => CrmMeetingErrors.NotFound,
-        _ => CrmBriefErrors.NotFound,
+        CrmScopeTargetKind.Brief => CrmBriefErrors.NotFound,
+        CrmScopeTargetKind.Period => CrmPeriodErrors.NotFound,
+        CrmScopeTargetKind.Item => CrmItemErrors.NotFound,
+        CrmScopeTargetKind.Space => CrmSpaceErrors.SpaceNotFound,
+        CrmScopeTargetKind.Meeting => CrmMeetingErrors.NotFound,
+        CrmScopeTargetKind.MeetingSlot => CrmMeetingErrors.SlotNotFound,
+        _ => message.GetType().Namespace switch
+        {
+            "Crm.Contracts.Periods" => CrmPeriodErrors.NotFound,
+            "Crm.Contracts.Items" => CrmItemErrors.NotFound,
+            "Crm.Contracts.Spaces" => CrmSpaceErrors.SpaceNotFound,
+            "Crm.Contracts.Meetings" => CrmMeetingErrors.NotFound,
+            _ => CrmBriefErrors.NotFound,
+        },
     };
 
     private async Task<Guid?> ResolveProjectIdAsync(CrmScopeTarget target, CancellationToken ct) => target.Kind switch
