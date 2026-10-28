@@ -10,6 +10,7 @@ using Projects.Contracts;
 using Projects.Contracts.Projects;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
+using Projects.Infrastructure.Services;
 using SharedKernel;
 using Domain = Projects.Domain;
 
@@ -210,8 +211,8 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandl
 /// <summary>
 /// Not <see cref="IProjectScoped"/> — it has no single target project, so <c>ProjectScopeDecorator</c>
 /// cannot wrap it. Access is filtered inline instead: <see cref="ProjectsPermissions.Projects.ReadAll"/>
-/// bypasses filtering entirely; otherwise the same stage-team-membership join
-/// <c>ProjectAccessGuard</c> itself runs (G5-05) is inlined here rather than added to
+/// bypasses filtering entirely; otherwise the guard's own accessible-ids query (owned projects plus
+/// stage-team membership, D-14) is reused here (FINDING-P1-1) rather than added to
 /// <see cref="IProjectAccessGuard"/>'s public surface only for one list query — that guard's own
 /// batch method requires a candidate id set up front, which a paged list doesn't have until after
 /// filtering.
@@ -231,11 +232,7 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
                 return PagedResult<ProjectResponse>.Empty(query.PageNumber, query.PageSize);
             }
 
-            IQueryable<Guid> accessibleProjectIds = db.StageTeamMembers.AsNoTracking()
-                .Where(m => m.EmployeeId == employeeId.Value)
-                .Join(db.StageTeams, m => m.StageTeamId, t => t.Id, (m, t) => t)
-                .Join(db.ProjectStages, t => t.ProjectStageId, s => s.Id, (t, s) => s.ProjectId)
-                .Distinct();
+            IQueryable<Guid> accessibleProjectIds = ProjectAccessGuard.AccessibleProjectIds(db, employeeId.Value);
 
             projects = projects.Where(p => accessibleProjectIds.Contains(p.Id));
         }

@@ -32,7 +32,7 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
             return Domain.ProjectErrors.AccessDenied;
         }
 
-        bool hasAccess = await AccessibleProjectIds(employeeId.Value).AnyAsync(id => id == projectId, ct);
+        bool hasAccess = await AccessibleProjectIds(db, employeeId.Value).AnyAsync(id => id == projectId, ct);
 
         return hasAccess ? Result.Success() : Domain.ProjectErrors.AccessDenied;
     }
@@ -58,7 +58,7 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
             return [];
         }
 
-        return await AccessibleProjectIds(employeeId.Value)
+        return await AccessibleProjectIds(db, employeeId.Value)
             .Where(id => projectIds.Contains(id))
             .Distinct()
             .ToListAsync(ct);
@@ -67,7 +67,9 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
     /// <summary>D-14 (C-F2, owner default): the projects the employee owns, plus those with a stage team
     /// they are on. The owner always has access — a FreeStyle project with no team no longer hides itself
     /// (and its client) from the person who created it.</summary>
-    private IQueryable<Guid> AccessibleProjectIds(Guid employeeId) =>
+    /// <remarks>Shared with <c>GetProjectsQueryHandler</c>, whose paged list can't use the batch method
+    /// (it has no candidate ids before filtering) — one rule, one query (FINDING-P1-1).</remarks>
+    internal static IQueryable<Guid> AccessibleProjectIds(ProjectsDbContext db, Guid employeeId) =>
         db.Projects.AsNoTracking()
             .Where(p => p.OwnerId == employeeId)
             .Select(p => p.Id)
