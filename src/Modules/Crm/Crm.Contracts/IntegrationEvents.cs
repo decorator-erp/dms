@@ -40,13 +40,19 @@ public sealed record MeetingScheduledIntegrationEvent(
     : IIntegrationEvent;
 
 /// <summary>B-2 (H3/X-8): a scheduled meeting was moved — its accepted slot demoted, a new time proposed.
-/// The CRM handler tells the meeting's recipients.</summary>
+/// The CRM handler tells the meeting's recipients. D-8 (B-F1): <see cref="PreviousAcceptedByEmployeeId"/> is
+/// the acceptor the reschedule cleared in the same save, so the handler can still tell them. D-8 (B-F7): the
+/// acting employee or contact is left out of the notice. Trailing and nullable, so an event queued before
+/// D-8 still reads.</summary>
 public sealed record MeetingRescheduledIntegrationEvent(
-    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc,
+    Guid? PreviousAcceptedByEmployeeId = null, Guid? ActingEmployeeId = null, Guid? ActingContactId = null) : IIntegrationEvent;
 
-/// <summary>B-2 (H3/X-8): a meeting was canceled. The CRM handler tells the meeting's recipients.</summary>
+/// <summary>B-2 (H3/X-8): a meeting was canceled. The CRM handler tells the meeting's recipients, except the
+/// one who canceled it (D-8, B-F7).</summary>
 public sealed record MeetingCanceledIntegrationEvent(
-    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+    Guid EventId, Guid MeetingId, Guid ProjectId, DateTimeOffset OccurredAtUtc,
+    Guid? ActingEmployeeId = null, Guid? ActingContactId = null) : IIntegrationEvent;
 
 /// <summary>
 /// The three gate-satisfaction events. <see cref="CrmBriefApprovedIntegrationEvent"/>/

@@ -11,16 +11,30 @@ namespace Crm.Infrastructure.Services;
 /// </summary>
 internal static class MeetingRecipients
 {
-    /// <summary>One meeting's recipient inputs, for <see cref="ResolveManyAsync"/>.</summary>
-    internal sealed record Subject(Guid MeetingId, Guid ProjectId, Guid? RequestedByEmployeeId, Guid? AcceptedByEmployeeId);
+    /// <summary>One meeting's recipient inputs, for <see cref="ResolveManyAsync"/>. D-8 (B-F1, B-F7):
+    /// <see cref="ExtraEmployeeId"/> adds an employee the row no longer names (the acceptor a reschedule just
+    /// cleared); <see cref="ExcludedEmployeeId"/> and <see cref="IncludeClient"/> leave out whoever made the
+    /// change, so nobody is told about their own action.</summary>
+    internal sealed record Subject(
+        Guid MeetingId, Guid ProjectId, Guid? RequestedByEmployeeId, Guid? AcceptedByEmployeeId,
+        Guid? ExtraEmployeeId = null, Guid? ExcludedEmployeeId = null, bool IncludeClient = true)
+    {
+        public IEnumerable<Guid> EmployeeIds =>
+            new[] { RequestedByEmployeeId, AcceptedByEmployeeId, ExtraEmployeeId }.OfType<Guid>()
+                .Where(id => id != ExcludedEmployeeId).Distinct();
+    }
 
     public static async Task<IReadOnlyList<string>> ResolveAsync(
         Guid projectId, Guid? requestedByEmployeeId, Guid? acceptedByEmployeeId,
-        IHrDirectory hrDirectory, IProjectDirectory projectDirectory, IClientDirectory clientDirectory, CancellationToken ct)
+        IHrDirectory hrDirectory, IProjectDirectory projectDirectory, IClientDirectory clientDirectory, CancellationToken ct) =>
+        await ResolveAsync(new Subject(Guid.Empty, projectId, requestedByEmployeeId, acceptedByEmployeeId),
+            hrDirectory, projectDirectory, clientDirectory, ct);
+
+    public static async Task<IReadOnlyList<string>> ResolveAsync(
+        Subject subject, IHrDirectory hrDirectory, IProjectDirectory projectDirectory, IClientDirectory clientDirectory, CancellationToken ct)
     {
         IReadOnlyDictionary<Guid, IReadOnlyList<string>> resolved = await ResolveManyAsync(
-            [new Subject(Guid.Empty, projectId, requestedByEmployeeId, acceptedByEmployeeId)],
-            hrDirectory, projectDirectory, clientDirectory, ct);
+            [subject with { MeetingId = Guid.Empty }], hrDirectory, projectDirectory, clientDirectory, ct);
         return resolved[Guid.Empty];
     }
 
@@ -30,7 +44,7 @@ internal static class MeetingRecipients
         IReadOnlyCollection<Subject> meetings,
         IHrDirectory hrDirectory, IProjectDirectory projectDirectory, IClientDirectory clientDirectory, CancellationToken ct)
     {
-        Guid[] employeeIds = [.. meetings.SelectMany(m => new[] { m.RequestedByEmployeeId, m.AcceptedByEmployeeId }).OfType<Guid>().Distinct()];
+        Guid[] employeeIds = [.. meetings.SelectMany(m => m.EmployeeIds).Distinct()];
         Dictionary<Guid, EmployeeSummary> employees = employeeIds.Length == 0
             ? []
             : (await hrDirectory.GetManyAsync(employeeIds, ct)).ToDictionary(e => e.Id);
@@ -49,9 +63,8 @@ internal static class MeetingRecipients
             // M4: a deactivated client (X-3) is cut off from the portal, so its login hears nothing either.
             string?[] candidates =
             [
-                .. new[] { m.RequestedByEmployeeId, m.AcceptedByEmployeeId }.OfType<Guid>()
-                    .Select(id => employees.GetValueOrDefault(id)?.AppUserId),
-                client is { IsActive: true } ? client.AppUserId : null,
+                .. m.EmployeeIds.Select(id => employees.GetValueOrDefault(id)?.AppUserId),
+                m.IncludeClient && client is { IsActive: true } ? client.AppUserId : null,
             ];
             return (IReadOnlyList<string>)[.. candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!).Distinct(StringComparer.Ordinal)];
         });

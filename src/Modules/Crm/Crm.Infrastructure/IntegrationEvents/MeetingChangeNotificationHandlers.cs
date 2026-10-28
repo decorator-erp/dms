@@ -19,7 +19,8 @@ internal sealed class MeetingRescheduledNotificationHandler(
         MeetingChangeNotices.SendAsync(
             db, hrDirectory, clientDirectory, projectDirectory, notifications, @event.MeetingId, @event.ProjectId,
             NotificationType.CrmMeetingRescheduled, "Meeting rescheduled",
-            "A new time has been proposed. Please confirm it.", $"crm-meeting-{@event.MeetingId}-rescheduled-{@event.EventId}", ct);
+            "A new time has been proposed. Please confirm it.", $"crm-meeting-{@event.MeetingId}-rescheduled-{@event.EventId}",
+            new MeetingChangeNotices.Actor(@event.PreviousAcceptedByEmployeeId, @event.ActingEmployeeId, @event.ActingContactId), ct);
 }
 
 /// <summary>B-2 (H3/X-8): tells the meeting's recipients it was canceled.</summary>
@@ -31,15 +32,19 @@ internal sealed class MeetingCanceledNotificationHandler(
         MeetingChangeNotices.SendAsync(
             db, hrDirectory, clientDirectory, projectDirectory, notifications, @event.MeetingId, @event.ProjectId,
             NotificationType.CrmMeetingCanceled, "Meeting canceled",
-            "The meeting has been canceled.", $"crm-meeting-{@event.MeetingId}-canceled-{@event.EventId}", ct);
+            "The meeting has been canceled.", $"crm-meeting-{@event.MeetingId}-canceled-{@event.EventId}",
+            new MeetingChangeNotices.Actor(null, @event.ActingEmployeeId, @event.ActingContactId), ct);
 }
 
 internal static class MeetingChangeNotices
 {
+    /// <summary>D-8: who else to tell (the acceptor a reschedule cleared) and who made the change (left out).</summary>
+    public sealed record Actor(Guid? PreviousAcceptedByEmployeeId, Guid? ActingEmployeeId, Guid? ActingContactId);
+
     public static async Task SendAsync(
         CrmDbContext db, IHrDirectory hrDirectory, IClientDirectory clientDirectory, IProjectDirectory projectDirectory,
         INotificationService notifications, Guid meetingId, Guid projectId, NotificationType type,
-        string titlePrefix, string body, string dedupeKey, CancellationToken ct)
+        string titlePrefix, string body, string dedupeKey, Actor actor, CancellationToken ct)
     {
         var meeting = await db.CrmMeetings.AsNoTracking()
             .Where(m => m.Id == meetingId)
@@ -51,7 +56,11 @@ internal static class MeetingChangeNotices
         }
 
         IReadOnlyList<string> targets = await MeetingRecipients.ResolveAsync(
-            projectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
+            new MeetingRecipients.Subject(
+                meetingId, projectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId,
+                ExtraEmployeeId: actor.PreviousAcceptedByEmployeeId, ExcludedEmployeeId: actor.ActingEmployeeId,
+                IncludeClient: actor.ActingContactId is null),
+            hrDirectory, projectDirectory, clientDirectory, ct);
         if (targets.Count == 0)
         {
             return;
