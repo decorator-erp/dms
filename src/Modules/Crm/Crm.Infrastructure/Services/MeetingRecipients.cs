@@ -71,6 +71,7 @@ internal static class MeetingRecipients
     }
 
     /// <summary>B-2: dedupe keys carry the scheduled instant, so a re-scheduled meeting is confirmed and
-    /// reminded again, while an outbox retry of the same schedule still sends once.</summary>
-    public static string Instant(DateTime scheduledAtUtc) => scheduledAtUtc.ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
+    /// reminded again, while an outbox retry of the same schedule still sends once. D-16 / B-F6: the full
+    /// round-trip ("O") value, not the minute, so two schedules within one minute are two keys.</summary>
+    public static string Instant(DateTime scheduledAtUtc) => scheduledAtUtc.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 }
