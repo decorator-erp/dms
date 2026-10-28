@@ -97,6 +97,24 @@ internal sealed class ReorderScopeOfWorkItemsCommandValidator : AbstractValidato
 /// <summary>Loading and mapping shared by every scope-of-work handler.</summary>
 internal static class ScopeOfWorkStore
 {
+    /// <summary>D-1, D-2: a scope of work is kept only for an active, stage-workflow project. An inactive or
+    /// missing project is <see cref="Domain.ProjectErrors.NotFound"/>, as the confirm already treated it; a
+    /// FreeStyle one is 409 <see cref="ScopeOfWorkErrors.WorkflowNotSupported"/>. Every write and the confirm
+    /// check this first.</summary>
+    public static async Task<Result> EnsureEditableProjectAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
+    {
+        var project = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.IsActive, p.WorkflowType })
+            .FirstOrDefaultAsync(ct);
+        if (project is null || !project.IsActive)
+        {
+            return Domain.ProjectErrors.NotFound;
+        }
+
+        return project.WorkflowType == WorkflowType.FreeStyle ? ScopeOfWorkErrors.WorkflowNotSupported : Result.Success();
+    }
+
     public static Task<ScopeOfWork?> FindAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
         db.ScopesOfWork.Include(s => s.Items).FirstOrDefaultAsync(s => s.ProjectId == projectId, ct);
 
@@ -125,11 +143,44 @@ internal static class ScopeOfWorkStore
     {
         IReadOnlyList<ScopeOfWorkItem> items = scope.Items;
         Dictionary<Guid, string> templateNames = await TemplateNamesAsync(db, [.. items.Select(i => i.SourceStageId)], ct);
+        Error? blocker = await ConfirmBlockerAsync(db, scope.ProjectId, scope, templateNames, ct);
         return new ScopeOfWorkResponse(
             scope.Id, scope.ProjectId, ProjectsEnumMapping.ToContracts(scope.Status), scope.DurationDays,
             scope.PlannedStartDate, scope.EstimatedEnd, scope.Subtotal, scope.AdjustmentAmount, scope.AdjustmentNote,
             scope.Total, scope.Notes, scope.ConfirmedAtUtc, scope.ConfirmedById,
-            [.. items.Select(i => ToResponse(i, templateNames))]);
+            [.. items.Select(i => ToResponse(i, templateNames))], blocker is null, blocker?.Code);
+    }
+
+    /// <summary>D-1: the first rule <c>ConfirmScopeOfWorkCommandHandler</c> would fail on right now, in its own
+    /// order — the workflow, the scope's own rules (<see cref="ScopeOfWork.EnsureConfirmable"/>), existing
+    /// project stages, then a deleted source stage — or null when the confirm would go through. A missing
+    /// scope reads as <see cref="ScopeOfWorkErrors.Empty"/>.</summary>
+    public static async Task<Error?> ConfirmBlockerAsync(
+        ProjectsDbContext db, Guid projectId, ScopeOfWork? scope, Dictionary<Guid, string> templateNames, CancellationToken ct)
+    {
+        Result editable = await EnsureEditableProjectAsync(db, projectId, ct);
+        if (editable.IsFailure)
+        {
+            return editable.Error;
+        }
+
+        if (scope is null)
+        {
+            return ScopeOfWorkErrors.Empty;
+        }
+
+        Result confirmable = scope.EnsureConfirmable();
+        if (confirmable.IsFailure)
+        {
+            return confirmable.Error;
+        }
+
+        if (await db.ProjectStages.AsNoTracking().AnyAsync(s => s.ProjectId == projectId, ct))
+        {
+            return ScopeOfWorkErrors.ProjectHasStages;
+        }
+
+        return scope.Items.Any(i => !templateNames.ContainsKey(i.SourceStageId)) ? ScopeOfWorkErrors.SourceStageNotFound : null;
     }
 
     public static async Task<IReadOnlyList<ScopeOfWorkItemResponse>> ToResponsesAsync(
@@ -167,7 +218,7 @@ internal static class ScopeOfWorkStore
 
     private static ScopeOfWorkItemResponse ToResponse(ScopeOfWorkItem i, Dictionary<Guid, string> templateNames) =>
         new(i.Id, i.SourceStageId, templateNames.GetValueOrDefault(i.SourceStageId), i.Name, i.Description, i.Order,
-            i.Fee, i.CreatedStageId);
+            i.Fee, i.CreatedStageId, SourceMissing: !templateNames.ContainsKey(i.SourceStageId));
 }
 
 /// <summary>Never writes: with no scope saved yet, it returns an empty Draft.</summary>
@@ -175,6 +226,13 @@ internal sealed class GetScopeOfWorkQueryHandler(ProjectsDbContext db) : IQueryH
 {
     public async Task<Result<ScopeOfWorkResponse>> HandleAsync(GetScopeOfWorkQuery query, CancellationToken ct = default)
     {
+        // D-2: an inactive project is not found, like on the confirm. A FreeStyle one stays readable; its
+        // BlockingReason says why it can't be confirmed (D-1).
+        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == query.ProjectId && p.IsActive, ct))
+        {
+            return Result.Failure<ScopeOfWorkResponse>(Domain.ProjectErrors.NotFound);
+        }
+
         ScopeOfWork? scope = await db.ScopesOfWork.AsNoTracking().Include(s => s.Items)
             .FirstOrDefaultAsync(s => s.ProjectId == query.ProjectId, ct);
         if (scope is not null)
@@ -182,13 +240,10 @@ internal sealed class GetScopeOfWorkQueryHandler(ProjectsDbContext db) : IQueryH
             return await ScopeOfWorkStore.ToResponseAsync(db, scope, ct);
         }
 
-        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == query.ProjectId, ct))
-        {
-            return Result.Failure<ScopeOfWorkResponse>(Domain.ProjectErrors.NotFound);
-        }
-
+        Error? blocker = await ScopeOfWorkStore.ConfirmBlockerAsync(db, query.ProjectId, null, [], ct);
         return new ScopeOfWorkResponse(
-            null, query.ProjectId, Contracts.ScopeOfWorkStatus.Draft, null, null, null, 0m, 0m, null, 0m, null, null, null, []);
+            null, query.ProjectId, Contracts.ScopeOfWorkStatus.Draft, null, null, null, 0m, 0m, null, 0m, null, null, null, [],
+            CanConfirm: false, BlockingReason: blocker?.Code);
     }
 }
 
@@ -196,6 +251,12 @@ internal sealed class UpdateScopeOfWorkHeaderCommandHandler(ProjectsDbContext db
 {
     public async Task<Result> HandleAsync(UpdateScopeOfWorkHeaderCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return editable;
+        }
+
         Result<ScopeOfWork> scope = await ScopeOfWorkStore.FindOrCreateAsync(db, command.ProjectId, ct);
         if (scope.IsFailure)
         {
@@ -214,12 +275,19 @@ internal sealed class AddScopeOfWorkItemsCommandHandler(ProjectsDbContext db)
     public async Task<Result<IReadOnlyList<ScopeOfWorkItemResponse>>> HandleAsync(
         AddScopeOfWorkItemsCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(editable.Error);
+        }
+
         Dictionary<Guid, Stage> stages = await db.Stages.AsNoTracking()
             .Where(s => command.SourceStageIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, ct);
         if (stages.Count != command.SourceStageIds.Count)
         {
-            return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(ScopeOfWorkErrors.SourceStageNotFound);
+            return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(
+                ScopeOfWorkErrors.SourceStagesNotFound(command.SourceStageIds.Where(id => !stages.ContainsKey(id))));
         }
 
         Result<ScopeOfWork> scope = await ScopeOfWorkStore.FindOrCreateAsync(db, command.ProjectId, ct);
@@ -250,6 +318,12 @@ internal sealed class AddScopeOfWorkTemplateCommandHandler(ProjectsDbContext db)
     public async Task<Result<IReadOnlyList<ScopeOfWorkItemResponse>>> HandleAsync(
         AddScopeOfWorkTemplateCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(editable.Error);
+        }
+
         if (!await db.StageTemplates.AsNoTracking().AnyAsync(t => t.Id == command.StageTemplateId, ct))
         {
             return Result.Failure<IReadOnlyList<ScopeOfWorkItemResponse>>(Domain.StageTemplateErrors.NotFound);
@@ -304,6 +378,12 @@ internal sealed class UpdateScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(UpdateScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return editable;
+        }
+
         if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
         {
             return ScopeOfWorkErrors.ItemNotFound;
@@ -318,6 +398,12 @@ internal sealed class RemoveScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(RemoveScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return editable;
+        }
+
         if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
         {
             return ScopeOfWorkErrors.ItemNotFound;
@@ -332,6 +418,12 @@ internal sealed class ReorderScopeOfWorkItemsCommandHandler(ProjectsDbContext db
 {
     public async Task<Result> HandleAsync(ReorderScopeOfWorkItemsCommand command, CancellationToken ct = default)
     {
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return editable;
+        }
+
         if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
         {
             return ScopeOfWorkErrors.InvalidOrder;

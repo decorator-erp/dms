@@ -175,6 +175,15 @@ internal static class ScopeOfWorkErrors
     public static readonly Error SourceStageNotFound = Error.BadRequest(
         "projects.scope.SourceStageNotFound", "A picked template stage no longer exists.");
 
+    /// <summary>D-3: <see cref="SourceStageNotFound"/>'s code, with the ids that are missing in the detail, so
+    /// the caller knows which pick or item to remove.</summary>
+    public static Error SourceStagesNotFound(IEnumerable<Guid> ids) => Error.BadRequest(
+        SourceStageNotFound.Code, $"These template stages no longer exist: {string.Join(", ", ids)}.");
+
+    /// <summary>D-1 (SoW F1): a FreeStyle project has no stage workflow for a scope of work to create.</summary>
+    public static readonly Error WorkflowNotSupported = Error.Conflict(
+        "projects.scope.WorkflowNotSupported", "Only a stage-workflow project has a scope of work.");
+
     public static readonly Error DuplicateItem = Error.Conflict(
         "projects.scope.DuplicateItem", "That template stage is already in the scope of work.");
 

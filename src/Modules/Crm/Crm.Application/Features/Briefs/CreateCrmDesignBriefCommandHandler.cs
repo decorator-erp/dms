@@ -63,6 +63,13 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
         IntakeSeed? seed = firstOnProject ? await FindIntakeSeedAsync(project.ClientId, ct) : null;
 
         Domain.CrmBriefHeadData head = BriefMapping.ToDomain(command.Data);
+
+        // D-5: the intake's residential-only answers (licensed, rented, finishing purpose) seed only a brief
+        // whose sector is Residential or not set — the request's sector first, then the intake's own. Unit
+        // type and condition still seed every first brief: the brief requires them whatever its sector.
+        ProjectSector? effectiveSector = head.Sector ?? seed?.Intake.Sector;
+        bool residentialBrief = effectiveSector is null or ProjectSector.Residential;
+
         if (command.Data.UnitType == default)
         {
             if (seed?.Residential?.UnitType is not { } unitType)
@@ -97,8 +104,9 @@ internal sealed class CreateCrmDesignBriefCommandHandler(CrmDbContext db, IProje
 
         var brief = CrmDesignBrief.Create(command.ProjectId, command.CreatedById, command.ProjectStageId, head);
 
-        if (seed is { Intake: var intake, Residential: var residential })
+        if (seed is { Intake: var intake })
         {
+            CrmLeadIntakeResidential? residential = residentialBrief ? seed.Residential : null;
             // Unit type/condition were resolved above (request first), so they are not passed again here:
             // SeedFromIntake overwrites those two rather than filling a blank.
             Result seeded = brief.SeedFromIntake(

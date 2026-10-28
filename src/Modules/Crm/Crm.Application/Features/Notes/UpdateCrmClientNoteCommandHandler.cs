@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Notes;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -32,6 +33,14 @@ internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db, ICurren
         if (mayChange.IsFailure)
         {
             return mayChange;
+        }
+
+        // D-16 / C-F4: a deactivated client's notes are frozen, as every other write on it is (C-5) — a
+        // state check, so after authorship (403 before 409).
+        Result active = await ActiveClient.EnsureAsync(db, note.ClientId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         note.Update(command.Content);

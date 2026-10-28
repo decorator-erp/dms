@@ -35,10 +35,14 @@ public sealed partial class MeetingFixTests
             IReadOnlyList<NotificationResponse> mine = await NotificationsAsync(user, meetingId);
             Assert.Equal(2, mine.Count(n => n.Type == NotificationType.CrmMeetingScheduled));
             Assert.Equal(2, mine.Count(n => n.Type == NotificationType.CrmMeetingReminder));
-            Assert.Equal(1, mine.Count(n => n.Type == NotificationType.CrmMeetingRescheduled));
+
+            // D-8 (B-F7): the owner made the reschedule, so only the client is told about it.
+            Assert.Equal(user == m.P.OwnerAppUserId ? 0 : 1, mine.Count(n => n.Type == NotificationType.CrmMeetingRescheduled));
         }
     }
 
+    /// <summary>D-8 (B-F7) narrows this: the employee who canceled is not told about their own cancel, so
+    /// the recipients here are the client only (the D-8 tests cover the actor).</summary>
     [Fact]
     public async Task B2_ACancel_SendsOneCanceledNotificationToEachRecipient()
     {
@@ -49,10 +53,7 @@ public sealed partial class MeetingFixTests
         Assert.True((await CancelAsEmployeeAsync(m, meetingId)).IsSuccess);
         await DrainOutboxAsync();
 
-        foreach (string user in new[] { m.P.OwnerAppUserId, m.P.ClientAppUserId })
-        {
-            Assert.Equal(1, (await NotificationsAsync(user, meetingId)).Count(n => n.Type == NotificationType.CrmMeetingCanceled));
-        }
+        Assert.Equal(1, (await NotificationsAsync(m.P.ClientAppUserId, meetingId)).Count(n => n.Type == NotificationType.CrmMeetingCanceled));
     }
 
     /// <summary>MT-N6: the meeting moved before its "scheduled" event was delivered — that confirmation is stale.</summary>

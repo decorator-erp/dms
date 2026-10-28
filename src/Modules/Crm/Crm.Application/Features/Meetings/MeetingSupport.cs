@@ -111,21 +111,6 @@ internal static class MeetingSupport
         return false;
     }
 
-    /// <summary>
-    /// M1-01 backend-bug fix. The ported backend's <c>IsCounterpartyOf</c> (slots) and
-    /// <c>IsRequesterOrCounterparty</c> (meetings) check only the ACTOR KIND — "a contact" or "an
-    /// employee" — never a specific identity. Concretely: any client contact, from any company, can
-    /// accept an employee-proposed slot or cancel an employee-requested meeting on a project that isn't
-    /// theirs; only the caller's own project-membership check (a step outside this method entirely)
-    /// happened to catch it in the backend, and this port's <c>ICrmAccessGuard</c> has no equivalent
-    /// project-membership check to lean on.
-    ///
-    /// <para>The fix: an acting EMPLOYEE may act on any meeting — this port's <c>CrmAccessGuard</c>
-    /// already grants every employee <c>HasReadAll: true</c>, i.e. company-wide CRM access is this
-    /// port's existing security model, not a gap to close here. An acting CONTACT may act only on a
-    /// meeting whose project belongs to their own client — the actual tenant boundary a client-facing
-    /// operation must hold, verified here via <c>IProjectDirectory</c> rather than assumed.</para>
-    /// </summary>
     /// <summary>B-4 (MT-N2): what a CONTACT is told when the meeting or slot is not theirs, or does not exist —
     /// one portal 404, so a client cannot probe another client's meeting or slot ids. Employees keep the
     /// specific office errors (their access is the project scope's, B-3).</summary>
@@ -142,10 +127,26 @@ internal static class MeetingSupport
             return Result.Success();
         }
 
-        Result owns = await EnsureActorCanActOnProjectAsync(db, projectDirectory, projectId, null, actingContactId, ct);
-        return owns.IsFailure ? CrmPortalErrors.NotFound : Result.Success();
+        // D-16 / A-F4: an inactive project takes no portal meeting writes — the same 404 as not the client's.
+        ProjectSummary? project = await ContactsProjectAsync(db, projectDirectory, projectId, actingContactId.Value, ct);
+        return project is { IsActive: true } ? Result.Success() : CrmPortalErrors.NotFound;
     }
 
+    /// <summary>
+    /// M1-01 backend-bug fix. The ported backend's <c>IsCounterpartyOf</c> (slots) and
+    /// <c>IsRequesterOrCounterparty</c> (meetings) check only the ACTOR KIND — "a contact" or "an
+    /// employee" — never a specific identity. Concretely: any client contact, from any company, can
+    /// accept an employee-proposed slot or cancel an employee-requested meeting on a project that isn't
+    /// theirs; only the caller's own project-membership check (a step outside this method entirely)
+    /// happened to catch it in the backend, and this port's <c>ICrmAccessGuard</c> has no equivalent
+    /// project-membership check to lean on.
+    ///
+    /// <para>The fix: an acting EMPLOYEE may act on any meeting — this port's <c>CrmAccessGuard</c>
+    /// already grants every employee <c>HasReadAll: true</c>, i.e. company-wide CRM access is this
+    /// port's existing security model, not a gap to close here. An acting CONTACT may act only on a
+    /// meeting whose project belongs to their own client — the actual tenant boundary a client-facing
+    /// operation must hold, verified here via <c>IProjectDirectory</c> rather than assumed.</para>
+    /// </summary>
     public static async Task<Result> EnsureActorCanActOnProjectAsync(
         CrmDbContext db, IProjectDirectory projectDirectory,
         Guid projectId, Guid? actingEmployeeId, Guid? actingContactId, CancellationToken ct)
@@ -160,21 +161,26 @@ internal static class MeetingSupport
             return CrmMeetingErrors.NotCounterparty;
         }
 
+        return await ContactsProjectAsync(db, projectDirectory, projectId, contactId, ct) is null
+            ? CrmMeetingErrors.NotCounterparty
+            : Result.Success();
+    }
+
+    /// <summary>The project, when it belongs to the contact's own client; null otherwise. One contact read and
+    /// one directory call, shared by both checks above (FINDING-P1-8).</summary>
+    private static async Task<ProjectSummary?> ContactsProjectAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid projectId, Guid contactId, CancellationToken ct)
+    {
         Guid? contactClientId = await db.CrmContacts.AsNoTracking()
             .Where(c => c.Id == contactId)
             .Select(c => (Guid?)c.ClientId)
             .FirstOrDefaultAsync(ct);
         if (contactClientId is null)
         {
-            return CrmMeetingErrors.NotCounterparty;
+            return null;
         }
 
         ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
-        if (project is null || project.ClientId != contactClientId)
-        {
-            return CrmMeetingErrors.NotCounterparty;
-        }
-
-        return Result.Success();
+        return project is not null && project.ClientId == contactClientId ? project : null;
     }
 }

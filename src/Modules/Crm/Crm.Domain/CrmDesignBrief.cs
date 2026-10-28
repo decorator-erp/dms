@@ -98,9 +98,10 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
     public string? ArchitecturalRequests { get; private set; }
     public string? OtherNeeds { get; private set; }
 
-    /// <summary>Set from the head form when sent; on create, otherwise filled from the intake (first brief)
-    /// or the project's latest brief (later briefs). A null in the form keeps the stored value, so once set
-    /// it can be changed but never cleared back to null — intended: a project always keeps its sector.</summary>
+    /// <summary>The sector is per brief (D-4). Set from the head form when sent; on create, otherwise filled
+    /// from the intake (first brief) or copied from the project's latest brief at that moment (later briefs).
+    /// A null in the form keeps the stored value, so once set it can be changed but never cleared back to
+    /// null. Editing an older brief's sector does not reach briefs already created from it.</summary>
     public ProjectSector? Sector { get; private set; }
 
     public bool? IsRented { get; private set; }
@@ -169,6 +170,19 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         }
 
         PendingApprovalId = nextApprovalId;
+        return Result.Success();
+    }
+
+    /// <summary>D-10 (A-F1): binds a legacy pending round that lost its approval id to
+    /// <paramref name="approvalId"/>.</summary>
+    internal Result AdoptPendingApproval(Guid approvalId)
+    {
+        if (Status != ApprovalState.PendingApproval || PendingApprovalId is not null)
+        {
+            return CrmBriefErrors.NotPending;
+        }
+
+        PendingApprovalId = approvalId;
         return Result.Success();
     }
 

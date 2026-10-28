@@ -102,7 +102,7 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
         Assert.True((await changeStatus.HandleAsync(new ChangeCrmLeadStatusCommand(leadId, LeadStatus.Qualified))).IsSuccess);
 
         ICommandHandler<ConvertCrmLeadCommand, Guid> convert = sp.GetRequiredService<ICommandHandler<ConvertCrmLeadCommand, Guid>>();
-        Result<Guid> convertResult = await convert.HandleAsync(new ConvertCrmLeadCommand(leadId, clientId));
+        Result<Guid> convertResult = await convert.HandleAsync(new ConvertCrmLeadCommand(leadId, clientId, CrmTestAccess.Office(sp)));
         Assert.True(convertResult.IsSuccess);
         Assert.Equal(clientId, convertResult.Value);
 

@@ -69,11 +69,32 @@ internal sealed class SendCrmRequirementItemCommandHandler(
         Guid approvalId;
         if (item.ApprovalStatus == ApprovalState.PendingApproval)
         {
+            // D-10 (A-F1): a legacy pending item with no bound id adopts the item's newest approval (or a
+            // fresh send's id when it has none), then follows the A-11 rule below like any other.
+            if (item.PendingApprovalId is null)
+            {
+                ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
+                    ApprovalSubjectType.RequirementItem, item.Id, ct);
+                Result adopted = item.AdoptPendingApproval(
+                    latest?.Id ?? CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1),
+                    newSend: latest is null);
+                if (adopted.IsFailure)
+                {
+                    return adopted;
+                }
+
+                Result saveAdopted = await ItemWrites.SaveAsync(db, ct);
+                if (saveAdopted.IsFailure)
+                {
+                    return saveAdopted;
+                }
+            }
+
             // A-11 (B-L1): only a live, UNDECIDED approval blocks a resend. A missing one (never committed)
             // or a decided one whose event was lost is re-requested under the same id: RequestAsync returns
             // its decision, and the loop below applies a rejection or voids an approval.
-            if (item.PendingApprovalId is not { } pendingId
-                || await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
+            Guid pendingId = item.PendingApprovalId!.Value;
+            if (await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
             {
                 return CrmItemErrors.AlreadyPending;
             }
@@ -82,6 +103,14 @@ internal sealed class SendCrmRequirementItemCommandHandler(
         }
         else
         {
+            // D-11 (A-F2): a Closed period is frozen (A-5) for a new send too. Recovering an item that is
+            // already pending (above) is not a new send and stays allowed, so a lost decision still lands.
+            Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, item.PeriodId, ct);
+            if (open.IsFailure)
+            {
+                return open;
+            }
+
             approvalId = CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1);
 
             Result sendResult = item.Send(approvalId);

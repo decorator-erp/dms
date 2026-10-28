@@ -6,6 +6,7 @@ using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Crm.Contracts;
 using Crm.Contracts.Clients;
+using Crm.Domain;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -123,7 +124,7 @@ internal sealed class ClientEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Clients.Read);
 
         clients.MapGet("/", async (
-            int? pageNumber, int? pageSize, string? search, bool? isActive, ICurrentUser currentUser,
+            int? pageNumber, int? pageSize, string? search, string? isActive, ICurrentUser currentUser,
             IQueryHandler<GetClientsQuery, PagedResult<ClientListItemResponse>> handler, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
@@ -133,11 +134,26 @@ internal sealed class ClientEndpoints : IEndpoint
             }
 
             // C-3: an omitted isActive lists active clients only; isActive=false lists the deactivated ones.
+            // D-16 / C-F5: isActive=all lists both. Any other value is a 400.
+            Result<bool?> activeFilter = ParseIsActive(isActive);
+            if (activeFilter.IsFailure)
+            {
+                return activeFilter.ToProblem();
+            }
+
             Result<PagedResult<ClientListItemResponse>> result = await handler.HandleAsync(
-                new GetClientsQuery(userId.Value!, pageNumber ?? 1, pageSize ?? 50, search, isActive ?? true), ct);
+                new GetClientsQuery(userId.Value!, pageNumber ?? 1, pageSize ?? 50, search, activeFilter.Value), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Read);
     }
+
+    private static Result<bool?> ParseIsActive(string? value) => value?.Trim().ToUpperInvariant() switch
+    {
+        null or "" or "TRUE" => Result.Success<bool?>(true),
+        "FALSE" => Result.Success<bool?>(false),
+        "ALL" => Result.Success<bool?>(null),
+        _ => Result.Failure<bool?>(ClientErrors.InvalidActiveFilter),
+    };
 
     private sealed record UpdateProfileRequest(string? JobTitle, string? MaritalStatus, string? RepresentativeName);
     private sealed record SetActiveRequest(bool IsActive);

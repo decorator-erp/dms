@@ -44,8 +44,15 @@ public sealed record ChangeCrmLeadStatusCommand(Guid LeadId, LeadStatus Status) 
 /// <para>Worth stating for whoever builds v2: creating a client now also provisions its portal login,
 /// so "accept a CreateClientRequest on convert" means provisioning an account inside the conversion
 /// transaction — go through <c>CreateClientCommand</c>'s handler rather than reimplementing the
-/// ordering it documents.</para></summary>
-public sealed record ConvertCrmLeadCommand(Guid LeadId, Guid ExistingClientId) : ICommand<Guid>;
+/// ordering it documents.</para>
+///
+/// <para>D-9 (C-F1): client-scoped on the target client — a caller who can't see
+/// <see cref="ExistingClientId"/> gets 404 <c>crm.clients.NotFound</c>, so convert can't fill an unseen
+/// client's blanks or probe which client ids exist.</para></summary>
+public sealed record ConvertCrmLeadCommand(Guid LeadId, Guid ExistingClientId, string UserId) : ICommand<Guid>, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ExistingClientId);
+}
 
 public sealed record SaveCrmLeadIntakeCommand(Guid LeadId, CrmLeadIntakeData Data) : ICommand;
 

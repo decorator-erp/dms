@@ -20,6 +20,10 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
 
     private CrmMeetingSlot() { }
 
+    /// <summary>D-16 / B-F3: no slot — proposed, requested, rescheduled or countered — lasts longer than a
+    /// working day.</summary>
+    public const int MaxLengthMinutes = 480;
+
     public static Result<CrmMeetingSlot> Create(
         Guid meetingId,
         DateTime startsAtUtc,
@@ -41,6 +45,11 @@ internal sealed class CrmMeetingSlot : Entity, IAuditable
         if (nowUtc is { } now && startsAtUtc <= now)
         {
             return CrmMeetingErrors.InvalidSlotRange;
+        }
+
+        if (endsAtUtc - startsAtUtc > TimeSpan.FromMinutes(MaxLengthMinutes))
+        {
+            return CrmMeetingErrors.SlotTooLong;
         }
 
         return new CrmMeetingSlot

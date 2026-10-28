@@ -19,7 +19,7 @@ internal sealed class CompleteCrmMeetingCommandHandler(CrmDbContext db) : IComma
 {
     public async Task<Result> HandleAsync(CompleteCrmMeetingCommand command, CancellationToken ct = default)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return CrmMeetingErrors.NotFound;

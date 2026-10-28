@@ -61,6 +61,10 @@ internal static class CrmClientScopeDecorator
 internal sealed class CrmClientScope(
     CrmDbContext db, ICurrentUser currentUser, IProjectDirectory projects, IProjectAccessGuard guard)
 {
+    /// <summary>D-16 / C-F8: a <c>read_all</c> caller sees every client, so a list can page in SQL
+    /// without asking <see cref="VisibleAsync"/>.</summary>
+    public bool SeesAll => currentUser.HasPermission(CrmPermissions.Clients.ReadAll);
+
     public async Task<Result> EnsureAsync(ICrmClientScoped message, CancellationToken ct)
     {
         Error notFound = NotFoundFor(message);
@@ -81,7 +85,7 @@ internal sealed class CrmClientScope(
             return true;
         }
 
-        IReadOnlyList<ProjectSummary> owned = await projects.GetProjectsByClientAsync(clientId, ct);
+        List<ProjectSummary> owned = Counted(await projects.GetProjectsByClientAsync(clientId, ct));
         if (owned.Count == 0)
         {
             return true;
@@ -100,7 +104,7 @@ internal sealed class CrmClientScope(
             return clientIds.ToHashSet();
         }
 
-        IReadOnlyList<ProjectSummary> owned = await projects.GetProjectsByClientsAsync(clientIds, ct);
+        List<ProjectSummary> owned = Counted(await projects.GetProjectsByClientsAsync(clientIds, ct));
         IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync([.. owned.Select(p => p.Id)], userId, ct);
         var reachableSet = reachable.ToHashSet();
         var withProjects = owned.Select(p => p.ClientId).ToHashSet();
@@ -109,6 +113,11 @@ internal sealed class CrmClientScope(
         // M2: a client with no project at all is visible; otherwise only through a reachable project.
         return clientIds.Where(id => !withProjects.Contains(id) || reachableClients.Contains(id)).ToHashSet();
     }
+
+    /// <summary>D-15 (C-F3, owner default): a Cancelled project doesn't count for visibility, so a client
+    /// whose projects are all Cancelled is pipeline again (M2). A Completed project still counts.</summary>
+    private static List<ProjectSummary> Counted(IReadOnlyList<ProjectSummary> projects) =>
+        [.. projects.Where(p => p.Status != ProjectStatus.Cancelled)];
 
     /// <summary>The 404 names the area the caller asked about, as in <see cref="CrmProjectScope"/>.</summary>
     private static Error NotFoundFor(ICrmClientScoped message) => message.GetType().Namespace switch

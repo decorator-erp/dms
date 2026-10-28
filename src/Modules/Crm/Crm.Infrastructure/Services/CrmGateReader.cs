@@ -64,10 +64,13 @@ internal sealed class CrmGateReader(CrmDbContext db) : Contracts.ICrmGateReader
                 || e.ApprovalStatus == ApprovalState.Rejected)
             .Where(e => !db.CrmBriefSpaces.Any(next => next.SupersedesSpaceId == e.Id));
 
+    /// <summary>D-11 (A-F2, owner default): a Draft or Rejected item counts only while its period is Open —
+    /// closing a period drops its unsent and rejected requests from the gate (they can no longer be sent).
+    /// A PendingApproval item still counts: its decision is still coming.</summary>
     private IQueryable<Domain.CrmRequirementItem> UnresolvedItems() =>
         db.CrmRequirementItems.AsNoTracking()
-            .Where(i => i.ApprovalStatus == ApprovalState.Draft
-                || i.ApprovalStatus == ApprovalState.PendingApproval
-                || i.ApprovalStatus == ApprovalState.Rejected)
+            .Where(i => i.ApprovalStatus == ApprovalState.PendingApproval
+                || (i.ApprovalStatus == ApprovalState.Draft || i.ApprovalStatus == ApprovalState.Rejected)
+                    && db.CrmRequirementPeriods.Any(p => p.Id == i.PeriodId && p.Status == RequirementPeriodStatus.Open))
             .Where(i => !db.CrmRequirementItems.Any(next => next.SupersedesItemId == i.Id));
 }

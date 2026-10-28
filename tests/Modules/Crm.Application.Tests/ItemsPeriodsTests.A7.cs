@@ -52,12 +52,12 @@ public sealed partial class ItemsPeriodsTests
         Result<Guid> first = await TryCreateSpaceTypeAsync(code);
         Result<Guid> second = await TryCreateSpaceTypeAsync(code);
         Assert.True(first.IsSuccess, first.Error?.Description);
-        AssertError(Plain(second), 409, "crm.spaceTypes.DuplicateCode");
+        AssertError(Plain(second), 409, "crm.space_types.DuplicateCode");
 
         string raced = $"R{Guid.NewGuid():N}"[..20];
         Result<Guid>[] results = await Task.WhenAll(TryCreateSpaceTypeAsync(raced), TryCreateSpaceTypeAsync(raced));
         Assert.Single(results, r => r.IsSuccess);
-        AssertError(Plain(Assert.Single(results, r => r.IsFailure)), 409, "crm.spaceTypes.DuplicateCode");
+        AssertError(Plain(Assert.Single(results, r => r.IsFailure)), 409, "crm.space_types.DuplicateCode");
     }
 
     private async Task<Result<Guid>> TryCreateSpaceTypeAsync(string code)

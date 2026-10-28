@@ -22,8 +22,8 @@ public sealed partial class ItemsPeriodsTests
         Result toggled = await sp.GetRequiredService<ICommandHandler<SetCrmSpaceTypeActiveCommand>>()
             .HandleAsync(new SetCrmSpaceTypeActiveCommand(Guid.NewGuid(), false));
 
-        AssertError(updated, 404, "crm.spaceTypes.NotFound");
-        AssertError(toggled, 404, "crm.spaceTypes.NotFound");
+        AssertError(updated, 404, "crm.space_types.NotFound");
+        AssertError(toggled, 404, "crm.space_types.NotFound");
     }
 
     /// <summary>Written straight through the context, past the handler's pre-check: only the index can

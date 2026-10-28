@@ -28,7 +28,7 @@ public sealed partial class LeadIntakeReviewTests(CrmApplicationFixture fixture,
 
     private static Task<Result<Guid>> ConvertAsync(IServiceProvider sp, Guid leadId, Guid clientId) =>
         sp.GetRequiredService<ICommandHandler<ConvertCrmLeadCommand, Guid>>()
-            .HandleAsync(new ConvertCrmLeadCommand(leadId, clientId));
+            .HandleAsync(new ConvertCrmLeadCommand(leadId, clientId, CrmTestAccess.Office(sp)));
 
     private async Task<int> CountLeadConvertedEventsAsync(Guid leadId)
     {

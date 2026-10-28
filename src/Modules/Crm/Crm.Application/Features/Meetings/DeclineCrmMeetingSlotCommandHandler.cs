@@ -61,18 +61,17 @@ internal static class DeclineMeetingSlot
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
         }
 
-        Guid? meetingProjectId = await db.CrmMeetings.AsNoTracking()
-            .Where(m => m.Id == slot.MeetingId)
-            .Select(m => (Guid?)m.ProjectId)
-            .FirstOrDefaultAsync(ct);
-        if (meetingProjectId is null)
+        // D-13 (B-F2): the meeting is tracked, not read-only — the save below marks it modified, so a
+        // decline and an accept of the same meeting collide on its xmin (one of them is a 409).
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId && m.IsActive, ct);
+        if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
         // B-4 (MT-N2): tenant before kind.
         Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
-            db, projectDirectory, meetingProjectId.Value, actingContactId, ct);
+            db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
@@ -81,6 +80,12 @@ internal static class DeclineMeetingSlot
         if (!MeetingSupport.IsCounterpartyKind(slot, actingEmployeeId, actingContactId))
         {
             return CrmMeetingErrors.NotCounterparty;
+        }
+
+        // D-13 (B-F2): only a meeting still being arranged has slots to decline.
+        if (meeting.Status is not (MeetingStatus.Requested or MeetingStatus.Rescheduled))
+        {
+            return CrmMeetingErrors.InvalidStateTransition;
         }
 
         Result declined = slot.Decline();
@@ -107,6 +112,7 @@ internal static class DeclineMeetingSlot
             }
         }
 
+        db.Entry(meeting).State = EntityState.Modified;
         return await MeetingWrites.SaveAsync(db, ct);
     }
 }

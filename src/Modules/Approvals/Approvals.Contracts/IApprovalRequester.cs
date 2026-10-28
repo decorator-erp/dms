@@ -46,4 +46,13 @@ public interface IApprovalRequester
     Task<Result<ApprovalRequestOutcome>> RequestAsync(ApprovalRequest request, CancellationToken ct);
     Task<ApprovalSnapshot?> GetAsync(Guid approvalId, CancellationToken ct);
     Task<IReadOnlyList<ApprovalSnapshot>> GetManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
+
+    /// <summary>The subject's newest approval (by creation time), decided or not; null when it has none.
+    /// For a caller whose own row lost the id it was sent under (CRM's legacy pending rows, D-10).</summary>
+    Task<ApprovalSnapshot?> GetLatestForSubjectAsync(ApprovalSubjectType subjectType, Guid subjectId, CancellationToken ct);
+
+    /// <summary>The many form of <see cref="GetLatestForSubjectAsync"/>: one snapshot per subject that has
+    /// any approval; subjects with none are absent.</summary>
+    Task<IReadOnlyList<ApprovalSnapshot>> GetLatestForSubjectsAsync(
+        ApprovalSubjectType subjectType, IReadOnlyCollection<Guid> subjectIds, CancellationToken ct);
 }

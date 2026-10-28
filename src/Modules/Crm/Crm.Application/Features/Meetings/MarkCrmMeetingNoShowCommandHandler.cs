@@ -19,7 +19,7 @@ internal sealed class MarkCrmMeetingNoShowCommandHandler(CrmDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(MarkCrmMeetingNoShowCommand command, CancellationToken ct = default)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return CrmMeetingErrors.NotFound;

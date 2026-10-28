@@ -128,19 +128,15 @@ internal sealed class SetCrmSpaceActiveCommandHandler(CrmDbContext db) : IComman
     }
 }
 
-/// <summary>A-7 (M5): a space name is taken when another space on the project has it, ignoring case — the
-/// same comparison as the <c>lower("Name")</c> unique index.</summary>
+/// <summary>A-7 (B-M4): a space name is taken when another space on the project has it, ignoring case — the
+/// same comparison as the <c>lower("Name")</c> unique index. D-16 / A-F6: both sides are compared in SQL as
+/// <c>lower(trim(...))</c> (the stored name is already trimmed), so the pre-check and the index can never
+/// disagree on padding or on how a character lowercases.</summary>
 internal static class SpaceNames
 {
-    public static Task<bool> TakenAsync(CrmDbContext db, Guid projectId, string name, Guid? exceptSpaceId, CancellationToken ct)
-    {
-        string lowered = name.ToLowerInvariant();
-
-        // ToLower() runs in SQL as lower(), the index's own function; Npgsql cannot translate
-        // ToLowerInvariant(), and the client culture never applies to a server-side call.
-#pragma warning disable CA1304, CA1311
-        return db.CrmSpaces.AsNoTracking().AnyAsync(
-            s => s.ProjectId == projectId && s.Name.ToLower() == lowered && s.Id != exceptSpaceId, ct);
-#pragma warning restore CA1304, CA1311
-    }
+    public static Task<bool> TakenAsync(CrmDbContext db, Guid projectId, string name, Guid? exceptSpaceId, CancellationToken ct) =>
+        db.CrmSpaces
+            .FromSql($"""SELECT * FROM crm.crm_spaces WHERE "ProjectId" = {projectId} AND lower("Name") = lower(trim({name}))""")
+            .AsNoTracking()
+            .AnyAsync(s => s.Id != exceptSpaceId, ct);
 }

@@ -26,7 +26,9 @@ public interface ICrmGateReader
 
     /// <summary>Unresolved = brief spaces / requirement items on this stage's brief / period(s) whose
     /// approval status is <see cref="CrmApprovalState.Draft"/>, <see cref="CrmApprovalState.PendingApproval"/>
-    /// or <see cref="CrmApprovalState.Rejected"/> (A-4), and that no later row supersedes.</summary>
+    /// or <see cref="CrmApprovalState.Rejected"/> (A-4), and that no later row supersedes. D-11: a Draft or
+    /// Rejected requirement item counts only while its period is Open — closing a period drops its unsent and
+    /// rejected requests from the gate; a PendingApproval item still counts.</summary>
     Task<int> CountUnresolvedForStageAsync(Guid projectStageId, CancellationToken ct);
 
     /// <summary>Same, but scoped to a single project task's own entries/items — the only CRM gate that

@@ -36,7 +36,7 @@ internal sealed class CancelCrmMeetingCommandHandler(CrmDbContext db, IProjectDi
     : ICommandHandler<CancelCrmMeetingCommand>
 {
     public Task<Result> HandleAsync(CancelCrmMeetingCommand command, CancellationToken ct = default) =>
-        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.Reason, ct);
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingEmployeeId, null, command.Reason, ct);
 }
 
 /// <summary>B-3 (M1): the portal cancel — not project-scoped; the core checks the contact's client.</summary>
@@ -44,16 +44,16 @@ internal sealed class CancelCrmMeetingByContactCommandHandler(CrmDbContext db, I
     : ICommandHandler<CancelCrmMeetingByContactCommand>
 {
     public Task<Result> HandleAsync(CancelCrmMeetingByContactCommand command, CancellationToken ct = default) =>
-        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingContactId, command.Reason, ct);
+        CancelMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.ActingContactId, command.Reason, ct);
 }
 
 internal static class CancelMeeting
 {
     public static async Task<Result> RunAsync(
-        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingContactId,
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
         string reason, CancellationToken ct)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
@@ -85,7 +85,7 @@ internal static class CancelMeeting
         }
 
         db.Outbox().Enqueue(new Crm.Contracts.MeetingCanceledIntegrationEvent(
-            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
+            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow, actingEmployeeId, actingContactId));
         return await MeetingWrites.SaveAsync(db, ct);
     }
 }

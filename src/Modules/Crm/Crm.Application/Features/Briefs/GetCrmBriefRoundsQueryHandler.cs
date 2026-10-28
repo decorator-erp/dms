@@ -39,8 +39,17 @@ internal static class BriefRounds
         return Result.Success<IReadOnlyList<CrmBriefRoundResponse>>([.. rounds
             .Select(r => new CrmBriefRoundResponse(
                 r.Round, r.CreatedAtUtc, OutcomeOf(r.Outcome, r.Round == latest ? status.Value : null), r.DecidedAtUtc))
-            .Where(r => includeVoided || r.Outcome != CrmBriefRoundOutcome.Voided)]);
+            // D-6: the portal also drops an older round whose outcome is Unknown (sent before outcomes were
+            // recorded); round numbers can then have gaps there. The office sees every round.
+            .Where(r => includeVoided || IsShownOnThePortal(r, latest))]);
     }
+
+    private static bool IsShownOnThePortal(CrmBriefRoundResponse round, int latest) => round.Outcome switch
+    {
+        CrmBriefRoundOutcome.Voided => false,
+        CrmBriefRoundOutcome.Unknown => round.Round == latest,
+        _ => true,
+    };
 
     private static CrmBriefRoundOutcome OutcomeOf(BriefRoundOutcome? stored, ApprovalState? currentRoundState) => stored switch
     {

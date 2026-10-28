@@ -6,6 +6,10 @@ internal static class ClientErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.clients.NotFound", "Client was not found.");
 
+    /// <summary>D-16 / C-F5: the client list's <c>isActive</c> is all, true or false.</summary>
+    public static readonly Error InvalidActiveFilter = Error.BadRequest(
+        "crm.clients.InvalidActiveFilter", "isActive must be all, true or false.");
+
     public static readonly Error AppUserIdRequired = Error.BadRequest(
         "crm.clients.AppUserIdRequired", "A linked user id is required.");
 
@@ -183,11 +187,11 @@ internal static class CrmSpaceTypeErrors
     public static readonly Error CodeRequired = Error.BadRequest("crm.space_types.CodeRequired", "A code is required.");
 
     /// <summary>A-12 (B-L2): an unknown space type is a 404, not <see cref="CodeRequired"/>.</summary>
-    public static readonly Error NotFound = Error.NotFound("crm.spaceTypes.NotFound", "Space type was not found.");
+    public static readonly Error NotFound = Error.NotFound("crm.space_types.NotFound", "Space type was not found.");
 
     /// <summary>A-7 (B-M4): space type codes are unique.</summary>
     public static readonly Error DuplicateCode = Error.Conflict(
-        "crm.spaceTypes.DuplicateCode", "A space type with that code already exists.");
+        "crm.space_types.DuplicateCode", "A space type with that code already exists.");
 
     public static readonly Error NameRequired = Error.BadRequest(
         "crm.space_types.NameRequired", "English and Arabic names are required.");
@@ -362,6 +366,10 @@ internal static class CrmMeetingErrors
 
     public static readonly Error InvalidSlotRange = Error.BadRequest(
         "crm.meetings.InvalidSlotRange", "A slot must end after it starts and start in the future.");
+
+    /// <summary>D-16 / B-F3.</summary>
+    public static readonly Error SlotTooLong = Error.BadRequest(
+        "crm.meetings.SlotTooLong", "A slot can last at most 480 minutes.");
 
     public static readonly Error InvalidStateTransition = Error.Conflict(
         "crm.meetings.InvalidStateTransition", "This meeting cannot transition from its current status.");

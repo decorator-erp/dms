@@ -2,6 +2,7 @@ using Approvals.Contracts;
 using Approvals.Infrastructure.Persistence;
 using BuildingBlocks.Outbox;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SharedKernel;
 using Domain = Approvals.Domain;
 
@@ -31,26 +32,19 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
     {
         Domain.ApprovalSubjectType subjectType = ToDomain(request.SubjectType);
 
-        var existing = await db.Approvals.AsNoTracking()
-            .Where(a => a.Id == request.ApprovalId)
-            .Select(a => new { a.SubjectType, a.SubjectId, a.Decision })
-            .FirstOrDefaultAsync(ct);
-        if (existing is not null)
+        if (await ExistingAsync(request, subjectType, ct) is { } existing)
         {
-            if (existing.SubjectType != subjectType || existing.SubjectId != request.SubjectId)
-            {
-                return Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.ApprovalIdInUse);
-            }
-
-            return new ApprovalRequestOutcome(
-                request.ApprovalId, existing.Decision.HasValue ? ToContracts(existing.Decision.Value) : null);
+            return existing;
         }
 
         bool alreadyOpen = await db.Approvals.AsNoTracking().AnyAsync(
             a => a.SubjectType == subjectType && a.SubjectId == request.SubjectId && a.Decision == null, ct);
         if (alreadyOpen)
         {
-            return Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.OpenApprovalExists);
+            // D-16 / A-F5: the open one may be this very id, committed by a parallel request since the
+            // lookup above — that is the same approval, not a conflict.
+            return await ExistingAsync(request, subjectType, ct)
+                ?? Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.OpenApprovalExists);
         }
 
         var approval = Domain.Approval.Create(
@@ -66,9 +60,47 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
         db.Outbox().Enqueue(new ApprovalRequestedIntegrationEvent(
             Guid.NewGuid(), approval.Id, request.SubjectType, request.SubjectId, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // D-16 / A-F5: a parallel request inserted the same id first. Drop this attempt (approval and
+            // outbox row) and answer with the one that won, as a sequential retry would have been answered.
+            db.ChangeTracker.Clear();
+            if (await ExistingAsync(request, subjectType, ct) is { } winner)
+            {
+                return winner;
+            }
+
+            throw;
+        }
 
         return new ApprovalRequestOutcome(approval.Id, null);
+    }
+
+    /// <summary>The approval already stored under the request's id: returned as-is (with its decision) for
+    /// the same subject, <c>ApprovalIdInUse</c> for another; null when there is none.</summary>
+    private async Task<Result<ApprovalRequestOutcome>?> ExistingAsync(
+        ApprovalRequest request, Domain.ApprovalSubjectType subjectType, CancellationToken ct)
+    {
+        var existing = await db.Approvals.AsNoTracking()
+            .Where(a => a.Id == request.ApprovalId)
+            .Select(a => new { a.SubjectType, a.SubjectId, a.Decision })
+            .FirstOrDefaultAsync(ct);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        if (existing.SubjectType != subjectType || existing.SubjectId != request.SubjectId)
+        {
+            return Result.Failure<ApprovalRequestOutcome>(Domain.ApprovalErrors.ApprovalIdInUse);
+        }
+
+        return new ApprovalRequestOutcome(
+            request.ApprovalId, existing.Decision.HasValue ? ToContracts(existing.Decision.Value) : null);
     }
 
     public async Task<ApprovalSnapshot?> GetAsync(Guid approvalId, CancellationToken ct)
@@ -81,6 +113,26 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
     {
         List<Domain.Approval> approvals = await db.Approvals.AsNoTracking().Where(a => ids.Contains(a.Id)).ToListAsync(ct);
         return [.. approvals.Select(ToSnapshot)];
+    }
+
+    public async Task<ApprovalSnapshot?> GetLatestForSubjectAsync(
+        ApprovalSubjectType subjectType, Guid subjectId, CancellationToken ct) =>
+        (await GetLatestForSubjectsAsync(subjectType, [subjectId], ct)).SingleOrDefault();
+
+    public async Task<IReadOnlyList<ApprovalSnapshot>> GetLatestForSubjectsAsync(
+        ApprovalSubjectType subjectType, IReadOnlyCollection<Guid> subjectIds, CancellationToken ct)
+    {
+        Domain.ApprovalSubjectType type = ToDomain(subjectType);
+        List<Domain.Approval> approvals = await db.Approvals.AsNoTracking()
+            .Where(a => a.SubjectType == type && subjectIds.Contains(a.SubjectId))
+            .ToListAsync(ct);
+        return
+        [
+            .. approvals
+                .GroupBy(a => a.SubjectId)
+                .Select(g => g.OrderByDescending(a => a.CreatedAtUtc).ThenByDescending(a => a.Id).First())
+                .Select(ToSnapshot),
+        ];
     }
 
     private static ApprovalSnapshot ToSnapshot(Domain.Approval a) =>

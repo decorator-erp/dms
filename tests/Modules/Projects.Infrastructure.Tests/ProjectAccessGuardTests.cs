@@ -80,7 +80,9 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     public async Task EnsureProjectAccessAsync_NoPermission_NotAMember_IsDenied()
     {
         (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
-        Guid projectId = await SeedProjectAsync(employeeId);
+        // D-14: the project is someone else's — its owner would have access without being a member.
+        (_, Guid ownerId) = await SeedEmployeeAsync();
+        Guid projectId = await SeedProjectAsync(ownerId);
 
         await using ProjectsDbContext db = CreateContext(_ => { });
         var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
@@ -120,6 +122,21 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         Assert.True(result.IsSuccess);
     }
 
+    /// <summary>D-14 (C-F2, owner default): the project's owner has access with no stage team at all, in
+    /// both the single check and the batch filter.</summary>
+    [Fact]
+    public async Task TheOwner_WithNoTeamAndNoPermission_IsAllowed_InBothMethods()
+    {
+        (string? appUserId, Guid employeeId) = await SeedEmployeeAsync();
+        Guid projectId = await SeedProjectAsync(employeeId);
+
+        await using ProjectsDbContext db = CreateContext(_ => { });
+        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
+
+        Assert.True((await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None)).IsSuccess);
+        Assert.Equal([projectId], await guard.FilterAccessibleProjectsAsync([projectId], appUserId, CancellationToken.None));
+    }
+
     [Fact]
     public async Task FilterAccessibleProjectsAsync_Over50Projects_IssuesExactlyOneMembershipQuery()
     {
@@ -132,7 +149,9 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
             accessibleIds.Add(projectId);
         }
 
-        Guid inaccessibleId = await SeedProjectAsync(employeeId);
+        // D-14: owned by someone else, so the caller reaches it neither as owner nor as member.
+        (_, Guid otherOwnerId) = await SeedEmployeeAsync();
+        Guid inaccessibleId = await SeedProjectAsync(otherOwnerId);
 
         int commandCount = 0;
         await using ProjectsDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));

@@ -59,7 +59,7 @@ internal static class RescheduleMeeting
         CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
         DateTime startsAtUtc, DateTime endsAtUtc, CancellationToken ct)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId && m.IsActive, ct);
         if (meeting is null)
         {
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
@@ -73,6 +73,8 @@ internal static class RescheduleMeeting
             return scoped.Error;
         }
 
+        // D-8 (B-F1): MarkRescheduling clears the acceptor in this same save, so the event carries it.
+        Guid? previousAcceptor = meeting.AcceptedByEmployeeId;
         Result rescheduling = meeting.MarkRescheduling(DateTime.UtcNow);
         if (rescheduling.IsFailure)
         {
@@ -101,7 +103,8 @@ internal static class RescheduleMeeting
 
         db.CrmMeetingSlots.Add(newSlot.Value!);
         db.Outbox().Enqueue(new Crm.Contracts.MeetingRescheduledIntegrationEvent(
-            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
+            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow,
+            previousAcceptor, actingEmployeeId, actingContactId));
         return await MeetingWrites.SaveAsync(db, ct);
     }
 }
