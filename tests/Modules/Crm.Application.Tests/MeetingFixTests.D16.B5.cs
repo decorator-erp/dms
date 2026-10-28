@@ -34,6 +34,9 @@ public sealed partial class MeetingFixTests
             await Command(client, new CancelCrmMeetingByContactCommand(meetingId, m.ContactId, "Not needed"), readAll: false),
             await RescheduleAsEmployeeAsync(m, meetingId, Slot(9)),
             await CancelAsEmployeeAsync(m, meetingId),
+            // FINDING-P1-12 (adjacent): the office's complete and no-show too.
+            await Command(m.P.OwnerAppUserId, new CompleteCrmMeetingCommand(meetingId, m.P.OwnerAppUserId)),
+            await Command(m.P.OwnerAppUserId, new MarkCrmMeetingNoShowCommand(meetingId, m.P.OwnerAppUserId)),
         ];
 
         foreach (Result result in results)
