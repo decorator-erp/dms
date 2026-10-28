@@ -1,3 +1,4 @@
+using Crm.Contracts;
 using Crm.Contracts.Items;
 using Crm.Contracts.Periods;
 using SharedKernel;
@@ -31,9 +32,12 @@ public sealed partial class ItemsPeriodsTests
         Assert.True((await Command(p.OwnerAppUserId, new SendCrmRequirementItemCommand(rejectedId, p.OwnerAppUserId))).IsSuccess);
         await DecideOpenApprovalAsync(p, rejectedId, ApprovalDecision.Rejected);
         Assert.Equal(2, await CountUnresolvedForStageAsync(p.StageId));
+        Assert.Equal(0, await CountOutboxAsync(nameof(CrmItemsResolvedIntegrationEvent), p.StageId));
 
         Assert.True((await Command(p.OwnerAppUserId, new CloseCrmRequirementPeriodCommand(periodId, p.OwnerAppUserId))).IsSuccess);
 
         Assert.Equal(0, await CountUnresolvedForStageAsync(p.StageId));
+        // FINDING-P1-2: the close that resolves the stage announces it, as a decision would.
+        Assert.Equal(1, await CountOutboxAsync(nameof(CrmItemsResolvedIntegrationEvent), p.StageId));
     }
 }
