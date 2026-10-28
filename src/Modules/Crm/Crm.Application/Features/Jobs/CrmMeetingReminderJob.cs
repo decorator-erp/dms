@@ -53,9 +53,21 @@ internal sealed class CrmMeetingReminderJob(
         {
             // Re-filtered: a meeting rescheduled or canceled since the id scan is no longer due.
             List<CrmMeeting> batch = await Due(now, horizon).Where(m => ids.Contains(m.Id)).ToListAsync(ct);
-            IReadOnlyDictionary<Guid, IReadOnlyList<string>> recipients = await MeetingRecipients.ResolveManyAsync(
-                [.. batch.Select(m => new MeetingRecipients.Subject(m.Id, m.ProjectId, m.RequestedByEmployeeId, m.AcceptedByEmployeeId))],
-                hrDirectory, projectDirectory, clientDirectory, ct);
+            // D-16 / B-F4: a recipient lookup that fails costs this batch only — logged, left unstamped for
+            // the next run, and the run moves on to the next batch.
+            IReadOnlyDictionary<Guid, IReadOnlyList<string>> recipients;
+            try
+            {
+                recipients = await MeetingRecipients.ResolveManyAsync(
+                    [.. batch.Select(m => new MeetingRecipients.Subject(m.Id, m.ProjectId, m.RequestedByEmployeeId, m.AcceptedByEmployeeId))],
+                    hrDirectory, projectDirectory, clientDirectory, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Meeting reminder recipients failed for a batch of {Count} meetings; they are retried on the next run.", batch.Count);
+                db.ChangeTracker.Clear();
+                continue;
+            }
 
             foreach (CrmMeeting meeting in batch)
             {
