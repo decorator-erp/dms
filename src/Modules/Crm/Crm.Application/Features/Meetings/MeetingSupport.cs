@@ -143,7 +143,14 @@ internal static class MeetingSupport
         }
 
         Result owns = await EnsureActorCanActOnProjectAsync(db, projectDirectory, projectId, null, actingContactId, ct);
-        return owns.IsFailure ? CrmPortalErrors.NotFound : Result.Success();
+        if (owns.IsFailure)
+        {
+            return CrmPortalErrors.NotFound;
+        }
+
+        // D-16 / A-F4: an inactive project takes no portal meeting writes — the same 404 as not the client's.
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
+        return project is { IsActive: true } ? Result.Success() : CrmPortalErrors.NotFound;
     }
 
     public static async Task<Result> EnsureActorCanActOnProjectAsync(
