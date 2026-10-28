@@ -14,8 +14,9 @@ public sealed record LinkCrmArtifactDocumentCommand(
     Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId,
     Guid? AddedByEmployeeId, Guid? AddedByContactId, string UserId) : ICommand<Guid>, ICrmProjectScoped
 {
-    /// <summary>FINDING-P1-13: scoped on the one subject the link names (exactly one is set; the handler
-    /// rejects anything else). None named resolves to no project — a 404.</summary>
+    /// <summary>FINDING-P1-13: scoped on the one subject the link names. The HTTP endpoint answers 400
+    /// <c>crm.artifacts.InvalidSubject</c> before this runs unless exactly one is set (FINDING-P1-16); a direct
+    /// caller naming none still resolves to no project here, a 404.</summary>
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => (BriefId, SpaceId, RequirementItemId, MeetingId) switch
     {
         ({ } briefId, _, _, _) => CrmScopeTarget.Brief(briefId),
