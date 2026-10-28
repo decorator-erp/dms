@@ -248,7 +248,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
         Assert.True(linkResult.IsSuccess);
 
         IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> getByBrief = sp.GetRequiredService<IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>>>();
-        IReadOnlyList<CrmArtifactDocumentResponse> artifacts = (await getByBrief.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId))).Value!;
+        IReadOnlyList<CrmArtifactDocumentResponse> artifacts = (await getByBrief.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, p.OwnerAppUserId))).Value!;
 
         Assert.Single(artifacts);
         Assert.Equal(documentId, artifacts[0].DocumentId);

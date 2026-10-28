@@ -14,14 +14,27 @@ public sealed record LinkCrmArtifactDocumentCommand(
     Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId,
     Guid? AddedByEmployeeId, Guid? AddedByContactId) : ICommand<Guid>;
 
-public sealed record GetCrmArtifactDocumentsByBriefQuery(Guid BriefId)
-    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>;
+/// <summary>D-12 (A-F3): each lookup is project-scoped on the subject it names — an outsider gets 404.</summary>
+public sealed record GetCrmArtifactDocumentsByBriefQuery(Guid BriefId, string UserId)
+    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
+{
+    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Brief(BriefId);
+}
 
-public sealed record GetCrmArtifactDocumentsBySpaceQuery(Guid SpaceId)
-    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>;
+public sealed record GetCrmArtifactDocumentsBySpaceQuery(Guid SpaceId, string UserId)
+    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
+{
+    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Space(SpaceId);
+}
 
-public sealed record GetCrmArtifactDocumentsByRequirementItemQuery(Guid RequirementItemId)
-    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>;
+public sealed record GetCrmArtifactDocumentsByRequirementItemQuery(Guid RequirementItemId, string UserId)
+    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
+{
+    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Item(RequirementItemId);
+}
 
-public sealed record GetCrmArtifactDocumentsByMeetingQuery(Guid MeetingId)
-    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>;
+public sealed record GetCrmArtifactDocumentsByMeetingQuery(Guid MeetingId, string UserId)
+    : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
+{
+    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}

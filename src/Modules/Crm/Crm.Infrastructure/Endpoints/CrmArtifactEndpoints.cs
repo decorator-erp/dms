@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
@@ -31,34 +32,58 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
 
         artifacts.MapGet("/by-brief/{briefId:guid}", async (
             Guid briefId, IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
-            CancellationToken ct) =>
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-space/{spaceId:guid}", async (
             Guid spaceId, IQueryHandler<GetCrmArtifactDocumentsBySpaceQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
-            CancellationToken ct) =>
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-requirement-item/{requirementItemId:guid}", async (
             Guid requirementItemId,
             IQueryHandler<GetCrmArtifactDocumentsByRequirementItemQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
-            CancellationToken ct) =>
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-meeting/{meetingId:guid}", async (
             Guid meetingId, IQueryHandler<GetCrmArtifactDocumentsByMeetingQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
-            CancellationToken ct) =>
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
     }
