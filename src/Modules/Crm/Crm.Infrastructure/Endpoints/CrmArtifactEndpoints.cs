@@ -5,6 +5,7 @@ using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
 using Crm.Contracts;
 using Crm.Contracts.Artifacts;
+using Crm.Domain;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -30,6 +31,12 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             if (userId.IsFailure)
             {
                 return userId.ToProblem();
+            }
+
+            // FINDING-P1-16: the subject count first — the project scope can only resolve exactly one subject.
+            if (new[] { request.BriefId, request.SpaceId, request.RequirementItemId, request.MeetingId }.Count(id => id is not null) != 1)
+            {
+                return Result.Failure(CrmArtifactErrors.InvalidSubject).ToProblem();
             }
 
             Result<Guid> result = await handler.HandleAsync(new LinkCrmArtifactDocumentCommand(
