@@ -43,5 +43,9 @@ public sealed partial class MeetingFixTests
         {
             AssertError(result, 404);
         }
+
+        // The office's complete and no-show name the meeting (FINDING-P1-17).
+        AssertError(results[^2], 404, "crm.meetings.NotFound");
+        AssertError(results[^1], 404, "crm.meetings.NotFound");
     }
 }
