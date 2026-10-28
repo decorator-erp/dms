@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -33,6 +34,12 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
         if (contact is null)
         {
             return CrmContactErrors.NotFound;
+        }
+
+        Result active = await ActiveClient.EnsureAsync(db, contact.ClientId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         Result result = contact.Update(

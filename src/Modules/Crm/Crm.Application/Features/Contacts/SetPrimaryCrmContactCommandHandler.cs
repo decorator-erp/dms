@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -24,6 +25,12 @@ internal sealed class SetPrimaryCrmContactCommandHandler(CrmDbContext db) : ICom
 {
     public async Task<Result> HandleAsync(SetPrimaryCrmContactCommand command, CancellationToken ct = default)
     {
+        Result active = await ActiveClient.EnsureAsync(db, command.ClientId, ct);
+        if (active.IsFailure)
+        {
+            return active;
+        }
+
         List<CrmContact> contacts = await db.CrmContacts.Where(c => c.ClientId == command.ClientId).ToListAsync(ct);
         CrmContact? target = contacts.FirstOrDefault(c => c.Id == command.ContactId);
         if (target is null)

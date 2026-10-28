@@ -27,6 +27,11 @@ internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHa
             return Result.Failure<Guid>(ClientErrors.NotFound);
         }
 
+        if (!client.IsActive)
+        {
+            return Result.Failure<Guid>(ClientErrors.Inactive);
+        }
+
         Result<Guid> result = client.AddChild(command.Gender, command.Age);
         if (result.IsFailure)
         {
@@ -71,6 +76,11 @@ internal sealed class UpdateClientChildCommandHandler(CrmDbContext db) : IComman
             return ClientErrors.NotFound;
         }
 
+        if (!client.IsActive)
+        {
+            return ClientErrors.Inactive;
+        }
+
         Result result = client.UpdateChild(command.ChildId, command.Gender, command.Age);
         if (result.IsFailure)
         {
@@ -100,6 +110,11 @@ internal sealed class RemoveClientChildCommandHandler(CrmDbContext db) : IComman
         if (client is null)
         {
             return ClientErrors.NotFound;
+        }
+
+        if (!client.IsActive)
+        {
+            return ClientErrors.Inactive;
         }
 
         Result result = client.RemoveChild(command.ChildId);

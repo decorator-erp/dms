@@ -14,6 +14,10 @@ internal static class ClientErrors
 
     public static readonly Error ChildNotFound = Error.NotFound(
         "crm.clients.ChildNotFound", "The specified child was not found on this client.");
+
+    /// <summary>C-5 (LC-M5): a deactivated client takes no new contacts, notes, children or profile edits.</summary>
+    public static readonly Error Inactive = Error.Conflict(
+        "crm.clients.Inactive", "This client is deactivated; reactivate it before changing it.");
 }
 
 internal static class ClientChildErrors

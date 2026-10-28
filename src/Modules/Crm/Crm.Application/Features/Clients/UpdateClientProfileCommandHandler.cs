@@ -30,6 +30,11 @@ internal sealed class UpdateClientProfileCommandHandler(CrmDbContext db) : IComm
             return ClientErrors.NotFound;
         }
 
+        if (!client.IsActive)
+        {
+            return ClientErrors.Inactive;
+        }
+
         client.UpdateProfile(command.JobTitle, command.MaritalStatus, command.RepresentativeName);
         await db.SaveChangesAsync(ct);
 

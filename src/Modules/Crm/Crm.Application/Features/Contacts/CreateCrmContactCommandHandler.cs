@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -33,10 +34,10 @@ internal sealed class CreateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmContactCommand command, CancellationToken ct = default)
     {
-        bool clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
-        if (!clientExists)
+        Result active = await ActiveClient.EnsureAsync(db, command.ClientId, ct);
+        if (active.IsFailure)
         {
-            return Result.Failure<Guid>(ClientErrors.NotFound);
+            return Result.Failure<Guid>(active.Error);
         }
 
         Result<CrmContact> contactResult = CrmContact.Create(

@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Notes;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -22,10 +23,10 @@ internal sealed class CreateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmClientNoteCommand command, CancellationToken ct = default)
     {
-        bool clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
-        if (!clientExists)
+        Result active = await ActiveClient.EnsureAsync(db, command.ClientId, ct);
+        if (active.IsFailure)
         {
-            return Result.Failure<Guid>(ClientErrors.NotFound);
+            return Result.Failure<Guid>(active.Error);
         }
 
         var note = CrmClientNote.Create(command.ClientId, command.ProjectId, command.Content, command.WrittenById);

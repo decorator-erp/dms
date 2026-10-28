@@ -51,7 +51,8 @@ internal sealed class CreateProjectCommandHandler(
             return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
         }
 
-        IReadOnlyList<Guid> existingClientIds = await clientDirectory.ExistAsync([command.ClientId], ct);
+        // C-5 (LC-M5): a deactivated client gets no new project — it reads as not found, like an unknown one.
+        IReadOnlyList<Guid> existingClientIds = await clientDirectory.ExistActiveAsync([command.ClientId], ct);
         if (existingClientIds.Count == 0)
         {
             return Result.Failure<Guid>(Domain.ProjectErrors.ClientNotFound);
