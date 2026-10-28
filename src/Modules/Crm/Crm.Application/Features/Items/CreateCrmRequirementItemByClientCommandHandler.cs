@@ -42,7 +42,7 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             .Select(c => (Guid?)c.ClientId)
             .FirstOrDefaultAsync(ct);
         ProjectSummary? project = clientId is null ? null : await projectDirectory.GetProjectAsync(command.ProjectId, ct);
-        if (project is null || project.ClientId != clientId)
+        if (project is null || project.ClientId != clientId || !project.IsActive)
         {
             return Result.Failure<Guid>(CrmPortalErrors.NotFound);
         }
@@ -61,10 +61,10 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             return Result.Failure<Guid>(CrmPeriodErrors.NotOpen);
         }
 
-        if (command.SpaceTypeId is { } spaceTypeId
-            && !await db.CrmSpaceTypes.AnyAsync(t => t.Id == spaceTypeId && t.IsActive, ct))
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
         {
-            return Result.Failure<Guid>(CrmItemErrors.UnknownSpaceType);
+            return Result.Failure<Guid>(spaceType.Error);
         }
 
         var item = CrmRequirementItem.CreateByClient(
@@ -73,8 +73,8 @@ internal sealed class CreateCrmRequirementItemByClientCommandHandler(CrmDbContex
             command.Description);
 
         db.CrmRequirementItems.Add(item);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return item.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : item.Id;
     }
 }

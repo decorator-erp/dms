@@ -3,6 +3,8 @@ using Crm.Contracts.Items;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Items;
@@ -13,11 +15,16 @@ internal sealed class SupersedeCrmRequirementItemCommandValidator : AbstractVali
     {
         RuleFor(x => x.OriginalItemId).NotEmpty();
         RuleFor(x => x.EmployeeId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty();
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Room).MaximumLength(128);
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Category).IsInEnum();
+        RuleFor(x => x.Priority).IsInEnum();
+        RuleFor(x => x.SourceType).IsInEnum();
     }
 }
 
-internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
+internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<SupersedeCrmRequirementItemCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(SupersedeCrmRequirementItemCommand command, CancellationToken ct = default)
@@ -26,6 +33,42 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
         if (original is null)
         {
             return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        if (await db.CrmRequirementItems.AnyAsync(i => i.SupersedesItemId == original.Id, ct))
+        {
+            return Result.Failure<Guid>(CrmItemErrors.AlreadySuperseded);
+        }
+
+        Result open = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, original.PeriodId, ct);
+        if (open.IsFailure)
+        {
+            return Result.Failure<Guid>(open.Error);
+        }
+
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(original.ProjectId, ct);
+        if (project is null)
+        {
+            return Result.Failure<Guid>(CrmItemErrors.NotFound);
+        }
+
+        Result active = ItemReferenceValidator.EnsureProjectActive(project);
+        if (active.IsFailure)
+        {
+            return Result.Failure<Guid>(active.Error);
+        }
+
+        Result spaceType = await ItemReferenceValidator.ValidateSpaceTypeAsync(db, command.SpaceTypeId, ct);
+        if (spaceType.IsFailure)
+        {
+            return Result.Failure<Guid>(spaceType.Error);
+        }
+
+        Result references = await ItemReferenceValidator.ValidateAsync(
+            db, projectDirectory, project, command.ProjectTaskId, command.MeetingId, command.BriefId, command.NoteId, ct);
+        if (references.IsFailure)
+        {
+            return Result.Failure<Guid>(references.Error);
         }
 
         Result<CrmRequirementItem> result = CrmRequirementItem.CreateSuperseding(
@@ -40,8 +83,8 @@ internal sealed class SupersedeCrmRequirementItemCommandHandler(CrmDbContext db)
 
         CrmRequirementItem superseding = result.Value!;
         db.CrmRequirementItems.Add(superseding);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return superseding.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : superseding.Id;
     }
 }

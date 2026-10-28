@@ -39,11 +39,11 @@ namespace Crm.Infrastructure.IntegrationEvents;
 /// whatever the head holds now. The application itself lives in <see cref="CrmApprovalOutcomes"/>,
 /// shared with the send handlers' recovery path.</para>
 ///
-/// <para><b>Concurrency:</b> a <c>DbUpdateConcurrencyException</c> (the brief and entry carry an
+/// <para><b>Concurrency:</b> a <c>DbUpdateConcurrencyException</c> (the brief, entry and — A-9 — item carry an
 /// <c>xmin</c> token) propagates out of this handler on purpose. <c>InboxDedupeDecorator</c> rolls the
 /// whole delivery back, and <c>OutboxProcessor</c> records the failure and leaves the message
-/// unprocessed, so the next poll re-runs it against the reloaded row. There is no attempt cap or
-/// dead-letter.</para>
+/// unprocessed, so the next poll re-runs it against the reloaded row, up to <c>Outbox:MaxAttempts</c>
+/// (default 15) before the message is dead-lettered and logged.</para>
 ///
 /// <para>Stages every write via the shared <see cref="CrmDbContext"/> and never calls its own
 /// <c>SaveChangesAsync</c> to COMMIT — that stays <c>InboxDedupeDecorator</c>'s job. <b>E2-03
@@ -128,20 +128,20 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(
             return;
         }
 
-        // Requirement items are not round-bound (out of this fix's scope); only the result is checked.
-        Result result = @event.Decision == ApprovalDecision.Approved ? item.MarkApproved() : item.MarkRejected();
-        if (result.IsFailure)
+        // A-10 (B-M7): round-bound like a brief-space entry — a decision for any approval but the one the
+        // item's current send is bound to is stale and ignored.
+        Result result = await outcomes.ApplyToItemAsync(item, @event.ApprovalId, @event.Decision, ct);
+        if (result.Error == CrmItemErrors.ConcurrentUpdate)
         {
-            LogIgnored(@event, item.ApprovalStatus, pendingApprovalId: null);
-            return;
+            // Same retry path as the brief-space branch: never drop a decision on a lost xmin race.
+            throw new DbUpdateConcurrencyException(
+                $"RequirementItem {item.Id} changed while applying approval {@event.ApprovalId}; retrying.");
         }
 
-        // See CrmApprovalOutcomes.ApplyToBriefSpaceAsync's identical flush for why this is required
-        // before counting.
-        await db.SaveChangesAsync(ct);
-
-        CrmRequirementPeriod? period = await db.CrmRequirementPeriods.AsNoTracking().FirstOrDefaultAsync(p => p.Id == item.PeriodId, ct);
-        await outcomes.PublishIfResolvedAsync(period?.ProjectStageId, item.ProjectTaskId, ct);
+        if (result.IsFailure)
+        {
+            LogIgnored(@event, item.ApprovalStatus, item.PendingApprovalId);
+        }
     }
 
     private void LogIgnored(ApprovalDecidedIntegrationEvent @event, Domain.ApprovalState status, Guid? pendingApprovalId) =>

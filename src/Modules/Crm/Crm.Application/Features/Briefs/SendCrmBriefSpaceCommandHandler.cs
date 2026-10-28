@@ -64,8 +64,11 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
         Guid approvalId;
         if (entry.ApprovalStatus == ApprovalState.PendingApproval)
         {
+            // A-11 (B-L1): only a live, UNDECIDED approval blocks a resend. A missing one (never committed)
+            // or a decided one whose event was lost is re-requested under the same id: RequestAsync returns
+            // its decision, and the loop below applies a rejection or voids an approval.
             if (entry.PendingApprovalId is not { } pendingId
-                || await approvalRequester.GetAsync(pendingId, ct) is not null)
+                || await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
             {
                 return CrmBriefErrors.EntryPending;
             }

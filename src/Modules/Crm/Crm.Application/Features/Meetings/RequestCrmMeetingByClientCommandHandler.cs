@@ -37,7 +37,8 @@ internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db, I
     {
         Result ownProject = await MeetingSupport.EnsureActorCanActOnProjectAsync(
             db, projectDirectory, command.ProjectId, null, command.RequestedByContactId, ct);
-        if (ownProject.IsFailure)
+        // A-15: an inactive project is as missing to the client as another client's.
+        if (ownProject.IsFailure || await projectDirectory.GetProjectAsync(command.ProjectId, ct) is not { IsActive: true })
         {
             return Result.Failure<Guid>(CrmPortalErrors.NotFound);
         }

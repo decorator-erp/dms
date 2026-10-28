@@ -1362,6 +1362,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<Guid?>("NoteId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("PendingApprovalId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("PeriodId")
                         .HasColumnType("uuid");
 
@@ -1377,6 +1380,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<string>("Room")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<int>("SendCount")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("SourceType")
                         .HasColumnType("integer");
@@ -1395,6 +1401,12 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovalStatus");
@@ -1410,7 +1422,9 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("SpaceTypeId");
 
-                    b.HasIndex("SupersedesItemId");
+                    b.HasIndex("SupersedesItemId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesItemId\" IS NOT NULL");
 
                     b.ToTable("crm_requirement_items", "crm");
                 });
@@ -1449,6 +1463,12 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -1502,10 +1522,6 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("SpaceTypeId");
-
-                    b.HasIndex("ProjectId", "Name")
-                        .IsUnique()
-                        .HasDatabaseName("ux_crm_spaces_project_name");
 
                     b.ToTable("crm_spaces", "crm");
                 });

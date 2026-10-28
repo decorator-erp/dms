@@ -8,6 +8,10 @@ public enum CrmScopeTargetKind
     Stage = 2,
     Brief = 3,
     BriefSpaceEntry = 4,
+    Period = 5,
+    Item = 6,
+    Space = 7,
+    ProjectTask = 8,
 }
 
 public sealed record CrmScopeTarget(CrmScopeTargetKind Kind, Guid Id)
@@ -16,11 +20,15 @@ public sealed record CrmScopeTarget(CrmScopeTargetKind Kind, Guid Id)
     public static CrmScopeTarget Stage(Guid stageId) => new(CrmScopeTargetKind.Stage, stageId);
     public static CrmScopeTarget Brief(Guid briefId) => new(CrmScopeTargetKind.Brief, briefId);
     public static CrmScopeTarget BriefSpaceEntry(Guid entryId) => new(CrmScopeTargetKind.BriefSpaceEntry, entryId);
+    public static CrmScopeTarget Period(Guid periodId) => new(CrmScopeTargetKind.Period, periodId);
+    public static CrmScopeTarget Item(Guid itemId) => new(CrmScopeTargetKind.Item, itemId);
+    public static CrmScopeTarget Space(Guid spaceId) => new(CrmScopeTargetKind.Space, spaceId);
+    public static CrmScopeTarget ProjectTask(Guid projectTaskId) => new(CrmScopeTargetKind.ProjectTask, projectTaskId);
 }
 
 /// <summary>
 /// Marker for an office CRM message whose subject belongs to one project — the design brief and its
-/// brief-space ledger. <c>CrmProjectScopeDecorator</c> resolves <see cref="ScopeTarget"/> to its
+/// brief-space ledger, requirement periods, items and spaces (A-1). <c>CrmProjectScopeDecorator</c> resolves <see cref="ScopeTarget"/> to its
 /// <c>ProjectId</c> from CRM's own tables (or, for a stage, <c>IProjectDirectory</c>) and checks
 /// <c>Projects.Contracts.IProjectAccessGuard</c> before the handler runs; any failure is a 404, per
 /// <c>CLAUDE.md</c>'s authorization order (route claims 403 → scope 404 → aggregate state 409).

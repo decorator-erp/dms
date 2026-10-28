@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Briefs;
 using Crm.Contracts.Periods;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -34,11 +35,26 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
             return Result.Failure<Guid>(CrmPeriodErrors.NotFound);
         }
 
+        if (!project.IsActive)
+        {
+            return Result.Failure<Guid>(CrmProjectErrors.Inactive);
+        }
+
+        // A-2 (X-5): closing a period satisfies its stage's gate, so the stage must be this project's.
+        if (command.ProjectStageId is { } stageId)
+        {
+            Result stage = await BriefReferenceValidator.ValidateStageAsync(projectDirectory, command.ProjectId, stageId, ct);
+            if (stage.IsFailure)
+            {
+                return Result.Failure<Guid>(stage.Error);
+            }
+        }
+
         bool alreadyOpen = await db.CrmRequirementPeriods.AnyAsync(
             p => p.ProjectId == command.ProjectId && p.Status == RequirementPeriodStatus.Open, ct);
         if (alreadyOpen)
         {
-            return Result.Failure<Guid>(CrmPeriodErrors.NotOpen);
+            return Result.Failure<Guid>(CrmPeriodErrors.AlreadyOpen);
         }
 
         Result<CrmRequirementPeriod> result = CrmRequirementPeriod.Create(
@@ -50,8 +66,8 @@ internal sealed class OpenCrmRequirementPeriodCommandHandler(CrmDbContext db, IP
 
         CrmRequirementPeriod period = result.Value!;
         db.CrmRequirementPeriods.Add(period);
-        await db.SaveChangesAsync(ct);
+        Result saved = await ItemWrites.SaveAsync(db, ct);
 
-        return period.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : period.Id;
     }
 }

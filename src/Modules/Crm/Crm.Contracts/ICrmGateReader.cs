@@ -25,8 +25,8 @@ public interface ICrmGateReader
     Task<bool> IsBriefApprovedForStageAsync(Guid projectStageId, CancellationToken ct);
 
     /// <summary>Unresolved = brief spaces / requirement items on this stage's brief / period(s) whose
-    /// approval status is <see cref="CrmApprovalState.Draft"/> or
-    /// <see cref="CrmApprovalState.PendingApproval"/>.</summary>
+    /// approval status is <see cref="CrmApprovalState.Draft"/>, <see cref="CrmApprovalState.PendingApproval"/>
+    /// or <see cref="CrmApprovalState.Rejected"/> (A-4), and that no later row supersedes.</summary>
     Task<int> CountUnresolvedForStageAsync(Guid projectStageId, CancellationToken ct);
 
     /// <summary>Same, but scoped to a single project task's own entries/items — the only CRM gate that

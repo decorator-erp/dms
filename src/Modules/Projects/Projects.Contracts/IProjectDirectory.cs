@@ -14,8 +14,10 @@ namespace Projects.Contracts;
 /// the failure mode being avoided. One construction site exists and it is updated in the same
 /// commit.</para>
 /// </summary>
+/// <remarks>A-15: <see cref="IsActive"/> is the project's soft-delete flag (<c>SetProjectActiveCommand</c>,
+/// <c>DeleteProjectCommand</c>). Lookups still return inactive projects; callers decide what it means.</remarks>
 public sealed record ProjectSummary(
-    Guid Id, string Code, string Name, ProjectStatus Status, Guid ClientId, Guid OwnerId);
+    Guid Id, string Code, string Name, ProjectStatus Status, Guid ClientId, Guid OwnerId, bool IsActive);
 
 public sealed record StageSummary(Guid Id, Guid ProjectId, string Name, StageStatus Status);
 

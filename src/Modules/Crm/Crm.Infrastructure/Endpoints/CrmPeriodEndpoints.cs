@@ -32,39 +32,65 @@ internal sealed class CrmPeriodEndpoints : IEndpoint
             }
 
             Result<Guid> result = await handler.HandleAsync(
-                new OpenCrmRequirementPeriodCommand(projectId, request.ProjectStageId, request.ClosesAtUtc, openedById.Value), ct);
+                new OpenCrmRequirementPeriodCommand(projectId, request.ProjectStageId, request.ClosesAtUtc, openedById.Value, currentUser.UserId!), ct);
             return result.Match(id => Results.Created($"/api/crm/periods/{id}", new { PeriodId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Periods.Open);
 
         byProject.MapGet("/", async (
-            Guid projectId, IQueryHandler<GetCrmRequirementPeriodsByProjectQuery, IReadOnlyList<CrmRequirementPeriodResponse>> handler,
-            CancellationToken ct) =>
+            Guid projectId, ICurrentUser currentUser,
+            IQueryHandler<GetCrmRequirementPeriodsByProjectQuery, IReadOnlyList<CrmRequirementPeriodResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmRequirementPeriodResponse>> result = await handler.HandleAsync(new GetCrmRequirementPeriodsByProjectQuery(projectId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<IReadOnlyList<CrmRequirementPeriodResponse>> result = await handler.HandleAsync(
+                new GetCrmRequirementPeriodsByProjectQuery(projectId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Periods.Read);
 
         RouteGroupBuilder byId = app.MapGroup("/api/crm/periods/{periodId:guid}").WithTags("Crm Periods");
 
         byId.MapPut("/extend", async (
-            Guid periodId, ExtendPeriodRequest request, ICommandHandler<ExtendCrmRequirementPeriodCommand> handler,
-            CancellationToken ct) =>
+            Guid periodId, ExtendPeriodRequest request, ICurrentUser currentUser,
+            ICommandHandler<ExtendCrmRequirementPeriodCommand> handler, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new ExtendCrmRequirementPeriodCommand(periodId, request.NewClosesAtUtc), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new ExtendCrmRequirementPeriodCommand(periodId, request.NewClosesAtUtc, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Periods.Extend);
 
         byId.MapPut("/close", async (
-            Guid periodId, ICommandHandler<CloseCrmRequirementPeriodCommand> handler, CancellationToken ct) =>
+            Guid periodId, ICurrentUser currentUser, ICommandHandler<CloseCrmRequirementPeriodCommand> handler, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new CloseCrmRequirementPeriodCommand(periodId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new CloseCrmRequirementPeriodCommand(periodId, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Periods.Close);
 
         byId.MapGet("/", async (
-            Guid periodId, IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse> handler, CancellationToken ct) =>
+            Guid periodId, ICurrentUser currentUser,
+            IQueryHandler<GetCrmRequirementPeriodByIdQuery, CrmRequirementPeriodResponse> handler, CancellationToken ct) =>
         {
-            Result<CrmRequirementPeriodResponse> result = await handler.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<CrmRequirementPeriodResponse> result = await handler.HandleAsync(new GetCrmRequirementPeriodByIdQuery(periodId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Periods.Read);
     }

@@ -9,7 +9,7 @@ using SharedKernel;
 namespace Crm.Infrastructure.Decorators;
 
 /// <summary>
-/// Project scope for office brief messages (<see cref="ICrmProjectScoped"/>) — the CRM counterpart of
+/// Project scope for office brief, period, item and space messages (<see cref="ICrmProjectScoped"/>) — the CRM counterpart of
 /// <c>Projects.Infrastructure.Decorators.ProjectScopeDecorator</c>, shaped like Sites'
 /// <c>SiteScopeDecorator</c>: resolve the subject's <c>ProjectId</c> from this module's own tables, then
 /// ask <see cref="IProjectAccessGuard"/>. A subject that does not resolve and a project the caller cannot
@@ -67,15 +67,28 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
 {
     public async Task<Result> EnsureAsync(ICrmProjectScoped message, CancellationToken ct)
     {
+        Error notFound = NotFoundFor(message);
         Guid? projectId = await ResolveProjectIdAsync(message.ScopeTarget, ct);
         if (projectId is null)
         {
-            return CrmBriefErrors.NotFound;
+            return notFound;
         }
 
         Result access = await guard.EnsureProjectAccessAsync(projectId.Value, message.UserId, ct);
-        return access.IsFailure ? CrmBriefErrors.NotFound : Result.Success();
+        return access.IsFailure ? notFound : Result.Success();
     }
+
+    /// <summary>A-1: the 404 names the area the caller asked about — an item route never answers "brief
+    /// not found". Chosen by the message's contract namespace; every brief message keeps
+    /// <see cref="CrmBriefErrors.NotFound"/>.</summary>
+    private static Error NotFoundFor(ICrmProjectScoped message) => message.GetType().Namespace switch
+    {
+        "Crm.Contracts.Periods" => CrmPeriodErrors.NotFound,
+        "Crm.Contracts.Items" => CrmItemErrors.NotFound,
+        "Crm.Contracts.Spaces" => CrmSpaceErrors.SpaceNotFound,
+        "Crm.Contracts.Meetings" => CrmMeetingErrors.NotFound,
+        _ => CrmBriefErrors.NotFound,
+    };
 
     private async Task<Guid?> ResolveProjectIdAsync(CrmScopeTarget target, CancellationToken ct) => target.Kind switch
     {
@@ -89,6 +102,19 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
             .Where(e => e.Id == target.Id)
             .Join(db.CrmDesignBriefs, e => e.BriefId, b => b.Id, (_, b) => (Guid?)b.ProjectId)
             .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.Period => await db.CrmRequirementPeriods.AsNoTracking()
+            .Where(p => p.Id == target.Id)
+            .Select(p => (Guid?)p.ProjectId)
+            .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.Item => await db.CrmRequirementItems.AsNoTracking()
+            .Where(i => i.Id == target.Id)
+            .Select(i => (Guid?)i.ProjectId)
+            .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.Space => await db.CrmSpaces.AsNoTracking()
+            .Where(s => s.Id == target.Id)
+            .Select(s => (Guid?)s.ProjectId)
+            .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.ProjectTask => (await projects.GetTaskAsync(target.Id, ct))?.ProjectId,
         _ => null,
     };
 }

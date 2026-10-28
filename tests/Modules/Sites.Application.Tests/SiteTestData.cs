@@ -158,8 +158,12 @@ internal static class SiteTestData
             .GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
             .HandleAsync(new CreateCrmSpaceTypeCommand($"st{suffix[..6]}", "Bedroom", "غرفة"))).Value;
 
+        // CRM space writes are project-scoped (A-1): act as a caller with project-wide read.
+        TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
+        currentUser.UserId ??= OwnerUserId;
+        currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
         Guid spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
-            .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom"))).Value;
+            .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom", currentUser.UserId))).Value;
 
         return spaceId;
     }

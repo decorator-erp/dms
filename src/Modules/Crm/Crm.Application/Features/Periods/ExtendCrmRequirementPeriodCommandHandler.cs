@@ -1,8 +1,10 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Items;
 using Crm.Contracts.Periods;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Crm.Application.Features.Periods;
@@ -12,7 +14,7 @@ internal sealed class ExtendCrmRequirementPeriodCommandValidator : AbstractValid
     public ExtendCrmRequirementPeriodCommandValidator() => RuleFor(x => x.PeriodId).NotEmpty();
 }
 
-internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db) : ICommandHandler<ExtendCrmRequirementPeriodCommand>
+internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory) : ICommandHandler<ExtendCrmRequirementPeriodCommand>
 {
     public async Task<Result> HandleAsync(ExtendCrmRequirementPeriodCommand command, CancellationToken ct = default)
     {
@@ -22,14 +24,18 @@ internal sealed class ExtendCrmRequirementPeriodCommandHandler(CrmDbContext db) 
             return CrmPeriodErrors.NotFound;
         }
 
+        Result active = await ItemReferenceValidator.EnsureProjectActiveAsync(projectDirectory, period.ProjectId, ct);
+        if (active.IsFailure)
+        {
+            return active;
+        }
+
         Result result = period.Extend(command.NewClosesAtUtc);
         if (result.IsFailure)
         {
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ItemWrites.SaveAsync(db, ct, CrmPeriodErrors.ConcurrentUpdate);
     }
 }

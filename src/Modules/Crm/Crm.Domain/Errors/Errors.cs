@@ -156,11 +156,26 @@ internal static class CrmSpaceErrors
         "crm.spaces.ItemNotFound", "Space item was not found.");
 
     public static readonly Error InvalidData = Error.BadRequest("crm.spaces.InvalidData", "A space name is required.");
+
+    /// <summary>A-8 (B-M5): a space names a space type that does not exist.</summary>
+    public static readonly Error UnknownSpaceType = Error.BadRequest(
+        "crm.spaces.UnknownSpaceType", "The space type does not exist.");
+
+    /// <summary>A-7 (B-M4): space names are unique per project, ignoring case.</summary>
+    public static readonly Error DuplicateName = Error.Conflict(
+        "crm.spaces.DuplicateName", "This project already has a space with that name.");
 }
 
 internal static class CrmSpaceTypeErrors
 {
     public static readonly Error CodeRequired = Error.BadRequest("crm.space_types.CodeRequired", "A code is required.");
+
+    /// <summary>A-12 (B-L2): an unknown space type is a 404, not <see cref="CodeRequired"/>.</summary>
+    public static readonly Error NotFound = Error.NotFound("crm.spaceTypes.NotFound", "Space type was not found.");
+
+    /// <summary>A-7 (B-M4): space type codes are unique.</summary>
+    public static readonly Error DuplicateCode = Error.Conflict(
+        "crm.spaceTypes.DuplicateCode", "A space type with that code already exists.");
 
     public static readonly Error NameRequired = Error.BadRequest(
         "crm.space_types.NameRequired", "English and Arabic names are required.");
@@ -211,6 +226,14 @@ internal static class CrmPeriodErrors
     public static readonly Error NotOpen = Error.Conflict(
         "crm.periods.NotOpen", "This operation requires the period to be open.");
 
+    /// <summary>A-7/A-12 (B-M4, B-L2): a project already has an open period.</summary>
+    public static readonly Error AlreadyOpen = Error.Conflict(
+        "crm.periods.AlreadyOpen", "This project already has an open requirement period.");
+
+    /// <summary>A-9 (B-M6): an <c>xmin</c> conflict on a period row.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.periods.ConcurrentUpdate", "The period was changed by someone else at the same time. Reload and try again.");
+
     public static readonly Error InvalidCloseTime = Error.BadRequest(
         "crm.periods.InvalidCloseTime", "The close time must be in the future.");
 }
@@ -240,6 +263,41 @@ internal static class CrmItemErrors
     /// in the request body), distinct from the catalog's own 404 <c>crm.catalog.SpaceTypeNotFound</c>.</summary>
     public static readonly Error UnknownSpaceType = Error.BadRequest(
         "crm.items.UnknownSpaceType", "The space type does not exist or is inactive.");
+
+    /// <summary>A-3 (X-6): an office item belongs to its period's project; a body naming another one is
+    /// refused rather than silently corrected.</summary>
+    /// <summary>A-10 (B-M7): the item is already out for approval on a live round.</summary>
+    public static readonly Error AlreadyPending = Error.Conflict(
+        "crm.items.AlreadyPending", "This item is already waiting for the client's decision.");
+
+    /// <summary>A-10: the brief-space bound — a decided-Approved orphan is voided and re-sent at most this
+    /// many times in one send.</summary>
+    public static readonly Error TooManyVoidedRounds = Error.Conflict(
+        "crm.items.TooManyVoidedRounds", "This item's approval was voided too many times. Try again later.");
+
+    /// <summary>A-6 (B-M3): an item is superseded at most once — pre-check plus the partial unique index
+    /// on <c>SupersedesItemId</c>.</summary>
+    public static readonly Error AlreadySuperseded = Error.Conflict(
+        "crm.items.AlreadySuperseded", "This item has already been superseded.");
+
+    /// <summary>A-9 (B-M6): an <c>xmin</c> conflict on an item row.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.items.ConcurrentUpdate", "The item was changed by someone else at the same time. Reload and try again.");
+
+    public static readonly Error ProjectMismatch = Error.BadRequest(
+        "crm.items.ProjectMismatch", "The project does not match the period's project.");
+
+    public static readonly Error TaskProjectMismatch = Error.BadRequest(
+        "crm.items.TaskProjectMismatch", "The task does not belong to this item's project.");
+
+    public static readonly Error MeetingProjectMismatch = Error.BadRequest(
+        "crm.items.MeetingProjectMismatch", "The meeting does not belong to this item's project.");
+
+    public static readonly Error BriefProjectMismatch = Error.BadRequest(
+        "crm.items.BriefProjectMismatch", "The brief does not belong to this item's project.");
+
+    public static readonly Error NoteProjectMismatch = Error.BadRequest(
+        "crm.items.NoteProjectMismatch", "The note does not belong to this item's project or client.");
 }
 
 internal static class CrmArtifactErrors
@@ -326,4 +384,12 @@ internal static class CrmPortalErrors
 
     public static readonly Error NotAClient = Error.Forbidden(
         "crm.portal.NotAClient", "This action requires a client actor.");
+}
+
+/// <summary>A-15: CRM's view of a project it does not own.</summary>
+internal static class CrmProjectErrors
+{
+    /// <summary>The project is deactivated: office CRM writes on it are refused (the portal answers 404).</summary>
+    public static readonly Error Inactive = Error.Conflict(
+        "crm.projects.Inactive", "This project is inactive and takes no new CRM work.");
 }

@@ -98,15 +98,15 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<CreateCrmSpaceCommand, Guid> createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
         Result<Guid> spaceResult = await createSpace.HandleAsync(
-            new CreateCrmSpaceCommand(projectId, typeResult.Value, "Kids Room"));
+            new CreateCrmSpaceCommand(projectId, typeResult.Value, "Kids Room", Me(sp)));
         Assert.True(spaceResult.IsSuccess);
 
         ICommandHandler<UpdateCrmSpaceCommand> updateSpace = sp.GetRequiredService<ICommandHandler<UpdateCrmSpaceCommand>>();
         Assert.True((await updateSpace.HandleAsync(
-            new UpdateCrmSpaceCommand(spaceResult.Value, typeResult.Value, "Kids Room (renamed)", Description: null))).IsSuccess);
+            new UpdateCrmSpaceCommand(spaceResult.Value, typeResult.Value, "Kids Room (renamed)", Description: null, Me(sp)))).IsSuccess);
 
         IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>> getSpaces = sp.GetRequiredService<IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>>>();
-        IReadOnlyList<CrmSpaceResponse> spaces = (await getSpaces.HandleAsync(new GetCrmSpacesByProjectQuery(projectId))).Value!;
+        IReadOnlyList<CrmSpaceResponse> spaces = (await getSpaces.HandleAsync(new GetCrmSpacesByProjectQuery(projectId, Me(sp)))).Value!;
         Assert.Equal("Kids Room (renamed)", spaces.Single().Name);
     }
 
@@ -120,7 +120,7 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
             new CreateCrmSpaceTypeCommand($"bed-{Guid.NewGuid():N}", "Bedroom", "غرفة نوم"))).Value;
 
         ICommandHandler<CreateCrmSpaceCommand, Guid> createSpace = sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>();
-        Result<Guid> result = await createSpace.HandleAsync(new CreateCrmSpaceCommand(Guid.NewGuid(), typeId, "Orphan Room"));
+        Result<Guid> result = await createSpace.HandleAsync(new CreateCrmSpaceCommand(Guid.NewGuid(), typeId, "Orphan Room", "orphan-user"));
 
         Assert.True(result.IsFailure);
     }
@@ -148,6 +148,7 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
 
         TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerAppUserId;
+        currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
 
         ICommandHandler<CreateProjectCommand, Guid> createProject = sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>();
         Result<Guid> projectResult = await createProject.HandleAsync(
@@ -156,4 +157,7 @@ public sealed class BriefSpaceFlowTests(CrmApplicationFixture fixture)
 
         return (projectResult.Value, employeeId);
     }
+
+    /// <summary>The scope's acting user, for messages that carry their caller's id.</summary>
+    private static string Me(IServiceProvider sp) => sp.GetRequiredService<TestCurrentUser>().UserId!;
 }

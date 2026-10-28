@@ -3,6 +3,7 @@ using Crm.Contracts.Spaces;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace Crm.Application.Features.Spaces;
@@ -11,9 +12,9 @@ internal sealed class CreateCrmSpaceTypeCommandValidator : AbstractValidator<Cre
 {
     public CreateCrmSpaceTypeCommandValidator()
     {
-        RuleFor(x => x.Code).NotEmpty();
-        RuleFor(x => x.NameEn).NotEmpty();
-        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
     }
 }
 
@@ -21,6 +22,11 @@ internal sealed class CreateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmSpaceTypeCommand command, CancellationToken ct = default)
     {
+        if (await db.CrmSpaceTypes.AsNoTracking().AnyAsync(t => t.Code == command.Code, ct))
+        {
+            return Result.Failure<Guid>(CrmSpaceTypeErrors.DuplicateCode);
+        }
+
         Result<CrmSpaceType> result = CrmSpaceType.Create(command.Code, command.NameEn, command.NameAr, command.SortOrder);
         if (result.IsFailure)
         {
@@ -29,15 +35,20 @@ internal sealed class CreateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
 
         CrmSpaceType type = result.Value!;
         db.CrmSpaceTypes.Add(type);
-        await db.SaveChangesAsync(ct);
+        Result saved = await CatalogWrites.SaveAsync(db, ct);
 
-        return type.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : type.Id;
     }
 }
 
 internal sealed class UpdateCrmSpaceTypeCommandValidator : AbstractValidator<UpdateCrmSpaceTypeCommand>
 {
-    public UpdateCrmSpaceTypeCommandValidator() => RuleFor(x => x.SpaceTypeId).NotEmpty();
+    public UpdateCrmSpaceTypeCommandValidator()
+    {
+        RuleFor(x => x.SpaceTypeId).NotEmpty();
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
+    }
 }
 
 internal sealed class UpdateCrmSpaceTypeCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmSpaceTypeCommand>
@@ -47,7 +58,7 @@ internal sealed class UpdateCrmSpaceTypeCommandHandler(CrmDbContext db) : IComma
         CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
         {
-            return CrmSpaceTypeErrors.CodeRequired;
+            return CrmSpaceTypeErrors.NotFound;
         }
 
         Result result = type.Update(command.NameEn, command.NameAr, command.SortOrder);
@@ -74,7 +85,7 @@ internal sealed class SetCrmSpaceTypeActiveCommandHandler(CrmDbContext db) : ICo
         CrmSpaceType? type = await db.CrmSpaceTypes.FindAsync([command.SpaceTypeId], ct);
         if (type is null)
         {
-            return CrmSpaceTypeErrors.CodeRequired;
+            return CrmSpaceTypeErrors.NotFound;
         }
 
         if (command.IsActive)
