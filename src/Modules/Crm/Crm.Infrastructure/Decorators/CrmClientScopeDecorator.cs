@@ -61,6 +61,10 @@ internal static class CrmClientScopeDecorator
 internal sealed class CrmClientScope(
     CrmDbContext db, ICurrentUser currentUser, IProjectDirectory projects, IProjectAccessGuard guard)
 {
+    /// <summary>D-16 / C-F8: a <c>read_all</c> caller sees every client, so a list can page in SQL
+    /// without asking <see cref="VisibleAsync"/>.</summary>
+    public bool SeesAll => currentUser.HasPermission(CrmPermissions.Clients.ReadAll);
+
     public async Task<Result> EnsureAsync(ICrmClientScoped message, CancellationToken ct)
     {
         Error notFound = NotFoundFor(message);

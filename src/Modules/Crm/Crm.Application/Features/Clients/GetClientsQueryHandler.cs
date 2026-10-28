@@ -30,7 +30,8 @@ internal sealed class GetClientsQueryValidator : AbstractValidator<GetClientsQue
 /// the matching client ids (one query), then <see cref="CrmClientScope.VisibleAsync"/> (the ids' projects
 /// and which of them the caller reaches), then the page. The filter runs in memory over the matching
 /// ids (owner amendment M8). That is fine at today's size; past a few thousand clients per search it
-/// wants a projects-side "my clients" read instead.</para>
+/// wants a projects-side "my clients" read instead. A <c>read_all</c> caller skips all of that: the page
+/// and the total are SQL (D-16 / C-F8).</para>
 ///
 /// <para><b>Names.</b> The display name and email live on the portal login, so they come from one bulk
 /// <see cref="IUserDirectory.GetManyAsync"/> call for the page. The login has no phone, so the row has
@@ -55,12 +56,23 @@ internal sealed class GetClientsQueryHandler(CrmDbContext db, CrmClientScope sco
                 || EF.Functions.ILike(c.RepresentativeName!, pattern, Like.EscapeCharacter));
         }
 
-        List<Guid> matchingIds = await matching.Select(c => c.Id).ToListAsync(ct);
-        IReadOnlySet<Guid> visible = await scope.VisibleAsync(matchingIds, query.UserId, ct);
-        Guid[] visibleIds = [.. visible];
+        // D-16 / C-F8: read_all sees every match, so the page and the total come straight from SQL.
+        IQueryable<Client> visibleRows;
+        int totalCount;
+        if (scope.SeesAll)
+        {
+            visibleRows = matching;
+            totalCount = await matching.CountAsync(ct);
+        }
+        else
+        {
+            List<Guid> matchingIds = await matching.Select(c => c.Id).ToListAsync(ct);
+            Guid[] visibleIds = [.. await scope.VisibleAsync(matchingIds, query.UserId, ct)];
+            visibleRows = db.Clients.AsNoTracking().Where(c => visibleIds.Contains(c.Id));
+            totalCount = visibleIds.Length;
+        }
 
-        var rows = await db.Clients.AsNoTracking()
-            .Where(c => visibleIds.Contains(c.Id))
+        var rows = await visibleRows
             .OrderByDescending(c => c.CreatedAtUtc).ThenBy(c => c.Id)
             .Skip((query.PageNumber - 1) * query.PageSize).Take(query.PageSize)
             .Select(c => new { c.Id, c.AppUserId, c.Address, c.JobTitle, c.RepresentativeName, c.IsActive, c.CreatedAtUtc })
@@ -74,6 +86,6 @@ internal sealed class GetClientsQueryHandler(CrmDbContext db, CrmClientScope sco
                 r.Id, login?.DisplayName, login?.Email, r.Address, r.JobTitle, r.RepresentativeName, r.IsActive, r.CreatedAtUtc);
         })];
 
-        return new PagedResult<ClientListItemResponse>(items, query.PageNumber, query.PageSize, visibleIds.Length);
+        return new PagedResult<ClientListItemResponse>(items, query.PageNumber, query.PageSize, totalCount);
     }
 }
