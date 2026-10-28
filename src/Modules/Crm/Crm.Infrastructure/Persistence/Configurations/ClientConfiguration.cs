@@ -16,13 +16,19 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         // 450 matches ASP.NET Identity's default Id length, same convention every other module's
         // AppUserId column uses. Raw-SQL constraint added at G9-08.
         builder.Property(c => c.AppUserId).HasMaxLength(450).IsRequired();
-        builder.HasIndex(c => c.AppUserId);
+        // C-8 (LC-I1): one portal login is one client. Migration CrmClientsHardening guards existing data.
+        builder.HasIndex(c => c.AppUserId).IsUnique();
 
         builder.Property(c => c.Address).HasMaxLength(512).IsRequired();
         builder.Property(c => c.Notes).HasMaxLength(2000);
         builder.Property(c => c.JobTitle).HasMaxLength(128);
         builder.Property(c => c.MaritalStatus).HasMaxLength(64);
         builder.Property(c => c.RepresentativeName).HasMaxLength(128);
+
+        // C-6 (LC-M6): Postgres' xmin is the concurrency token. The children are a JSON column on this row,
+        // so every profile and child write updates the row and two racing writes collide here instead of
+        // the later one silently overwriting the earlier one's child.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
         // Children persisted as JSONB inside the clients row - no separate table, no joins on read,
         // updated atomically with the client. Ported verbatim from the backend's own ClientConfiguration.

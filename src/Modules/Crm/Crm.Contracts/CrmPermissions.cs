@@ -29,6 +29,11 @@ public static class CrmPermissions
         public const string ManageChildren = "clients.manage_children";
         public const string Create = "clients.create";
         public const string Delete = "clients.delete";
+
+        /// <summary>C-1 (LC-M2): sees every client. Without it a client is visible only through a project
+        /// the caller can reach, or while the client has no project yet (owner amendment M2). Named under
+        /// <c>crm.</c> as the owner decided; it is new, so no existing role row holds it.</summary>
+        public const string ReadAll = "crm.clients.read_all";
     }
 
     /// <summary>Portal shell/nav flag, not a resource gate — holding it grants no data by itself.</summary>
@@ -74,6 +79,9 @@ public static class CrmPermissions
         public const string Create = "crm.notes.create";
         public const string Update = "crm.notes.update";
         public const string Delete = "crm.notes.delete";
+
+        /// <summary>C-8 (LC-I1): change or delete a note someone else wrote. Without it only the author can.</summary>
+        public const string ManageAll = "crm.notes.manage_all";
     }
 
     public static class DesignProfile
@@ -156,7 +164,7 @@ public static class CrmPermissions
     public static readonly IReadOnlyList<string> All =
     [
         Clients.Read, Clients.Update, Clients.SetActive, Clients.ManageChildren, Clients.Create,
-        Clients.Delete,
+        Clients.Delete, Clients.ReadAll,
 
         Portal,
 
@@ -168,7 +176,7 @@ public static class CrmPermissions
 
         Items.Read, Items.Create, Items.Update, Items.Send, Items.Supersede,
 
-        Notes.Read, Notes.Create, Notes.Update, Notes.Delete,
+        Notes.Read, Notes.Create, Notes.Update, Notes.Delete, Notes.ManageAll,
 
         DesignProfile.Read,
 

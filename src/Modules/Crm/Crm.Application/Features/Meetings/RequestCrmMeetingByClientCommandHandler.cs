@@ -14,9 +14,11 @@ internal sealed class RequestCrmMeetingByClientCommandValidator : AbstractValida
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.RequestedByContactId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(MeetingInputRules.TitleMaxLength);
         RuleFor(x => x.Type).IsInEnum();
-        RuleFor(x => x.Location).MaximumLength(500);
+        RuleFor(x => x.Location).MaximumLength(MeetingInputRules.LocationMaxLength);
+        RuleFor(x => x.StartsAtUtc).MustBeUtc();
+        RuleFor(x => x.EndsAtUtc).MustBeUtc();
         RuleFor(x => x).Must(c => c.EndsAtUtc > c.StartsAtUtc).WithMessage("EndsAtUtc must be after StartsAtUtc.");
     }
 }
@@ -69,8 +71,8 @@ internal sealed class RequestCrmMeetingByClientCommandHandler(CrmDbContext db, I
 
         db.CrmMeetings.Add(meeting);
         db.CrmMeetingSlots.Add(slotResult.Value!);
-        await db.SaveChangesAsync(ct);
+        Result saved = await MeetingWrites.SaveAsync(db, ct);
 
-        return meeting.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : meeting.Id;
     }
 }

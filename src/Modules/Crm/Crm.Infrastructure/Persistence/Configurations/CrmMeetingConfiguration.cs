@@ -12,6 +12,9 @@ internal sealed class CrmMeetingConfiguration : IEntityTypeConfiguration<CrmMeet
         builder.ToTable("crm_meetings");
         builder.ConfigureEntityConventions();
 
+        // B-8 (M4): concurrency token; MeetingWrites maps a conflict to crm.meetings.ConcurrentUpdate.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         builder.Property(m => m.Title).HasMaxLength(256).IsRequired();
         builder.Property(m => m.Type).HasConversion<int>();
         builder.Property(m => m.Status).HasConversion<int>();

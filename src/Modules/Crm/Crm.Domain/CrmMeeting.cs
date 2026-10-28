@@ -19,6 +19,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
     public string? Location { get; private set; }
     public Guid? RequestedByEmployeeId { get; private set; }
     public Guid? RequestedByContactId { get; private set; }
+
+    /// <summary>B-5 (M5): the employee who accepted the slot that scheduled this meeting, when one did.</summary>
+    public Guid? AcceptedByEmployeeId { get; private set; }
     public DateTime? ReminderSentAtUtc { get; private set; }
     public DateTime? CanceledAtUtc { get; private set; }
     public string? CancelReason { get; private set; }
@@ -59,7 +62,9 @@ internal sealed class CrmMeeting : Entity, IAuditable
     private bool HasStarted(DateTime nowUtc) => ScheduledAtUtc is { } s && nowUtc >= s;
 
     /// <summary>Set from the accepted slot.</summary>
-    public Result Schedule(DateTime startsAtUtc, int? durationMinutes)
+    /// <param name="acceptedByEmployeeId">B-5 (M5): the employee who accepted the slot, or null when the
+    /// client accepted it.</param>
+    public Result Schedule(DateTime startsAtUtc, int? durationMinutes, Guid? acceptedByEmployeeId = null)
     {
         if (Status is not (MeetingStatus.Requested or MeetingStatus.Rescheduled))
         {
@@ -68,6 +73,7 @@ internal sealed class CrmMeeting : Entity, IAuditable
 
         Status = MeetingStatus.Scheduled;
         ScheduledAtUtc = startsAtUtc;
+        AcceptedByEmployeeId = acceptedByEmployeeId;
         if (durationMinutes is not null)
         {
             DurationMinutes = durationMinutes;
@@ -92,6 +98,11 @@ internal sealed class CrmMeeting : Entity, IAuditable
         Status = MeetingStatus.Rescheduled;
         ScheduledAtUtc = null;
         ReminderSentAtUtc = null;
+
+        // B-6 (M2): the next accepted slot decides how long the meeting lasts — the first schedule's
+        // duration no longer applies.
+        DurationMinutes = null;
+        AcceptedByEmployeeId = null;
         return Result.Success();
     }
 
@@ -118,9 +129,11 @@ internal sealed class CrmMeeting : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>B-11 (L3): only a Scheduled meeting can complete. A Rescheduled one has no time, so it
+    /// never "started" — the old Rescheduled branch here was unreachable.</summary>
     public Result Complete(DateTime nowUtc)
     {
-        if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        if (Status is not MeetingStatus.Scheduled || !HasStarted(nowUtc))
         {
             return CrmMeetingErrors.InvalidStateTransition;
         }
@@ -131,7 +144,7 @@ internal sealed class CrmMeeting : Entity, IAuditable
 
     public Result MarkNoShow(DateTime nowUtc)
     {
-        if (Status is not (MeetingStatus.Scheduled or MeetingStatus.Rescheduled) || !HasStarted(nowUtc))
+        if (Status is not MeetingStatus.Scheduled || !HasStarted(nowUtc))
         {
             return CrmMeetingErrors.InvalidStateTransition;
         }

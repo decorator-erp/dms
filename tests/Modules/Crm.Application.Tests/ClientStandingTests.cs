@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using BuildingBlocks.Pagination;
 using Crm.Contracts;
 using Crm.Contracts.Briefs;
 using Crm.Contracts.Clients;
@@ -38,7 +39,7 @@ public sealed class ClientStandingTests(CrmApplicationFixture fixture)
             .HandleAsync(new GetMyPortalBriefQuery(user, p.ProjectId, p.StageId))).Error.Code);
         Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalBriefRoundsQuery, IReadOnlyList<CrmBriefRoundResponse>>>()
             .HandleAsync(new GetMyPortalBriefRoundsQuery(user, Guid.NewGuid()))).Error.Code);
-        Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>>>()
+        Assert.Equal(NoStanding, (await sp.GetRequiredService<IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>>>()
             .HandleAsync(new GetMyPortalMeetingsQuery(user))).Error.Code);
 
         // Every portal write (item create, meeting request, slot accept/decline, reschedule, cancel) resolves
@@ -56,7 +57,7 @@ public sealed class ClientStandingTests(CrmApplicationFixture fixture)
         (Guid clientId, _) = await CreateClientAsync(sp);
 
         Assert.True((await sp.GetRequiredService<ICommandHandler<DeleteClientCommand>>()
-            .HandleAsync(new DeleteClientCommand(clientId))).IsSuccess);
+            .HandleAsync(new DeleteClientCommand(clientId, CrmTestAccess.Office(sp)))).IsSuccess);
 
         Assert.Equal(1, await CountOutboxAsync(nameof(ClientDeactivatedIntegrationEvent), clientId));
         Assert.Equal(0, await CountOutboxAsync(nameof(ClientReactivatedIntegrationEvent), clientId));
@@ -153,7 +154,7 @@ public sealed class ClientStandingTests(CrmApplicationFixture fixture)
         string appUserId = (await sp.GetRequiredService<IClientDirectory>().GetAsync(created.Value, CancellationToken.None))!.AppUserId;
 
         Assert.True((await sp.GetRequiredService<ICommandHandler<DeleteClientCommand>>()
-            .HandleAsync(new DeleteClientCommand(created.Value))).IsSuccess);
+            .HandleAsync(new DeleteClientCommand(created.Value, CrmTestAccess.Office(sp)))).IsSuccess);
         await DrainOutboxAsync();
 
         Assert.False((await sp.GetRequiredService<IUserDirectory>().GetAsync(appUserId, CancellationToken.None))!.IsActive);
@@ -163,12 +164,12 @@ public sealed class ClientStandingTests(CrmApplicationFixture fixture)
         CrmClientSeeding.CreateClientAsync(sp, $"standing-{Guid.NewGuid():N}@example.com");
 
     private static Task<Result> SetActiveAsync(IServiceProvider sp, Guid clientId, bool isActive) =>
-        sp.GetRequiredService<ICommandHandler<SetClientActiveCommand>>().HandleAsync(new SetClientActiveCommand(clientId, isActive));
+        sp.GetRequiredService<ICommandHandler<SetClientActiveCommand>>().HandleAsync(new SetClientActiveCommand(clientId, isActive, CrmTestAccess.Office(sp)));
 
     private static async Task AddPrimaryContactAsync(IServiceProvider sp, Guid clientId)
     {
         Result<Guid> contact = await sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>()
-            .HandleAsync(new CreateCrmContactCommand(clientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true));
+            .HandleAsync(new CreateCrmContactCommand(clientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(sp)));
         Assert.True(contact.IsSuccess, contact.IsFailure ? contact.Error.ToString() : null);
     }
 

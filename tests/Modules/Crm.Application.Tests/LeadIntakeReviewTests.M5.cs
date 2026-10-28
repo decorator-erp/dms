@@ -21,7 +21,7 @@ public sealed partial class LeadIntakeReviewTests
         Guid leadId = await CreateLeadAsync(sp);
         Guid clientId = await CreateClientAsync(sp);
         Result deleted = await sp.GetRequiredService<ICommandHandler<Crm.Contracts.Clients.DeleteClientCommand>>()
-            .HandleAsync(new Crm.Contracts.Clients.DeleteClientCommand(clientId));
+            .HandleAsync(new Crm.Contracts.Clients.DeleteClientCommand(clientId, CrmTestAccess.Office(sp)));
         Assert.True(deleted.IsSuccess, deleted.IsFailure ? deleted.Error.ToString() : null);
 
         Result<Guid> result = await ConvertAsync(sp, leadId, clientId);

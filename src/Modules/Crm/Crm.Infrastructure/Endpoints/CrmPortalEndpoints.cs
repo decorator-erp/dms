@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -69,10 +70,22 @@ internal sealed class CrmPortalEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Requirements.SubmitOwn);
 
         portal.MapGet("/meetings", async (
-            ICurrentUser currentUser, IQueryHandler<GetMyPortalMeetingsQuery, IReadOnlyList<PortalMeetingResponse>> handler,
+            int? pageNumber, int? pageSize,
+            ICurrentUser currentUser, IQueryHandler<GetMyPortalMeetingsQuery, PagedResult<PortalMeetingResponse>> handler,
             CancellationToken ct) =>
         {
-            Result<IReadOnlyList<PortalMeetingResponse>> result = await handler.HandleAsync(new GetMyPortalMeetingsQuery(currentUser.UserId!), ct);
+            Result<PagedResult<PortalMeetingResponse>> result = await handler.HandleAsync(
+                new GetMyPortalMeetingsQuery(currentUser.UserId!, pageNumber ?? 1, pageSize ?? 50), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
+
+        // B-1 (H2/X-7): the portal-only meeting detail, with slots — never crm.meetings.read (MT-N1).
+        portal.MapGet("/meetings/{meetingId:guid}", async (
+            Guid meetingId, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalMeetingByIdQuery, PortalMeetingDetailResponse> handler, CancellationToken ct) =>
+        {
+            Result<PortalMeetingDetailResponse> result = await handler.HandleAsync(
+                new GetMyPortalMeetingByIdQuery(currentUser.UserId!, meetingId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
 
@@ -90,12 +103,12 @@ internal sealed class CrmPortalEndpoints : IEndpoint
                 request.ProjectId, contactId.Value, request.Title, request.Type,
                 request.StartsAtUtc, request.EndsAtUtc, request.PeriodId, request.Location), ct);
             return result.Match(
-                id => Results.Created($"/api/crm/meetings/{id}", new { MeetingId = id }), r => r.ToProblem());
+                id => Results.Created($"/api/crm/portal/meetings/{id}", new { MeetingId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RequestOwn);
 
         portal.MapPut("/meetings/slots/{slotId:guid}/accept", async (
             Guid slotId, ICurrentUser currentUser, ICrmAccessGuard guard,
-            ICommandHandler<AcceptCrmMeetingSlotCommand> handler, CancellationToken ct) =>
+            ICommandHandler<AcceptCrmMeetingSlotByContactCommand> handler, CancellationToken ct) =>
         {
             Result<Guid> contactId = await CrmEndpointActors.ResolveContactIdAsync(guard, currentUser.UserId, ct);
             if (contactId.IsFailure)
@@ -103,13 +116,13 @@ internal sealed class CrmPortalEndpoints : IEndpoint
                 return contactId.ToProblem();
             }
 
-            Result result = await handler.HandleAsync(new AcceptCrmMeetingSlotCommand(slotId, null, contactId.Value), ct);
+            Result result = await handler.HandleAsync(new AcceptCrmMeetingSlotByContactCommand(slotId, contactId.Value), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondOwn);
 
         portal.MapPut("/meetings/slots/{slotId:guid}/decline", async (
             Guid slotId, DeclineSlotRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
-            ICommandHandler<DeclineCrmMeetingSlotCommand> handler, CancellationToken ct) =>
+            ICommandHandler<DeclineCrmMeetingSlotByContactCommand> handler, CancellationToken ct) =>
         {
             Result<Guid> contactId = await CrmEndpointActors.ResolveContactIdAsync(guard, currentUser.UserId, ct);
             if (contactId.IsFailure)
@@ -118,13 +131,13 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             }
 
             Result result = await handler.HandleAsync(
-                new DeclineCrmMeetingSlotCommand(slotId, null, contactId.Value, request.CounterSlots), ct);
+                new DeclineCrmMeetingSlotByContactCommand(slotId, contactId.Value, request.CounterSlots), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondOwn);
 
         portal.MapPut("/meetings/{meetingId:guid}/reschedule", async (
             Guid meetingId, RescheduleMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
-            ICommandHandler<RescheduleCrmMeetingCommand> handler, CancellationToken ct) =>
+            ICommandHandler<RescheduleCrmMeetingByContactCommand> handler, CancellationToken ct) =>
         {
             Result<Guid> contactId = await CrmEndpointActors.ResolveContactIdAsync(guard, currentUser.UserId, ct);
             if (contactId.IsFailure)
@@ -132,14 +145,14 @@ internal sealed class CrmPortalEndpoints : IEndpoint
                 return contactId.ToProblem();
             }
 
-            Result result = await handler.HandleAsync(new RescheduleCrmMeetingCommand(
-                meetingId, null, contactId.Value, request.StartsAtUtc, request.EndsAtUtc), ct);
+            Result result = await handler.HandleAsync(new RescheduleCrmMeetingByContactCommand(
+                meetingId, contactId.Value, request.StartsAtUtc, request.EndsAtUtc), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondOwn);
 
         portal.MapPut("/meetings/{meetingId:guid}/cancel", async (
             Guid meetingId, CancelMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
-            ICommandHandler<CancelCrmMeetingCommand> handler, CancellationToken ct) =>
+            ICommandHandler<CancelCrmMeetingByContactCommand> handler, CancellationToken ct) =>
         {
             Result<Guid> contactId = await CrmEndpointActors.ResolveContactIdAsync(guard, currentUser.UserId, ct);
             if (contactId.IsFailure)
@@ -148,7 +161,7 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             }
 
             Result result = await handler.HandleAsync(
-                new CancelCrmMeetingCommand(meetingId, null, contactId.Value, request.Reason), ct);
+                new CancelCrmMeetingByContactCommand(meetingId, contactId.Value, request.Reason), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondOwn);
     }

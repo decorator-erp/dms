@@ -13,10 +13,15 @@ internal sealed class ProposeCrmMeetingCommandValidator : AbstractValidator<Prop
     {
         RuleFor(x => x.ProjectId).NotEmpty();
         RuleFor(x => x.RequestedByEmployeeId).NotEmpty();
-        RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(MeetingInputRules.TitleMaxLength);
         RuleFor(x => x.Type).IsInEnum();
-        RuleFor(x => x.Location).MaximumLength(500);
+        RuleFor(x => x.Location).MaximumLength(MeetingInputRules.LocationMaxLength);
         RuleFor(x => x.Slots).NotEmpty();
+        RuleFor(x => x.Slots).AreValidSlots();
+        RuleFor(x => x.DurationMinutes)
+            .InclusiveBetween(MeetingInputRules.MinDurationMinutes, MeetingInputRules.MaxDurationMinutes)
+            .When(x => x.DurationMinutes is not null);
     }
 }
 
@@ -65,8 +70,8 @@ internal sealed class ProposeCrmMeetingCommandHandler(CrmDbContext db) : IComman
 
         db.CrmMeetings.Add(meeting);
         db.CrmMeetingSlots.AddRange(slots);
-        await db.SaveChangesAsync(ct);
+        Result saved = await MeetingWrites.SaveAsync(db, ct);
 
-        return meeting.Id;
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : meeting.Id;
     }
 }

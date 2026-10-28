@@ -14,6 +14,14 @@ internal static class ClientErrors
 
     public static readonly Error ChildNotFound = Error.NotFound(
         "crm.clients.ChildNotFound", "The specified child was not found on this client.");
+
+    /// <summary>C-5 (LC-M5): a deactivated client takes no new contacts, notes, children or profile edits.</summary>
+    public static readonly Error Inactive = Error.Conflict(
+        "crm.clients.Inactive", "This client is deactivated; reactivate it before changing it.");
+
+    /// <summary>C-6 (LC-M6): someone else changed this client (its profile or its children) first.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.clients.ConcurrentUpdate", "The client was changed by someone else. Reload it and try again.");
 }
 
 internal static class ClientChildErrors
@@ -28,6 +36,10 @@ internal static class ClientChildErrors
 internal static class CrmContactErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.contacts.NotFound", "Contact was not found.");
+
+    /// <summary>C-6 (LC-L4): another primary-contact change on the same client won the race.</summary>
+    public static readonly Error ConcurrentPrimaryChange = Error.Conflict(
+        "crm.contacts.ConcurrentPrimaryChange", "The primary contact was changed at the same time. Reload and try again.");
 
     public static readonly Error NameRequired = Error.BadRequest(
         "crm.contacts.NameRequired", "First and last name are required.");
@@ -318,6 +330,14 @@ internal static class CrmArtifactErrors
 internal static class CrmClientNoteErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.notes.NotFound", "Client note was not found.");
+
+    /// <summary>C-8 (LC-I1): only the author, or a <c>crm.notes.manage_all</c> holder, changes a note.</summary>
+    public static readonly Error NotAuthor = Error.Forbidden(
+        "crm.notes.NotAuthor", "Only the note's author can change or delete it.");
+
+    /// <summary>C-7 (LC-L3): a note's project must be one of its client's projects.</summary>
+    public static readonly Error ProjectMismatch = Error.BadRequest(
+        "crm.notes.ProjectMismatch", "The note's project does not belong to this client.");
 }
 
 /// <summary>The three CRM <c>IGateConditionTypeHandler</c> implementations' own errors (G9-13) —
@@ -352,6 +372,14 @@ internal static class CrmMeetingErrors
     public static readonly Error CancelReasonRequired = Error.BadRequest(
         "crm.meetings.CancelReasonRequired", "A cancellation reason is required.");
 
+    /// <summary>B-8 (M4): the meeting was changed by someone else at the same time.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.meetings.ConcurrentUpdate", "The meeting was changed by someone else at the same time. Reload and try again.");
+
+    /// <summary>B-7 (M3): the slot's start has passed.</summary>
+    public static readonly Error SlotExpired = Error.Conflict(
+        "crm.meetings.SlotExpired", "This slot's start time has passed. Propose a new time.");
+
     public static readonly Error SlotNotProposed = Error.Conflict(
         "crm.meetings.SlotNotProposed", "Only a proposed slot can be accepted or declined.");
 
@@ -380,7 +408,7 @@ internal static class CrmMeetingErrors
 internal static class CrmPortalErrors
 {
     public static readonly Error NotFound = Error.NotFound(
-        "crm.portal.NotFound", "No design brief was found for that project.");
+        "crm.portal.NotFound", "Nothing was found for that request.");
 
     public static readonly Error NotAClient = Error.Forbidden(
         "crm.portal.NotAClient", "This action requires a client actor.");

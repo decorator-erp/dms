@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Outbox;
 using Crm.Contracts.Meetings;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -14,31 +15,59 @@ internal sealed class RescheduleCrmMeetingCommandValidator : AbstractValidator<R
     public RescheduleCrmMeetingCommandValidator()
     {
         RuleFor(x => x.MeetingId).NotEmpty();
-        RuleFor(x => x).Must(c => c.ActingEmployeeId.HasValue != c.ActingContactId.HasValue)
-            .WithMessage("Exactly one of ActingEmployeeId or ActingContactId must be set.");
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.StartsAtUtc).MustBeUtc();
+        RuleFor(x => x.EndsAtUtc).MustBeUtc();
         RuleFor(x => x).Must(c => c.EndsAtUtc > c.StartsAtUtc).WithMessage("EndsAtUtc must be after StartsAtUtc.");
     }
 }
 
-/// <summary>Matches <c>CrmMeetingDomainService.RescheduleAsync</c>: moves the meeting to
-/// <see cref="MeetingStatus.Rescheduled"/>, demotes whichever slot is currently
-/// <see cref="MeetingSlotStatus.Accepted"/> (so the next accept doesn't collide with
-/// <c>ux_crm_meeting_slots_meeting_accepted</c>), and proposes the new time. <c>Demote()</c> is
-/// <c>internal</c> to <c>Crm.Domain</c> — visible here via that project's
-/// <c>InternalsVisibleTo Crm.Application</c> grant, so it needs no public surface widening.</summary>
+internal sealed class RescheduleCrmMeetingByContactCommandValidator : AbstractValidator<RescheduleCrmMeetingByContactCommand>
+{
+    public RescheduleCrmMeetingByContactCommandValidator()
+    {
+        RuleFor(x => x.MeetingId).NotEmpty();
+        RuleFor(x => x.ActingContactId).NotEmpty();
+        RuleFor(x => x.StartsAtUtc).MustBeUtc();
+        RuleFor(x => x.EndsAtUtc).MustBeUtc();
+        RuleFor(x => x).Must(c => c.EndsAtUtc > c.StartsAtUtc).WithMessage("EndsAtUtc must be after StartsAtUtc.");
+    }
+}
+
+/// <summary>B-3 (M1): the office reschedule, project-scoped by the decorator (target Meeting).</summary>
 internal sealed class RescheduleCrmMeetingCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<RescheduleCrmMeetingCommand>
 {
-    public async Task<Result> HandleAsync(RescheduleCrmMeetingCommand command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(RescheduleCrmMeetingCommand command, CancellationToken ct = default) =>
+        RescheduleMeeting.RunAsync(db, projectDirectory, command.MeetingId, command.ActingEmployeeId, null,
+            command.StartsAtUtc, command.EndsAtUtc, ct);
+}
+
+/// <summary>B-3 (M1): the portal reschedule — not project-scoped; the core checks the contact's client.</summary>
+internal sealed class RescheduleCrmMeetingByContactCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<RescheduleCrmMeetingByContactCommand>
+{
+    public Task<Result> HandleAsync(RescheduleCrmMeetingByContactCommand command, CancellationToken ct = default) =>
+        RescheduleMeeting.RunAsync(db, projectDirectory, command.MeetingId, null, command.ActingContactId,
+            command.StartsAtUtc, command.EndsAtUtc, ct);
+}
+
+internal static class RescheduleMeeting
+{
+    public static async Task<Result> RunAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid meetingId, Guid? actingEmployeeId, Guid? actingContactId,
+        DateTime startsAtUtc, DateTime endsAtUtc, CancellationToken ct)
     {
-        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == command.MeetingId, ct);
+        CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == meetingId, ct);
         if (meeting is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
+        // B-4 (MT-N2): a stranger contact gets the portal 404. Employees are scoped by the decorator (B-3).
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
+            db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
@@ -50,13 +79,20 @@ internal sealed class RescheduleCrmMeetingCommandHandler(CrmDbContext db, IProje
             return rescheduling.Error;
         }
 
-        CrmMeetingSlot? accepted = await db.CrmMeetingSlots.FirstOrDefaultAsync(
-            s => s.MeetingId == command.MeetingId && s.Status == MeetingSlotStatus.Accepted, ct);
-        accepted?.Demote();
+        // B-11 (L2): the accepted slot and every still-proposed candidate are retired, so the new slot is
+        // the only live one — an old candidate can no longer be accepted after the reschedule.
+        List<CrmMeetingSlot> live = await db.CrmMeetingSlots
+            .Where(s => s.MeetingId == meetingId
+                && (s.Status == MeetingSlotStatus.Accepted || s.Status == MeetingSlotStatus.Proposed))
+            .ToListAsync(ct);
+        foreach (CrmMeetingSlot slot in live)
+        {
+            slot.Demote();
+        }
 
         Result<CrmMeetingSlot> newSlot = CrmMeetingSlot.Create(
-            command.MeetingId, command.StartsAtUtc, command.EndsAtUtc,
-            proposedByEmployeeId: command.ActingEmployeeId, proposedByContactId: command.ActingContactId,
+            meetingId, startsAtUtc, endsAtUtc,
+            proposedByEmployeeId: actingEmployeeId, proposedByContactId: actingContactId,
             nowUtc: DateTime.UtcNow);
         if (newSlot.IsFailure)
         {
@@ -64,7 +100,8 @@ internal sealed class RescheduleCrmMeetingCommandHandler(CrmDbContext db, IProje
         }
 
         db.CrmMeetingSlots.Add(newSlot.Value!);
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        db.Outbox().Enqueue(new Crm.Contracts.MeetingRescheduledIntegrationEvent(
+            Guid.NewGuid(), meeting.Id, meeting.ProjectId, DateTimeOffset.UtcNow));
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

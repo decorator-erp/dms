@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -15,6 +16,14 @@ internal sealed class CreateCrmContactCommandValidator : AbstractValidator<Creat
         RuleFor(x => x.ClientId).NotEmpty();
         RuleFor(x => x.FirstName).NotEmpty();
         RuleFor(x => x.LastName).NotEmpty();
+        // C-4 (LC-M4): the column lengths, a real email address and a defined role.
+        RuleFor(x => x.FirstName).MaximumLength(128);
+        RuleFor(x => x.LastName).MaximumLength(128);
+        RuleFor(x => x.Email).MaximumLength(256).EmailAddress().When(x => !string.IsNullOrEmpty(x.Email));
+        RuleFor(x => x.Phone).MaximumLength(32);
+        RuleFor(x => x.Mobile).MaximumLength(32);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+        RuleFor(x => x.Role).IsInEnum();
     }
 }
 
@@ -25,10 +34,10 @@ internal sealed class CreateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmContactCommand command, CancellationToken ct = default)
     {
-        bool clientExists = await db.Clients.AnyAsync(c => c.Id == command.ClientId, ct);
-        if (!clientExists)
+        Result active = await ActiveClient.EnsureAsync(db, command.ClientId, ct);
+        if (active.IsFailure)
         {
-            return Result.Failure<Guid>(ClientErrors.NotFound);
+            return Result.Failure<Guid>(active.Error);
         }
 
         Result<CrmContact> contactResult = CrmContact.Create(
@@ -53,8 +62,7 @@ internal sealed class CreateCrmContactCommandHandler(CrmDbContext db) : ICommand
         }
 
         db.CrmContacts.Add(contact);
-        await db.SaveChangesAsync(ct);
-
-        return contact.Id;
+        Result saved = await ClientWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : contact.Id;
     }
 }

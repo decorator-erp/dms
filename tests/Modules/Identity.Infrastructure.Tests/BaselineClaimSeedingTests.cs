@@ -43,9 +43,50 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
         Assert.Equal(
-            ["crm.briefs.view_own", "crm.meetings.request_own", "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal"],
+            ["crm.briefs.view_own", "crm.meetings.request_own", "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal",
+                "notifications.view_own"],
             await ClaimsOfAsync(cs, DefaultRoles.Client));
         Assert.Equal(1L, await ScalarAsync(cs, $"""SELECT count(*) FROM identity.seed_markers WHERE "Key" = '{BaselineClaimSeeder.MarkerKey}'"""));
+        Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v2'"""));
+    }
+
+    /// <summary>B-16 (I1): a database seeded before v2 existed (v1 marker only, client without
+    /// <c>notifications.view_own</c>) gets the client's notification permission on the next start, so a
+    /// portal client can read the meeting notifications CRM sends them.</summary>
+    [Fact]
+    public async Task A_database_seeded_before_v2_gives_the_client_notifications_view_own_on_the_next_start()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs);
+
+        // Back to the state a v1-only host left: the v2 marker and its claim gone, v1 marker present.
+        await ExecuteAsync(cs, """DELETE FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v2'""");
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client' AND rc."ClaimValue" = 'notifications.view_own'
+            """);
+
+        await SeedModuleAsync(cs);
+
+        Assert.Contains("notifications.view_own", await ClaimsOfAsync(cs, DefaultRoles.Client));
+        Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
+    }
+
+    /// <summary>B-16: v2 also runs once. An admin who removes the client's notification permission after
+    /// v2 keeps it removed.</summary>
+    [Fact]
+    public async Task The_v2_claim_an_admin_removed_stays_removed_on_the_next_start()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs);
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client' AND rc."ClaimValue" = 'notifications.view_own'
+            """);
+
+        await SeedModuleAsync(cs);
+
+        Assert.DoesNotContain("notifications.view_own", await ClaimsOfAsync(cs, DefaultRoles.Client));
     }
 
     /// <summary>B7: no reset between the two seeds, the way a real host restarts.</summary>
@@ -79,9 +120,9 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(1L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers"));
+        Assert.Equal(2L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers"));
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
-        Assert.Equal(5, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count);
+        Assert.Equal(6, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count);
     }
 
     private static async Task SeedBaselineAsync(ServiceProvider provider)

@@ -47,8 +47,9 @@ internal static class MeetingSupport
 
     public static async Task<CrmMeetingResponse?> ToResponseAsync(CrmDbContext db, Guid meetingId, CancellationToken ct)
     {
+        // B-12 (L4): a soft-deleted meeting is not found, the same as in the list.
         var meeting = await db.CrmMeetings.AsNoTracking()
-            .Where(m => m.Id == meetingId)
+            .Where(m => m.Id == meetingId && m.IsActive)
             .Select(m => new
             {
                 m.Id,
@@ -125,6 +126,26 @@ internal static class MeetingSupport
     /// meeting whose project belongs to their own client — the actual tenant boundary a client-facing
     /// operation must hold, verified here via <c>IProjectDirectory</c> rather than assumed.</para>
     /// </summary>
+    /// <summary>B-4 (MT-N2): what a CONTACT is told when the meeting or slot is not theirs, or does not exist —
+    /// one portal 404, so a client cannot probe another client's meeting or slot ids. Employees keep the
+    /// specific office errors (their access is the project scope's, B-3).</summary>
+    public static Error NotFoundFor(Guid? actingContactId, Error officeError) =>
+        actingContactId is null ? officeError : CrmPortalErrors.NotFound;
+
+    /// <summary>B-4 (MT-N2): the contact's tenant check, run BEFORE the actor-kind check; any failure is the
+    /// portal 404. A no-op for an employee actor.</summary>
+    public static async Task<Result> EnsureContactOwnsProjectAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid projectId, Guid? actingContactId, CancellationToken ct)
+    {
+        if (actingContactId is null)
+        {
+            return Result.Success();
+        }
+
+        Result owns = await EnsureActorCanActOnProjectAsync(db, projectDirectory, projectId, null, actingContactId, ct);
+        return owns.IsFailure ? CrmPortalErrors.NotFound : Result.Success();
+    }
+
     public static async Task<Result> EnsureActorCanActOnProjectAsync(
         CrmDbContext db, IProjectDirectory projectDirectory,
         Guid projectId, Guid? actingEmployeeId, Guid? actingContactId, CancellationToken ct)

@@ -1,8 +1,10 @@
 using BuildingBlocks.Events;
 using Crm.Contracts;
 using Crm.Infrastructure.Persistence;
+using Crm.Infrastructure.Services;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Notifications.Contracts;
 using Projects.Contracts;
 
@@ -25,31 +27,26 @@ internal sealed class MeetingScheduledNotificationHandler(
     IHrDirectory hrDirectory,
     IClientDirectory clientDirectory,
     IProjectDirectory projectDirectory,
-    INotificationService notifications) : IIntegrationEventHandler<MeetingScheduledIntegrationEvent>
+    INotificationService notifications,
+    IOptions<OfficeHoursOptions> officeHours) : IIntegrationEventHandler<MeetingScheduledIntegrationEvent>
 {
     public async Task HandleAsync(MeetingScheduledIntegrationEvent @event, CancellationToken ct)
     {
         var meeting = await db.CrmMeetings
             .AsNoTracking()
             .Where(m => m.Id == @event.MeetingId)
-            .Select(m => new { m.Title, m.RequestedByEmployeeId })
+            .Select(m => new { m.Title, m.RequestedByEmployeeId, m.AcceptedByEmployeeId, m.Status, m.ScheduledAtUtc })
             .FirstOrDefaultAsync(ct);
 
-        if (meeting is null)
+        // MT-N6: the current state wins. A meeting canceled or moved since this event was raised is not
+        // confirmed for the old time; its own events tell the recipients what happened instead.
+        if (meeting is null || meeting.Status != Domain.MeetingStatus.Scheduled || meeting.ScheduledAtUtc != @event.ScheduledAtUtc)
         {
             return;
         }
 
-        EmployeeSummary? employee = meeting.RequestedByEmployeeId is { } employeeId
-            ? await hrDirectory.GetAsync(employeeId, ct)
-            : null;
-
-        ProjectSummary? project = await projectDirectory.GetProjectAsync(@event.ProjectId, ct);
-        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
-
-        string?[] candidates = [employee?.AppUserId, client?.AppUserId];
-        var targets = candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!)
-            .Distinct(StringComparer.Ordinal).ToList();
+        IReadOnlyList<string> targets = await MeetingRecipients.ResolveAsync(
+            @event.ProjectId, meeting.RequestedByEmployeeId, meeting.AcceptedByEmployeeId, hrDirectory, projectDirectory, clientDirectory, ct);
         if (targets.Count == 0)
         {
             return;
@@ -58,11 +55,11 @@ internal sealed class MeetingScheduledNotificationHandler(
         await notifications.NotifyManyAsync(
             targets,
             NotificationType.CrmMeetingScheduled,
-            title: $"Meeting scheduled — {meeting.Title}",
-            body: $"The meeting is confirmed for {@event.ScheduledAtUtc:yyyy-MM-dd HH:mm} UTC.",
+            title: MeetingTimes.Title("Meeting scheduled", meeting.Title),
+            body: $"The meeting is confirmed for {MeetingTimes.Display(@event.ScheduledAtUtc, officeHours.Value.TimezoneId)}.",
             entityType: NotificationEntityType.Meeting,
             entityId: @event.MeetingId,
-            dedupeKey: $"crm-meeting-{@event.MeetingId}-scheduled",
+            dedupeKey: $"crm-meeting-{@event.MeetingId}-scheduled-{MeetingRecipients.Instant(@event.ScheduledAtUtc)}",
             ct: ct);
     }
 }

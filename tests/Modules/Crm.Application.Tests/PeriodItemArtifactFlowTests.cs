@@ -289,7 +289,7 @@ public sealed class PeriodItemArtifactFlowTests(CrmApplicationFixture fixture)
     {
         ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
         Result<Guid> result = await createContact.HandleAsync(
-            new CreateCrmContactCommand(clientId, "Test", "Contact", ContactRole.Owner, IsPrimary: true));
+            new CreateCrmContactCommand(clientId, "Test", "Contact", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(sp)));
         Assert.True(result.IsSuccess);
         return result.Value;
     }

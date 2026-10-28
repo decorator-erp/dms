@@ -31,7 +31,6 @@ internal sealed class CompleteCrmMeetingCommandHandler(CrmDbContext db) : IComma
             return completed.Error;
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

@@ -22,6 +22,12 @@ internal sealed class GetCrmMeetingSlotsByMeetingQueryHandler(CrmDbContext db)
     public async Task<Result<IReadOnlyList<CrmMeetingSlotResponse>>> HandleAsync(
         GetCrmMeetingSlotsByMeetingQuery query, CancellationToken ct = default)
     {
+        // B-12 (L4): the slots of a soft-deleted meeting are not found either.
+        if (!await db.CrmMeetings.AnyAsync(m => m.Id == query.MeetingId && m.IsActive, ct))
+        {
+            return Result.Failure<IReadOnlyList<CrmMeetingSlotResponse>>(CrmMeetingErrors.NotFound);
+        }
+
         List<CrmMeetingSlot> slots = await db.CrmMeetingSlots.AsNoTracking()
             .Where(s => s.MeetingId == query.MeetingId)
             .OrderBy(s => s.StartsAtUtc)

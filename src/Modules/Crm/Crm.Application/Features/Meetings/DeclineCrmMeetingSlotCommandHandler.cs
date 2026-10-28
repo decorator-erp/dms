@@ -14,28 +14,51 @@ internal sealed class DeclineCrmMeetingSlotCommandValidator : AbstractValidator<
     public DeclineCrmMeetingSlotCommandValidator()
     {
         RuleFor(x => x.SlotId).NotEmpty();
-        RuleFor(x => x).Must(c => c.ActingEmployeeId.HasValue != c.ActingContactId.HasValue)
-            .WithMessage("Exactly one of ActingEmployeeId or ActingContactId must be set.");
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.CounterSlots).AreValidSlots();
     }
 }
 
-/// <summary>Matches <c>CrmMeetingDomainService.DeclineSlotAsync</c>: decline the named slot, then
-/// propose whichever counter-slots came with the call, stamped with the declining actor as their
-/// proposer — same-transaction, no separate follow-up command needed.</summary>
+internal sealed class DeclineCrmMeetingSlotByContactCommandValidator : AbstractValidator<DeclineCrmMeetingSlotByContactCommand>
+{
+    public DeclineCrmMeetingSlotByContactCommandValidator()
+    {
+        RuleFor(x => x.SlotId).NotEmpty();
+        RuleFor(x => x.ActingContactId).NotEmpty();
+        RuleFor(x => x.CounterSlots).AreValidSlots();
+    }
+}
+
+/// <summary>B-3 (M1): the office decline, project-scoped by the decorator (target MeetingSlot).</summary>
 internal sealed class DeclineCrmMeetingSlotCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
     : ICommandHandler<DeclineCrmMeetingSlotCommand>
 {
-    public async Task<Result> HandleAsync(DeclineCrmMeetingSlotCommand command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(DeclineCrmMeetingSlotCommand command, CancellationToken ct = default) =>
+        DeclineMeetingSlot.RunAsync(db, projectDirectory, command.SlotId, command.ActingEmployeeId, null, command.CounterSlots, ct);
+}
+
+/// <summary>B-3 (M1): the portal decline — not project-scoped; the core checks the contact's client.</summary>
+internal sealed class DeclineCrmMeetingSlotByContactCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<DeclineCrmMeetingSlotByContactCommand>
+{
+    public Task<Result> HandleAsync(DeclineCrmMeetingSlotByContactCommand command, CancellationToken ct = default) =>
+        DeclineMeetingSlot.RunAsync(db, projectDirectory, command.SlotId, null, command.ActingContactId, command.CounterSlots, ct);
+}
+
+/// <summary>Matches <c>CrmMeetingDomainService.DeclineSlotAsync</c>: decline the named slot, then propose
+/// whichever counter-slots came with the call, stamped with the declining actor as their proposer —
+/// same-transaction, no separate follow-up command needed.</summary>
+internal static class DeclineMeetingSlot
+{
+    public static async Task<Result> RunAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid slotId, Guid? actingEmployeeId, Guid? actingContactId,
+        IReadOnlyList<CrmMeetingSlotRequest>? counterSlots, CancellationToken ct)
     {
-        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
+        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null)
         {
-            return CrmMeetingErrors.SlotNotFound;
-        }
-
-        if (!MeetingSupport.IsCounterpartyKind(slot, command.ActingEmployeeId, command.ActingContactId))
-        {
-            return CrmMeetingErrors.NotCounterparty;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
         }
 
         Guid? meetingProjectId = await db.CrmMeetings.AsNoTracking()
@@ -44,14 +67,20 @@ internal sealed class DeclineCrmMeetingSlotCommandHandler(CrmDbContext db, IProj
             .FirstOrDefaultAsync(ct);
         if (meetingProjectId is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meetingProjectId.Value, command.ActingEmployeeId, command.ActingContactId, ct);
+        // B-4 (MT-N2): tenant before kind.
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
+            db, projectDirectory, meetingProjectId.Value, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
+        }
+
+        if (!MeetingSupport.IsCounterpartyKind(slot, actingEmployeeId, actingContactId))
+        {
+            return CrmMeetingErrors.NotCounterparty;
         }
 
         Result declined = slot.Decline();
@@ -60,14 +89,14 @@ internal sealed class DeclineCrmMeetingSlotCommandHandler(CrmDbContext db, IProj
             return declined.Error;
         }
 
-        if (command.CounterSlots is { Count: > 0 })
+        if (counterSlots is { Count: > 0 })
         {
             DateTime now = DateTime.UtcNow;
-            foreach (CrmMeetingSlotRequest s in command.CounterSlots)
+            foreach (CrmMeetingSlotRequest s in counterSlots)
             {
                 Result<CrmMeetingSlot> counterResult = CrmMeetingSlot.Create(
                     slot.MeetingId, s.StartsAtUtc, s.EndsAtUtc,
-                    proposedByEmployeeId: command.ActingEmployeeId, proposedByContactId: command.ActingContactId,
+                    proposedByEmployeeId: actingEmployeeId, proposedByContactId: actingContactId,
                     nowUtc: now);
                 if (counterResult.IsFailure)
                 {
@@ -78,7 +107,6 @@ internal sealed class DeclineCrmMeetingSlotCommandHandler(CrmDbContext db, IProj
             }
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

@@ -115,6 +115,14 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
             .Select(s => (Guid?)s.ProjectId)
             .FirstOrDefaultAsync(ct),
         CrmScopeTargetKind.ProjectTask => (await projects.GetTaskAsync(target.Id, ct))?.ProjectId,
+        CrmScopeTargetKind.Meeting => await db.CrmMeetings.AsNoTracking()
+            .Where(m => m.Id == target.Id)
+            .Select(m => (Guid?)m.ProjectId)
+            .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.MeetingSlot => await db.CrmMeetingSlots.AsNoTracking()
+            .Where(s => s.Id == target.Id)
+            .Join(db.CrmMeetings, s => s.MeetingId, m => m.Id, (_, m) => (Guid?)m.ProjectId)
+            .FirstOrDefaultAsync(ct),
         _ => null,
     };
 }

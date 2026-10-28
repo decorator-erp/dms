@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Contacts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
@@ -14,6 +15,14 @@ internal sealed class UpdateCrmContactCommandValidator : AbstractValidator<Updat
         RuleFor(x => x.ContactId).NotEmpty();
         RuleFor(x => x.FirstName).NotEmpty();
         RuleFor(x => x.LastName).NotEmpty();
+        // C-4 (LC-M4): the column lengths, a real email address and a defined role.
+        RuleFor(x => x.FirstName).MaximumLength(128);
+        RuleFor(x => x.LastName).MaximumLength(128);
+        RuleFor(x => x.Email).MaximumLength(256).EmailAddress().When(x => !string.IsNullOrEmpty(x.Email));
+        RuleFor(x => x.Phone).MaximumLength(32);
+        RuleFor(x => x.Mobile).MaximumLength(32);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+        RuleFor(x => x.Role).IsInEnum();
     }
 }
 
@@ -21,10 +30,17 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result> HandleAsync(UpdateCrmContactCommand command, CancellationToken ct = default)
     {
+        // C-7 (LC-L2): the contact must belong to the route's client.
         CrmContact? contact = await db.CrmContacts.FindAsync([command.ContactId], ct);
-        if (contact is null)
+        if (contact is null || contact.ClientId != command.ClientId)
         {
             return CrmContactErrors.NotFound;
+        }
+
+        Result active = await ActiveClient.EnsureAsync(db, contact.ClientId, ct);
+        if (active.IsFailure)
+        {
+            return active;
         }
 
         Result result = contact.Update(
@@ -35,8 +51,6 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

@@ -35,9 +35,7 @@ internal sealed class SetClientActiveCommandHandler(CrmDbContext db) : ICommandH
         }
 
         ClientStandingEvents.EnqueueOnChange(db, client, wasActive);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }
 

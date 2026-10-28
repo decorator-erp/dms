@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Clients;
 using Crm.Domain;
@@ -9,7 +10,11 @@ namespace Crm.Application.Features.Clients;
 
 internal sealed class AddClientChildCommandValidator : AbstractValidator<AddClientChildCommand>
 {
-    public AddClientChildCommandValidator() => RuleFor(x => x.ClientId).NotEmpty();
+    public AddClientChildCommandValidator()
+    {
+        RuleFor(x => x.ClientId).NotEmpty();
+        ClientChildRules.Apply(this, x => x.Gender, x => x.Age);
+    }
 }
 
 internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHandler<AddClientChildCommand, Guid>
@@ -22,15 +27,19 @@ internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHa
             return Result.Failure<Guid>(ClientErrors.NotFound);
         }
 
+        if (!client.IsActive)
+        {
+            return Result.Failure<Guid>(ClientErrors.Inactive);
+        }
+
         Result<Guid> result = client.AddChild(command.Gender, command.Age);
         if (result.IsFailure)
         {
             return Result.Failure<Guid>(result.Error);
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return result.Value;
+        Result saved = await ClientWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : result.Value;
     }
 }
 
@@ -40,6 +49,19 @@ internal sealed class UpdateClientChildCommandValidator : AbstractValidator<Upda
     {
         RuleFor(x => x.ClientId).NotEmpty();
         RuleFor(x => x.ChildId).NotEmpty();
+        ClientChildRules.Apply(this, x => x.Gender, x => x.Age);
+    }
+}
+
+/// <summary>C-4 (LC-L6): the domain's own child rule (<c>ClientChild.Validate</c>), checked up front so it
+/// answers like every other field.</summary>
+internal static class ClientChildRules
+{
+    public static void Apply<T>(AbstractValidator<T> validator, Expression<Func<T, char>> gender,
+        Expression<Func<T, short>> age)
+    {
+        validator.RuleFor(gender).Must(g => g is 'M' or 'F').WithMessage("Gender must be 'M' or 'F'.");
+        validator.RuleFor(age).InclusiveBetween((short)0, (short)120);
     }
 }
 
@@ -53,15 +75,18 @@ internal sealed class UpdateClientChildCommandHandler(CrmDbContext db) : IComman
             return ClientErrors.NotFound;
         }
 
+        if (!client.IsActive)
+        {
+            return ClientErrors.Inactive;
+        }
+
         Result result = client.UpdateChild(command.ChildId, command.Gender, command.Age);
         if (result.IsFailure)
         {
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }
 
@@ -84,14 +109,17 @@ internal sealed class RemoveClientChildCommandHandler(CrmDbContext db) : IComman
             return ClientErrors.NotFound;
         }
 
+        if (!client.IsActive)
+        {
+            return ClientErrors.Inactive;
+        }
+
         Result result = client.RemoveChild(command.ChildId);
         if (result.IsFailure)
         {
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

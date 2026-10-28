@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Notes;
 using Crm.Domain;
@@ -9,10 +10,14 @@ namespace Crm.Application.Features.Notes;
 
 internal sealed class DeleteCrmClientNoteCommandValidator : AbstractValidator<DeleteCrmClientNoteCommand>
 {
-    public DeleteCrmClientNoteCommandValidator() => RuleFor(x => x.NoteId).NotEmpty();
+    public DeleteCrmClientNoteCommandValidator()
+    {
+        RuleFor(x => x.NoteId).NotEmpty();
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
+    }
 }
 
-internal sealed class DeleteCrmClientNoteCommandHandler(CrmDbContext db) : ICommandHandler<DeleteCrmClientNoteCommand>
+internal sealed class DeleteCrmClientNoteCommandHandler(CrmDbContext db, ICurrentUser currentUser) : ICommandHandler<DeleteCrmClientNoteCommand>
 {
     public async Task<Result> HandleAsync(DeleteCrmClientNoteCommand command, CancellationToken ct = default)
     {
@@ -22,9 +27,13 @@ internal sealed class DeleteCrmClientNoteCommandHandler(CrmDbContext db) : IComm
             return CrmClientNoteErrors.NotFound;
         }
 
-        db.CrmClientNotes.Remove(note);
-        await db.SaveChangesAsync(ct);
+        Result mayChange = NoteAuthorship.EnsureMayChange(note, command.ActingEmployeeId, currentUser);
+        if (mayChange.IsFailure)
+        {
+            return mayChange;
+        }
 
-        return Result.Success();
+        db.CrmClientNotes.Remove(note);
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

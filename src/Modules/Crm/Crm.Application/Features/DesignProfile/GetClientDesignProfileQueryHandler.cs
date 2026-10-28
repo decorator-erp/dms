@@ -15,8 +15,11 @@ internal sealed class GetClientDesignProfileQueryHandler(CrmDbContext db)
     public async Task<Result<ClientDesignProfileResponse>> HandleAsync(
         GetClientDesignProfileQuery query, CancellationToken ct = default)
     {
+        // C-2 (LC-M1): a project has one brief per stage, so "the" profile is the latest brief's.
         CrmDesignBrief? brief = await db.CrmDesignBriefs.AsNoTracking()
-            .FirstOrDefaultAsync(b => b.ProjectId == query.ProjectId, ct);
+            .Where(b => b.ProjectId == query.ProjectId)
+            .OrderByDescending(b => b.CreatedAtUtc).ThenByDescending(b => b.Id)
+            .FirstOrDefaultAsync(ct);
         if (brief is null)
         {
             return Result.Failure<ClientDesignProfileResponse>(CrmBriefErrors.NotFound);

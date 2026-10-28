@@ -1,4 +1,6 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -28,60 +30,111 @@ internal sealed class ClientEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Clients.Create);
 
         clients.MapPut("/{clientId:guid}/profile", async (
-            Guid clientId, UpdateProfileRequest request, ICommandHandler<UpdateClientProfileCommand> handler, CancellationToken ct) =>
+            Guid clientId, UpdateProfileRequest request, ICommandHandler<UpdateClientProfileCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
             Result result = await handler.HandleAsync(
-                new UpdateClientProfileCommand(clientId, request.JobTitle, request.MaritalStatus, request.RepresentativeName), ct);
+                new UpdateClientProfileCommand(clientId, userId.Value!, request.JobTitle, request.MaritalStatus, request.RepresentativeName), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Update);
 
         clients.MapPut("/{clientId:guid}/active", async (
-            Guid clientId, SetActiveRequest request, ICommandHandler<SetClientActiveCommand> handler, CancellationToken ct) =>
+            Guid clientId, SetActiveRequest request, ICommandHandler<SetClientActiveCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new SetClientActiveCommand(clientId, request.IsActive), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new SetClientActiveCommand(clientId, request.IsActive, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.SetActive);
 
         clients.MapDelete("/{clientId:guid}", async (
-            Guid clientId, ICommandHandler<DeleteClientCommand> handler, CancellationToken ct) =>
+            Guid clientId, ICommandHandler<DeleteClientCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new DeleteClientCommand(clientId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new DeleteClientCommand(clientId, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Delete);
 
         clients.MapPost("/{clientId:guid}/children", async (
-            Guid clientId, ClientChildRequest request, ICommandHandler<AddClientChildCommand, Guid> handler, CancellationToken ct) =>
+            Guid clientId, ClientChildRequest request, ICommandHandler<AddClientChildCommand, Guid> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<Guid> result = await handler.HandleAsync(new AddClientChildCommand(clientId, request.Gender, request.Age), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<Guid> result = await handler.HandleAsync(new AddClientChildCommand(clientId, request.Gender, request.Age, userId.Value!), ct);
             return result.Match(id => Results.Created($"/api/clients/{clientId}/children/{id}", new { ChildId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.ManageChildren);
 
         clients.MapPut("/{clientId:guid}/children/{childId:guid}", async (
             Guid clientId, Guid childId, ClientChildRequest request,
-            ICommandHandler<UpdateClientChildCommand> handler, CancellationToken ct) =>
+            ICommandHandler<UpdateClientChildCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new UpdateClientChildCommand(clientId, childId, request.Gender, request.Age), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new UpdateClientChildCommand(clientId, childId, request.Gender, request.Age, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.ManageChildren);
 
         clients.MapDelete("/{clientId:guid}/children/{childId:guid}", async (
-            Guid clientId, Guid childId, ICommandHandler<RemoveClientChildCommand> handler, CancellationToken ct) =>
+            Guid clientId, Guid childId, ICommandHandler<RemoveClientChildCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result result = await handler.HandleAsync(new RemoveClientChildCommand(clientId, childId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new RemoveClientChildCommand(clientId, childId, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.ManageChildren);
 
         clients.MapGet("/{clientId:guid}", async (
-            Guid clientId, IQueryHandler<GetClientByIdQuery, ClientResponse> handler, CancellationToken ct) =>
+            Guid clientId, IQueryHandler<GetClientByIdQuery, ClientResponse> handler, ICurrentUser currentUser, CancellationToken ct) =>
         {
-            Result<ClientResponse> result = await handler.HandleAsync(new GetClientByIdQuery(clientId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<ClientResponse> result = await handler.HandleAsync(new GetClientByIdQuery(clientId, userId.Value!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Read);
 
         clients.MapGet("/", async (
-            IQueryHandler<GetClientsQuery, IReadOnlyList<ClientResponse>> handler, CancellationToken ct) =>
+            int? pageNumber, int? pageSize, string? search, bool? isActive, ICurrentUser currentUser,
+            IQueryHandler<GetClientsQuery, PagedResult<ClientListItemResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<ClientResponse>> result = await handler.HandleAsync(new GetClientsQuery(), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            // C-3: an omitted isActive lists active clients only; isActive=false lists the deactivated ones.
+            Result<PagedResult<ClientListItemResponse>> result = await handler.HandleAsync(
+                new GetClientsQuery(userId.Value!, pageNumber ?? 1, pageSize ?? 50, search, isActive ?? true), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Read);
     }

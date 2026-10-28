@@ -51,7 +51,7 @@ public sealed partial class ItemsPeriodsTests
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
         Result<Guid> contact = await scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>()
-            .HandleAsync(new CreateCrmContactCommand(p.ClientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true));
+            .HandleAsync(new CreateCrmContactCommand(p.ClientId, "Jane", "Doe", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(scope.ServiceProvider)));
         Assert.True(contact.IsSuccess, contact.Error?.Description);
         return contact.Value;
     }

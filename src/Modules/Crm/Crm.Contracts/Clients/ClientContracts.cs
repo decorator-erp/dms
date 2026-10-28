@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 
 namespace Crm.Contracts.Clients;
 
@@ -42,19 +43,53 @@ public sealed record CreateClientCommand(
     string? Notes = null) : ICommand<Guid>;
 
 public sealed record UpdateClientProfileCommand(
-    Guid ClientId, string? JobTitle = null, string? MaritalStatus = null, string? RepresentativeName = null)
-    : ICommand;
+    Guid ClientId, string UserId, string? JobTitle = null, string? MaritalStatus = null, string? RepresentativeName = null)
+    : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record SetClientActiveCommand(Guid ClientId, bool IsActive) : ICommand;
+public sealed record SetClientActiveCommand(Guid ClientId, bool IsActive, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record DeleteClientCommand(Guid ClientId) : ICommand;
+public sealed record DeleteClientCommand(Guid ClientId, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record AddClientChildCommand(Guid ClientId, char Gender, short Age) : ICommand<Guid>;
+public sealed record AddClientChildCommand(Guid ClientId, char Gender, short Age, string UserId) : ICommand<Guid>, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record UpdateClientChildCommand(Guid ClientId, Guid ChildId, char Gender, short Age) : ICommand;
+public sealed record UpdateClientChildCommand(Guid ClientId, Guid ChildId, char Gender, short Age, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record RemoveClientChildCommand(Guid ClientId, Guid ChildId) : ICommand;
+public sealed record RemoveClientChildCommand(Guid ClientId, Guid ChildId, string UserId) : ICommand, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record GetClientByIdQuery(Guid ClientId) : IQuery<ClientResponse>;
+public sealed record GetClientByIdQuery(Guid ClientId, string UserId) : IQuery<ClientResponse>, ICrmClientScoped
+{
+    CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
+}
 
-public sealed record GetClientsQuery : IQuery<IReadOnlyList<ClientResponse>>;
+/// <summary>C-3 (LC-M3): one row of the client list — the CRM columns plus the portal login's display
+/// name and email, read in one bulk <c>IUserDirectory</c> call. No <c>AppUserId</c>, notes, marital
+/// status or children: those are on <see cref="GetClientByIdQuery"/>.</summary>
+public sealed record ClientListItemResponse(
+    Guid Id, string? DisplayName, string? Email, string Address, string? JobTitle, string? RepresentativeName,
+    bool IsActive, DateTime CreatedAtUtc);
+
+/// <summary>C-3 (LC-M3): paged, newest first — <see cref="PageNumber"/> from 1, <see cref="PageSize"/>
+/// 1..200. <see cref="Search"/> matches the address and the representative's name. Without
+/// <c>crm.clients.read_all</c> the list holds only the clients the C-1 rule lets the caller see.
+/// <see cref="IsActive"/> null means both.</summary>
+public sealed record GetClientsQuery(
+    string UserId, int PageNumber = 1, int PageSize = 50, string? Search = null, bool? IsActive = true)
+    : IQuery<PagedResult<ClientListItemResponse>>;

@@ -22,7 +22,10 @@ internal sealed class CreateClientCommandValidator : AbstractValidator<CreateCli
 
         RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
-        RuleFor(x => x.Address).NotEmpty();
+        // C-4 (LC-M4): the CRM columns. Checked here, before the portal login is provisioned, so an
+        // over-long field never leaves a login behind.
+        RuleFor(x => x.Address).NotEmpty().MaximumLength(512);
+        RuleFor(x => x.Notes).MaximumLength(2000);
         RuleFor(x => x.PhoneNumber).MaximumLength(50);
     }
 }

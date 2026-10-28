@@ -67,15 +67,15 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
             sp, $"client-owner-{Guid.NewGuid():N}@example.com", address: "123 Main St");
 
         ICommandHandler<AddClientChildCommand, Guid> addChild = sp.GetRequiredService<ICommandHandler<AddClientChildCommand, Guid>>();
-        Result<Guid> addChildResult = await addChild.HandleAsync(new AddClientChildCommand(clientId, 'M', 8));
+        Result<Guid> addChildResult = await addChild.HandleAsync(new AddClientChildCommand(clientId, 'M', 8, CrmTestAccess.Office(sp)));
         Assert.True(addChildResult.IsSuccess);
 
         ICommandHandler<UpdateClientProfileCommand> updateProfile = sp.GetRequiredService<ICommandHandler<UpdateClientProfileCommand>>();
         Assert.True((await updateProfile.HandleAsync(
-            new UpdateClientProfileCommand(clientId, JobTitle: "Architect"))).IsSuccess);
+            new UpdateClientProfileCommand(clientId, CrmTestAccess.Office(sp), JobTitle: "Architect"))).IsSuccess);
 
         IQueryHandler<GetClientByIdQuery, ClientResponse> getById = sp.GetRequiredService<IQueryHandler<GetClientByIdQuery, ClientResponse>>();
-        Result<ClientResponse> response = await getById.HandleAsync(new GetClientByIdQuery(clientId));
+        Result<ClientResponse> response = await getById.HandleAsync(new GetClientByIdQuery(clientId, CrmTestAccess.Office(sp)));
 
         Assert.True(response.IsSuccess);
         Assert.Equal("Architect", response.Value!.JobTitle);
@@ -144,18 +144,18 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<CreateCrmContactCommand, Guid> createContact = sp.GetRequiredService<ICommandHandler<CreateCrmContactCommand, Guid>>();
         Result<Guid> firstResult = await createContact.HandleAsync(
-            new CreateCrmContactCommand(clientId, "Alice", "Owner", ContactRole.Owner, IsPrimary: true));
+            new CreateCrmContactCommand(clientId, "Alice", "Owner", ContactRole.Owner, IsPrimary: true, CrmTestAccess.Office(sp)));
         Result<Guid> secondResult = await createContact.HandleAsync(
-            new CreateCrmContactCommand(clientId, "Bob", "Spouse", ContactRole.Spouse, IsPrimary: false));
+            new CreateCrmContactCommand(clientId, "Bob", "Spouse", ContactRole.Spouse, IsPrimary: false, CrmTestAccess.Office(sp)));
         Assert.True(firstResult.IsSuccess);
         Assert.True(secondResult.IsSuccess);
 
         ICommandHandler<SetPrimaryCrmContactCommand> setPrimary = sp.GetRequiredService<ICommandHandler<SetPrimaryCrmContactCommand>>();
         Assert.True((await setPrimary.HandleAsync(
-            new SetPrimaryCrmContactCommand(clientId, secondResult.Value))).IsSuccess);
+            new SetPrimaryCrmContactCommand(clientId, secondResult.Value, CrmTestAccess.Office(sp)))).IsSuccess);
 
         IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>> getContacts = sp.GetRequiredService<IQueryHandler<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>>>();
-        IReadOnlyList<CrmContactResponse> contacts = (await getContacts.HandleAsync(new GetCrmContactsByClientQuery(clientId))).Value!;
+        IReadOnlyList<CrmContactResponse> contacts = (await getContacts.HandleAsync(new GetCrmContactsByClientQuery(clientId, CrmTestAccess.Office(sp)))).Value!;
 
         Assert.True(contacts.Single(c => c.Id == secondResult.Value).IsPrimary);
         Assert.False(contacts.Single(c => c.Id == firstResult.Value).IsPrimary);
@@ -172,21 +172,21 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<CreateCrmClientNoteCommand, Guid> createNote = sp.GetRequiredService<ICommandHandler<CreateCrmClientNoteCommand, Guid>>();
         Result<Guid> noteResult = await createNote.HandleAsync(
-            new CreateCrmClientNoteCommand(clientId, null, "first note", writtenById));
+            new CreateCrmClientNoteCommand(clientId, null, "first note", writtenById, CrmTestAccess.Office(sp)));
         Assert.True(noteResult.IsSuccess);
 
         ICommandHandler<UpdateCrmClientNoteCommand> updateNote = sp.GetRequiredService<ICommandHandler<UpdateCrmClientNoteCommand>>();
         Assert.True((await updateNote.HandleAsync(
-            new UpdateCrmClientNoteCommand(noteResult.Value, "revised note"))).IsSuccess);
+            new UpdateCrmClientNoteCommand(noteResult.Value, "revised note", writtenById, CrmTestAccess.Office(sp)))).IsSuccess);
 
         IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>> getNotes = sp.GetRequiredService<IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>>>();
-        IReadOnlyList<CrmClientNoteResponse> notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
+        IReadOnlyList<CrmClientNoteResponse> notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId, CrmTestAccess.Office(sp)))).Value!;
         Assert.Equal("revised note", notes.Single().Content);
 
         ICommandHandler<DeleteCrmClientNoteCommand> deleteNote = sp.GetRequiredService<ICommandHandler<DeleteCrmClientNoteCommand>>();
-        Assert.True((await deleteNote.HandleAsync(new DeleteCrmClientNoteCommand(noteResult.Value))).IsSuccess);
+        Assert.True((await deleteNote.HandleAsync(new DeleteCrmClientNoteCommand(noteResult.Value, writtenById, CrmTestAccess.Office(sp)))).IsSuccess);
 
-        notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId))).Value!;
+        notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId, CrmTestAccess.Office(sp)))).Value!;
         Assert.Empty(notes);
     }
 

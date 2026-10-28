@@ -2,8 +2,11 @@ using BuildingBlocks.Jobs;
 using Crm.Contracts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
+using Crm.Infrastructure.Services;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Notifications.Contracts;
 using Projects.Contracts;
 using MeetingStatus = Crm.Domain.MeetingStatus;
@@ -30,61 +33,78 @@ internal sealed class CrmMeetingReminderJob(
     IClientDirectory clientDirectory,
     IProjectDirectory projectDirectory,
     INotificationService notifications,
-    TimeProvider timeProvider) : IPeriodicJob
+    TimeProvider timeProvider,
+    IOptions<OfficeHoursOptions> officeHours,
+    ILogger<CrmMeetingReminderJob> logger) : IPeriodicJob
 {
-    private static readonly MeetingStatus[] UpcomingStatuses = [MeetingStatus.Scheduled, MeetingStatus.Rescheduled];
-
     public string Name => nameof(CrmMeetingReminderJob);
+
+    /// <summary>B-13 (MT-N4): meetings are loaded and their recipients resolved 100 at a time.</summary>
+    internal const int BatchSize = 100;
 
     public async Task RunAsync(CancellationToken ct)
     {
         DateTime now = timeProvider.GetUtcNow().UtcDateTime;
         DateTime horizon = now.AddHours(24);
 
-        List<CrmMeeting> upcoming = await db.CrmMeetings
-            .Where(m => m.IsActive
-                        && UpcomingStatuses.Contains(m.Status)
-                        && m.ReminderSentAtUtc == null
-                        && m.ScheduledAtUtc != null
-                        && m.ScheduledAtUtc > now
-                        && m.ScheduledAtUtc <= horizon)
-            .ToListAsync(ct);
+        List<Guid> dueIds = await Due(now, horizon).OrderBy(m => m.ScheduledAtUtc).Select(m => m.Id).ToListAsync(ct);
 
-        foreach (CrmMeeting? meeting in upcoming)
+        foreach (Guid[] ids in dueIds.Chunk(BatchSize))
         {
-            List<string> targets = await ResolveRecipientsAsync(meeting, ct);
+            // Re-filtered: a meeting rescheduled or canceled since the id scan is no longer due.
+            List<CrmMeeting> batch = await Due(now, horizon).Where(m => ids.Contains(m.Id)).ToListAsync(ct);
+            IReadOnlyDictionary<Guid, IReadOnlyList<string>> recipients = await MeetingRecipients.ResolveManyAsync(
+                [.. batch.Select(m => new MeetingRecipients.Subject(m.Id, m.ProjectId, m.RequestedByEmployeeId, m.AcceptedByEmployeeId))],
+                hrDirectory, projectDirectory, clientDirectory, ct);
 
-            if (targets.Count > 0)
+            foreach (CrmMeeting meeting in batch)
             {
-                await notifications.NotifyManyAsync(
-                    targets,
-                    NotificationType.CrmMeetingReminder,
-                    title: $"Meeting reminder — {meeting.Title}",
-                    body: "Your meeting is within the next 24 hours.",
-                    entityType: NotificationEntityType.Meeting,
-                    entityId: meeting.Id,
-                    dedupeKey: $"crm-meeting-{meeting.Id}-reminder",
-                    ct: ct);
+                // B-13 (MT-N3): one meeting failing (a notification error, a concurrent reschedule) is
+                // logged and left unstamped for the next tick; it no longer aborts the rest of the run.
+                try
+                {
+                    await RemindAsync(meeting, recipients[meeting.Id], now, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Meeting reminder failed for meeting {MeetingId}; it is retried on the next run.", meeting.Id);
+                    db.Entry(meeting).State = EntityState.Detached;
+                }
             }
 
-            // Stamped even when nobody could be resolved: with no recipients there is nothing to send,
-            // and leaving the row unstamped would make this job re-scan it every tick until the meeting
-            // passes.
-            meeting.MarkReminderSent(now);
-            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
         }
     }
 
-    private async Task<List<string>> ResolveRecipientsAsync(CrmMeeting meeting, CancellationToken ct)
+    private IQueryable<CrmMeeting> Due(DateTime now, DateTime horizon) =>
+        db.CrmMeetings.Where(m => m.IsActive
+            // B-11 (L3): a Rescheduled meeting has no time, so only Scheduled can be upcoming.
+            && m.Status == MeetingStatus.Scheduled
+            && m.ReminderSentAtUtc == null
+            && m.ScheduledAtUtc != null
+            && m.ScheduledAtUtc > now
+            && m.ScheduledAtUtc <= horizon);
+
+    private async Task RemindAsync(CrmMeeting meeting, IReadOnlyList<string> targets, DateTime now, CancellationToken ct)
     {
-        EmployeeSummary? employee = meeting.RequestedByEmployeeId is { } employeeId
-            ? await hrDirectory.GetAsync(employeeId, ct)
-            : null;
+        DateTime at = meeting.ScheduledAtUtc!.Value;
+        if (targets.Count > 0)
+        {
+            await notifications.NotifyManyAsync(
+                [.. targets],
+                NotificationType.CrmMeetingReminder,
+                title: MeetingTimes.Title("Meeting reminder", meeting.Title),
+                body: $"Your meeting is at {MeetingTimes.Display(at, officeHours.Value.TimezoneId)}.",
+                entityType: NotificationEntityType.Meeting,
+                entityId: meeting.Id,
+                dedupeKey: $"crm-meeting-{meeting.Id}-reminder-{MeetingRecipients.Instant(at)}",
+                ct: ct);
+        }
 
-        ProjectSummary? project = await projectDirectory.GetProjectAsync(meeting.ProjectId, ct);
-        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
-
-        string?[] candidates = [employee?.AppUserId, client?.AppUserId];
-        return [.. candidates.Where(u => !string.IsNullOrEmpty(u)).Select(u => u!).Distinct(StringComparer.Ordinal)];
+        // Stamped even when nobody could be resolved: with no recipients there is nothing to send,
+        // and leaving the row unstamped would make this job re-scan it every tick until the meeting
+        // passes.
+        meeting.MarkReminderSent(now);
+        await db.SaveChangesAsync(ct);
     }
 }

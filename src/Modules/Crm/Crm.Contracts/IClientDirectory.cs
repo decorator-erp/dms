@@ -32,6 +32,10 @@ public interface IClientDirectory
     /// caller diffs the result against its input to find the unknown ones.</summary>
     Task<IReadOnlyList<Guid>> ExistAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 
+    /// <summary>C-5 (LC-M5): which of <paramref name="ids"/> name an existing, <b>active</b> client — the
+    /// check a caller about to attach new work to a client wants.</summary>
+    Task<IReadOnlyList<Guid>> ExistActiveAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
+
     /// <summary>The client whose portal account is <paramref name="appUserId"/>, or null. The client
     /// half of <see cref="ICrmAccessGuard.ResolveActorAsync"/>'s two-branch resolution, exposed here
     /// because the Portal endpoints resolve the same way.</summary>

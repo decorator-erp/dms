@@ -9,4 +9,8 @@ public sealed record ClientDesignProfileResponse(
     Guid ProjectId, string? PreferredStyle, string? PreferredColors, FurnitureStatus? FurnitureStatus,
     HiringReason HiringReasons, string? ArchitecturalRequests, string? OtherNeeds);
 
-public sealed record GetClientDesignProfileQuery(Guid ProjectId) : IQuery<ClientDesignProfileResponse>;
+/// <summary>C-2 (LC-M1): project-scoped like the brief it reads; the latest brief on the project wins.</summary>
+public sealed record GetClientDesignProfileQuery(Guid ProjectId, string UserId) : IQuery<ClientDesignProfileResponse>, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}

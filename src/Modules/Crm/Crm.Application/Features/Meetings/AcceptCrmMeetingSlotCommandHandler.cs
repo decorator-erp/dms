@@ -16,47 +16,75 @@ internal sealed class AcceptCrmMeetingSlotCommandValidator : AbstractValidator<A
     public AcceptCrmMeetingSlotCommandValidator()
     {
         RuleFor(x => x.SlotId).NotEmpty();
-        RuleFor(x => x).Must(c => c.ActingEmployeeId.HasValue != c.ActingContactId.HasValue)
-            .WithMessage("Exactly one of ActingEmployeeId or ActingContactId must be set.");
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
+        RuleFor(x => x.UserId).NotEmpty();
     }
+}
+
+internal sealed class AcceptCrmMeetingSlotByContactCommandValidator : AbstractValidator<AcceptCrmMeetingSlotByContactCommand>
+{
+    public AcceptCrmMeetingSlotByContactCommandValidator()
+    {
+        RuleFor(x => x.SlotId).NotEmpty();
+        RuleFor(x => x.ActingContactId).NotEmpty();
+    }
+}
+
+/// <summary>B-3 (M1): the office accept. Project scope is the decorator's (<c>ICrmProjectScoped</c>, target
+/// MeetingSlot), so an employee off the project gets 404 before this runs.</summary>
+internal sealed class AcceptCrmMeetingSlotCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<AcceptCrmMeetingSlotCommand>
+{
+    public Task<Result> HandleAsync(AcceptCrmMeetingSlotCommand command, CancellationToken ct = default) =>
+        AcceptMeetingSlot.RunAsync(db, projectDirectory, command.SlotId, command.ActingEmployeeId, null, ct);
+}
+
+/// <summary>B-3 (M1): the portal accept — not project-scoped; the shared core checks the contact's client
+/// owns the meeting's project.</summary>
+internal sealed class AcceptCrmMeetingSlotByContactCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
+    : ICommandHandler<AcceptCrmMeetingSlotByContactCommand>
+{
+    public Task<Result> HandleAsync(AcceptCrmMeetingSlotByContactCommand command, CancellationToken ct = default) =>
+        AcceptMeetingSlot.RunAsync(db, projectDirectory, command.SlotId, null, command.ActingContactId, ct);
 }
 
 /// <summary>Accepting declines every sibling proposed slot and schedules the meeting, matching
 /// <c>CrmMeetingDomainService.AcceptSlotAsync</c>. <c>MeetingScheduledIntegrationEvent</c> is enqueued
 /// before <c>SaveChangesAsync</c> — same transaction, per the contract's own precedent
 /// (<c>ConvertCrmLeadCommandHandler</c>'s <c>LeadConvertedIntegrationEvent</c>). See
-/// <c>MeetingSupport.EnsureActorCanActOnProjectAsync</c> for the tenant-boundary fix this handler
-/// applies over the ported backend's actor check.</summary>
-internal sealed class AcceptCrmMeetingSlotCommandHandler(CrmDbContext db, IProjectDirectory projectDirectory)
-    : ICommandHandler<AcceptCrmMeetingSlotCommand>
+/// <c>MeetingSupport.EnsureActorCanActOnProjectAsync</c> for the tenant-boundary fix this applies over the
+/// ported backend's actor check.</summary>
+internal static class AcceptMeetingSlot
 {
-    public async Task<Result> HandleAsync(AcceptCrmMeetingSlotCommand command, CancellationToken ct = default)
+    public static async Task<Result> RunAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid slotId, Guid? actingEmployeeId, Guid? actingContactId,
+        CancellationToken ct)
     {
-        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == command.SlotId, ct);
+        CrmMeetingSlot? slot = await db.CrmMeetingSlots.FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null)
         {
-            return CrmMeetingErrors.SlotNotFound;
-        }
-
-        if (!MeetingSupport.IsCounterpartyKind(slot, command.ActingEmployeeId, command.ActingContactId))
-        {
-            return CrmMeetingErrors.NotCounterparty;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
         }
 
         CrmMeeting? meeting = await db.CrmMeetings.FirstOrDefaultAsync(m => m.Id == slot.MeetingId, ct);
         if (meeting is null)
         {
-            return CrmMeetingErrors.NotFound;
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
-        Result scoped = await MeetingSupport.EnsureActorCanActOnProjectAsync(
-            db, projectDirectory, meeting.ProjectId, command.ActingEmployeeId, command.ActingContactId, ct);
+        // B-4 (MT-N2): tenant before kind — a stranger learns nothing about the slot.
+        Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)
         {
             return scoped.Error;
         }
 
-        Result accepted = slot.Accept();
+        if (!MeetingSupport.IsCounterpartyKind(slot, actingEmployeeId, actingContactId))
+        {
+            return CrmMeetingErrors.NotCounterparty;
+        }
+
+        Result accepted = slot.Accept(DateTime.UtcNow);
         if (accepted.IsFailure)
         {
             return accepted.Error;
@@ -76,7 +104,7 @@ internal sealed class AcceptCrmMeetingSlotCommandHandler(CrmDbContext db, IProje
         }
 
         int duration = meeting.DurationMinutes ?? (int)Math.Ceiling((slot.EndsAtUtc - slot.StartsAtUtc).TotalMinutes);
-        Result scheduled = meeting.Schedule(slot.StartsAtUtc, duration);
+        Result scheduled = meeting.Schedule(slot.StartsAtUtc, duration, actingEmployeeId);
         if (scheduled.IsFailure)
         {
             return scheduled.Error;
@@ -85,7 +113,6 @@ internal sealed class AcceptCrmMeetingSlotCommandHandler(CrmDbContext db, IProje
         db.Outbox().Enqueue(new MeetingScheduledIntegrationEvent(
             Guid.NewGuid(), meeting.Id, meeting.ProjectId, slot.StartsAtUtc, DateTimeOffset.UtcNow));
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await MeetingWrites.SaveAsync(db, ct);
     }
 }

@@ -42,6 +42,19 @@ internal sealed class ClientDirectory(CrmDbContext db) : IClientDirectory
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Guid>> ExistActiveAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.Clients.AsNoTracking()
+            .Where(c => ids.Contains(c.Id) && c.IsActive)
+            .Select(c => c.Id)
+            .ToListAsync(ct);
+    }
+
     public Task<ClientSummary?> ResolveByAppUserIdAsync(string appUserId, CancellationToken ct) =>
         db.Clients.AsNoTracking()
             .Where(c => c.AppUserId == appUserId)
