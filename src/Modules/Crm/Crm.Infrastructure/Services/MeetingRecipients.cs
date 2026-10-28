@@ -12,7 +12,7 @@ namespace Crm.Infrastructure.Services;
 internal static class MeetingRecipients
 {
     /// <summary>One meeting's recipient inputs, for <see cref="ResolveManyAsync"/>.</summary>
-    public sealed record Subject(Guid MeetingId, Guid ProjectId, Guid? RequestedByEmployeeId, Guid? AcceptedByEmployeeId);
+    internal sealed record Subject(Guid MeetingId, Guid ProjectId, Guid? RequestedByEmployeeId, Guid? AcceptedByEmployeeId);
 
     public static async Task<IReadOnlyList<string>> ResolveAsync(
         Guid projectId, Guid? requestedByEmployeeId, Guid? acceptedByEmployeeId,
