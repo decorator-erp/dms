@@ -18,23 +18,23 @@ public sealed record LinkCrmArtifactDocumentCommand(
 public sealed record GetCrmArtifactDocumentsByBriefQuery(Guid BriefId, string UserId)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
-    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Brief(BriefId);
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
 }
 
 public sealed record GetCrmArtifactDocumentsBySpaceQuery(Guid SpaceId, string UserId)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
-    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Space(SpaceId);
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
 }
 
 public sealed record GetCrmArtifactDocumentsByRequirementItemQuery(Guid RequirementItemId, string UserId)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
-    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Item(RequirementItemId);
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Item(RequirementItemId);
 }
 
 public sealed record GetCrmArtifactDocumentsByMeetingQuery(Guid MeetingId, string UserId)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
-    public CrmScopeTarget ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
 }
