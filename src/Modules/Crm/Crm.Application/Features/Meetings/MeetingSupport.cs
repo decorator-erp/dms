@@ -127,14 +127,8 @@ internal static class MeetingSupport
             return Result.Success();
         }
 
-        Result owns = await EnsureActorCanActOnProjectAsync(db, projectDirectory, projectId, null, actingContactId, ct);
-        if (owns.IsFailure)
-        {
-            return CrmPortalErrors.NotFound;
-        }
-
         // D-16 / A-F4: an inactive project takes no portal meeting writes — the same 404 as not the client's.
-        ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
+        ProjectSummary? project = await ContactsProjectAsync(db, projectDirectory, projectId, actingContactId.Value, ct);
         return project is { IsActive: true } ? Result.Success() : CrmPortalErrors.NotFound;
     }
 
@@ -167,21 +161,26 @@ internal static class MeetingSupport
             return CrmMeetingErrors.NotCounterparty;
         }
 
+        return await ContactsProjectAsync(db, projectDirectory, projectId, contactId, ct) is null
+            ? CrmMeetingErrors.NotCounterparty
+            : Result.Success();
+    }
+
+    /// <summary>The project, when it belongs to the contact's own client; null otherwise. One contact read and
+    /// one directory call, shared by both checks above (FINDING-P1-8).</summary>
+    private static async Task<ProjectSummary?> ContactsProjectAsync(
+        CrmDbContext db, IProjectDirectory projectDirectory, Guid projectId, Guid contactId, CancellationToken ct)
+    {
         Guid? contactClientId = await db.CrmContacts.AsNoTracking()
             .Where(c => c.Id == contactId)
             .Select(c => (Guid?)c.ClientId)
             .FirstOrDefaultAsync(ct);
         if (contactClientId is null)
         {
-            return CrmMeetingErrors.NotCounterparty;
+            return null;
         }
 
         ProjectSummary? project = await projectDirectory.GetProjectAsync(projectId, ct);
-        if (project is null || project.ClientId != contactClientId)
-        {
-            return CrmMeetingErrors.NotCounterparty;
-        }
-
-        return Result.Success();
+        return project is not null && project.ClientId == contactClientId ? project : null;
     }
 }
