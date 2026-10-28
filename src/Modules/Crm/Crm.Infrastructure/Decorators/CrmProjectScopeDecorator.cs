@@ -18,7 +18,7 @@ namespace Crm.Infrastructure.Decorators;
 ///
 /// <para>The guard passes on <c>project.read_all</c> (read off <c>ICurrentUser</c>) or stage-team
 /// membership. That bypass is the guard's own; here it also covers the brief WRITE routes — recorded in
-/// CRM-BRIEF-FIX-NOTES.md for the owner.</para>
+/// <c>docs/backend/dms-modular/reports/CRM-BRIEF-FIX-NOTES.md</c> for the owner.</para>
 /// </summary>
 internal static class CrmProjectScopeDecorator
 {

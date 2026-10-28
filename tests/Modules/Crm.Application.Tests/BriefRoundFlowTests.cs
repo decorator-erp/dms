@@ -30,7 +30,7 @@ namespace Crm.Application.Tests;
 /// <para><b>M6 is NOT exercised here.</b> These tests decide through the real
 /// <see cref="DecideApprovalCommand"/> handler with the client as the current user, which proves the
 /// approval→CRM path. They do not prove the client can reach that path over HTTP: the route requires
-/// <c>approvals.decide</c>, which the seeded Client role does not hold (see CRM-BRIEF-FIX-NOTES.md, M6).
+/// <c>approvals.decide</c>, which the seeded Client role does not hold (see docs/backend/dms-modular/reports/CRM-BRIEF-FIX-NOTES.md, M6).
 /// Hence the <c>ClientDecidesViaHandler_NotPortalRoute</c> naming.</para>
 /// </summary>
 [Collection(CrmApplicationCollection.Name)]
