@@ -1,6 +1,6 @@
-using Crm.Application.Features.Clients;
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using Crm.Application.Features.Clients;
 using Crm.Contracts.Notes;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
