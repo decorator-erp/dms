@@ -34,7 +34,7 @@ public sealed partial class ClientScopeTests
             await Command(outsider, new RemoveClientChildCommand(clientId, child.Value, outsider)),
             Plain(await CommandFor<CreateCrmContactCommand, Guid>(outsider,
                 new CreateCrmContactCommand(clientId, "Sneaky", "Contact", ContactRole.Other, IsPrimary: false, outsider))),
-            await Command(outsider, new UpdateCrmContactCommand(c.ContactId, "Jane", "Renamed", ContactRole.Owner, null, null, null, null, outsider)),
+            await Command(outsider, new UpdateCrmContactCommand(c.P.ClientId, c.ContactId, "Jane", "Renamed", ContactRole.Owner, null, null, null, null, outsider)),
             await Command(outsider, new SetPrimaryCrmContactCommand(clientId, c.ContactId, outsider)),
             Plain(await QueryFor<GetCrmContactsByClientQuery, IReadOnlyList<CrmContactResponse>>(outsider,
                 new GetCrmContactsByClientQuery(clientId, outsider))),

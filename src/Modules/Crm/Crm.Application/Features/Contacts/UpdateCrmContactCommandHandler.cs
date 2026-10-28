@@ -30,8 +30,9 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
 {
     public async Task<Result> HandleAsync(UpdateCrmContactCommand command, CancellationToken ct = default)
     {
+        // C-7 (LC-L2): the contact must belong to the route's client.
         CrmContact? contact = await db.CrmContacts.FindAsync([command.ContactId], ct);
-        if (contact is null)
+        if (contact is null || contact.ClientId != command.ClientId)
         {
             return CrmContactErrors.NotFound;
         }

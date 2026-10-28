@@ -36,7 +36,8 @@ internal sealed class CrmContactEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Contacts.Create);
 
         contacts.MapPut("/{contactId:guid}", async (
-            Guid contactId, UpdateContactRequest request, ICommandHandler<UpdateCrmContactCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
+            Guid clientId, Guid contactId, UpdateContactRequest request, ICommandHandler<UpdateCrmContactCommand> handler,
+            ICurrentUser currentUser, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -45,7 +46,7 @@ internal sealed class CrmContactEndpoints : IEndpoint
             }
 
             Result result = await handler.HandleAsync(new UpdateCrmContactCommand(
-                contactId, request.FirstName, request.LastName, request.Role,
+                clientId, contactId, request.FirstName, request.LastName, request.Role,
                 request.Email, request.Phone, request.Mobile, request.Notes, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Contacts.Update);

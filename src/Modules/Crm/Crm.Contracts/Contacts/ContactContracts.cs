@@ -14,8 +14,9 @@ public sealed record CreateCrmContactCommand(
     CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Client(ClientId);
 }
 
+/// <summary>C-7 (LC-L2): <see cref="ClientId"/> is the route's; a contact of another client is a 404.</summary>
 public sealed record UpdateCrmContactCommand(
-    Guid ContactId, string FirstName, string LastName, ContactRole Role,
+    Guid ClientId, Guid ContactId, string FirstName, string LastName, ContactRole Role,
     string? Email, string? Phone, string? Mobile, string? Notes, string UserId) : ICommand, ICrmClientScoped
 {
     CrmClientScopeTarget ICrmClientScoped.ScopeTarget => CrmClientScopeTarget.Contact(ContactId);

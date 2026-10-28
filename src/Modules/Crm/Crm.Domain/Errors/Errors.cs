@@ -330,6 +330,10 @@ internal static class CrmArtifactErrors
 internal static class CrmClientNoteErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.notes.NotFound", "Client note was not found.");
+
+    /// <summary>C-7 (LC-L3): a note's project must be one of its client's projects.</summary>
+    public static readonly Error ProjectMismatch = Error.BadRequest(
+        "crm.notes.ProjectMismatch", "The note's project does not belong to this client.");
 }
 
 /// <summary>The three CRM <c>IGateConditionTypeHandler</c> implementations' own errors (G9-13) —
