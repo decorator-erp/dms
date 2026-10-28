@@ -1,5 +1,6 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
+using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
 using BuildingBlocks.Web.Results;
@@ -122,9 +123,18 @@ internal sealed class ClientEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Clients.Read);
 
         clients.MapGet("/", async (
-            IQueryHandler<GetClientsQuery, IReadOnlyList<ClientResponse>> handler, CancellationToken ct) =>
+            int? pageNumber, int? pageSize, string? search, bool? isActive, ICurrentUser currentUser,
+            IQueryHandler<GetClientsQuery, PagedResult<ClientListItemResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<ClientResponse>> result = await handler.HandleAsync(new GetClientsQuery(), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            // C-3: an omitted isActive lists active clients only; isActive=false lists the deactivated ones.
+            Result<PagedResult<ClientListItemResponse>> result = await handler.HandleAsync(
+                new GetClientsQuery(userId.Value!, pageNumber ?? 1, pageSize ?? 50, search, isActive ?? true), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Clients.Read);
     }

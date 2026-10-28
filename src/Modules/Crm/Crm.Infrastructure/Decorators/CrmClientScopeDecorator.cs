@@ -73,7 +73,7 @@ internal sealed class CrmClientScope(
         return await CanSeeAsync(clientId.Value, message.UserId, ct) ? Result.Success() : notFound;
     }
 
-    /// <summary>The C-1 rule for one client; <c>GetClientsQueryHandler</c> applies the same rule to a page.</summary>
+    /// <summary>The C-1 rule for one client; <see cref="VisibleAsync"/> is the same rule for a list.</summary>
     public async Task<bool> CanSeeAsync(Guid clientId, string userId, CancellationToken ct)
     {
         if (currentUser.HasPermission(CrmPermissions.Clients.ReadAll))
@@ -89,6 +89,25 @@ internal sealed class CrmClientScope(
 
         IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync([.. owned.Select(p => p.Id)], userId, ct);
         return reachable.Count > 0;
+    }
+
+    /// <summary>C-3: the same rule for a whole list, in one batch — the ids' projects, then which of those
+    /// the caller can reach. Returns the visible subset of <paramref name="clientIds"/>.</summary>
+    public async Task<IReadOnlySet<Guid>> VisibleAsync(IReadOnlyCollection<Guid> clientIds, string userId, CancellationToken ct)
+    {
+        if (currentUser.HasPermission(CrmPermissions.Clients.ReadAll) || clientIds.Count == 0)
+        {
+            return clientIds.ToHashSet();
+        }
+
+        IReadOnlyList<ProjectSummary> owned = await projects.GetProjectsByClientsAsync(clientIds, ct);
+        IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync([.. owned.Select(p => p.Id)], userId, ct);
+        var reachableSet = reachable.ToHashSet();
+        var withProjects = owned.Select(p => p.ClientId).ToHashSet();
+        var reachableClients = owned.Where(p => reachableSet.Contains(p.Id)).Select(p => p.ClientId).ToHashSet();
+
+        // M2: a client with no project at all is visible; otherwise only through a reachable project.
+        return clientIds.Where(id => !withProjects.Contains(id) || reachableClients.Contains(id)).ToHashSet();
     }
 
     /// <summary>The 404 names the area the caller asked about, as in <see cref="CrmProjectScope"/>.</summary>
