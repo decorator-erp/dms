@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Web;
 using BuildingBlocks.Web.Authorization;
@@ -17,9 +18,16 @@ namespace Crm.Infrastructure.Endpoints;
 internal sealed class CrmDesignProfileEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app) => app.MapGet("/api/crm/projects/{projectId:guid}/design-profile", async (
-                                                                   Guid projectId, IQueryHandler<GetClientDesignProfileQuery, ClientDesignProfileResponse> handler, CancellationToken ct) =>
-                                                               {
-                                                                   Result<ClientDesignProfileResponse> result = await handler.HandleAsync(new GetClientDesignProfileQuery(projectId), ct);
-                                                                   return result.Match(Results.Ok, r => r.ToProblem());
-                                                               }).WithTags("Crm Design Profile").RequirePermission(CrmPermissions.DesignProfile.Read);
+            Guid projectId, ICurrentUser currentUser,
+            IQueryHandler<GetClientDesignProfileQuery, ClientDesignProfileResponse> handler, CancellationToken ct) =>
+        {
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<ClientDesignProfileResponse> result = await handler.HandleAsync(new GetClientDesignProfileQuery(projectId, userId.Value!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).WithTags("Crm Design Profile").RequirePermission(CrmPermissions.DesignProfile.Read);
 }
