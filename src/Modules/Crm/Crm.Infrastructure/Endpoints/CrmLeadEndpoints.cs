@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using BuildingBlocks.Web;
@@ -46,9 +47,16 @@ internal sealed class CrmLeadEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Leads.ChangeStatus);
 
         leads.MapPost("/{leadId:guid}/convert", async (
-            Guid leadId, ConvertRequest request, ICommandHandler<ConvertCrmLeadCommand, Guid> handler, CancellationToken ct) =>
+            Guid leadId, ConvertRequest request, ICurrentUser currentUser,
+            ICommandHandler<ConvertCrmLeadCommand, Guid> handler, CancellationToken ct) =>
         {
-            Result<Guid> result = await handler.HandleAsync(new ConvertCrmLeadCommand(leadId, request.ExistingClientId), ct);
+            Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
+            if (userId.IsFailure)
+            {
+                return userId.ToProblem();
+            }
+
+            Result<Guid> result = await handler.HandleAsync(new ConvertCrmLeadCommand(leadId, request.ExistingClientId, userId.Value!), ct);
             return result.Match(clientId => Results.Ok(new { ClientId = clientId }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Leads.Convert);
 
