@@ -111,21 +111,6 @@ internal static class MeetingSupport
         return false;
     }
 
-    /// <summary>
-    /// M1-01 backend-bug fix. The ported backend's <c>IsCounterpartyOf</c> (slots) and
-    /// <c>IsRequesterOrCounterparty</c> (meetings) check only the ACTOR KIND — "a contact" or "an
-    /// employee" — never a specific identity. Concretely: any client contact, from any company, can
-    /// accept an employee-proposed slot or cancel an employee-requested meeting on a project that isn't
-    /// theirs; only the caller's own project-membership check (a step outside this method entirely)
-    /// happened to catch it in the backend, and this port's <c>ICrmAccessGuard</c> has no equivalent
-    /// project-membership check to lean on.
-    ///
-    /// <para>The fix: an acting EMPLOYEE may act on any meeting — this port's <c>CrmAccessGuard</c>
-    /// already grants every employee <c>HasReadAll: true</c>, i.e. company-wide CRM access is this
-    /// port's existing security model, not a gap to close here. An acting CONTACT may act only on a
-    /// meeting whose project belongs to their own client — the actual tenant boundary a client-facing
-    /// operation must hold, verified here via <c>IProjectDirectory</c> rather than assumed.</para>
-    /// </summary>
     /// <summary>B-4 (MT-N2): what a CONTACT is told when the meeting or slot is not theirs, or does not exist —
     /// one portal 404, so a client cannot probe another client's meeting or slot ids. Employees keep the
     /// specific office errors (their access is the project scope's, B-3).</summary>
@@ -153,6 +138,21 @@ internal static class MeetingSupport
         return project is { IsActive: true } ? Result.Success() : CrmPortalErrors.NotFound;
     }
 
+    /// <summary>
+    /// M1-01 backend-bug fix. The ported backend's <c>IsCounterpartyOf</c> (slots) and
+    /// <c>IsRequesterOrCounterparty</c> (meetings) check only the ACTOR KIND — "a contact" or "an
+    /// employee" — never a specific identity. Concretely: any client contact, from any company, can
+    /// accept an employee-proposed slot or cancel an employee-requested meeting on a project that isn't
+    /// theirs; only the caller's own project-membership check (a step outside this method entirely)
+    /// happened to catch it in the backend, and this port's <c>ICrmAccessGuard</c> has no equivalent
+    /// project-membership check to lean on.
+    ///
+    /// <para>The fix: an acting EMPLOYEE may act on any meeting — this port's <c>CrmAccessGuard</c>
+    /// already grants every employee <c>HasReadAll: true</c>, i.e. company-wide CRM access is this
+    /// port's existing security model, not a gap to close here. An acting CONTACT may act only on a
+    /// meeting whose project belongs to their own client — the actual tenant boundary a client-facing
+    /// operation must hold, verified here via <c>IProjectDirectory</c> rather than assumed.</para>
+    /// </summary>
     public static async Task<Result> EnsureActorCanActOnProjectAsync(
         CrmDbContext db, IProjectDirectory projectDirectory,
         Guid projectId, Guid? actingEmployeeId, Guid? actingContactId, CancellationToken ct)
