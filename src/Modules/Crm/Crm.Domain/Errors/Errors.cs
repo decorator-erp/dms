@@ -363,6 +363,10 @@ internal static class CrmMeetingErrors
     public static readonly Error InvalidSlotRange = Error.BadRequest(
         "crm.meetings.InvalidSlotRange", "A slot must end after it starts and start in the future.");
 
+    /// <summary>D-16 / B-F3.</summary>
+    public static readonly Error SlotTooLong = Error.BadRequest(
+        "crm.meetings.SlotTooLong", "A slot can last at most 480 minutes.");
+
     public static readonly Error InvalidStateTransition = Error.Conflict(
         "crm.meetings.InvalidStateTransition", "This meeting cannot transition from its current status.");
 
