@@ -108,7 +108,7 @@ public sealed class ScopeOfWorkFlowTests(ProjectsApplicationFixture fixture)
 
         Result<IReadOnlyList<ScopeOfWorkItemResponse>> added = await AddAsync(p, Guid.NewGuid());
 
-        Assert.Equal(ScopeOfWorkErrors.SourceStageNotFound, added.Error);
+        Assert.Equal(ScopeOfWorkErrors.SourceStageNotFound.Code, added.Error.Code);
         Assert.Null((await GetAsync(p)).Id);
     }
 

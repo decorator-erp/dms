@@ -38,9 +38,9 @@ internal sealed class ConfirmScopeOfWorkCommandValidator : AbstractValidator<Con
 /// <c>DomainEventDispatchDecorator</c>'s; one is opened here only for an undecorated caller, as in CRM's
 /// intake save, since a lock outside a transaction is released at once.</para>
 ///
-/// <para><b>FreeStyle projects</b> are treated exactly as <c>CreateProject(StageTemplateId)</c> treats them:
-/// <c>ProjectTask.Create</c> refuses a stage task in a FreeStyle project (<c>TaskErrors.StageNotAllowed</c>),
-/// so a picked stage with tasks fails the confirm and nothing is created.</para>
+/// <para><b>FreeStyle projects</b> (D-1, SoW F1) have no scope of work: every write and this confirm are 409
+/// <c>projects.scope.WorkflowNotSupported</c>, checked first through
+/// <c>ScopeOfWorkStore.EnsureEditableProjectAsync</c>.</para>
 /// </summary>
 internal sealed class ConfirmScopeOfWorkCommandHandler(
     ProjectsDbContext db, IHrDirectory hrDirectory, ICurrentUser currentUser)
@@ -69,6 +69,13 @@ internal sealed class ConfirmScopeOfWorkCommandHandler(
 
     private async Task<Result<ConfirmScopeOfWorkResponse>> ConfirmAsync(ConfirmScopeOfWorkCommand command, CancellationToken ct)
     {
+        // D-1, D-2: an inactive project is not found and a FreeStyle one has no stage workflow to confirm into.
+        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return Fail(editable.Error);
+        }
+
         // xmin is selected explicitly: SELECT * omits system columns, and ScopeOfWork maps xmin as its token.
         ScopeOfWork? scope = await db.ScopesOfWork
             .FromSql($"SELECT *, xmin FROM projects.scopes_of_work WHERE \"ProjectId\" = {command.ProjectId} FOR UPDATE")
@@ -99,10 +106,11 @@ internal sealed class ConfirmScopeOfWorkCommandHandler(
 
         IReadOnlyList<ScopeOfWorkItem> items = scope.Items;
         var sourceIds = items.Select(i => i.SourceStageId).ToList();
-        int existingSources = await db.Stages.AsNoTracking().CountAsync(s => sourceIds.Contains(s.Id), ct);
-        if (existingSources != sourceIds.Count)
+        List<Guid> existingSources = await db.Stages.AsNoTracking().Where(s => sourceIds.Contains(s.Id)).Select(s => s.Id).ToListAsync(ct);
+        if (existingSources.Count != sourceIds.Count)
         {
-            return Fail(ScopeOfWorkErrors.SourceStageNotFound);
+            // D-3: name the items whose source is gone, so the caller knows which to remove.
+            return Fail(ScopeOfWorkErrors.SourceStagesNotFound(items.Where(i => !existingSources.Contains(i.SourceStageId)).Select(i => i.Id)));
         }
 
         Guid? confirmedById = currentUser.UserId is null ? null : await hrDirectory.ResolveEmployeeIdAsync(currentUser.UserId, ct);

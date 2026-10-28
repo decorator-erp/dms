@@ -152,7 +152,7 @@ public sealed class ScopeOfWorkConfirmTests(ProjectsApplicationFixture fixture)
 
         Result<ConfirmScopeOfWorkResponse> result = await ConfirmAsync(p);
 
-        Assert.Equal(ScopeOfWorkErrors.SourceStageNotFound, result.Error);
+        Assert.Equal(ScopeOfWorkErrors.SourceStageNotFound.Code, result.Error.Code);
         Assert.Equal(400, result.Error.Status);
         Assert.Equal(0, await CountStagesAsync(p.ProjectId));
         Assert.Null((await GetAsync(p)).Items[1].SourceTemplateName);
@@ -277,7 +277,7 @@ public sealed class ScopeOfWorkConfirmTests(ProjectsApplicationFixture fixture)
     }
 
     [Fact]
-    public async Task A_freestyle_project_is_treated_as_template_instantiation_treats_it()
+    public async Task A_freestyle_project_has_no_scope_of_work()
     {
         (Guid templateId, IReadOnlyList<SeededStage> s) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Free", 1m);
         await ScopeOfWorkSeeding.AddTasksAndDepartmentAsync(fixture, s[0].Id, taskCount: 1);
@@ -295,12 +295,12 @@ public sealed class ScopeOfWorkConfirmTests(ProjectsApplicationFixture fixture)
             Assert.Equal(TaskErrors.StageNotAllowed, fromTemplate.Error);
         }
 
-        // ... and so does the confirm, with the same error and nothing created.
+        // ... and a scope of work is refused up front (D-1, SoW F1): the pick and the confirm are both 409
+        // WorkflowNotSupported, and nothing is created.
         ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "free", WorkflowType.FreeStyle);
-        Assert.True((await AddAsync(p, s[0].Id)).IsSuccess);
-        await SetHeaderAsync(p, durationDays: 10);
+        Assert.Equal(ScopeOfWorkErrors.WorkflowNotSupported, (await AddAsync(p, s[0].Id)).Error);
 
-        Assert.Equal(TaskErrors.StageNotAllowed, (await ConfirmAsync(p)).Error);
+        Assert.Equal(ScopeOfWorkErrors.WorkflowNotSupported, (await ConfirmAsync(p)).Error);
         Assert.Equal(0, await CountStagesAsync(p.ProjectId));
     }
 
