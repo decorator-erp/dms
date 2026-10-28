@@ -128,7 +128,7 @@ internal sealed class SetCrmSpaceActiveCommandHandler(CrmDbContext db) : IComman
     }
 }
 
-/// <summary>A-7 (M5): a space name is taken when another space on the project has it, ignoring case — the
+/// <summary>A-7 (B-M4): a space name is taken when another space on the project has it, ignoring case — the
 /// same comparison as the <c>lower("Name")</c> unique index. D-16 / A-F6: both sides are compared in SQL as
 /// <c>lower(trim(...))</c> (the stored name is already trimmed), so the pre-check and the index can never
 /// disagree on padding or on how a character lowercases.</summary>
