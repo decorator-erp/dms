@@ -64,11 +64,32 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
         Guid approvalId;
         if (entry.ApprovalStatus == ApprovalState.PendingApproval)
         {
+            // D-10 (A-F1): a legacy pending entry with no bound id adopts the entry's newest approval (or a
+            // fresh send's id when it has none), then follows the A-11 rule below like any other.
+            if (entry.PendingApprovalId is null)
+            {
+                ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
+                    ApprovalSubjectType.BriefSpace, entry.Id, ct);
+                Result adopted = entry.AdoptPendingApproval(
+                    latest?.Id ?? CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount + 1),
+                    newSend: latest is null);
+                if (adopted.IsFailure)
+                {
+                    return adopted;
+                }
+
+                Result saveAdopted = await BriefWrites.SaveAsync(db, ct);
+                if (saveAdopted.IsFailure)
+                {
+                    return saveAdopted;
+                }
+            }
+
             // A-11 (B-L1): only a live, UNDECIDED approval blocks a resend. A missing one (never committed)
             // or a decided one whose event was lost is re-requested under the same id: RequestAsync returns
             // its decision, and the loop below applies a rejection or voids an approval.
-            if (entry.PendingApprovalId is not { } pendingId
-                || await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
+            Guid pendingId = entry.PendingApprovalId!.Value;
+            if (await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
             {
                 return CrmBriefErrors.EntryPending;
             }

@@ -88,11 +88,42 @@ internal sealed class SendCrmBriefCommandHandler(
         Guid approvalId;
         if (brief.Status == ApprovalState.PendingApproval)
         {
+            // D-10 (A-F1): a legacy pending brief with no bound id adopts the brief's newest approval, or,
+            // when it has none, opens a fresh round (snapshot and all) for the head as it stands.
+            if (brief.PendingApprovalId is null)
+            {
+                ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
+                    ApprovalSubjectType.DesignBrief, brief.Id, ct);
+                Guid adoptedId;
+                if (latest is not null)
+                {
+                    adoptedId = latest.Id;
+                }
+                else
+                {
+                    int round = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct) + 1;
+                    adoptedId = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, brief.Id, round);
+                    db.CrmBriefHeadSnapshots.Add(CrmBriefHeadSnapshot.Create(brief, round));
+                }
+
+                Result adopted = brief.AdoptPendingApproval(adoptedId);
+                if (adopted.IsFailure)
+                {
+                    return adopted;
+                }
+
+                Result saveAdopted = await BriefWrites.SaveAsync(db, ct);
+                if (saveAdopted.IsFailure)
+                {
+                    return saveAdopted;
+                }
+            }
+
             // A-11 (B-L1): only a live, UNDECIDED approval blocks a resend. A missing one (never committed)
             // or a decided one whose event was lost is re-requested under the same id: RequestAsync returns
             // its decision, and the loop below applies a rejection or voids an approval.
-            if (brief.PendingApprovalId is not { } pendingId
-                || await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
+            Guid pendingId = brief.PendingApprovalId!.Value;
+            if (await approvalRequester.GetAsync(pendingId, ct) is { Decision: null })
             {
                 return CrmBriefErrors.NotSendable;
             }

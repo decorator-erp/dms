@@ -83,6 +83,26 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
         return [.. approvals.Select(ToSnapshot)];
     }
 
+    public async Task<ApprovalSnapshot?> GetLatestForSubjectAsync(
+        ApprovalSubjectType subjectType, Guid subjectId, CancellationToken ct) =>
+        (await GetLatestForSubjectsAsync(subjectType, [subjectId], ct)).SingleOrDefault();
+
+    public async Task<IReadOnlyList<ApprovalSnapshot>> GetLatestForSubjectsAsync(
+        ApprovalSubjectType subjectType, IReadOnlyCollection<Guid> subjectIds, CancellationToken ct)
+    {
+        Domain.ApprovalSubjectType type = ToDomain(subjectType);
+        List<Domain.Approval> approvals = await db.Approvals.AsNoTracking()
+            .Where(a => a.SubjectType == type && subjectIds.Contains(a.SubjectId))
+            .ToListAsync(ct);
+        return
+        [
+            .. approvals
+                .GroupBy(a => a.SubjectId)
+                .Select(g => g.OrderByDescending(a => a.CreatedAtUtc).ThenByDescending(a => a.Id).First())
+                .Select(ToSnapshot),
+        ];
+    }
+
     private static ApprovalSnapshot ToSnapshot(Domain.Approval a) =>
         new(a.Id, ToContracts(a.SubjectType), a.SubjectId, ToContracts(a.State),
             a.Decision.HasValue ? ToContracts(a.Decision.Value) : null, a.DecidedAtUtc);

@@ -173,6 +173,19 @@ internal sealed class CrmDesignBrief : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>D-10 (A-F1): binds a legacy pending round that lost its approval id to
+    /// <paramref name="approvalId"/>.</summary>
+    internal Result AdoptPendingApproval(Guid approvalId)
+    {
+        if (Status != ApprovalState.PendingApproval || PendingApprovalId is not null)
+        {
+            return CrmBriefErrors.NotPending;
+        }
+
+        PendingApprovalId = approvalId;
+        return Result.Success();
+    }
+
     /// <summary>Applies <paramref name="approvalId"/>'s approval — only if it is the approval the current
     /// round was sent under.</summary>
     internal Result MarkApproved(Guid approvalId)

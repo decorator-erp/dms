@@ -129,6 +129,25 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>D-10 (A-F1): binds a legacy pending send that lost its approval id to
+    /// <paramref name="approvalId"/> — the subject's newest approval, or a fresh round's id when it has none
+    /// (<paramref name="newSend"/>, counted as a send).</summary>
+    internal Result AdoptPendingApproval(Guid approvalId, bool newSend)
+    {
+        if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId is not null)
+        {
+            return CrmBriefErrors.NotPending;
+        }
+
+        PendingApprovalId = approvalId;
+        if (newSend)
+        {
+            SendCount++;
+        }
+
+        return Result.Success();
+    }
+
     internal Result MarkApproved(Guid approvalId)
     {
         if (ApprovalStatus != ApprovalState.PendingApproval || PendingApprovalId != approvalId)
