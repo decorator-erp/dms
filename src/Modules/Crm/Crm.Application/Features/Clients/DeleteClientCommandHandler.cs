@@ -28,8 +28,6 @@ internal sealed class DeleteClientCommandHandler(CrmDbContext db) : ICommandHand
         bool wasActive = client.IsActive;
         client.Deactivate();
         ClientStandingEvents.EnqueueOnChange(db, client, wasActive);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

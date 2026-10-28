@@ -27,8 +27,6 @@ internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
         }
 
         note.Update(command.Content);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

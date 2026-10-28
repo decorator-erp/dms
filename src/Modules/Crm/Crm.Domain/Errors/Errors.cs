@@ -18,6 +18,10 @@ internal static class ClientErrors
     /// <summary>C-5 (LC-M5): a deactivated client takes no new contacts, notes, children or profile edits.</summary>
     public static readonly Error Inactive = Error.Conflict(
         "crm.clients.Inactive", "This client is deactivated; reactivate it before changing it.");
+
+    /// <summary>C-6 (LC-M6): someone else changed this client (its profile or its children) first.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.clients.ConcurrentUpdate", "The client was changed by someone else. Reload it and try again.");
 }
 
 internal static class ClientChildErrors
@@ -32,6 +36,10 @@ internal static class ClientChildErrors
 internal static class CrmContactErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.contacts.NotFound", "Contact was not found.");
+
+    /// <summary>C-6 (LC-L4): another primary-contact change on the same client won the race.</summary>
+    public static readonly Error ConcurrentPrimaryChange = Error.Conflict(
+        "crm.contacts.ConcurrentPrimaryChange", "The primary contact was changed at the same time. Reload and try again.");
 
     public static readonly Error NameRequired = Error.BadRequest(
         "crm.contacts.NameRequired", "First and last name are required.");

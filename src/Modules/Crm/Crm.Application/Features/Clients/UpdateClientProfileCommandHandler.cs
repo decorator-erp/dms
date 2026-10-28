@@ -36,8 +36,6 @@ internal sealed class UpdateClientProfileCommandHandler(CrmDbContext db) : IComm
         }
 
         client.UpdateProfile(command.JobTitle, command.MaritalStatus, command.RepresentativeName);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

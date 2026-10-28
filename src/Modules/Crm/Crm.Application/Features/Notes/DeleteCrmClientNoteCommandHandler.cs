@@ -23,8 +23,6 @@ internal sealed class DeleteCrmClientNoteCommandHandler(CrmDbContext db) : IComm
         }
 
         db.CrmClientNotes.Remove(note);
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

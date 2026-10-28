@@ -31,8 +31,7 @@ internal sealed class CreateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
 
         var note = CrmClientNote.Create(command.ClientId, command.ProjectId, command.Content, command.WrittenById);
         db.CrmClientNotes.Add(note);
-        await db.SaveChangesAsync(ct);
-
-        return note.Id;
+        Result saved = await ClientWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : note.Id;
     }
 }

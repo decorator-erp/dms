@@ -38,9 +38,8 @@ internal sealed class AddClientChildCommandHandler(CrmDbContext db) : ICommandHa
             return Result.Failure<Guid>(result.Error);
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return result.Value;
+        Result saved = await ClientWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : result.Value;
     }
 }
 
@@ -87,9 +86,7 @@ internal sealed class UpdateClientChildCommandHandler(CrmDbContext db) : IComman
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }
 
@@ -123,8 +120,6 @@ internal sealed class RemoveClientChildCommandHandler(CrmDbContext db) : IComman
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

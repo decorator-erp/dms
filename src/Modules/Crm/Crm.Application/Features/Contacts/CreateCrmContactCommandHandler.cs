@@ -62,8 +62,7 @@ internal sealed class CreateCrmContactCommandHandler(CrmDbContext db) : ICommand
         }
 
         db.CrmContacts.Add(contact);
-        await db.SaveChangesAsync(ct);
-
-        return contact.Id;
+        Result saved = await ClientWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : contact.Id;
     }
 }

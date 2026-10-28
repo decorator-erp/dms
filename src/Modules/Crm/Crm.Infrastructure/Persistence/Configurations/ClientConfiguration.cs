@@ -24,6 +24,11 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         builder.Property(c => c.MaritalStatus).HasMaxLength(64);
         builder.Property(c => c.RepresentativeName).HasMaxLength(128);
 
+        // C-6 (LC-M6): Postgres' xmin is the concurrency token. The children are a JSON column on this row,
+        // so every profile and child write updates the row and two racing writes collide here instead of
+        // the later one silently overwriting the earlier one's child.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         // Children persisted as JSONB inside the clients row - no separate table, no joins on read,
         // updated atomically with the client. Ported verbatim from the backend's own ClientConfiguration.
         builder.OwnsMany(c => c.Children, child =>

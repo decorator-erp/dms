@@ -44,8 +44,6 @@ internal sealed class SetPrimaryCrmContactCommandHandler(CrmDbContext db) : ICom
         }
 
         target.MarkPrimary();
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }

@@ -50,8 +50,6 @@ internal sealed class UpdateCrmContactCommandHandler(CrmDbContext db) : ICommand
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-
-        return Result.Success();
+        return await ClientWrites.SaveAsync(db, ct);
     }
 }
