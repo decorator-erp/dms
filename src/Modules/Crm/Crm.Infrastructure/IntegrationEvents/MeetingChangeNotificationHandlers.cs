@@ -39,7 +39,7 @@ internal sealed class MeetingCanceledNotificationHandler(
 internal static class MeetingChangeNotices
 {
     /// <summary>D-8: who else to tell (the acceptor a reschedule cleared) and who made the change (left out).</summary>
-    public sealed record Actor(Guid? PreviousAcceptedByEmployeeId, Guid? ActingEmployeeId, Guid? ActingContactId);
+    internal sealed record Actor(Guid? PreviousAcceptedByEmployeeId, Guid? ActingEmployeeId, Guid? ActingContactId);
 
     public static async Task SendAsync(
         CrmDbContext db, IHrDirectory hrDirectory, IClientDirectory clientDirectory, IProjectDirectory projectDirectory,
