@@ -53,8 +53,8 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// </summary>
     private const int PermissionsThroughPhase5 = 114;
 
-    /// <summary>C-1 <c>crm.clients.read_all</c>.</summary>
-    private static readonly string[] CrmAddedByBackendCompletion = [CrmPermissions.Clients.ReadAll];
+    /// <summary>C-1 <c>crm.clients.read_all</c> and C-8 <c>crm.notes.manage_all</c>.</summary>
+    private static readonly string[] CrmAddedByBackendCompletion = [CrmPermissions.Clients.ReadAll, CrmPermissions.Notes.ManageAll];
 
     private static int TotalPermissionsAcrossAllModules =>
         PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count

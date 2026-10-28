@@ -16,7 +16,8 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         // 450 matches ASP.NET Identity's default Id length, same convention every other module's
         // AppUserId column uses. Raw-SQL constraint added at G9-08.
         builder.Property(c => c.AppUserId).HasMaxLength(450).IsRequired();
-        builder.HasIndex(c => c.AppUserId);
+        // C-8 (LC-I1): one portal login is one client. Migration CrmClientsHardening guards existing data.
+        builder.HasIndex(c => c.AppUserId).IsUnique();
 
         builder.Property(c => c.Address).HasMaxLength(512).IsRequired();
         builder.Property(c => c.Notes).HasMaxLength(2000);

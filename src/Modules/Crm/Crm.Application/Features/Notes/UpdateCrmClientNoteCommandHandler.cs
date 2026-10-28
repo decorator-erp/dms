@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using Crm.Contracts.Notes;
 using Crm.Domain;
@@ -13,10 +14,11 @@ internal sealed class UpdateCrmClientNoteCommandValidator : AbstractValidator<Up
     {
         RuleFor(x => x.NoteId).NotEmpty();
         RuleFor(x => x.Content).NotEmpty().MaximumLength(4000);
+        RuleFor(x => x.ActingEmployeeId).NotEmpty();
     }
 }
 
-internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db) : ICommandHandler<UpdateCrmClientNoteCommand>
+internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db, ICurrentUser currentUser) : ICommandHandler<UpdateCrmClientNoteCommand>
 {
     public async Task<Result> HandleAsync(UpdateCrmClientNoteCommand command, CancellationToken ct = default)
     {
@@ -24,6 +26,12 @@ internal sealed class UpdateCrmClientNoteCommandHandler(CrmDbContext db) : IComm
         if (note is null)
         {
             return CrmClientNoteErrors.NotFound;
+        }
+
+        Result mayChange = NoteAuthorship.EnsureMayChange(note, command.ActingEmployeeId, currentUser);
+        if (mayChange.IsFailure)
+        {
+            return mayChange;
         }
 
         note.Update(command.Content);

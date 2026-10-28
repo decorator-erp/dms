@@ -331,6 +331,10 @@ internal static class CrmClientNoteErrors
 {
     public static readonly Error NotFound = Error.NotFound("crm.notes.NotFound", "Client note was not found.");
 
+    /// <summary>C-8 (LC-I1): only the author, or a <c>crm.notes.manage_all</c> holder, changes a note.</summary>
+    public static readonly Error NotAuthor = Error.Forbidden(
+        "crm.notes.NotAuthor", "Only the note's author can change or delete it.");
+
     /// <summary>C-7 (LC-L3): a note's project must be one of its client's projects.</summary>
     public static readonly Error ProjectMismatch = Error.BadRequest(
         "crm.notes.ProjectMismatch", "The note's project does not belong to this client.");

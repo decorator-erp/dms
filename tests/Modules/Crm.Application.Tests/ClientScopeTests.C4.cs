@@ -63,7 +63,7 @@ public sealed partial class ClientScopeTests
                 null, null, null, Long(2001), office), Office),
             Plain(await CommandFor<CreateCrmClientNoteCommand, Guid>(office,
                 new CreateCrmClientNoteCommand(clientId, null, Long(4001), c.P.EmployeeId, office), Office)),
-            await Command(office, new UpdateCrmClientNoteCommand(c.NoteId, Long(4001), office), Office),
+            await Command(office, new UpdateCrmClientNoteCommand(c.NoteId, Long(4001), c.P.EmployeeId, office), Office),
         ];
 
         Assert.All(results, r => AssertError(r, 400));

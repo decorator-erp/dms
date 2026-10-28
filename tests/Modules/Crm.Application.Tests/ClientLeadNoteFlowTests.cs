@@ -177,14 +177,14 @@ public sealed class ClientLeadNoteFlowTests(CrmApplicationFixture fixture)
 
         ICommandHandler<UpdateCrmClientNoteCommand> updateNote = sp.GetRequiredService<ICommandHandler<UpdateCrmClientNoteCommand>>();
         Assert.True((await updateNote.HandleAsync(
-            new UpdateCrmClientNoteCommand(noteResult.Value, "revised note", CrmTestAccess.Office(sp)))).IsSuccess);
+            new UpdateCrmClientNoteCommand(noteResult.Value, "revised note", writtenById, CrmTestAccess.Office(sp)))).IsSuccess);
 
         IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>> getNotes = sp.GetRequiredService<IQueryHandler<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>>>();
         IReadOnlyList<CrmClientNoteResponse> notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId, CrmTestAccess.Office(sp)))).Value!;
         Assert.Equal("revised note", notes.Single().Content);
 
         ICommandHandler<DeleteCrmClientNoteCommand> deleteNote = sp.GetRequiredService<ICommandHandler<DeleteCrmClientNoteCommand>>();
-        Assert.True((await deleteNote.HandleAsync(new DeleteCrmClientNoteCommand(noteResult.Value, CrmTestAccess.Office(sp)))).IsSuccess);
+        Assert.True((await deleteNote.HandleAsync(new DeleteCrmClientNoteCommand(noteResult.Value, writtenById, CrmTestAccess.Office(sp)))).IsSuccess);
 
         notes = (await getNotes.HandleAsync(new GetCrmClientNotesByClientQuery(clientId, CrmTestAccess.Office(sp)))).Value!;
         Assert.Empty(notes);

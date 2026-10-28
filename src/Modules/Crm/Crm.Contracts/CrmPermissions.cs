@@ -79,6 +79,9 @@ public static class CrmPermissions
         public const string Create = "crm.notes.create";
         public const string Update = "crm.notes.update";
         public const string Delete = "crm.notes.delete";
+
+        /// <summary>C-8 (LC-I1): change or delete a note someone else wrote. Without it only the author can.</summary>
+        public const string ManageAll = "crm.notes.manage_all";
     }
 
     public static class DesignProfile
@@ -173,7 +176,7 @@ public static class CrmPermissions
 
         Items.Read, Items.Create, Items.Update, Items.Send, Items.Supersede,
 
-        Notes.Read, Notes.Create, Notes.Update, Notes.Delete,
+        Notes.Read, Notes.Create, Notes.Update, Notes.Delete, Notes.ManageAll,
 
         DesignProfile.Read,
 

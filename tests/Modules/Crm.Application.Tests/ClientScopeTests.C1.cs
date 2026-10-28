@@ -40,10 +40,10 @@ public sealed partial class ClientScopeTests
                 new GetCrmContactsByClientQuery(clientId, outsider))),
             Plain(await CommandFor<CreateCrmClientNoteCommand, Guid>(outsider,
                 new CreateCrmClientNoteCommand(clientId, null, "Sneaky note", c.P.EmployeeId, outsider))),
-            await Command(outsider, new UpdateCrmClientNoteCommand(c.NoteId, "Rewritten", outsider)),
+            await Command(outsider, new UpdateCrmClientNoteCommand(c.NoteId, "Rewritten", Guid.NewGuid(), outsider)),
             Plain(await QueryFor<GetCrmClientNotesByClientQuery, IReadOnlyList<CrmClientNoteResponse>>(outsider,
                 new GetCrmClientNotesByClientQuery(clientId, outsider))),
-            await Command(outsider, new DeleteCrmClientNoteCommand(c.NoteId, outsider)),
+            await Command(outsider, new DeleteCrmClientNoteCommand(c.NoteId, Guid.NewGuid(), outsider)),
             await Command(outsider, new SetClientActiveCommand(clientId, false, outsider)),
             await Command(outsider, new DeleteClientCommand(clientId, outsider)),
         ];

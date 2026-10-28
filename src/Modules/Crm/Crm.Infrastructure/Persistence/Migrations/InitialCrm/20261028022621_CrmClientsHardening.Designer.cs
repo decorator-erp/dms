@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 {
     [DbContext(typeof(CrmDbContext))]
-    [Migration("20261028021543_CrmClientsHardening")]
+    [Migration("20261028022621_CrmClientsHardening")]
     partial class CrmClientsHardening
     {
         /// <inheritdoc />
@@ -243,7 +243,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AppUserId");
+                    b.HasIndex("AppUserId")
+                        .IsUnique();
 
                     b.ToTable("clients", "crm");
                 });

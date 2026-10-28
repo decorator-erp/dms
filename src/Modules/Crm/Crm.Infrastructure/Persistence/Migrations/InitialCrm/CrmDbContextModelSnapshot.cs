@@ -240,7 +240,8 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AppUserId");
+                    b.HasIndex("AppUserId")
+                        .IsUnique();
 
                     b.ToTable("clients", "crm");
                 });

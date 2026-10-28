@@ -58,7 +58,7 @@ internal sealed class CrmClientNoteEndpoints : IEndpoint
 
         byId.MapPut("/", async (
             Guid noteId, UpdateNoteRequest request, ICommandHandler<UpdateCrmClientNoteCommand> handler,
-            ICurrentUser currentUser, CancellationToken ct) =>
+            ICurrentUser currentUser, ICrmAccessGuard guard, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -66,12 +66,20 @@ internal sealed class CrmClientNoteEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result result = await handler.HandleAsync(new UpdateCrmClientNoteCommand(noteId, request.Content, userId.Value!), ct);
+            Result<Guid> actingEmployeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            if (actingEmployeeId.IsFailure)
+            {
+                return actingEmployeeId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(
+                new UpdateCrmClientNoteCommand(noteId, request.Content, actingEmployeeId.Value, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Update);
 
         byId.MapDelete("/", async (
-            Guid noteId, ICommandHandler<DeleteCrmClientNoteCommand> handler, ICurrentUser currentUser, CancellationToken ct) =>
+            Guid noteId, ICommandHandler<DeleteCrmClientNoteCommand> handler, ICurrentUser currentUser, ICrmAccessGuard guard,
+            CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -79,7 +87,13 @@ internal sealed class CrmClientNoteEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result result = await handler.HandleAsync(new DeleteCrmClientNoteCommand(noteId, userId.Value!), ct);
+            Result<Guid> actingEmployeeId = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, currentUser.UserId, ct);
+            if (actingEmployeeId.IsFailure)
+            {
+                return actingEmployeeId.ToProblem();
+            }
+
+            Result result = await handler.HandleAsync(new DeleteCrmClientNoteCommand(noteId, actingEmployeeId.Value, userId.Value!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Notes.Delete);
     }
