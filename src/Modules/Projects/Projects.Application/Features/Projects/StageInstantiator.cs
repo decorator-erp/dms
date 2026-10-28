@@ -19,7 +19,9 @@ internal sealed record StagePick(Guid StageId, string Name, string? Description,
 /// saved) onto the caller's own <c>SaveChangesAsync</c>. Department heads for every active
 /// <c>StageDepartment</c> referenced are resolved BEFORE any row is staged — if any is missing, the whole
 /// operation fails and nothing is added to the tracker (decision #7: hard-fail, no partial
-/// materialization). Shared by <c>CreateProjectCommandHandler</c> (a whole template) and the scope-of-work
+/// materialization). A failure AFTER staging has begun — a task the project refuses, such as
+/// <c>TaskErrors.StageNotAllowed</c> — returns with the earlier rows still staged in the tracker; they are
+/// never written, because every caller returns that failure without reaching its save (D-4). Shared by <c>CreateProjectCommandHandler</c> (a whole template) and the scope-of-work
 /// confirm (any subset of stages from any templates). Constructed by its callers rather than resolved from
 /// DI: <c>Projects.Infrastructure</c> registers services but can't name this internal type.
 /// </summary>
