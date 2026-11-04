@@ -9,7 +9,11 @@ public sealed record CrmArtifactDocumentResponse(
 /// <summary><see cref="DocumentId"/> must name an existing <c>documents.project_documents</c> row —
 /// validated via <c>Documents.Contracts.IDocumentQueries.GetAsync</c> before the row is created. This
 /// check is the entire replacement for the FK structural item 1 deliberately drops; an unknown id is
-/// rejected here, not by a constraint.</summary>
+/// rejected here, not by a constraint.
+///
+/// <para>M1: <see cref="AddedByEmployeeId"/> / <see cref="AddedByContactId"/> are the server-resolved
+/// caller, never request input — the HTTP route fills <see cref="AddedByEmployeeId"/> from the calling
+/// employee and its body carries neither.</para></summary>
 public sealed record LinkCrmArtifactDocumentCommand(
     Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId,
     Guid? AddedByEmployeeId, Guid? AddedByContactId, string UserId) : ICommand<Guid>, ICrmProjectScoped

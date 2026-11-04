@@ -6,6 +6,7 @@ using BuildingBlocks.Web.Results;
 using Crm.Contracts;
 using Crm.Contracts.Artifacts;
 using Crm.Domain;
+using Crm.Infrastructure.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -24,8 +25,8 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
         RouteGroupBuilder artifacts = app.MapGroup("/api/crm/artifacts").WithTags("Crm Artifacts");
 
         artifacts.MapPost("/", async (
-            LinkArtifactRequest request, ICurrentUser currentUser, ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> handler,
-            CancellationToken ct) =>
+            LinkArtifactRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
+            ICommandHandler<LinkCrmArtifactDocumentCommand, Guid> handler, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
             if (userId.IsFailure)
@@ -39,9 +40,17 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
                 return Result.Failure(CrmArtifactErrors.InvalidSubject).ToProblem();
             }
 
+            // M1: the author is the calling employee, resolved here — never taken from the body. The route is
+            // office-only (crm.artifacts.manage), so a contact is never the author on this path.
+            Result<Guid> addedById = await CrmEndpointActors.ResolveEmployeeIdAsync(guard, userId.Value, ct);
+            if (addedById.IsFailure)
+            {
+                return addedById.ToProblem();
+            }
+
             Result<Guid> result = await handler.HandleAsync(new LinkCrmArtifactDocumentCommand(
                 request.DocumentId, request.BriefId, request.SpaceId, request.RequirementItemId, request.MeetingId,
-                request.AddedByEmployeeId, request.AddedByContactId, userId.Value!), ct);
+                addedById.Value, AddedByContactId: null, userId.Value!), ct);
             return result.Match(id => Results.Created($"/api/crm/artifacts/{id}", new { ArtifactDocumentId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Manage);
 
@@ -103,8 +112,8 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Artifacts.Read);
     }
 
-    /// <summary>The link body: the command's fields without <c>UserId</c>, which comes from the token.</summary>
+    /// <summary>The link body: the document and its one subject. <c>UserId</c> comes from the token and the
+    /// author from <see cref="CrmEndpointActors.ResolveEmployeeIdAsync"/> (M1) — neither is client-supplied.</summary>
     private sealed record LinkArtifactRequest(
-        Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId,
-        Guid? AddedByEmployeeId, Guid? AddedByContactId);
+        Guid DocumentId, Guid? BriefId, Guid? SpaceId, Guid? RequirementItemId, Guid? MeetingId);
 }
