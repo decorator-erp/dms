@@ -43,11 +43,54 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
         Assert.Equal(
-            ["crm.briefs.view_own", "crm.meetings.request_own", "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal",
-                "notifications.view_own"],
+            ["crm.approvals.decide_own", "crm.approvals.view_own", "crm.briefs.view_own", "crm.meetings.request_own",
+                "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal", "notifications.view_own"],
             await ClaimsOfAsync(cs, DefaultRoles.Client));
         Assert.Equal(1L, await ScalarAsync(cs, $"""SELECT count(*) FROM identity.seed_markers WHERE "Key" = '{BaselineClaimSeeder.MarkerKey}'"""));
         Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v2'"""));
+        Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v3'"""));
+    }
+
+    /// <summary>B1.4: a database seeded before v3 (v1 and v2 markers, client without the approval
+    /// <c>_own</c> codes) gives the client <c>crm.approvals.view_own</c> and <c>crm.approvals.decide_own</c> on
+    /// the next start, so a portal client can list and decide its approvals. A v2 claim an admin removed
+    /// meanwhile stays removed: v3 re-grants only its own codes.</summary>
+    [Fact]
+    public async Task A_database_seeded_before_v3_gives_the_client_the_approval_own_codes_on_the_next_start()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs);
+
+        await ExecuteAsync(cs, """DELETE FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v3'""");
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client'
+              AND rc."ClaimValue" IN ('crm.approvals.view_own', 'crm.approvals.decide_own', 'notifications.view_own')
+            """);
+
+        await SeedModuleAsync(cs);
+
+        List<string> client = await ClaimsOfAsync(cs, DefaultRoles.Client);
+        Assert.Contains("crm.approvals.view_own", client);
+        Assert.Contains("crm.approvals.decide_own", client);
+        Assert.DoesNotContain("notifications.view_own", client);
+        Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
+    }
+
+    /// <summary>B1.4: v3 also runs once. An admin who removes the client's decide permission keeps it removed.</summary>
+    [Fact]
+    public async Task The_v3_claim_an_admin_removed_stays_removed_on_the_next_start()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs);
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client' AND rc."ClaimValue" = 'crm.approvals.decide_own'
+            """);
+
+        await SeedModuleAsync(cs);
+
+        Assert.DoesNotContain("crm.approvals.decide_own", await ClaimsOfAsync(cs, DefaultRoles.Client));
     }
 
     /// <summary>B-16 (I1): a database seeded before v2 existed (v1 marker only, client without
@@ -120,9 +163,9 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(2L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers"));
+        Assert.Equal(3L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers"));
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
-        Assert.Equal(6, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count);
+        Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count);
     }
 
     private static async Task SeedBaselineAsync(ServiceProvider provider)
@@ -185,7 +228,10 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet("Notifications", ["notifications.view_own"]));
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
             "Crm",
-            ["crm.portal", "crm.briefs.view_own", "crm.meetings.view_own", "crm.meetings.request_own", "crm.meetings.respond_own"]));
+            [
+                "crm.portal", "crm.briefs.view_own", "crm.meetings.view_own", "crm.meetings.request_own", "crm.meetings.respond_own",
+                "crm.approvals.view_own", "crm.approvals.decide_own",
+            ]));
         return services.BuildServiceProvider();
     }
 
