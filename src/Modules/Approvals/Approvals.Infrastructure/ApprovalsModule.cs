@@ -41,6 +41,9 @@ internal sealed class ApprovalsModule : IModule
         // B1.1: the client's portal decision - called only by CRM's portal decide command (arch-tested).
         services.AddScoped<IApprovalDecider, ApprovalDecider>();
 
+        // B1.3: the client's approvals inbox, paged here (C5).
+        services.AddScoped<IClientApprovalReader, ClientApprovalReader>();
+
         var applicationAssembly = Assembly.Load("Approvals.Application");
         services.AddModuleCqrs<ApprovalsDbContext>(applicationAssembly);
 

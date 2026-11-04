@@ -66,6 +66,16 @@ internal sealed class CrmPortalEndpoints : IEndpoint
                 id => Results.Created($"/api/crm/requirement-items/{id}", new { ItemId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Requirements.SubmitOwn);
 
+        // B1.3: the client's approvals inbox, paged on the Approvals side.
+        portal.MapGet("/approvals", async (
+            string? status, int? pageNumber, int? pageSize, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalApprovalsQuery, PagedResult<PortalApprovalResponse>> handler, CancellationToken ct) =>
+        {
+            Result<PagedResult<PortalApprovalResponse>> result = await handler.HandleAsync(
+                new GetMyPortalApprovalsQuery(currentUser.UserId!, status, pageNumber ?? 1, pageSize ?? 50), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Approvals.ViewOwn);
+
         // B1.2: the client's own decision. 403 (decide_own) → 404 (not the caller's subject) → 409 (decided).
         portal.MapPut("/approvals/{approvalId:guid}/decide", async (
             Guid approvalId, DecidePortalApprovalRequest request, ICurrentUser currentUser,

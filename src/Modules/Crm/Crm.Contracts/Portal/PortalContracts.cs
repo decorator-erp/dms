@@ -104,3 +104,22 @@ public sealed record DecideMyPortalApprovalCommand(
 /// on them never counted) — only for a brief on one of the caller's own projects; otherwise 404.</summary>
 public sealed record GetMyPortalBriefRoundsQuery(string AppUserId, Guid BriefId)
     : IQuery<IReadOnlyList<CrmBriefRoundResponse>>, ICrmScoped;
+
+/// <summary>B1.3: one row of the client's approvals inbox. Portal-only: no employee ids, no office fields.
+/// <see cref="ProjectName"/> and <see cref="StageName"/> come from Projects; <see cref="Round"/> is the brief
+/// round or the entry/item send it was sent under (null when it cannot be told, e.g. a legacy id);
+/// <see cref="Title"/> is the item's title or the entry's space name (null for a brief round and for a
+/// general entry); <see cref="BriefId"/> is the brief for a brief round or entry. <see cref="Comment"/> is the
+/// client's own comment, null when the decision was not the caller's.</summary>
+public sealed record PortalApprovalResponse(
+    Guid Id, PortalApprovalSubjectType SubjectType, Guid SubjectId, Guid ProjectId, string ProjectName,
+    Guid? BriefId, Guid? StageId, string? StageName, int? Round, string? Title, DateTime RequestedAtUtc,
+    DateTime? DueAtUtc, PortalApprovalDecision? Decision, DateTime? DecidedAtUtc, string? Comment);
+
+/// <summary>B1.3: the calling client's own approvals. <see cref="Status"/> is <c>pending</c> (default) or
+/// <c>decided</c> (else <c>crm.portal.InvalidStatus</c>, 400); <see cref="PageNumber"/> 1..1,000,000,
+/// <see cref="PageSize"/> 1..200. Paged on the Approvals side; a row whose project is not the caller's is
+/// dropped after paging, so <c>TotalCount</c> can over-count by those rows.</summary>
+public sealed record GetMyPortalApprovalsQuery(
+    string AppUserId, string? Status = null, int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<PortalApprovalResponse>>, ICrmScoped;

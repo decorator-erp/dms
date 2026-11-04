@@ -139,7 +139,7 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
         new(a.Id, ToContracts(a.SubjectType), a.SubjectId, ToContracts(a.State),
             a.Decision.HasValue ? ToContracts(a.Decision.Value) : null, a.DecidedAtUtc);
 
-    private static Domain.ApprovalSubjectType ToDomain(ApprovalSubjectType t) => t switch
+    internal static Domain.ApprovalSubjectType ToDomain(ApprovalSubjectType t) => t switch
     {
         ApprovalSubjectType.GateCondition => Domain.ApprovalSubjectType.GateCondition,
         ApprovalSubjectType.DesignBrief => Domain.ApprovalSubjectType.DesignBrief,
