@@ -149,7 +149,7 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
         _ => throw new ArgumentOutOfRangeException(nameof(t), t, null),
     };
 
-    private static ApprovalSubjectType ToContracts(Domain.ApprovalSubjectType t) => t switch
+    internal static ApprovalSubjectType ToContracts(Domain.ApprovalSubjectType t) => t switch
     {
         Domain.ApprovalSubjectType.GateCondition => ApprovalSubjectType.GateCondition,
         Domain.ApprovalSubjectType.DesignBrief => ApprovalSubjectType.DesignBrief,
@@ -183,7 +183,15 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
         _ => throw new ArgumentOutOfRangeException(nameof(s), s, null),
     };
 
-    private static ApprovalDecision ToContracts(Domain.ApprovalDecision d) => d switch
+    internal static Domain.ApprovalDecision ToDomain(ApprovalDecision d) => d switch
+    {
+        ApprovalDecision.Approved => Domain.ApprovalDecision.Approved,
+        ApprovalDecision.Rejected => Domain.ApprovalDecision.Rejected,
+        ApprovalDecision.ChangesRequested => Domain.ApprovalDecision.ChangesRequested,
+        _ => throw new ArgumentOutOfRangeException(nameof(d), d, null),
+    };
+
+    internal static ApprovalDecision ToContracts(Domain.ApprovalDecision d) => d switch
     {
         Domain.ApprovalDecision.Approved => ApprovalDecision.Approved,
         Domain.ApprovalDecision.Rejected => ApprovalDecision.Rejected,
