@@ -36,7 +36,9 @@ namespace Crm.Application.Features.Jobs;
 /// <para><b>Three guards, and they are not redundant.</b> <c>Close()</c> refuses a period that is not
 /// Open (so a race with the manual command loses harmlessly); the dedupe key makes the notification
 /// idempotent; and <c>MarkCloseNotified</c> records that the client was told. The domain method is
-/// itself idempotent, so a crash anywhere in the sequence resumes safely on the next tick.</para>
+/// itself idempotent, so a crash anywhere in the sequence resumes safely on the next tick: a period still Open
+/// is closed again, and one Closed without <c>CloseNotifiedAtUtc</c> has its notify step retried
+/// (FINDING-P1-3).</para>
 /// </summary>
 internal sealed class CrmPeriodCloseJob(
     CrmDbContext db,
@@ -54,24 +56,40 @@ internal sealed class CrmPeriodCloseJob(
         DateTime now = timeProvider.GetUtcNow().UtcDateTime;
 
         List<Guid> dueIds = await Due(now).OrderBy(p => p.ClosesAtUtc).Select(p => p.Id).ToListAsync(ct);
+        // FINDING-P1-3: periods a previous run closed but never got to tell the client about (the lookup or
+        // the notification threw after the close committed). Scanned before this run closes anything, so a
+        // period closed below is not notified twice in one run.
+        List<Guid> unnotifiedIds = await ClosedUnnotified().OrderBy(p => p.ClosedAtUtc).Select(p => p.Id).ToListAsync(ct);
 
         foreach (Guid periodId in dueIds)
         {
             // L-3: one period failing (an xmin conflict with a concurrent extend or close, a notification
             // error) is logged and costs that period only; the run moves on to the next due period, as
             // CrmMeetingReminderJob does per meeting. Whatever it left tracked is dropped with it.
-            try
-            {
-                await CloseAndNotifyAsync(periodId, now, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Closing requirement period {PeriodId} failed; it is retried on the next run.", periodId);
-            }
-            finally
-            {
-                db.ChangeTracker.Clear();
-            }
+            await RunIsolatedAsync(periodId, () => CloseAndNotifyAsync(periodId, now, ct));
+        }
+
+        foreach (Guid periodId in unnotifiedIds)
+        {
+            await RunIsolatedAsync(periodId, () => NotifyClosedAsync(periodId, now, ct));
+        }
+    }
+
+    private async Task RunIsolatedAsync(Guid periodId, Func<Task> step)
+    {
+        try
+        {
+            await step();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Whichever step threw is retried next run: a close that did not commit leaves the period Open
+            // (Due), a notification that did not happen leaves CloseNotifiedAtUtc null (ClosedUnnotified).
+            logger.LogError(ex, "Closing or notifying requirement period {PeriodId} failed; the step that did not complete is retried on the next run.", periodId);
+        }
+        finally
+        {
+            db.ChangeTracker.Clear();
         }
     }
 
@@ -79,6 +97,15 @@ internal sealed class CrmPeriodCloseJob(
         db.CrmRequirementPeriods.Where(p => p.IsActive
             && p.Status == RequirementPeriodStatus.Open
             && p.ClosesAtUtc <= now);
+
+    /// <summary>Closed on or after its target time (so by this job, or by hand once overdue) and the client
+    /// not yet told. A period closed by hand before its target time is not this job's to announce — the
+    /// manual close never notified — so it is excluded.</summary>
+    private IQueryable<CrmRequirementPeriod> ClosedUnnotified() =>
+        db.CrmRequirementPeriods.Where(p => p.IsActive
+            && p.Status == RequirementPeriodStatus.Closed
+            && p.CloseNotifiedAtUtc == null
+            && p.ClosedAtUtc >= p.ClosesAtUtc);
 
     private async Task CloseAndNotifyAsync(Guid periodId, DateTime now, CancellationToken ct)
     {
@@ -109,11 +136,28 @@ internal sealed class CrmPeriodCloseJob(
             return;
         }
 
+        await NotifyAndStampAsync(period, now, ct);
+    }
+
+    /// <summary>The retry of the notify step alone, for a period an earlier run closed.</summary>
+    private async Task NotifyClosedAsync(Guid periodId, DateTime now, CancellationToken ct)
+    {
+        // Re-filtered: a concurrent run may have stamped it since the id scan.
+        CrmRequirementPeriod? period = await ClosedUnnotified().SingleOrDefaultAsync(p => p.Id == periodId, ct);
+        if (period is not null)
+        {
+            await NotifyAndStampAsync(period, now, ct);
+        }
+    }
+
+    private async Task NotifyAndStampAsync(CrmRequirementPeriod period, DateTime now, CancellationToken ct)
+    {
         ProjectSummary? project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
         ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
 
         if (!string.IsNullOrEmpty(client?.AppUserId))
         {
+            // The dedupe key makes a retry after a lost stamp a no-op on the Notifications side.
             await notifications.NotifyAsync(
                 client.AppUserId,
                 NotificationType.CrmPeriodClosed,
@@ -129,7 +173,7 @@ internal sealed class CrmPeriodCloseJob(
             Result saved = await ItemWrites.SaveAsync(db, ct, CrmPeriodErrors.ConcurrentUpdate);
             if (saved.IsFailure)
             {
-                logger.LogWarning("Requirement period {PeriodId} closed, but its notified stamp was not saved: {Code}.", periodId, saved.Error.Code);
+                logger.LogWarning("Requirement period {PeriodId} closed, but its notified stamp was not saved: {Code}.", period.Id, saved.Error.Code);
             }
         }
     }
