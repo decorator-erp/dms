@@ -6,6 +6,7 @@ using Crm.Infrastructure.Persistence;
 using Crm.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Notifications.Contracts;
 using Projects.Contracts;
 using SharedKernel;
@@ -43,7 +44,8 @@ internal sealed class CrmPeriodCloseJob(
     IProjectDirectory projectDirectory,
     INotificationService notifications,
     CrmApprovalOutcomes outcomes,
-    TimeProvider timeProvider) : IPeriodicJob
+    TimeProvider timeProvider,
+    ILogger<CrmPeriodCloseJob> logger) : IPeriodicJob
 {
     public string Name => nameof(CrmPeriodCloseJob);
 
@@ -51,49 +53,83 @@ internal sealed class CrmPeriodCloseJob(
     {
         DateTime now = timeProvider.GetUtcNow().UtcDateTime;
 
-        List<CrmRequirementPeriod> due = await db.CrmRequirementPeriods
-            .Where(p => p.IsActive
-                        && p.Status == RequirementPeriodStatus.Open
-                        && p.ClosesAtUtc <= now)
-            .ToListAsync(ct);
+        List<Guid> dueIds = await Due(now).OrderBy(p => p.ClosesAtUtc).Select(p => p.Id).ToListAsync(ct);
 
-        foreach (CrmRequirementPeriod? period in due)
+        foreach (Guid periodId in dueIds)
         {
-            // B3: the same close sequence as the manual command, so an expired period whose last open
-            // items were Draft or Rejected announces the scopes it resolved. The job has no command
-            // pipeline, so it owns the transaction the close and its events commit in.
-            Result closed;
-            await using (IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(ct))
+            // L-3: one period failing (an xmin conflict with a concurrent extend or close, a notification
+            // error) is logged and costs that period only; the run moves on to the next due period, as
+            // CrmMeetingReminderJob does per meeting. Whatever it left tracked is dropped with it.
+            try
             {
-                closed = await CrmPeriodCloser.CloseAsync(db, outcomes, period, now, ct);
-                if (closed.IsSuccess)
-                {
-                    await transaction.CommitAsync(ct);
-                }
+                await CloseAndNotifyAsync(periodId, now, ct);
             }
-
-            if (closed.IsFailure)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                continue; // already closed by another actor between the read and here.
+                logger.LogError(ex, "Closing requirement period {PeriodId} failed; it is retried on the next run.", periodId);
             }
-
-            ProjectSummary? project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
-            ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
-
-            if (!string.IsNullOrEmpty(client?.AppUserId))
+            finally
             {
-                await notifications.NotifyAsync(
-                    client.AppUserId,
-                    NotificationType.CrmPeriodClosed,
-                    title: "Requirement gathering is finished",
-                    body: "The gathering window has closed. If you have any final requirement, tell us now.",
-                    entityType: NotificationEntityType.RequirementPeriod,
-                    entityId: period.Id,
-                    dedupeKey: $"crm-period-{period.Id}-closed",
-                    ct: ct);
+                db.ChangeTracker.Clear();
+            }
+        }
+    }
 
-                period.MarkCloseNotified(now);
-                await db.SaveChangesAsync(ct);
+    private IQueryable<CrmRequirementPeriod> Due(DateTime now) =>
+        db.CrmRequirementPeriods.Where(p => p.IsActive
+            && p.Status == RequirementPeriodStatus.Open
+            && p.ClosesAtUtc <= now);
+
+    private async Task CloseAndNotifyAsync(Guid periodId, DateTime now, CancellationToken ct)
+    {
+        // Re-filtered: a period closed or extended since the id scan is no longer due.
+        CrmRequirementPeriod? period = await Due(now).SingleOrDefaultAsync(p => p.Id == periodId, ct);
+        if (period is null)
+        {
+            return;
+        }
+
+        // B3: the same close sequence as the manual command, so an expired period whose last open
+        // items were Draft or Rejected announces the scopes it resolved. The job has no command
+        // pipeline, so it owns the transaction the close and its events commit in.
+        Result closed;
+        await using (IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(ct))
+        {
+            closed = await CrmPeriodCloser.CloseAsync(db, outcomes, period, now, ct);
+            if (closed.IsSuccess)
+            {
+                await transaction.CommitAsync(ct);
+            }
+        }
+
+        if (closed.IsFailure)
+        {
+            // Lost a race with another actor between the read and here (already closed, or an xmin 409).
+            logger.LogWarning("Requirement period {PeriodId} was not closed by the job: {Code}.", periodId, closed.Error.Code);
+            return;
+        }
+
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
+        ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
+
+        if (!string.IsNullOrEmpty(client?.AppUserId))
+        {
+            await notifications.NotifyAsync(
+                client.AppUserId,
+                NotificationType.CrmPeriodClosed,
+                title: "Requirement gathering is finished",
+                body: "The gathering window has closed. If you have any final requirement, tell us now.",
+                entityType: NotificationEntityType.RequirementPeriod,
+                entityId: period.Id,
+                dedupeKey: $"crm-period-{period.Id}-closed",
+                ct: ct);
+
+            period.MarkCloseNotified(now);
+            // L-3: through ItemWrites, so a concurrent change to the row is a logged 409, not a thrown run.
+            Result saved = await ItemWrites.SaveAsync(db, ct, CrmPeriodErrors.ConcurrentUpdate);
+            if (saved.IsFailure)
+            {
+                logger.LogWarning("Requirement period {PeriodId} closed, but its notified stamp was not saved: {Code}.", periodId, saved.Error.Code);
             }
         }
     }
