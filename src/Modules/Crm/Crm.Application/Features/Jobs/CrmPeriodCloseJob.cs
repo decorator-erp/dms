@@ -49,6 +49,15 @@ internal sealed class CrmPeriodCloseJob(
     TimeProvider timeProvider,
     ILogger<CrmPeriodCloseJob> logger) : IPeriodicJob
 {
+    /// <summary>FINDING-P1-12: how far back the notify retry looks. Only a period closed within this window
+    /// (<c>ClosedAtUtc &gt;= now - RetryWindow</c>) has a failed notify retried. The job runs far more often than
+    /// this, so a transient failure gets many retries inside it; without a bound, the first run after a deploy
+    /// would tell every client whose period was ever closed after its due date — months-old ones included —
+    /// and a period whose client has no portal user (nothing to notify, so never stamped) would be rescanned
+    /// on every run forever. Two days: long enough to ride out an outage of a weekend's length, short enough
+    /// that a "the window has closed" message is still news.</summary>
+    internal static readonly TimeSpan RetryWindow = TimeSpan.FromDays(2);
+
     public string Name => nameof(CrmPeriodCloseJob);
 
     public async Task RunAsync(CancellationToken ct)
@@ -59,7 +68,7 @@ internal sealed class CrmPeriodCloseJob(
         // FINDING-P1-3: periods a previous run closed but never got to tell the client about (the lookup or
         // the notification threw after the close committed). Scanned before this run closes anything, so a
         // period closed below is not notified twice in one run.
-        List<Guid> unnotifiedIds = await ClosedUnnotified().OrderBy(p => p.ClosedAtUtc).Select(p => p.Id).ToListAsync(ct);
+        List<Guid> unnotifiedIds = await ClosedUnnotified(now).OrderBy(p => p.ClosedAtUtc).Select(p => p.Id).ToListAsync(ct);
 
         foreach (Guid periodId in dueIds)
         {
@@ -100,12 +109,16 @@ internal sealed class CrmPeriodCloseJob(
 
     /// <summary>Closed on or after its target time (so by this job, or by hand once overdue) and the client
     /// not yet told. A period closed by hand before its target time is not this job's to announce — the
-    /// manual close never notified — so it is excluded.</summary>
-    private IQueryable<CrmRequirementPeriod> ClosedUnnotified() =>
-        db.CrmRequirementPeriods.Where(p => p.IsActive
+    /// manual close never notified — so it is excluded. Bounded by <see cref="RetryWindow"/> (FINDING-P1-12).</summary>
+    private IQueryable<CrmRequirementPeriod> ClosedUnnotified(DateTime now)
+    {
+        DateTime retryFrom = now - RetryWindow;
+        return db.CrmRequirementPeriods.Where(p => p.IsActive
             && p.Status == RequirementPeriodStatus.Closed
             && p.CloseNotifiedAtUtc == null
-            && p.ClosedAtUtc >= p.ClosesAtUtc);
+            && p.ClosedAtUtc >= p.ClosesAtUtc
+            && p.ClosedAtUtc >= retryFrom);
+    }
 
     private async Task CloseAndNotifyAsync(Guid periodId, DateTime now, CancellationToken ct)
     {
@@ -143,7 +156,7 @@ internal sealed class CrmPeriodCloseJob(
     private async Task NotifyClosedAsync(Guid periodId, DateTime now, CancellationToken ct)
     {
         // Re-filtered: a concurrent run may have stamped it since the id scan.
-        CrmRequirementPeriod? period = await ClosedUnnotified().SingleOrDefaultAsync(p => p.Id == periodId, ct);
+        CrmRequirementPeriod? period = await ClosedUnnotified(now).SingleOrDefaultAsync(p => p.Id == periodId, ct);
         if (period is not null)
         {
             await NotifyAndStampAsync(period, now, ct);
