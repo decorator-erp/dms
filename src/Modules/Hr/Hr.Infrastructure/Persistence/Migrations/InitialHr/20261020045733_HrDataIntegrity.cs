@@ -20,7 +20,7 @@ namespace Hr.Infrastructure.Persistence.Migrations.InitialHr;
 /// <para><b>The guards refuse to migrate over data that breaks a new rule, rather than fixing it.</b>
 /// Which membership to keep, which contract type was meant, which duplicate name to rename: each is
 /// a decision for a person, made with a reviewed script before deploying (see
-/// HR-IDENTITY-FIX-NOTES.md, Phase 2 §4). They run first, before any DDL, so a refused migration
+/// ../docs/backend/dms-modular/reports/HR-IDENTITY-FIX-NOTES.md, Phase 2 §4). They run first, before any DDL, so a refused migration
 /// changes nothing.</para>
 /// </summary>
 public partial class HrDataIntegrity : Migration
