@@ -1,9 +1,11 @@
 using BuildingBlocks.Jobs;
-using BuildingBlocks.Outbox;
+using Crm.Application.Features.Periods;
 using Crm.Contracts;
 using Crm.Domain;
 using Crm.Infrastructure.Persistence;
+using Crm.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Notifications.Contracts;
 using Projects.Contracts;
 using SharedKernel;
@@ -17,6 +19,10 @@ namespace Crm.Application.Features.Jobs;
 /// <para><b>The only job here that mutates anything.</b> The other six read and notify; this one is the
 /// scheduled half of a real state transition, and closing an overdue window is CRM's own data, so it
 /// belongs to CRM whether or not a notification follows.</para>
+///
+/// <para><b>It closes through the same <see cref="CrmPeriodCloser"/> the manual path does</b> (B3),
+/// so the Draft and Rejected items it drops from the gate publish <c>CrmItemsResolvedIntegrationEvent</c>
+/// for the scopes they resolve, exactly as a manual close.</para>
 ///
 /// <para><b>It publishes the same integration event the manual path does.</b>
 /// <c>CloseCrmRequirementPeriodCommandHandler</c> enqueues <c>CrmPeriodClosedIntegrationEvent</c> when
@@ -36,6 +42,7 @@ internal sealed class CrmPeriodCloseJob(
     IClientDirectory clientDirectory,
     IProjectDirectory projectDirectory,
     INotificationService notifications,
+    CrmApprovalOutcomes outcomes,
     TimeProvider timeProvider) : IPeriodicJob
 {
     public string Name => nameof(CrmPeriodCloseJob);
@@ -52,19 +59,23 @@ internal sealed class CrmPeriodCloseJob(
 
         foreach (CrmRequirementPeriod? period in due)
         {
-            Result closed = period.Close(now);
+            // B3: the same close sequence as the manual command, so an expired period whose last open
+            // items were Draft or Rejected announces the scopes it resolved. The job has no command
+            // pipeline, so it owns the transaction the close and its events commit in.
+            Result closed;
+            await using (IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(ct))
+            {
+                closed = await CrmPeriodCloser.CloseAsync(db, outcomes, period, now, ct);
+                if (closed.IsSuccess)
+                {
+                    await transaction.CommitAsync(ct);
+                }
+            }
+
             if (closed.IsFailure)
             {
                 continue; // already closed by another actor between the read and here.
             }
-
-            if (period.ProjectStageId is { } stageId)
-            {
-                db.Outbox().Enqueue(new CrmPeriodClosedIntegrationEvent(
-                    Guid.NewGuid(), period.Id, stageId, DateTimeOffset.UtcNow));
-            }
-
-            await db.SaveChangesAsync(ct);
 
             ProjectSummary? project = await projectDirectory.GetProjectAsync(period.ProjectId, ct);
             ClientSummary? client = project is null ? null : await clientDirectory.GetAsync(project.ClientId, ct);
