@@ -27,11 +27,10 @@ namespace Crm.Application.Tests;
 /// CRM before it requests, the approval id is deterministic per round, and the office sender is the
 /// requester.
 ///
-/// <para><b>M6 is NOT exercised here.</b> These tests decide through the real
-/// <see cref="DecideApprovalCommand"/> handler with the client as the current user, which proves the
-/// approval→CRM path. They do not prove the client can reach that path over HTTP: the route requires
-/// <c>approvals.decide</c>, which the seeded Client role does not hold (see docs/backend/dms-modular/reports/CRM-BRIEF-FIX-NOTES.md, M6).
-/// Hence the <c>ClientDecidesViaHandler_NotPortalRoute</c> naming.</para>
+/// <para>These tests decide through the office <see cref="DecideApprovalCommand"/> handler with the client as
+/// the current user, which proves the approval→CRM path. The client's own route is the portal decide (B1,
+/// <c>PUT /api/crm/portal/approvals/{id}/decide</c>), covered by <c>PortalApprovalTests</c> and
+/// <c>CrmPortalApprovalRouteTests</c>. Hence the <c>ClientDecidesViaHandler_NotPortalRoute</c> naming.</para>
 /// </summary>
 [Collection(CrmApplicationCollection.Name)]
 public sealed class BriefRoundFlowTests(CrmApplicationFixture fixture)

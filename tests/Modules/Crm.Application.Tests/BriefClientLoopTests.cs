@@ -20,8 +20,8 @@ namespace Crm.Application.Tests;
 /// <summary>
 /// Run C of the CRM brief fixes (M5): the client's view of a brief is what they were last sent, without
 /// the office's budget, and the round diff exists for both audiences — the client's never carrying
-/// <c>ExpectedBudget</c>. Client decisions go through the <see cref="DecideApprovalCommand"/> handler, not
-/// the HTTP route (M6 is blocked: the Client role holds no <c>approvals.decide</c>).
+/// <c>ExpectedBudget</c>. Client decisions here go through the <see cref="DecideApprovalCommand"/> handler; the
+/// client's portal decide (B1) is covered by <c>PortalApprovalTests</c>.
 /// </summary>
 [Collection(CrmApplicationCollection.Name)]
 public sealed class BriefClientLoopTests(CrmApplicationFixture fixture)
