@@ -62,7 +62,7 @@ internal sealed class CreateProjectCommandHandler(
         var project = Domain.Project.Create(
             command.Code, command.Name, command.Address, ProjectsEnumMapping.ToDomain(command.WorkflowType),
             command.ClientId, ownerId.Value, command.Description, command.Notes,
-            command.EstimatedStartDate, command.EstimatedEndDate);
+            ProjectDates.ToUtc(command.EstimatedStartDate), ProjectDates.ToUtc(command.EstimatedEndDate));
         db.Projects.Add(project);
 
         if (command.StageTemplateId is { } stageTemplateId)
@@ -118,7 +118,7 @@ internal sealed class UpdateProjectCommandHandler(ProjectsDbContext db) : IComma
 
         project.Update(
             command.Name, command.Description, command.Address, command.Notes,
-            command.EstimatedStartDate, command.EstimatedEndDate);
+            ProjectDates.ToUtc(command.EstimatedStartDate), ProjectDates.ToUtc(command.EstimatedEndDate));
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
