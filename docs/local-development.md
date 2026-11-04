@@ -4,6 +4,12 @@
 but empty, and `Architecture.Tests` (`CommittedSecretsTests`) fails if either gets a value in any
 `src/Api/appsettings*.json`. Supply both yourself.
 
+`ConnectionStrings:DefaultConnection` in `appsettings.json` has an empty password, and `CommittedSecretsTests`
+fails if it gets one there. The local docker database's connection string (the `postgres` service in
+`docker-compose.yml`, host port 5433) is in `appsettings.Development.json`, which loads only when
+`ASPNETCORE_ENVIRONMENT=Development` (the `http` launch profile and `docker-compose.override.yml` set it), so
+`docker compose up -d` and `dotnet run` work with no extra step.
+
 ## Development: user-secrets
 
 ```
@@ -33,5 +39,6 @@ Supply both as environment variables:
 |---|---|
 | `JwtSettings__Key` | Required on every start. At least 32 characters. |
 | `DMS_SEED_ADMIN_PASSWORD` | Required whenever the database has no seeded admin yet; outside Development the API refuses to start without it. Once the admin exists it is no longer read. |
+| `ConnectionStrings__DefaultConnection` | Required on every start: the full Npgsql connection string, password included. It overrides the password-less shape in `appsettings.json`. Never run Production with `ASPNETCORE_ENVIRONMENT=Development`, which would load the local docker value instead. |
 
-Never put either value in a committed file, including `appsettings.Development.json`.
+Never put the JWT key or the seed password in a committed file, including `appsettings.Development.json`.

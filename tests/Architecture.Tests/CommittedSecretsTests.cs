@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 using Xunit;
 
@@ -37,6 +38,36 @@ public sealed class CommittedSecretsTests
                     violations.Add(
                         $"{Path.GetRelativePath(SolutionRoot.Path, file)}: {string.Join(':', path)} has a value. "
                         + "Keep it empty here; supply it from user-secrets (Development) or an environment variable.");
+                }
+            }
+        }
+
+        Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>L-6 (CRM production review): the base <c>appsettings.json</c> loads in every environment, so
+    /// no connection string in it may carry a password. The local docker value lives in
+    /// <c>appsettings.Development.json</c>; every other environment supplies
+    /// <c>ConnectionStrings__DefaultConnection</c>. A failure names the key, never the value.</summary>
+    [Fact]
+    public void The_base_appsettings_file_carries_no_connection_string_password()
+    {
+        string file = Path.Combine(SolutionRoot.Path, "src", "Api", "appsettings.json");
+        var options = new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+        using var document = JsonDocument.Parse(File.ReadAllText(file), options);
+        List<string> violations = [];
+
+        if (TryFind(document.RootElement, ["ConnectionStrings"], out JsonElement connectionStrings)
+            && connectionStrings.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty connectionString in connectionStrings.EnumerateObject())
+            {
+                var builder = new DbConnectionStringBuilder { ConnectionString = connectionString.Value.GetString() ?? string.Empty };
+                if (builder.TryGetValue("Password", out object? password) && !string.IsNullOrWhiteSpace(password?.ToString()))
+                {
+                    violations.Add($"src/Api/appsettings.json: ConnectionStrings:{connectionString.Name} has a password. "
+                        + "Keep it empty here; Development reads appsettings.Development.json, every other environment "
+                        + "ConnectionStrings__" + connectionString.Name + ".");
                 }
             }
         }
