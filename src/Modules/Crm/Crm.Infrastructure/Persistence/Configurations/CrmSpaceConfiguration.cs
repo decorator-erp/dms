@@ -27,6 +27,6 @@ internal sealed class CrmSpaceConfiguration : IEntityTypeConfiguration<CrmSpace>
         // CrmItemsPeriodsHardening creates it with raw SQL as
         //   ux_crm_spaces_project_name ON crm.crm_spaces ("ProjectId", lower("Name")),
         // and CatalogWrites maps its violation to crm.spaces.DuplicateName (the handlers pre-check the same
-        // comparison in SQL, lower(trim(name)) - D-16 / A-F6).
+        // comparison in SQL, lower(name) over the C#-trimmed name - D-16 / A-F6, N-1).
     }
 }
