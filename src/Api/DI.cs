@@ -25,7 +25,7 @@ namespace Api;
 
 public static class DI
 {
-    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration cfg)
+    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration cfg, IHostEnvironment env)
     {
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
@@ -47,6 +47,8 @@ public static class DI
                 + "for local development, or via configured environment variables elsewhere. There is no "
                 + "default — a committed signing key is a credential in the repository.");
         }
+
+        EnsureConnectionStringPassword(cfg, env);
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -302,6 +304,39 @@ public static class DI
                     Window = TimeSpan.FromSeconds(seconds),
                     QueueLimit = 0,
                 }));
+    }
+
+    /// <summary>FINDING-P1-9: <c>appsettings.json</c> commits the connection string with an empty password (L-6),
+    /// so outside Development the environment must supply the whole string. A host that would otherwise start
+    /// and fail on its first query instead refuses to start, naming the variable — never echoing the value,
+    /// which may hold the rest of the credentials. Development keeps its own password in
+    /// <c>appsettings.Development.json</c>; integration hosts run as Development with the Testcontainers
+    /// string.</summary>
+    private static void EnsureConnectionStringPassword(IConfiguration cfg, IHostEnvironment env)
+    {
+        if (env.IsDevelopment())
+        {
+            return;
+        }
+
+        string? connectionString = cfg.GetConnectionString("DefaultConnection");
+        bool hasPassword;
+        try
+        {
+            hasPassword = !string.IsNullOrEmpty(new Npgsql.NpgsqlConnectionStringBuilder(connectionString).Password);
+        }
+        catch (ArgumentException)
+        {
+            hasPassword = false;
+        }
+
+        if (!hasPassword)
+        {
+            throw new InvalidOperationException(
+                "ConnectionStrings:DefaultConnection has no password outside Development. Set the whole "
+                + "connection string through the ConnectionStrings__DefaultConnection environment variable (or "
+                + "another configuration source); appsettings.json deliberately commits none.");
+        }
     }
 }
 
