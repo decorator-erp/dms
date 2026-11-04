@@ -39,6 +39,15 @@ internal sealed class ProjectEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Read);
 
+        // B2-be: the project page's one-shot read. Same claim and same scope decorator (404) as the single GET.
+        group.MapGet("/{projectId:guid}/details", async (
+            Guid projectId, ICurrentUser currentUser,
+            IQueryHandler<GetProjectDetailsQuery, ProjectDetailsResponse> handler, CancellationToken ct) =>
+        {
+            Result<ProjectDetailsResponse> result = await handler.HandleAsync(new GetProjectDetailsQuery(projectId, currentUser.UserId!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.Projects.Read);
+
         group.MapPost("/", async (
             CreateProjectCommand command, ICommandHandler<CreateProjectCommand, Guid> handler, CancellationToken ct) =>
         {

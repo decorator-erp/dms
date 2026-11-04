@@ -40,4 +40,17 @@ public interface IClientDirectory
     /// half of <see cref="ICrmAccessGuard.ResolveActorAsync"/>'s two-branch resolution, exposed here
     /// because the Portal endpoints resolve the same way.</summary>
     Task<ClientSummary?> ResolveByAppUserIdAsync(string appUserId, CancellationToken ct);
+
+    /// <summary>B2-be: the client's display name (its portal login's first and last name), or null for an
+    /// unknown client.</summary>
+    Task<ClientDisplayName?> GetDisplayNameAsync(Guid clientId, CancellationToken ct);
+
+    /// <summary>The batch form of <see cref="GetDisplayNameAsync"/>: one CRM query plus one batched
+    /// <c>Identity.Contracts.IUserDirectory.GetManyAsync</c>, whatever the count. Unknown ids are absent.</summary>
+    Task<IReadOnlyList<ClientDisplayName>> GetDisplayNamesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 }
+
+/// <summary>A client's id and display name. The name lives on the client's Identity login, not in
+/// <c>crm.clients</c>, so CRM composes it (the <c>Hr.Contracts.IHrDirectory.GetProfilesAsync</c> precedent);
+/// null when the login cannot be read.</summary>
+public sealed record ClientDisplayName(Guid ClientId, string? DisplayName);
