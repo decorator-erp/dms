@@ -28,8 +28,15 @@ internal sealed class ClientApprovalReader(ApprovalsDbContext db) : IClientAppro
             .Skip((pageNumber - 1) * pageSize).Take(pageSize)
             .Select(a => new
             {
-                a.Id, a.SubjectType, a.SubjectId, a.CreatedAtUtc, a.DueAtUtc, a.Decision, a.DecidedAtUtc,
-                a.DecidedByUserId, a.Comment,
+                a.Id,
+                a.SubjectType,
+                a.SubjectId,
+                a.CreatedAtUtc,
+                a.DueAtUtc,
+                a.Decision,
+                a.DecidedAtUtc,
+                a.DecidedByUserId,
+                a.Comment,
             })
             .ToListAsync(ct);
 
