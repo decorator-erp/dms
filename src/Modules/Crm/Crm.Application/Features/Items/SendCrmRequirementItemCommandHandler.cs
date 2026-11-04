@@ -69,15 +69,27 @@ internal sealed class SendCrmRequirementItemCommandHandler(
         Guid approvalId;
         if (item.ApprovalStatus == ApprovalState.PendingApproval)
         {
-            // D-10 (A-F1): a legacy pending item with no bound id adopts the item's newest approval (or a
-            // fresh send's id when it has none), then follows the A-11 rule below like any other.
+            // D-10 (A-F1): a legacy pending item with no bound id adopts the item's newest approval, then
+            // follows the A-11 rule below like any other. L-1: only an undecided one or the item's own last
+            // send; otherwise (none, or an older round's decision) it is re-requested under a fresh round id.
             if (item.PendingApprovalId is null)
             {
                 ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
                     ApprovalSubjectType.RequirementItem, item.Id, ct);
+                bool adopt = CrmApprovalIds.IsAdoptable(latest, ApprovalSubjectType.RequirementItem, item.Id, item.SendCount);
+                if (!adopt)
+                {
+                    // L-2: a re-request is a new send, so D-11's closed-period freeze applies to it.
+                    Result periodOpen = await ItemReferenceValidator.EnsurePeriodOpenAsync(db, item.PeriodId, ct);
+                    if (periodOpen.IsFailure)
+                    {
+                        return periodOpen;
+                    }
+                }
+
                 Result adopted = item.AdoptPendingApproval(
-                    latest?.Id ?? CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1),
-                    newSend: latest is null);
+                    adopt ? latest!.Id : CrmApprovalIds.For(ApprovalSubjectType.RequirementItem, item.Id, item.SendCount + 1),
+                    newSend: !adopt);
                 if (adopted.IsFailure)
                 {
                     return adopted;

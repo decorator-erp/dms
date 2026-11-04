@@ -88,20 +88,22 @@ internal sealed class SendCrmBriefCommandHandler(
         Guid approvalId;
         if (brief.Status == ApprovalState.PendingApproval)
         {
-            // D-10 (A-F1): a legacy pending brief with no bound id adopts the brief's newest approval, or,
-            // when it has none, opens a fresh round (snapshot and all) for the head as it stands.
+            // D-10 (A-F1): a legacy pending brief with no bound id adopts the brief's newest approval, or
+            // opens a fresh round (snapshot and all) for the head as it stands. L-1: it adopts only an
+            // undecided one or the brief's own last round; an older round's decision is never re-applied.
             if (brief.PendingApprovalId is null)
             {
                 ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
                     ApprovalSubjectType.DesignBrief, brief.Id, ct);
+                int rounds = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct);
                 Guid adoptedId;
-                if (latest is not null)
+                if (CrmApprovalIds.IsAdoptable(latest, ApprovalSubjectType.DesignBrief, brief.Id, rounds))
                 {
-                    adoptedId = latest.Id;
+                    adoptedId = latest!.Id;
                 }
                 else
                 {
-                    int round = await db.CrmBriefHeadSnapshots.CountAsync(s => s.BriefId == brief.Id, ct) + 1;
+                    int round = rounds + 1;
                     adoptedId = CrmApprovalIds.For(ApprovalSubjectType.DesignBrief, brief.Id, round);
                     db.CrmBriefHeadSnapshots.Add(CrmBriefHeadSnapshot.Create(brief, round));
                 }
