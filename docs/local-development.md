@@ -39,6 +39,14 @@ Supply both as environment variables:
 |---|---|
 | `JwtSettings__Key` | Required on every start. At least 32 characters. |
 | `DMS_SEED_ADMIN_PASSWORD` | Required whenever the database has no seeded admin yet; outside Development the API refuses to start without it. Once the admin exists it is no longer read. |
-| `ConnectionStrings__DefaultConnection` | Required on every start: the full Npgsql connection string, password included. It overrides the password-less shape in `appsettings.json`. Never run Production with `ASPNETCORE_ENVIRONMENT=Development`, which would load the local docker value instead. |
+| `ConnectionStrings__DefaultConnection` | Required on every start: the full Npgsql connection string. It overrides the placeholder in `appsettings.json`. Never run Production with `ASPNETCORE_ENVIRONMENT=Development`, which would load the local docker value instead. |
+
+Outside Development the API refuses to start, naming `ConnectionStrings__DefaultConnection` and never
+printing a value, in exactly three cases: the connection string is missing or blank, it does not parse as an
+Npgsql connection string, or it is still the committed placeholder from `appsettings.json` (compared after
+parsing, so re-ordering or re-casing the keywords does not get past it). It does not judge how an overriding
+string authenticates: a password, a passfile or the default `~/.pgpass`, a client certificate (`PGSSLCERT`), a
+Unix socket (`Host=/var/run/postgresql`) and Kerberos/GSS all pass, and no environment variable such as
+`PGPASSWORD` affects the check. A wrong credential surfaces as Npgsql's own error on the first connection.
 
 Never put the JWT key or the seed password in a committed file, including `appsettings.Development.json`.

@@ -48,7 +48,7 @@ public static class DI
                 + "default — a committed signing key is a credential in the repository.");
         }
 
-        EnsureConnectionStringPassword(cfg, env);
+        EnsureConnectionStringConfigured(cfg, env);
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -306,41 +306,44 @@ public static class DI
                 }));
     }
 
-    /// <summary>FINDING-P1-9: <c>appsettings.json</c> commits the connection string with an empty password (L-6),
-    /// so outside Development the environment must supply the whole string. A host that would otherwise start
-    /// and fail on its first query instead refuses to start, naming the variable — never echoing the value,
-    /// which may hold the rest of the credentials. Development keeps its own password in
+    /// <summary>FINDING-P1-9 / P1-17: <c>appsettings.json</c> commits a placeholder connection string (local
+    /// docker shape, empty password — L-6), so outside Development something must override it. A host left on
+    /// the placeholder would start and fail on its first query; instead it refuses to start, naming
+    /// <c>ConnectionStrings__DefaultConnection</c> — never echoing a value. Development keeps its own string in
     /// <c>appsettings.Development.json</c>; integration hosts run as Development with the Testcontainers
     /// string.</summary>
-    private static void EnsureConnectionStringPassword(IConfiguration cfg, IHostEnvironment env)
+    private static void EnsureConnectionStringConfigured(IConfiguration cfg, IHostEnvironment env)
     {
         if (env.IsDevelopment())
         {
             return;
         }
 
-        string? problem = ConnectionStringProblem(cfg.GetConnectionString("DefaultConnection"), Environment.GetEnvironmentVariable);
+        string? problem = ConnectionStringProblem(cfg.GetConnectionString("DefaultConnection"));
         if (problem is not null)
         {
             throw new InvalidOperationException(problem);
         }
     }
 
-    /// <summary>FINDING-P1-13: <see langword="null"/> when <paramref name="connectionString"/> can authenticate,
-    /// else the reason it cannot — naming <c>ConnectionStrings__DefaultConnection</c>, never a value. An empty
-    /// password is fine when Npgsql has another way in: a passfile, a client certificate, Kerberos/GSS (Npgsql
-    /// 10 has no <c>Integrated Security</c> keyword — it rejects it — so a GSS deployment says so by naming
-    /// <c>Kerberos Service Name</c> or <c>Include Realm</c>), or <c>PGPASSWORD</c>/<c>PGPASSFILE</c> in the
-    /// environment. <paramref name="environmentVariable"/> is only asked whether those are set; their values are
-    /// never read into a message or a log.</summary>
-    internal static string? ConnectionStringProblem(string? connectionString, Func<string, string?> environmentVariable)
-    {
-        const string Remedy = " Set the whole connection string through the ConnectionStrings__DefaultConnection "
-            + "environment variable (or another configuration source); appsettings.json deliberately commits none.";
+    /// <summary>FINDING-P1-17: the <c>ConnectionStrings:DefaultConnection</c> value <c>src/Api/appsettings.json</c>
+    /// commits. <c>ConnectionStringCheckTests</c> fails if the two drift apart.</summary>
+    internal const string CommittedDefaultConnection =
+        "Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=";
 
+    /// <summary>FINDING-P1-17: <see langword="null"/> unless <paramref name="connectionString"/> is missing, does
+    /// not parse, or is still <see cref="CommittedDefaultConnection"/> — each with its own message naming
+    /// <c>ConnectionStrings__DefaultConnection</c>, never a value. How an overriding string authenticates
+    /// (password, passfile, <c>~/.pgpass</c>, client certificate, Unix socket, Kerberos/GSS) is not judged here:
+    /// every such heuristic either let the placeholder through or blocked a legitimate setup (R1c-1..3). No
+    /// environment variable is read.</summary>
+    internal static string? ConnectionStringProblem(string? connectionString)
+    {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return "ConnectionStrings:DefaultConnection is not configured outside Development." + Remedy;
+            return "ConnectionStrings:DefaultConnection is not configured outside Development. Set the whole "
+                + "connection string through the ConnectionStrings__DefaultConnection environment variable (or "
+                + "another configuration source).";
         }
 
         Npgsql.NpgsqlConnectionStringBuilder builder;
@@ -356,18 +359,27 @@ public static class DI
                 + "source) is a valid Npgsql connection string.";
         }
 
-        bool authenticatesWithoutPassword =
-            !string.IsNullOrEmpty(builder.Passfile)
-            || !string.IsNullOrEmpty(builder.SslCertificate)
-            || builder.Keys.Cast<string>().Any(key =>
-                key.Equals("Kerberos Service Name", StringComparison.OrdinalIgnoreCase)
-                || key.Equals("Include Realm", StringComparison.OrdinalIgnoreCase))
-            || !string.IsNullOrEmpty(environmentVariable("PGPASSWORD"))
-            || !string.IsNullOrEmpty(environmentVariable("PGPASSFILE"));
+        return SameSettings(builder, new Npgsql.NpgsqlConnectionStringBuilder(CommittedDefaultConnection))
+            ? "ConnectionStrings:DefaultConnection still has the committed placeholder value outside Development; "
+                + "set ConnectionStrings__DefaultConnection to the real connection string."
+            : null;
+    }
 
-        return !string.IsNullOrEmpty(builder.Password) || authenticatesWithoutPassword
-            ? null
-            : "ConnectionStrings:DefaultConnection has no password outside Development." + Remedy;
+    /// <summary>Order-insensitive: Npgsql canonicalises keyword names but keeps their order in
+    /// <c>ConnectionString</c>, so a re-ordered placeholder must still compare equal. An empty value counts as
+    /// absent (<c>Password=</c> and no password are the same placeholder).</summary>
+    private static bool SameSettings(Npgsql.NpgsqlConnectionStringBuilder left, Npgsql.NpgsqlConnectionStringBuilder right)
+    {
+        static Dictionary<string, string> Settings(Npgsql.NpgsqlConnectionStringBuilder builder) =>
+            builder.Keys.Cast<string>()
+                .Select(key => (Key: key, Value: Convert.ToString(builder[key], System.Globalization.CultureInfo.InvariantCulture)))
+                .Where(entry => !string.IsNullOrEmpty(entry.Value))
+                .ToDictionary(entry => entry.Key, entry => entry.Value!, StringComparer.OrdinalIgnoreCase);
+
+        Dictionary<string, string> l = Settings(left);
+        Dictionary<string, string> r = Settings(right);
+        return l.Count == r.Count
+            && l.All(entry => r.TryGetValue(entry.Key, out string? value) && string.Equals(value, entry.Value, StringComparison.Ordinal));
     }
 }
 

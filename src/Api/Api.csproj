@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- FINDING-P1-13: ConfigurationFailFastTests calls DI.ConnectionStringProblem directly. -->
+    <!-- FINDING-P1-13/P1-17: ConnectionStringCheckTests calls DI.ConnectionStringProblem and reads DI.CommittedDefaultConnection directly. -->
     <InternalsVisibleTo Include="Integration.Tests" />
   </ItemGroup>
 

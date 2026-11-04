@@ -35,17 +35,17 @@ public sealed class ConfigurationFailFastTests(ApiFixture fixture)
             && e.Message.StartsWith("JwtSettings:Key is not configured", StringComparison.Ordinal));
     }
 
-    /// <summary>FINDING-P1-9: <c>appsettings.json</c> commits the connection string with an empty password, so
-    /// outside Development a host whose environment did not supply one must refuse to start, naming the
-    /// variable to set and never echoing the value.</summary>
+    /// <summary>FINDING-P1-9 / P1-17: outside Development a host whose configuration never overrode the
+    /// committed placeholder connection string must refuse to start, naming the variable to set and never
+    /// echoing the value. The check reads no environment variable, so a runner that exports PGPASSWORD (or
+    /// anything else) cannot make this pass or fail (R1c-4).</summary>
     [Fact]
-    public async Task A_production_host_with_an_empty_connection_string_password_fails_fast_naming_the_variable()
+    public async Task A_production_host_left_on_the_committed_connection_string_fails_fast_naming_the_variable()
     {
-        const string connectionString = "Host=db.invalid;Port=5432;Database=dms_modular;Username=dms_app;Password=";
         WebApplicationFactory<Program> host = fixture.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Production");
-            builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
+            builder.UseSetting("ConnectionStrings:DefaultConnection", Api.DI.CommittedDefaultConnection);
         });
 
         Exception? thrown = Record.Exception(() => host.Services);
@@ -62,8 +62,9 @@ public sealed class ConfigurationFailFastTests(ApiFixture fixture)
         Assert.NotNull(thrown);
         Exception failFast = Assert.Single(Chain(thrown!), e =>
             e is InvalidOperationException && e.Message.Contains("ConnectionStrings__DefaultConnection", StringComparison.Ordinal));
-        Assert.DoesNotContain(connectionString, failFast.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("db.invalid", failFast.Message, StringComparison.Ordinal);
+        Assert.Contains("committed placeholder", failFast.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(Api.DI.CommittedDefaultConnection, failFast.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("localhost", failFast.Message, StringComparison.Ordinal);
     }
 
     private static IEnumerable<Exception> Chain(Exception exception)
