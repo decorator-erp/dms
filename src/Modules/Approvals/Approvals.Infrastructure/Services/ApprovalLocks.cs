@@ -23,8 +23,17 @@ internal static class ApprovalLocks
     ///
     /// <para>Two branches. <b>Ambient:</b> the office <c>DecideApprovalCommandHandler</c> always runs inside the
     /// transaction <c>DomainEventDispatchDecorator</c> opens around every command, so the lock joins it and the
-    /// decorator commits or rolls back. <b>Owned:</b> the portal's <see cref="ApprovalDecider"/> is not a command
-    /// and has no pipeline, so a transaction is opened here and committed only on success.</para>
+    /// decorator commits or rolls back. <b>Owned:</b> the portal's <see cref="ApprovalDecider"/> is not an
+    /// Approvals command, so <c>ApprovalsDbContext</c> has no ambient transaction; one is opened here and
+    /// committed only on success.</para>
+    ///
+    /// <para>The owned branch <i>is</i> reached from inside another module's transaction: CRM's
+    /// <c>DecideMyPortalApprovalCommandHandler</c> calls the decider within CRM's own
+    /// <c>DomainEventDispatchDecorator</c> transaction, which is on <c>CrmDbContext</c>'s connection, not this
+    /// one (FINDING-P1-18). So the decision commits here, independently, before CRM's transaction ends, and a
+    /// CRM rollback cannot undo it. That is safe only while the invariant holds that <b>CRM writes nothing after
+    /// the decide call</b>; the subject reacts later from the outbox (<c>ApprovalDecidedIntegrationEvent</c>).
+    /// <c>PortalApprovalTests.PortalDecide_MakesNoCrmWrite_AfterApprovalsCommitsTheDecision</c> pins it.</para>
     ///
     /// <para>Both map a lost race (<see cref="IsLostRace"/>) to <c>AlreadyDecided</c> (409) (FINDING-P1-14). In
     /// the ambient branch the caller's transaction is neither disposed nor rolled back here: returning the failure

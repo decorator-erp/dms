@@ -71,6 +71,10 @@ internal sealed class DecideMyPortalApprovalCommandHandler(
             return CrmPortalErrors.NotFound;
         }
 
+        // FINDING-P1-18: the decider commits in its own transaction on Approvals' connection, before this
+        // command's CRM transaction (DomainEventDispatchDecorator) ends, and a CRM rollback cannot undo it.
+        // Invariant: no CRM write after this call - the subject reacts from the outbox instead. Pinned by
+        // PortalApprovalTests.PortalDecide_MakesNoCrmWrite_AfterApprovalsCommitsTheDecision.
         Result decided = await decider.DecideAsClientAsync(
             command.ApprovalId, command.AppUserId, decision.Value, command.Comment, ct);
 
