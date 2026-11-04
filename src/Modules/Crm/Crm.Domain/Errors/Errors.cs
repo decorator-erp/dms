@@ -329,6 +329,10 @@ internal static class CrmArtifactErrors
     /// <c>CrmArtifactDocument.DocumentId</c> — see G9-12's own remarks.</summary>
     public static readonly Error DocumentNotFound = Error.NotFound(
         "crm.artifacts.DocumentNotFound", "The referenced document was not found.");
+
+    /// <summary>L-4: the document is already linked to this subject.</summary>
+    public static readonly Error AlreadyLinked = Error.Conflict(
+        "crm.artifacts.AlreadyLinked", "This document is already linked to this item.");
 }
 
 internal static class CrmClientNoteErrors

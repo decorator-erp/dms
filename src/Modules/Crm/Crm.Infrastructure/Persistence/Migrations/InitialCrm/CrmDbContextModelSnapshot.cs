@@ -298,6 +298,26 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
 
                     b.HasIndex("SpaceId");
 
+                    b.HasIndex("DocumentId", "BriefId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_artifact_documents_document_brief")
+                        .HasFilter("\"BriefId\" IS NOT NULL");
+
+                    b.HasIndex("DocumentId", "MeetingId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_artifact_documents_document_meeting")
+                        .HasFilter("\"MeetingId\" IS NOT NULL");
+
+                    b.HasIndex("DocumentId", "RequirementItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_artifact_documents_document_requirement_item")
+                        .HasFilter("\"RequirementItemId\" IS NOT NULL");
+
+                    b.HasIndex("DocumentId", "SpaceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_artifact_documents_document_space")
+                        .HasFilter("\"SpaceId\" IS NOT NULL");
+
                     b.ToTable("crm_artifact_documents", "crm");
                 });
 
