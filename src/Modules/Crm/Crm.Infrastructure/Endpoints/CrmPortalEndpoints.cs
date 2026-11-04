@@ -17,12 +17,9 @@ using SharedKernel;
 namespace Crm.Infrastructure.Endpoints;
 
 /// <summary>
-/// The client-facing Portal. As of M1-02, every declared <c>Crm.Contracts.Portal</c> operation except
-/// <c>DecideMyPortalApprovalCommand</c> is mapped: <see cref="GetMyPortalBriefQuery"/> and the
-/// client-authored requirement-item submission (G9-14), plus <see cref="GetMyPortalMeetingsQuery"/> and
-/// the five client-side meeting operations (M1-02). <c>DecideMyPortalApprovalCommand</c> stays
-/// unmapped — see <c>GetMyPortalBriefQueryHandler</c>'s own remarks and the Scope-boundaries table for
-/// why closing that one is Approvals' call, not this file's.
+/// The client-facing Portal. Every declared <c>Crm.Contracts.Portal</c> operation is mapped; the client
+/// decides its own approvals here (B1, <see cref="DecideMyPortalApprovalCommand"/>, through
+/// <c>Approvals.Contracts.IApprovalDecider</c>).
 ///
 /// <c>AppUserId</c>/<c>ContactId</c> are always resolved from the caller (<see cref="ICurrentUser"/> /
 /// <see cref="CrmEndpointActors.ResolveContactIdAsync"/>) — a Portal caller names no one but themselves.
@@ -68,6 +65,16 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             return result.Match(
                 id => Results.Created($"/api/crm/requirement-items/{id}", new { ItemId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Requirements.SubmitOwn);
+
+        // B1.2: the client's own decision. 403 (decide_own) → 404 (not the caller's subject) → 409 (decided).
+        portal.MapPut("/approvals/{approvalId:guid}/decide", async (
+            Guid approvalId, DecidePortalApprovalRequest request, ICurrentUser currentUser,
+            ICommandHandler<DecideMyPortalApprovalCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(
+                new DecideMyPortalApprovalCommand(currentUser.UserId!, approvalId, request.Decision, request.Comment), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Approvals.DecideOwn);
 
         portal.MapGet("/meetings", async (
             int? pageNumber, int? pageSize,
@@ -165,6 +172,8 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.RespondOwn);
     }
+
+    private sealed record DecidePortalApprovalRequest(PortalApprovalDecision Decision, string? Comment = null);
 
     private sealed record AddPortalItemRequest(
         Guid ProjectId, Guid PeriodId, RequirementCategory Category, string Title, RequirementPriority Priority,

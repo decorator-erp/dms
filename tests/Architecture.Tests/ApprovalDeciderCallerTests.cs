@@ -38,6 +38,7 @@ public class ApprovalDeciderCallerTests
 
         // LIVENESS: a scan that found nothing would pass vacuously.
         Assert.Contains("Approvals.Infrastructure.Services.ApprovalDecider", dependents);
+        Assert.Contains("Crm.Application.Features.Portal.DecideMyPortalApprovalCommandHandler", dependents);
 
         List<string> offenders = [.. dependents.Except(Allowed, StringComparer.Ordinal)];
         Assert.True(

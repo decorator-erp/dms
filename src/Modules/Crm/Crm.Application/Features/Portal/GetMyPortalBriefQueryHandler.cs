@@ -25,10 +25,7 @@ namespace Crm.Application.Features.Portal;
 /// PROGRESS.md entry and closed at M1-01/M1-02). Both blockers are gone — see
 /// <c>GetMyPortalMeetingsQueryHandler</c>.
 ///
-/// <c>DecideMyPortalApprovalCommand</c> remains deferred: it would route through
-/// <c>Approvals.Contracts</c>, whose <c>approval_approvers</c> ledger is employee-scoped in this port —
-/// giving a client actor a decision path there is an Approvals-owned design question, not an
-/// endpoint-wiring one. See M1-02's Scope-boundaries row.</para>
+/// The client decides its approvals in <see cref="DecideMyPortalApprovalCommandHandler"/> (B1).</para>
 /// </summary>
 internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGuard guard, IProjectDirectory projectDirectory)
     : IQueryHandler<GetMyPortalBriefQuery, PortalBriefViewResponse>

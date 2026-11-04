@@ -420,6 +420,14 @@ internal static class CrmPortalErrors
 
     public static readonly Error NotAClient = Error.Forbidden(
         "crm.portal.NotAClient", "This action requires a client actor.");
+
+    /// <summary>B1.2: the portal decides only Approved or ChangesRequested.</summary>
+    public static readonly Error InvalidDecision = Error.BadRequest(
+        "crm.portal.InvalidDecision", "The portal accepts only Approved or ChangesRequested.");
+
+    /// <summary>B1.3: the approvals list takes status=pending or status=decided.</summary>
+    public static readonly Error InvalidStatus = Error.BadRequest(
+        "crm.portal.InvalidStatus", "Status must be 'pending' or 'decided'.");
 }
 
 /// <summary>A-15: CRM's view of a project it does not own.</summary>

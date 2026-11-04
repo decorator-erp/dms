@@ -70,9 +70,34 @@ public sealed record GetMyPortalBriefQuery(string AppUserId, Guid ProjectId, Gui
 public sealed record GetMyPortalBriefRoundDiffQuery(string AppUserId, Guid BriefId, int Round)
     : IQuery<BriefHeadDiffResponse>, ICrmScoped;
 
-/// <summary>The client's own decision on a brief/brief-space/requirement-item approval — routes
-/// through <c>Approvals.Contracts</c>, gated by <c>crm.approvals.decide_own</c>.</summary>
-public sealed record DecideMyPortalApprovalCommand(string AppUserId, Guid ApprovalId, bool Approve)
+/// <summary>B1.2: the decision a client sends from the portal. Same ordinals as
+/// <c>Approvals.Contracts.ApprovalDecision</c> (a Contracts project may not reference another module's, Rule
+/// 15, so CRM names its own). The portal accepts only <see cref="Approved"/> and
+/// <see cref="ChangesRequested"/>; <see cref="Rejected"/> is listed so a decided row can report it, and is a
+/// 400 (<c>crm.portal.InvalidDecision</c>) when sent.</summary>
+public enum PortalApprovalDecision
+{
+    Approved = 1,
+    Rejected = 2,
+    ChangesRequested = 3,
+}
+
+/// <summary>B1.3: what a portal approval is about. Same ordinals as
+/// <c>Approvals.Contracts.ApprovalSubjectType</c>, CRM's three subjects only.</summary>
+public enum PortalApprovalSubjectType
+{
+    DesignBrief = 2,
+    RequirementItem = 3,
+    BriefSpace = 4,
+}
+
+/// <summary>B1.2: the client's own decision on a brief-round, brief-space-entry or requirement-item
+/// approval, gated by <c>crm.approvals.decide_own</c>. The handler proves the approval's subject is on one
+/// of the caller's own projects (else 404) and then decides through <c>Approvals.Contracts.IApprovalDecider</c>.
+/// <see cref="Comment"/> is required for <see cref="PortalApprovalDecision.ChangesRequested"/>, at most 2000
+/// characters.</summary>
+public sealed record DecideMyPortalApprovalCommand(
+    string AppUserId, Guid ApprovalId, PortalApprovalDecision Decision, string? Comment)
     : ICommand, ICrmScoped;
 
 /// <summary>The client's list of their own brief's rounds — voided rounds left out (the client's decision
