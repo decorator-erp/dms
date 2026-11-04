@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using Crm.Contracts;
+using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Tasks;
 using Projects.Contracts;
@@ -17,11 +18,15 @@ namespace Projects.Application.Features.Projects;
 /// <see cref="GetProjectQueryHandler"/> it does not filter on <c>IsActive</c>: an inactive project is returned.
 ///
 /// <para><b>A fixed query set, never one per stage:</b> the project (its stage count a subquery of the same
-/// statement), its stages, its tasks, its gates' owner and status, then the client's name through the existing
-/// <see cref="IClientDirectory"/> (one CRM read plus one batched login read on CRM's side). Tasks, counts and
+/// statement), its stages, its tasks, its gates' owner and status, then the client's name (one CRM read plus one
+/// Identity read). Tasks, counts and
 /// gate summaries are grouped per stage in memory.</para>
+///
+/// <para>FINDING-P1-1: the client's name is two depth-1 reads made here, never one CRM call that itself reads
+/// Identity (Projects → CRM → Identity would be A→B→C): <see cref="IClientDirectory.GetAsync"/> for the
+/// client's <c>AppUserId</c>, then <see cref="IUserDirectory.GetAsync"/> for that login's display name.</para>
 /// </summary>
-internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClientDirectory clientDirectory)
+internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClientDirectory clientDirectory, IUserDirectory userDirectory)
     : IQueryHandler<GetProjectDetailsQuery, ProjectDetailsResponse>
 {
     public async Task<Result<ProjectDetailsResponse>> HandleAsync(GetProjectDetailsQuery query, CancellationToken ct = default)
@@ -73,7 +78,8 @@ internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClien
             .Select(g => new { g.ProjectStageId, g.ProjectTaskId, g.Status })
             .ToListAsync(ct);
 
-        ClientDisplayName? client = await clientDirectory.GetDisplayNameAsync(project.ClientId, ct);
+        ClientSummary? client = await clientDirectory.GetAsync(project.ClientId, ct);
+        UserSummary? clientLogin = client is null ? null : await userDirectory.GetAsync(client.AppUserId, ct);
 
         var stageOfTask = tasks.ToDictionary(t => t.Id, t => t.ProjectStageId);
         ILookup<Guid, Domain.GateStatus> gateStatusesByStage = gates
@@ -96,7 +102,7 @@ internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClien
             project.Id, project.Code, project.Name, project.Description, project.Status, project.WorkflowType,
             project.Address, project.Notes, project.ProgressPercentage,
             project.EstimatedStartDate, project.EstimatedEndDate, project.ActualStartDate, project.ActualEndDate,
-            project.ClientId, client?.DisplayName, project.OwnerId, project.IsActive, project.StageCount);
+            project.ClientId, clientLogin?.DisplayName, project.OwnerId, project.IsActive, project.StageCount);
 
         return new ProjectDetailsResponse(
             header,

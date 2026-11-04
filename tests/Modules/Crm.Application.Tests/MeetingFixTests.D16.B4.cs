@@ -53,10 +53,5 @@ public sealed partial class MeetingFixTests
         public Task<IReadOnlyList<Guid>> ExistActiveAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) => inner.ExistActiveAsync(ids, ct);
 
         public Task<ClientSummary?> ResolveByAppUserIdAsync(string appUserId, CancellationToken ct) => inner.ResolveByAppUserIdAsync(appUserId, ct);
-
-        public Task<ClientDisplayName?> GetDisplayNameAsync(Guid clientId, CancellationToken ct) => inner.GetDisplayNameAsync(clientId, ct);
-
-        public Task<IReadOnlyList<ClientDisplayName>> GetDisplayNamesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
-            inner.GetDisplayNamesAsync(ids, ct);
     }
 }
