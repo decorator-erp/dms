@@ -18,16 +18,34 @@ namespace Approvals.Infrastructure.Services;
 /// </summary>
 internal static class ApprovalLocks
 {
-    /// <summary>Runs <paramref name="decide"/> in a transaction (the caller's, if one is open; else a new one
-    /// committed only on success) after taking <see cref="LockForDecideAsync"/>. <paramref name="decide"/>
-    /// loads the approval itself, after the lock, and saves.</summary>
+    /// <summary>Runs <paramref name="decide"/> in a transaction after taking <see cref="LockForDecideAsync"/>.
+    /// <paramref name="decide"/> loads the approval itself, after the lock, and saves.
+    ///
+    /// <para>Two branches. <b>Ambient:</b> the office <c>DecideApprovalCommandHandler</c> always runs inside the
+    /// transaction <c>DomainEventDispatchDecorator</c> opens around every command, so the lock joins it and the
+    /// decorator commits or rolls back. <b>Owned:</b> the portal's <see cref="ApprovalDecider"/> is not a command
+    /// and has no pipeline, so a transaction is opened here and committed only on success.</para>
+    ///
+    /// <para>Both map a lost race (<see cref="IsLostRace"/>) to <c>AlreadyDecided</c> (409) (FINDING-P1-14). In
+    /// the ambient branch the caller's transaction is neither disposed nor rolled back here: returning the failure
+    /// is enough, because the decorator rolls back on a failure <see cref="Result"/> — which is also all a
+    /// Postgres-aborted transaction is still good for.</para></summary>
     public static async Task<Result> DecideLockedAsync(
         ApprovalsDbContext db, Guid approvalId, Func<Task<Result>> decide, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is not null)
         {
-            await LockForDecideAsync(db, approvalId, ct);
-            return await decide();
+            try
+            {
+                await LockForDecideAsync(db, approvalId, ct);
+                return await decide();
+            }
+            catch (Exception ex) when (IsLostRace(ex))
+            {
+                // The lock makes this unreachable in the normal path; see the owned branch below.
+                db.ChangeTracker.Clear();
+                return Domain.ApprovalErrors.AlreadyDecided;
+            }
         }
 
         try
