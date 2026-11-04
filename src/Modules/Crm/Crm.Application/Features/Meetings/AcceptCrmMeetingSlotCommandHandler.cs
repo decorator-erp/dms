@@ -72,6 +72,13 @@ internal static class AcceptMeetingSlot
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
+        // FINDING-P1-16: the slot row has no concurrency token; the meeting's xmin guards it, because every
+        // slot write also writes the meeting. That holds only if the slot is read after the meeting.
+        if (!await MeetingSupport.RereadSlotAfterMeetingAsync(db, slot, ct))
+        {
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
+        }
+
         // B-4 (MT-N2): tenant before kind — a stranger learns nothing about the slot.
         Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(db, projectDirectory, meeting.ProjectId, actingContactId, ct);
         if (scoped.IsFailure)

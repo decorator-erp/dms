@@ -25,13 +25,17 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// <para><b>Steps (B-16).</b> A later baseline is a new step with its own marker, never an edit to an
 /// applied one: v1's marker is already on every running database, so a code added to v1 would never
 /// reach them. v2 gives <c>client</c> <c>notifications.view_own</c>, which v1 missed — without it a
-/// portal client could not read the meeting notifications CRM sends them.</para>
+/// portal client could not read the meeting notifications CRM sends them. v3 (B1.4) gives <c>client</c>
+/// <c>crm.approvals.view_own</c> and <c>crm.approvals.decide_own</c>, so a portal client can list and decide
+/// the approvals CRM sends them; it adds only those two, so a v1/v2 code an admin removed stays removed.</para>
 /// </summary>
 internal static class BaselineClaimSeeder
 {
     public const string MarkerKey = "baseline-claims-v1";
 
     public const string V2MarkerKey = "baseline-claims-v2";
+
+    public const string V3MarkerKey = "baseline-claims-v3";
 
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
@@ -49,9 +53,15 @@ internal static class BaselineClaimSeeder
         [DefaultRoles.Client] = ["notifications.view_own"],
     };
 
+    /// <summary>B1.4: the client decides its own approvals in the portal.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV3 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Client] = ["crm.approvals.view_own", "crm.approvals.decide_own"],
+    };
+
     /// <summary>Applied in order, each behind its own marker.</summary>
     private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
-        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2)];
+        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3)];
 
     public static async Task SeedAsync(
         RoleManager<ApplicationRole> roleManager,

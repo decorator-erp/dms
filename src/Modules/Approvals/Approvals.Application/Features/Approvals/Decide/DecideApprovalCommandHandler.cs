@@ -1,6 +1,7 @@
 using Approvals.Contracts;
 using Approvals.Contracts.Approvals;
 using Approvals.Infrastructure.Persistence;
+using Approvals.Infrastructure.Services;
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
@@ -30,11 +31,18 @@ internal sealed class DecideApprovalCommandValidator : AbstractValidator<DecideA
 /// (<c>ApprovalsPermissions.DecideAny</c> replaces the backend's cross-module <c>isAdminOverride</c>).
 /// Publishes <see cref="ApprovalDecidedIntegrationEvent"/> directly in this handler's own
 /// <c>SaveChangesAsync</c> — not via the raised <c>ApprovalDecidedDomainEvent</c>'s automatic post-return
-/// dispatch (<c>DomainEventDispatchDecorator</c> runs AFTER this handler returns and already committed,
-/// so anything staged there would be a second, separate transaction — see G4-02's entity for why the
+/// dispatch (<c>DomainEventDispatchDecorator</c> dispatches only AFTER this handler returns — inside the
+/// decorator's transaction since G5-08, but in a later save of its own — see G4-02's entity for why the
 /// domain event still exists with no handler today: available for a future intra-module reaction, R2's
 /// zero-handler no-op applies). Same direct-enqueue shape as <c>DeactivateEmployeeCommandHandler</c>
 /// (G2-04, HR).
+///
+/// <para>FINDING-P1-2: decided under <see cref="ApprovalLocks.DecideLockedAsync"/> — the row lock the portal's
+/// <c>ApprovalDecider</c> takes — inside the transaction <c>DomainEventDispatchDecorator</c> opens around every
+/// command (this handler opens none of its own; the decorator commits on success and rolls back on a failure
+/// result). A concurrent portal decision or second override waits, then sees the committed decision and gets
+/// <c>AlreadyDecided</c> (409) instead of overwriting it; a lost race that surfaces as an error instead
+/// (serialization failure, deadlock, concurrency exception) maps to the same 409 (FINDING-P1-14).</para>
 /// </summary>
 internal sealed class DecideApprovalCommandHandler(ApprovalsDbContext db, ICurrentUser currentUser)
     : ICommandHandler<DecideApprovalCommand>
@@ -46,6 +54,12 @@ internal sealed class DecideApprovalCommandHandler(ApprovalsDbContext db, ICurre
             return Domain.ApprovalErrors.Unauthenticated;
         }
 
+        string userId = currentUser.UserId;
+        return await ApprovalLocks.DecideLockedAsync(db, command.ApprovalId, () => DecideAsync(command, userId, ct), ct);
+    }
+
+    private async Task<Result> DecideAsync(DecideApprovalCommand command, string userId, CancellationToken ct)
+    {
         Domain.Approval? approval = await db.Approvals.FirstOrDefaultAsync(a => a.Id == command.ApprovalId, ct);
         if (approval is null)
         {
@@ -55,7 +69,7 @@ internal sealed class DecideApprovalCommandHandler(ApprovalsDbContext db, ICurre
         bool isOverride = currentUser.HasPermission(ApprovalsPermissions.DecideAny);
         Domain.ApprovalDecision decision = ApprovalEnumMapping.ToDomain(command.Decision);
 
-        Result result = approval.Decide(currentUser.UserId, decision, command.Comment, isOverride);
+        Result result = approval.Decide(userId, decision, command.Comment, isOverride);
         if (result.IsFailure)
         {
             return result;
@@ -63,7 +77,7 @@ internal sealed class DecideApprovalCommandHandler(ApprovalsDbContext db, ICurre
 
         db.Outbox().Enqueue(new ApprovalDecidedIntegrationEvent(
             Guid.NewGuid(), approval.Id, ApprovalEnumMapping.ToContracts(approval.SubjectType), approval.SubjectId,
-            command.Decision, currentUser.UserId, DateTimeOffset.UtcNow));
+            command.Decision, userId, DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
 

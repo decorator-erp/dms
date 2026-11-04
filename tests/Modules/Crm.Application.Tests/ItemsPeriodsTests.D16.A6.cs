@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Crm.Application.Tests;
 
-/// <summary>D-16 / A-F6: the space-name check compares lower(trim(name)) in SQL — the stored name is trimmed
+/// <summary>D-16 / A-F6: the space-name check compares lower(name) in SQL over the trimmed name (N-1) — the stored name is trimmed
 /// and the unique index is on lower("Name"), so a padded or differently cased name is the same name.</summary>
 public sealed partial class ItemsPeriodsTests
 {

@@ -27,6 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- FINDING-P1-13/P1-17: ConnectionStringCheckTests calls DI.ConnectionStringProblem and reads DI.CommittedDefaultConnection directly. -->
+    <InternalsVisibleTo Include="Integration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />

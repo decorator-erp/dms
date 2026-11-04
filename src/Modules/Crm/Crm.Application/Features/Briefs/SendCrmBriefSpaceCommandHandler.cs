@@ -64,15 +64,17 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
         Guid approvalId;
         if (entry.ApprovalStatus == ApprovalState.PendingApproval)
         {
-            // D-10 (A-F1): a legacy pending entry with no bound id adopts the entry's newest approval (or a
-            // fresh send's id when it has none), then follows the A-11 rule below like any other.
+            // D-10 (A-F1): a legacy pending entry with no bound id adopts the entry's newest approval, then
+            // follows the A-11 rule below like any other. L-1: only an undecided one or the entry's own last
+            // send; otherwise (none, or an older round's decision) it is re-requested under a fresh round id.
             if (entry.PendingApprovalId is null)
             {
                 ApprovalSnapshot? latest = await approvalRequester.GetLatestForSubjectAsync(
                     ApprovalSubjectType.BriefSpace, entry.Id, ct);
+                bool adopt = CrmApprovalIds.IsAdoptable(latest, ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount);
                 Result adopted = entry.AdoptPendingApproval(
-                    latest?.Id ?? CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount + 1),
-                    newSend: latest is null);
+                    adopt ? latest!.Id : CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount + 1),
+                    newSend: !adopt);
                 if (adopted.IsFailure)
                 {
                     return adopted;

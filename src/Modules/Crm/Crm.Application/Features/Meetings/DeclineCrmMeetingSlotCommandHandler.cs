@@ -69,6 +69,12 @@ internal static class DeclineMeetingSlot
             return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.NotFound);
         }
 
+        // FINDING-P1-16: same as the accept — read the slot again now that the meeting's xmin is held.
+        if (!await MeetingSupport.RereadSlotAfterMeetingAsync(db, slot, ct))
+        {
+            return MeetingSupport.NotFoundFor(actingContactId, CrmMeetingErrors.SlotNotFound);
+        }
+
         // B-4 (MT-N2): tenant before kind.
         Result scoped = await MeetingSupport.EnsureContactOwnsProjectAsync(
             db, projectDirectory, meeting.ProjectId, actingContactId, ct);

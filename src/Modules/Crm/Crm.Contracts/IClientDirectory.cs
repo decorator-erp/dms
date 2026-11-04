@@ -41,3 +41,4 @@ public interface IClientDirectory
     /// because the Portal endpoints resolve the same way.</summary>
     Task<ClientSummary?> ResolveByAppUserIdAsync(string appUserId, CancellationToken ct);
 }
+

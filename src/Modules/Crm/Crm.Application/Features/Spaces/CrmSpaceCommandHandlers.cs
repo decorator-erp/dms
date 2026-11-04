@@ -129,14 +129,18 @@ internal sealed class SetCrmSpaceActiveCommandHandler(CrmDbContext db) : IComman
 }
 
 /// <summary>A-7 (B-M4): a space name is taken when another space on the project has it, ignoring case — the
-/// same comparison as the <c>lower("Name")</c> unique index. D-16 / A-F6: both sides are compared in SQL as
-/// <c>lower(trim(...))</c> (the stored name is already trimmed), so the pre-check and the index can never
-/// disagree on padding or on how a character lowercases.</summary>
+/// same comparison as the <c>lower("Name")</c> unique index. D-16 / A-F6: the case fold happens in SQL, so the
+/// pre-check and the index can never disagree on how a character lowercases. N-1: the name is trimmed here
+/// with the same C# <c>Trim()</c> <see cref="CrmSpace"/> stores it with (SQL's <c>trim()</c> strips only
+/// spaces, not tabs or line breaks), so the pre-check compares exactly the name that would be stored.</summary>
 internal static class SpaceNames
 {
-    public static Task<bool> TakenAsync(CrmDbContext db, Guid projectId, string name, Guid? exceptSpaceId, CancellationToken ct) =>
-        db.CrmSpaces
-            .FromSql($"""SELECT * FROM crm.crm_spaces WHERE "ProjectId" = {projectId} AND lower("Name") = lower(trim({name}))""")
+    public static Task<bool> TakenAsync(CrmDbContext db, Guid projectId, string name, Guid? exceptSpaceId, CancellationToken ct)
+    {
+        string stored = name.Trim();
+        return db.CrmSpaces
+            .FromSql($"""SELECT * FROM crm.crm_spaces WHERE "ProjectId" = {projectId} AND lower("Name") = lower({stored})""")
             .AsNoTracking()
             .AnyAsync(s => s.Id != exceptSpaceId, ct);
+    }
 }

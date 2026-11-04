@@ -25,6 +25,19 @@ internal sealed class CrmArtifactDocumentConfiguration : IEntityTypeConfiguratio
         builder.HasOne<CrmRequirementItem>().WithMany().HasForeignKey(a => a.RequirementItemId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<CrmMeeting>().WithMany().HasForeignKey(a => a.MeetingId).OnDelete(DeleteBehavior.Cascade);
 
+        // L-4: a document is linked to a subject once. The subject is four nullable columns (exactly one
+        // set, enforced by CrmArtifactDocument.Create), so one partial unique index per column; the same
+        // document may still evidence several subjects. A violation is 409 crm.artifacts.AlreadyLinked
+        // (ArtifactWrites). The migration refuses to build them over existing duplicates.
+        builder.HasIndex(a => new { a.DocumentId, a.BriefId }).IsUnique()
+            .HasFilter("\"BriefId\" IS NOT NULL").HasDatabaseName(ArtifactWrites.BriefIndex);
+        builder.HasIndex(a => new { a.DocumentId, a.SpaceId }).IsUnique()
+            .HasFilter("\"SpaceId\" IS NOT NULL").HasDatabaseName(ArtifactWrites.SpaceIndex);
+        builder.HasIndex(a => new { a.DocumentId, a.RequirementItemId }).IsUnique()
+            .HasFilter("\"RequirementItemId\" IS NOT NULL").HasDatabaseName(ArtifactWrites.RequirementItemIndex);
+        builder.HasIndex(a => new { a.DocumentId, a.MeetingId }).IsUnique()
+            .HasFilter("\"MeetingId\" IS NOT NULL").HasDatabaseName(ArtifactWrites.MeetingIndex);
+
         // AddedByContactId: same-schema, a real EF-managed FK. AddedByEmployeeId: bare Guid FK to
         // hr.employees(Id) - raw-SQL constraint at G9-08.
         builder.HasOne<CrmContact>().WithMany().HasForeignKey(a => a.AddedByContactId).OnDelete(DeleteBehavior.Restrict);

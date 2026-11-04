@@ -25,6 +25,10 @@
          closing the Phase 2 deferral this phase exists to close. Legal and not a cycle - see
          Crm.Infrastructure.csproj's matching Projects.Contracts reference for the other direction. -->
     <ProjectReference Include="..\..\Crm\Crm.Contracts\Crm.Contracts.csproj" />
+    <!-- FINDING-P1-1: the project details read resolves the client's display name from its Identity login
+         itself (IUserDirectory), after reading the client's AppUserId from IClientDirectory - two depth-1
+         reads instead of Projects -> CRM -> Identity. Identity is a sink, so this closes no cycle. -->
+    <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

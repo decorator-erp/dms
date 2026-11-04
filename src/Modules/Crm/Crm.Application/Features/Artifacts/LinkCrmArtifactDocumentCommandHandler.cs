@@ -43,9 +43,9 @@ internal sealed class LinkCrmArtifactDocumentCommandHandler(CrmDbContext db, IDo
 
         CrmArtifactDocument artifact = result.Value!;
         db.CrmArtifactDocuments.Add(artifact);
-        await db.SaveChangesAsync(ct);
-
-        return artifact.Id;
+        // L-4: a second link of the same document to the same subject is 409, not a 500.
+        Result saved = await ArtifactWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : artifact.Id;
     }
 
     /// <summary>The project of the one subject the link names (null when none resolves; the domain then

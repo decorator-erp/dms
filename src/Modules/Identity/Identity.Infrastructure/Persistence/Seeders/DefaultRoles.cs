@@ -16,8 +16,8 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 ///
 /// <para><b><c>Client</c> is NOT in <see cref="FullAccessRoles"/>, so it never gets the whole catalog.</b>
 /// Since N5 it and <c>Employee</c> get a small baseline once (<see cref="BaselineClaimSeeder"/>): the
-/// codes their own screens need (for <c>Client</c>: <c>crm.portal</c>, <c>crm.briefs.view_own</c> and the
-/// meeting <c>_own</c> codes). They are named there as plain strings, filtered through the catalog, and
+/// codes their own screens need (for <c>Client</c>: <c>crm.portal</c>, <c>crm.briefs.view_own</c>, the
+/// meeting and approval <c>_own</c> codes and <c>notifications.view_own</c>). They are named there as plain strings, filtered through the catalog, and
 /// applied only once behind a marker; everything beyond the baseline is assigned through the
 /// general-purpose role/permission admin endpoints. Identity cannot reference <c>Crm.Contracts.CrmPermissions</c> to do that seeding
 /// itself even if it wanted to (only <c>Crm.Contracts</c> may be referenced by other modules, and

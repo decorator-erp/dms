@@ -25,7 +25,7 @@ builder.Host.UseSerilog(
     (context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration),
     writeToProviders: true);
 
-builder.Services.AddApi(builder.Configuration);
+builder.Services.AddApi(builder.Configuration, builder.Environment);
 
 // Loaded by assembly NAME, not by referencing any type from it — every IModule implementation is
 // internal (only *.Contracts is public), so Api can never name one directly even though it references

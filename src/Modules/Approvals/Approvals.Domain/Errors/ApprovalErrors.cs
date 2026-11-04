@@ -15,6 +15,10 @@ internal static class ApprovalErrors
 
     public static readonly Error NotFound = Error.NotFound("approvals.NotFound", "Approval was not found.");
 
+    /// <summary>B1.1: the portal decide's comment bound — the column is 2000 wide.</summary>
+    public static readonly Error CommentTooLong =
+        Error.BadRequest("approvals.CommentTooLong", "The comment must be 2000 characters or fewer.");
+
     public static readonly Error OpenApprovalExists = Error.Conflict(
         "approvals.OpenApprovalExists", "An undecided approval already exists for this subject.");
 

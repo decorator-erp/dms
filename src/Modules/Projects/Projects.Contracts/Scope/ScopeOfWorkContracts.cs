@@ -4,8 +4,8 @@ namespace Projects.Contracts.Scope;
 
 /// <summary>One picked template stage. <see cref="SourceTemplateName"/> is read live from the template and is
 /// null once that stage has been deleted; <see cref="Name"/>, <see cref="Description"/> and
-/// <see cref="Fee"/> are the scope's own copies. <see cref="CreatedStageId"/> is set by confirm.</summary>
-/// <summary>D-3: <see cref="SourceMissing"/> is true once the template stage this item was picked from has been
+/// <see cref="Fee"/> are the scope's own copies. <see cref="CreatedStageId"/> is set by confirm.
+/// D-3: <see cref="SourceMissing"/> is true once the template stage this item was picked from has been
 /// deleted — a Draft holding such an item can't be confirmed until the item is removed.</summary>
 public sealed record ScopeOfWorkItemResponse(
     Guid Id, Guid SourceStageId, string? SourceTemplateName, string Name, string? Description, int Order, decimal Fee,

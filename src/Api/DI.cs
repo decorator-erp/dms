@@ -25,7 +25,7 @@ namespace Api;
 
 public static class DI
 {
-    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration cfg)
+    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration cfg, IHostEnvironment env)
     {
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
@@ -47,6 +47,8 @@ public static class DI
                 + "for local development, or via configured environment variables elsewhere. There is no "
                 + "default — a committed signing key is a credential in the repository.");
         }
+
+        EnsureConnectionStringConfigured(cfg, env);
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -302,6 +304,82 @@ public static class DI
                     Window = TimeSpan.FromSeconds(seconds),
                     QueueLimit = 0,
                 }));
+    }
+
+    /// <summary>FINDING-P1-9 / P1-17: <c>appsettings.json</c> commits a placeholder connection string (local
+    /// docker shape, empty password — L-6), so outside Development something must override it. A host left on
+    /// the placeholder would start and fail on its first query; instead it refuses to start, naming
+    /// <c>ConnectionStrings__DefaultConnection</c> — never echoing a value. Development keeps its own string in
+    /// <c>appsettings.Development.json</c>; integration hosts run as Development with the Testcontainers
+    /// string.</summary>
+    private static void EnsureConnectionStringConfigured(IConfiguration cfg, IHostEnvironment env)
+    {
+        if (env.IsDevelopment())
+        {
+            return;
+        }
+
+        string? problem = ConnectionStringProblem(cfg.GetConnectionString("DefaultConnection"));
+        if (problem is not null)
+        {
+            throw new InvalidOperationException(problem);
+        }
+    }
+
+    /// <summary>FINDING-P1-17: the <c>ConnectionStrings:DefaultConnection</c> value <c>src/Api/appsettings.json</c>
+    /// commits. <c>ConnectionStringCheckTests</c> fails if the two drift apart.</summary>
+    internal const string CommittedDefaultConnection =
+        "Host=localhost;Port=5433;Database=dms_modular;Username=postgres;Password=";
+
+    /// <summary>FINDING-P1-17: <see langword="null"/> unless <paramref name="connectionString"/> is missing, does
+    /// not parse, or is still <see cref="CommittedDefaultConnection"/> — each with its own message naming
+    /// <c>ConnectionStrings__DefaultConnection</c>, never a value. How an overriding string authenticates
+    /// (password, passfile, <c>~/.pgpass</c>, client certificate, Unix socket, Kerberos/GSS) is not judged here:
+    /// every such heuristic either let the placeholder through or blocked a legitimate setup (R1c-1..3). No
+    /// environment variable is read.</summary>
+    internal static string? ConnectionStringProblem(string? connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return "ConnectionStrings:DefaultConnection is not configured outside Development. Set the whole "
+                + "connection string through the ConnectionStrings__DefaultConnection environment variable (or "
+                + "another configuration source).";
+        }
+
+        Npgsql.NpgsqlConnectionStringBuilder builder;
+        try
+        {
+            builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidCastException)
+        {
+            // Not ex.Message: Npgsql's parse errors can quote the offending keyword or value.
+            return "ConnectionStrings:DefaultConnection could not be parsed outside Development. Check the "
+                + "value of the ConnectionStrings__DefaultConnection environment variable (or other configuration "
+                + "source) is a valid Npgsql connection string.";
+        }
+
+        return SameSettings(builder, new Npgsql.NpgsqlConnectionStringBuilder(CommittedDefaultConnection))
+            ? "ConnectionStrings:DefaultConnection still has the committed placeholder value outside Development; "
+                + "set ConnectionStrings__DefaultConnection to the real connection string."
+            : null;
+    }
+
+    /// <summary>Order-insensitive: Npgsql canonicalises keyword names but keeps their order in
+    /// <c>ConnectionString</c>, so a re-ordered placeholder must still compare equal. An empty value counts as
+    /// absent (<c>Password=</c> and no password are the same placeholder).</summary>
+    private static bool SameSettings(Npgsql.NpgsqlConnectionStringBuilder left, Npgsql.NpgsqlConnectionStringBuilder right)
+    {
+        static Dictionary<string, string> Settings(Npgsql.NpgsqlConnectionStringBuilder builder) =>
+            builder.Keys.Cast<string>()
+                .Select(key => (Key: key, Value: Convert.ToString(builder[key], System.Globalization.CultureInfo.InvariantCulture)))
+                .Where(entry => !string.IsNullOrEmpty(entry.Value))
+                .ToDictionary(entry => entry.Key, entry => entry.Value!, StringComparer.OrdinalIgnoreCase);
+
+        Dictionary<string, string> l = Settings(left);
+        Dictionary<string, string> r = Settings(right);
+        return l.Count == r.Count
+            && l.All(entry => r.TryGetValue(entry.Key, out string? value) && string.Equals(value, entry.Value, StringComparison.Ordinal));
     }
 }
 

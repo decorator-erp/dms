@@ -117,6 +117,20 @@ internal static class MeetingSupport
     public static Error NotFoundFor(Guid? actingContactId, Error officeError) =>
         actingContactId is null ? officeError : CrmPortalErrors.NotFound;
 
+    /// <summary>
+    /// FINDING-P1-16: a slot has no concurrency token of its own; it is guarded by its meeting's <c>xmin</c>,
+    /// since every write that changes a slot also writes the meeting. The slot is looked up first (it names
+    /// the meeting), so a slot write committed between the two reads would leave a stale slot next to a
+    /// fresh meeting token, and the save would win anyway. Re-reading the slot after the meeting closes
+    /// that window: a write committed before this read is visible here, one committed after it moves the
+    /// meeting's <c>xmin</c> and the save is a 409. False when the slot is gone.
+    /// </summary>
+    public static async Task<bool> RereadSlotAfterMeetingAsync(CrmDbContext db, CrmMeetingSlot slot, CancellationToken ct)
+    {
+        await db.Entry(slot).ReloadAsync(ct);
+        return db.Entry(slot).State != EntityState.Detached;
+    }
+
     /// <summary>B-4 (MT-N2): the contact's tenant check, run BEFORE the actor-kind check; any failure is the
     /// portal 404. A no-op for an employee actor.</summary>
     public static async Task<Result> EnsureContactOwnsProjectAsync(

@@ -36,4 +36,13 @@ internal static class CrmApprovalIds
 
         return new Guid(bytes, bigEndian: true);
     }
+
+    /// <summary>L-1 (D-10's adopt rule): a legacy pending row with no bound id adopts the subject's newest
+    /// approval only when it is still undecided (the live one), or when it is the row's own last send
+    /// (<paramref name="lastSendRound"/>'s id, its decision lost on the way back). Any other decided approval
+    /// is an older round whose outcome the row already took before it was sent again, so it is never
+    /// re-applied; the caller re-requests under a fresh round id instead.</summary>
+    public static bool IsAdoptable(ApprovalSnapshot? latest, ApprovalSubjectType subjectType, Guid subjectId, int lastSendRound) =>
+        latest is not null
+        && (latest.Decision is null || lastSendRound > 0 && latest.Id == For(subjectType, subjectId, lastSendRound));
 }

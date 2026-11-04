@@ -23,7 +23,7 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm;
 /// <para>Matching: <c>SubjectType</c> 2 = DesignBrief, 4 = BriefSpace (<c>Approvals.Domain.ApprovalSubjectType</c>);
 /// CRM status 2 = PendingApproval (<c>Crm.Domain.ApprovalState</c>); <c>Decision IS NULL</c> = still open.
 /// Approvals has no unique backstop on open approvals per subject, so the newest open one wins. Rows
-/// with no open approval stay NULL — count them before deploying (see CRM-BRIEF-FIX-NOTES.md).</para>
+/// with no open approval stay NULL — count them before deploying (see ../docs/backend/dms-modular/reports/CRM-BRIEF-FIX-NOTES.md).</para>
 /// </summary>
 public partial class CrmBriefBackfillPendingApprovalIds : Migration
 {
