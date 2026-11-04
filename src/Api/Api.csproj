@@ -27,6 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- FINDING-P1-13: ConfigurationFailFastTests calls DI.ConnectionStringProblem directly. -->
+    <InternalsVisibleTo Include="Integration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />

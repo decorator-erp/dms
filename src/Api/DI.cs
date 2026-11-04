@@ -319,24 +319,55 @@ public static class DI
             return;
         }
 
-        string? connectionString = cfg.GetConnectionString("DefaultConnection");
-        bool hasPassword;
-        try
+        string? problem = ConnectionStringProblem(cfg.GetConnectionString("DefaultConnection"), Environment.GetEnvironmentVariable);
+        if (problem is not null)
         {
-            hasPassword = !string.IsNullOrEmpty(new Npgsql.NpgsqlConnectionStringBuilder(connectionString).Password);
+            throw new InvalidOperationException(problem);
         }
-        catch (ArgumentException)
+    }
+
+    /// <summary>FINDING-P1-13: <see langword="null"/> when <paramref name="connectionString"/> can authenticate,
+    /// else the reason it cannot — naming <c>ConnectionStrings__DefaultConnection</c>, never a value. An empty
+    /// password is fine when Npgsql has another way in: a passfile, a client certificate, Kerberos/GSS (Npgsql
+    /// 10 has no <c>Integrated Security</c> keyword — it rejects it — so a GSS deployment says so by naming
+    /// <c>Kerberos Service Name</c> or <c>Include Realm</c>), or <c>PGPASSWORD</c>/<c>PGPASSFILE</c> in the
+    /// environment. <paramref name="environmentVariable"/> is only asked whether those are set; their values are
+    /// never read into a message or a log.</summary>
+    internal static string? ConnectionStringProblem(string? connectionString, Func<string, string?> environmentVariable)
+    {
+        const string Remedy = " Set the whole connection string through the ConnectionStrings__DefaultConnection "
+            + "environment variable (or another configuration source); appsettings.json deliberately commits none.";
+
+        if (string.IsNullOrWhiteSpace(connectionString))
         {
-            hasPassword = false;
+            return "ConnectionStrings:DefaultConnection is not configured outside Development." + Remedy;
         }
 
-        if (!hasPassword)
+        Npgsql.NpgsqlConnectionStringBuilder builder;
+        try
         {
-            throw new InvalidOperationException(
-                "ConnectionStrings:DefaultConnection has no password outside Development. Set the whole "
-                + "connection string through the ConnectionStrings__DefaultConnection environment variable (or "
-                + "another configuration source); appsettings.json deliberately commits none.");
+            builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
         }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidCastException)
+        {
+            // Not ex.Message: Npgsql's parse errors can quote the offending keyword or value.
+            return "ConnectionStrings:DefaultConnection could not be parsed outside Development. Check the "
+                + "value of the ConnectionStrings__DefaultConnection environment variable (or other configuration "
+                + "source) is a valid Npgsql connection string.";
+        }
+
+        bool authenticatesWithoutPassword =
+            !string.IsNullOrEmpty(builder.Passfile)
+            || !string.IsNullOrEmpty(builder.SslCertificate)
+            || builder.Keys.Cast<string>().Any(key =>
+                key.Equals("Kerberos Service Name", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("Include Realm", StringComparison.OrdinalIgnoreCase))
+            || !string.IsNullOrEmpty(environmentVariable("PGPASSWORD"))
+            || !string.IsNullOrEmpty(environmentVariable("PGPASSFILE"));
+
+        return !string.IsNullOrEmpty(builder.Password) || authenticatesWithoutPassword
+            ? null
+            : "ConnectionStrings:DefaultConnection has no password outside Development." + Remedy;
     }
 }
 
