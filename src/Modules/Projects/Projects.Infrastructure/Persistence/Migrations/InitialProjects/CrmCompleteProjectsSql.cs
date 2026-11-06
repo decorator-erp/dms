@@ -37,7 +37,8 @@ internal static class CrmCompleteProjectsSql
         DO $$
         BEGIN
             IF EXISTS (SELECT 1 FROM projects.project_members m
-                       WHERE NOT EXISTS (SELECT 1 FROM hr.employees e WHERE e."Id" = m."EmployeeId")) THEN
+                       WHERE NOT EXISTS (SELECT 1 FROM hr.employees e WHERE e."Id" = m."EmployeeId")
+                          OR NOT EXISTS (SELECT 1 FROM hr.employees e WHERE e."Id" = m."AddedById")) THEN
                 RAISE EXCEPTION 'crm-complete: project_members has rows with no hr.employees match';
             END IF;
         END $$;
@@ -46,10 +47,18 @@ internal static class CrmCompleteProjectsSql
             ADD CONSTRAINT fk_project_members_employee
             FOREIGN KEY ("EmployeeId") REFERENCES hr.employees("Id")
             ON DELETE RESTRICT;
+
+        CREATE INDEX "IX_project_members_AddedById" ON projects.project_members ("AddedById");
+        ALTER TABLE projects.project_members
+            ADD CONSTRAINT fk_project_members_added_by
+            FOREIGN KEY ("AddedById") REFERENCES hr.employees("Id")
+            ON DELETE RESTRICT;
         """;
 
     public const string DropForeignKeys =
         """
+        ALTER TABLE projects.project_members DROP CONSTRAINT IF EXISTS fk_project_members_added_by;
+        DROP INDEX IF EXISTS projects."IX_project_members_AddedById";
         ALTER TABLE projects.project_members DROP CONSTRAINT IF EXISTS fk_project_members_employee;
         """;
 }

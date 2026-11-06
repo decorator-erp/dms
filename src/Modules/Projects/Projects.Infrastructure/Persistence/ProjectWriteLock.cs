@@ -50,6 +50,22 @@ internal static class ProjectWriteLock
         return result;
     }
 
+    /// <summary>FINDING-E-3: a writer that hangs work on a task (a comment, a sub-task completion, a start)
+    /// takes the task row <c>FOR SHARE</c> for its transaction, so it serialises against a delete holding the
+    /// row <c>FOR UPDATE</c>. False when the task is not (or no longer) in the project.</summary>
+    public static async Task<bool> ShareTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
+    {
+        List<Guid> found = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM projects.project_tasks WHERE \"Id\" = {taskId} AND \"ProjectId\" = {projectId} FOR SHARE")
+            .ToListAsync(ct);
+        return found.Count == 1;
+    }
+
+    /// <summary>FINDING-E-1 backstop: an FK violation on a hard delete (a row in another module that the
+    /// contract checks could not see yet) is a 409, not a 500.</summary>
+    public static bool IsForeignKeyViolation(DbUpdateException ex) =>
+        ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation };
+
     private static Task<int> LockAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
         db.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM projects.projects WHERE \"Id\" = {projectId} FOR UPDATE", ct);

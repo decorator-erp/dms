@@ -36,9 +36,9 @@ internal sealed class UpdateProjectTaskCommandValidator : AbstractValidator<Upda
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.Notes).MaximumLength(2000);
-        RuleFor(x => x.Priority).IsInEnum();
-        RuleFor(x => x.Weight).GreaterThan(0).LessThanOrEqualTo(1000);
-        RuleFor(x => x.Order).GreaterThan(0);
+        RuleFor(x => x.Priority).IsInEnum().When(x => x.Priority is not null);
+        RuleFor(x => x.Weight).GreaterThan(0).LessThanOrEqualTo(1000).When(x => x.Weight is not null);
+        RuleFor(x => x.Order).GreaterThan(0).When(x => x.Order is not null);
     }
 }
 
@@ -83,7 +83,7 @@ internal static class ManualTasks
 
 /// <summary>E3 (D2). Route claim → scope (404) → state (409), under the project lock. The assignee must be
 /// an active employee (404); an assignment enqueues <see cref="ProjectTaskAssignedIntegrationEvent"/> in the
-/// same save, as <c>AssignProjectTaskCommandHandler</c> does. A task added to a locked stage starts locked.</summary>
+/// same save, as <c>AssignProjectTaskCommandHandler</c> does. A task starts Open, whatever the stage's lock.</summary>
 internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
     : ICommandHandler<CreateProjectTaskCommand, Guid>
 {
@@ -153,11 +153,10 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
         }
 
         Domain.ProjectTask task = created.Value!;
+        // FINDING-E-2: Open, like a materialised stage's tasks, even when the stage is locked: stage locking is
+        // stage-only (a stage's Unlock gate unlocks the stage, never its tasks), so a Locked task here would
+        // stay locked for good.
         task.Update(task.Name, task.Description, command.Notes, task.Priority, task.Weight, task.Order, task.DueDate);
-        if (stage?.Status == Domain.StageStatus.Locked)
-        {
-            task.Lock();
-        }
 
         db.ProjectTasks.Add(task);
         if (command.AssignedToId is { } assignee)
@@ -198,8 +197,10 @@ internal sealed class UpdateProjectTaskCommandHandler(ProjectsDbContext db) : IC
             return Domain.TaskErrors.NotFound;
         }
 
-        task.Update(command.Name.Trim(), command.Description, command.Notes, ProjectsEnumMapping.ToDomain(command.Priority),
-            command.Weight, command.Order, ProjectDates.ToUtc(command.DueDate));
+        // FINDING-E-5: a field the caller leaves out keeps its value.
+        task.Update(command.Name.Trim(), command.Description, command.Notes,
+            command.Priority is { } priority ? ProjectsEnumMapping.ToDomain(priority) : task.Priority,
+            command.Weight ?? task.Weight, command.Order ?? task.Order, ProjectDates.ToUtc(command.DueDate));
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -230,6 +231,7 @@ internal sealed class DeleteProjectTaskCommandHandler(
         }
 
         var guard = new WorkDeletionGuard(db, documents, crm, finance);
+        await guard.LockAsync(null, [task.Id], ct);
         if (!await guard.CanDeleteTaskAsync(task.Id, ct))
         {
             return Domain.TaskErrors.NotDeletable;
@@ -237,7 +239,15 @@ internal sealed class DeleteProjectTaskCommandHandler(
 
         await guard.RemoveTasksAsync([task.Id], ct);
         await ManualTasks.RecountStageAsync(db, task.ProjectStageId, delta: -1, ct);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ProjectWriteLock.IsForeignKeyViolation(ex))
+        {
+            return Domain.TaskErrors.NotDeletable;
+        }
+
         return Result.Success();
     }
 }

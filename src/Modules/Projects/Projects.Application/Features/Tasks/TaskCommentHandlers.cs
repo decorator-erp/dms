@@ -21,9 +21,8 @@ internal sealed class AddTaskCommentCommandHandler(ProjectsDbContext db, IHrDire
 {
     public async Task<Result<Guid>> HandleAsync(AddTaskCommentCommand command, CancellationToken ct = default)
     {
-        bool taskExists = await db.ProjectTasks.AsNoTracking()
-            .AnyAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
-        if (!taskExists)
+        // FINDING-E-3: hold the task row (FOR SHARE) so a racing task delete can't leave this comment orphaned.
+        if (!await ProjectWriteLock.ShareTaskAsync(db, command.ProjectId, command.TaskId, ct))
         {
             return Result.Failure<Guid>(Domain.TaskErrors.NotFound);
         }
@@ -127,7 +126,16 @@ internal sealed class DeleteTaskCommentCommandHandler(ProjectsDbContext db, IHrD
         }
 
         db.TaskComments.Remove(comment.Value!);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // FINDING-E-7: a racing delete got there first.
+            return Domain.TaskCommentErrors.NotFound;
+        }
+
         return Result.Success();
     }
 }

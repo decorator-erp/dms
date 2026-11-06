@@ -54,7 +54,7 @@ internal sealed class StageEndpoints : IEndpoint
             ICommandHandler<UpdateProjectStageCommand> handler, CancellationToken ct) =>
         {
             Result result = await handler.HandleAsync(new UpdateProjectStageCommand(
-                projectId, stageId, currentUser.UserId!, request.Name ?? string.Empty, request.Order ?? int.MaxValue,
+                projectId, stageId, currentUser.UserId!, request.Name ?? string.Empty, request.Order,
                 request.Description, request.Notes, request.EstimatedStartDate, request.EstimatedEndDate), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Stages.Manage);

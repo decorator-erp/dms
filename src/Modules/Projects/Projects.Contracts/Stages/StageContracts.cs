@@ -24,8 +24,9 @@ public sealed record CreateProjectStageCommand(
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, Guid? TemplateStageId)
     : ICommand<Guid>, IProjectScoped;
 
+/// <summary>E2. A null <see cref="Order"/> keeps the stage where it is (FINDING-E-5).</summary>
 public sealed record UpdateProjectStageCommand(
-    Guid ProjectId, Guid StageId, string UserId, string Name, int Order, string? Description, string? Notes,
+    Guid ProjectId, Guid StageId, string UserId, string Name, int? Order, string? Description, string? Notes,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate)
     : ICommand, IProjectScoped;
 

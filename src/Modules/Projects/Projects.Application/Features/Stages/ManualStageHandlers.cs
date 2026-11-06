@@ -33,7 +33,7 @@ internal sealed class UpdateProjectStageCommandValidator : AbstractValidator<Upd
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.Notes).MaximumLength(2000);
-        RuleFor(x => x.Order).GreaterThan(0);
+        RuleFor(x => x.Order).GreaterThan(0).When(x => x.Order is not null);
         RuleFor(x => x.EstimatedEndDate).GreaterThanOrEqualTo(x => x.EstimatedStartDate)
             .When(x => x.EstimatedStartDate is not null && x.EstimatedEndDate is not null);
     }
@@ -174,7 +174,11 @@ internal sealed class UpdateProjectStageCommandHandler(ProjectsDbContext db) : I
 
         stage.Update(command.Name.Trim(), command.Description, command.Notes,
             ProjectDates.ToUtc(command.EstimatedStartDate), ProjectDates.ToUtc(command.EstimatedEndDate));
-        ManualStages.Reorder(stages, stage, command.Order);
+        if (command.Order is { } order)
+        {
+            ManualStages.Reorder(stages, stage, order);
+        }
+
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -205,9 +209,16 @@ internal sealed class DeleteProjectStageCommandHandler(
             return Domain.StageErrors.NotFound;
         }
 
+        // FINDING-E-4: a completed or rejected stage has run its course and stays.
+        if (stage.Status is not (Domain.StageStatus.Active or Domain.StageStatus.Locked))
+        {
+            return Domain.StageErrors.NotDeletable;
+        }
+
         List<Guid> taskIds = await db.ProjectTasks.AsNoTracking()
             .Where(t => t.ProjectStageId == stage.Id).Select(t => t.Id).ToListAsync(ct);
         var guard = new WorkDeletionGuard(db, documents, crm, finance);
+        await guard.LockAsync(stage.Id, taskIds, ct);
         if (!await guard.CanDeleteStageAsync(stage.Id, taskIds, ct))
         {
             return Domain.StageErrors.NotDeletable;
@@ -219,7 +230,15 @@ internal sealed class DeleteProjectStageCommandHandler(
         db.ProjectStages.Remove(stage);
         stages.Remove(stage);
         ManualStages.Renumber(stages);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ProjectWriteLock.IsForeignKeyViolation(ex))
+        {
+            return Domain.StageErrors.NotDeletable;
+        }
+
         return Result.Success();
     }
 }

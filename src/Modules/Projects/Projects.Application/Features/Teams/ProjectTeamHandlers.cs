@@ -89,7 +89,16 @@ internal sealed class RemoveStageTeamMemberCommandHandler(ProjectsDbContext db) 
         }
 
         db.StageTeamMembers.Remove(member);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // FINDING-E-7: a racing removal (or a stage delete cascading the team) got there first.
+            return Domain.TeamErrors.MemberNotFound;
+        }
+
         return Result.Success();
     }
 }

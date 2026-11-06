@@ -27,7 +27,7 @@ internal sealed class UpdateProjectSubTaskCommandValidator : AbstractValidator<U
     {
         RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Description).MaximumLength(2000);
-        RuleFor(x => x.Order).GreaterThan(0);
+        RuleFor(x => x.Order).GreaterThan(0).When(x => x.Order is not null);
     }
 }
 
@@ -104,7 +104,7 @@ internal sealed class UpdateProjectSubTaskCommandHandler(ProjectsDbContext db) :
             return Domain.SubTaskErrors.NotFound;
         }
 
-        subTask.Update(command.Title.Trim(), command.Description, command.Order, command.IsRequired);
+        subTask.Update(command.Title.Trim(), command.Description, command.Order ?? subTask.Order, command.IsRequired ?? subTask.IsRequired);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }

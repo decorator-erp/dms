@@ -47,7 +47,7 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new UpdateProjectTaskCommand(
                 projectId, taskId, currentUser.UserId!, request.Name ?? string.Empty, request.Description, request.Notes,
-                request.Priority ?? TaskPriority.Medium, request.Weight ?? 1.00m, request.Order ?? 1, request.DueDate), ct);
+                request.Priority, request.Weight, request.Order, request.DueDate), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
 
@@ -152,7 +152,7 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new UpdateProjectSubTaskCommand(
                 projectId, taskId, subTaskId, currentUser.UserId!, request.Title ?? string.Empty, request.Description,
-                request.Order ?? 1, request.IsRequired ?? true), ct);
+                request.Order, request.IsRequired), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
 

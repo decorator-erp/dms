@@ -9,9 +9,10 @@ namespace Projects.Application.Features.Stages;
 
 /// <summary>
 /// crm-complete E2/E3 (D2, "delete is allowed only before the item has started"): decides whether a set of
-/// tasks — a stage's, or one task — can be hard-deleted. Inside Projects: every task must still be Open or
+/// tasks — a stage's, or one task — can be hard-deleted (a stage only while Active or Locked, FINDING-E-4). Inside Projects: every task must still be Open or
 /// Locked, with no done sub-task, no comment and no satisfied gate; and no gate elsewhere may reference the
-/// stage or the tasks. Outside it, through contracts only: no document (Documents), no brief, period, item or
+/// stage or the tasks, and no pending approval gate. Outside it, through contracts only: no document row or folder,
+/// active or not (Documents), no brief, period, item or
 /// brief-space entry (CRM) and no budget, ledger, invoice, variation or BOQ row (Finance) may point at them.
 /// A fixed number of statements whatever the task count; the caller holds the project lock
 /// (<see cref="ProjectWriteLock"/>), so the answer still holds when it deletes.
@@ -26,28 +27,43 @@ internal sealed class WorkDeletionGuard(
             return false;
         }
 
+        // FINDING-E-8: a pending approval gate has an open request in the Approvals inbox; deleting the gate
+        // would orphan it.
         bool gateBlocks =
-            await db.GateConditions.AsNoTracking().AnyAsync(g => g.ProjectStageId == stageId && g.Status == Domain.GateStatus.Satisfied, ct)
+            await db.GateConditions.AsNoTracking().AnyAsync(g =>
+                g.ProjectStageId == stageId && g.ConditionType == Domain.ConditionType.Approval && g.Status == Domain.GateStatus.Pending, ct)
+            || await db.GateConditions.AsNoTracking().AnyAsync(g => g.ProjectStageId == stageId && g.Status == Domain.GateStatus.Satisfied, ct)
             || await db.GateConditions.AsNoTracking().AnyAsync(g => g.ReferencedStageId == stageId && g.ProjectStageId != stageId, ct);
         if (gateBlocks)
         {
             return false;
         }
 
-        if ((await documents.ForStageAsync(stageId, ct)).Count > 0)
-        {
-            return false;
-        }
-
         Guid[] ids = [stageId];
-        return (await crm.StagesInUseAsync(ids, ct)).Count == 0 && (await finance.StagesInUseAsync(ids, ct)).Count == 0;
+        return (await documents.StagesReferencedAsync(ids, ct)).Count == 0
+            && (await crm.StagesInUseAsync(ids, ct)).Count == 0
+            && (await finance.StagesInUseAsync(ids, ct)).Count == 0;
     }
 
-    /// <summary>Tasks only; the documents check for a single task goes through <see cref="IDocumentQueries.ForTaskAsync"/>
-    /// (a stage's tasks are covered by <see cref="IDocumentQueries.ForStageAsync"/>, which reaches through
-    /// to task uploads).</summary>
-    public async Task<bool> CanDeleteTaskAsync(Guid taskId, CancellationToken ct) =>
-        await CanDeleteTasksAsync([taskId], ct) && (await documents.ForTaskAsync(taskId, ct)).Count == 0;
+    public Task<bool> CanDeleteTaskAsync(Guid taskId, CancellationToken ct) => CanDeleteTasksAsync([taskId], ct);
+
+    /// <summary>FINDING-E-3: locks the rows about to be deleted (<c>FOR UPDATE</c>) before any check, so a writer
+    /// that takes the task row (<see cref="ProjectWriteLock.ShareTaskAsync"/>: comment, sub-task complete, start)
+    /// either commits first and is seen by the check, or waits and then finds the row gone.</summary>
+    public async Task LockAsync(Guid? stageId, IReadOnlyCollection<Guid> taskIds, CancellationToken ct)
+    {
+        if (stageId is { } id)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM projects.project_stages WHERE \"Id\" = {id} FOR UPDATE", ct);
+        }
+
+        foreach (Guid taskId in taskIds)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM projects.project_tasks WHERE \"Id\" = {taskId} FOR UPDATE", ct);
+        }
+    }
 
     private async Task<bool> CanDeleteTasksAsync(IReadOnlyCollection<Guid> taskIds, CancellationToken ct)
     {
@@ -69,6 +85,9 @@ internal sealed class WorkDeletionGuard(
             || await db.GateConditions.AsNoTracking().AnyAsync(g =>
                 g.ProjectTaskId != null && taskIds.Contains(g.ProjectTaskId.Value) && g.Status == Domain.GateStatus.Satisfied, ct)
             || await db.GateConditions.AsNoTracking().AnyAsync(g =>
+                g.ProjectTaskId != null && taskIds.Contains(g.ProjectTaskId.Value)
+                && g.ConditionType == Domain.ConditionType.Approval && g.Status == Domain.GateStatus.Pending, ct)
+            || await db.GateConditions.AsNoTracking().AnyAsync(g =>
                 g.ReferencedTaskId != null && taskIds.Contains(g.ReferencedTaskId.Value)
                 && (g.ProjectTaskId == null || !taskIds.Contains(g.ProjectTaskId.Value)), ct);
         if (touched)
@@ -76,7 +95,9 @@ internal sealed class WorkDeletionGuard(
             return false;
         }
 
-        return (await crm.TasksInUseAsync(taskIds, ct)).Count == 0 && (await finance.TasksInUseAsync(taskIds, ct)).Count == 0;
+        return (await documents.TasksReferencedAsync(taskIds, ct)).Count == 0
+            && (await crm.TasksInUseAsync(taskIds, ct)).Count == 0
+            && (await finance.TasksInUseAsync(taskIds, ct)).Count == 0;
     }
 
     /// <summary>Removes the tasks with their sub-tasks and pending gates (comments can't exist: the guard

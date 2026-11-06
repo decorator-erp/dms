@@ -27,6 +27,13 @@ internal sealed class ChangeProjectMemberAccessCommandValidator : AbstractValida
     }
 }
 
+internal static class ProjectMembers
+{
+    /// <summary>The project exists and is active (an inactive project takes no new members).</summary>
+    public static Task<bool> ProjectIsLiveAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
+        db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId && p.IsActive, ct);
+}
+
 /// <summary>E1 (D1). Runs behind the project scope decorator (404 for a caller outside the project). The
 /// employee must exist and be active in HR (<see cref="IHrDirectory.GetAsync"/>), else 404. A duplicate —
 /// whether seen up front or lost to a racing insert on the unique (project, employee) index — is 409.</summary>
@@ -35,6 +42,12 @@ internal sealed class AddProjectMemberCommandHandler(ProjectsDbContext db, IHrDi
 {
     public async Task<Result<Guid>> HandleAsync(AddProjectMemberCommand command, CancellationToken ct = default)
     {
+        // FINDING-E-6: a read-all caller passes the scope decorator without the project existing.
+        if (!await ProjectMembers.ProjectIsLiveAsync(db, command.ProjectId, ct))
+        {
+            return Result.Failure<Guid>(Domain.ProjectErrors.NotFound);
+        }
+
         Guid? addedById = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
         if (addedById is null)
         {
@@ -107,6 +120,11 @@ internal sealed class GetProjectMembersQueryHandler(ProjectsDbContext db, IHrDir
     public async Task<Result<IReadOnlyList<ProjectMemberResponse>>> HandleAsync(
         GetProjectMembersQuery query, CancellationToken ct = default)
     {
+        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == query.ProjectId, ct))
+        {
+            return Result.Failure<IReadOnlyList<ProjectMemberResponse>>(Domain.ProjectErrors.NotFound);
+        }
+
         List<Domain.ProjectMember> members = await db.ProjectMembers.AsNoTracking()
             .Where(m => m.ProjectId == query.ProjectId)
             .OrderBy(m => m.AddedAtUtc)

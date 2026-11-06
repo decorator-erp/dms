@@ -40,9 +40,11 @@ public sealed record CreateProjectTaskCommand(
     Guid? AssignedToId, TaskPriority Priority, decimal Weight, int? Order, DateTime? DueDate)
     : ICommand<Guid>, IProjectScoped;
 
+/// <summary>E3. A null <see cref="Priority"/>, <see cref="Weight"/> or <see cref="Order"/> keeps the current
+/// value (FINDING-E-5).</summary>
 public sealed record UpdateProjectTaskCommand(
     Guid ProjectId, Guid TaskId, string UserId, string Name, string? Description, string? Notes,
-    TaskPriority Priority, decimal Weight, int Order, DateTime? DueDate)
+    TaskPriority? Priority, decimal? Weight, int? Order, DateTime? DueDate)
     : ICommand, IProjectScoped;
 
 public sealed record DeleteProjectTaskCommand(Guid ProjectId, Guid TaskId, string UserId) : ICommand, IProjectScoped;
@@ -66,8 +68,9 @@ public sealed record CreateProjectSubTaskCommand(
     Guid ProjectId, Guid TaskId, string UserId, string Title, string? Description, int? Order, bool IsRequired)
     : ICommand<Guid>, IProjectScoped;
 
+/// <summary>E5. A null <see cref="Order"/> or <see cref="IsRequired"/> keeps the current value (FINDING-E-5).</summary>
 public sealed record UpdateProjectSubTaskCommand(
-    Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId, string Title, string? Description, int Order, bool IsRequired)
+    Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId, string Title, string? Description, int? Order, bool? IsRequired)
     : ICommand, IProjectScoped;
 
 public sealed record DeleteProjectSubTaskCommand(Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId)

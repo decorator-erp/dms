@@ -41,4 +41,12 @@ public interface IDocumentQueries
     Task<IReadOnlyList<DocumentSummary>> ForStageAsync(Guid stageId, CancellationToken ct);
 
     Task<IReadOnlyList<DocumentSummary>> ForTaskAsync(Guid taskId, CancellationToken ct);
+
+    /// <summary>crm-complete FINDING-E-1: the subset of <paramref name="projectStageIds"/> that ANY document row
+    /// (active or soft-deleted) or folder names. Deactivated rows still hold their FK to the stage, so Projects
+    /// asks this before a hard delete instead of tripping the FK.</summary>
+    Task<IReadOnlyList<Guid>> StagesReferencedAsync(IReadOnlyCollection<Guid> projectStageIds, CancellationToken ct);
+
+    /// <summary>The task form of <see cref="StagesReferencedAsync"/>.</summary>
+    Task<IReadOnlyList<Guid>> TasksReferencedAsync(IReadOnlyCollection<Guid> projectTaskIds, CancellationToken ct);
 }
