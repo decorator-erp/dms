@@ -13,9 +13,9 @@ internal sealed class CreateCrmCatalogItemCommandValidator : AbstractValidator<C
     public CreateCrmCatalogItemCommandValidator()
     {
         RuleFor(x => x.CategoryId).NotEmpty();
-        RuleFor(x => x.Code).NotEmpty();
-        RuleFor(x => x.NameEn).NotEmpty();
-        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(256);
     }
 }
 
@@ -38,7 +38,13 @@ internal sealed class CreateCrmCatalogItemCommandHandler(CrmDbContext db) : ICom
 
         CrmCatalogItem item = result.Value!;
         db.CrmCatalogItems.Add(item);
-        await db.SaveChangesAsync(ct);
+        // crm-complete FINDING-F2-1: a taken code is 409, not a 500.
+        Result saved = await CatalogWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
+
 
         return item.Id;
     }

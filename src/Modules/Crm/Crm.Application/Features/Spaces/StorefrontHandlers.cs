@@ -189,6 +189,10 @@ internal sealed class UpdateCrmSpaceSelectionCommandHandler(CrmDbContext db) : I
         {
             return CrmStorefrontErrors.ConcurrentUpdate;
         }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation })
+        {
+            return CrmStorefrontErrors.OptionNotOfAttribute; // FINDING-F2-2: the option went meanwhile
+        }
 
         return Result.Success();
     }

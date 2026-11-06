@@ -212,6 +212,9 @@ public sealed class CrmEndToEndFlowTests(ApiFixture fixture)
         await ExpectAsync(HttpStatusCode.NoContent, await portal.PutAsJsonAsync($"/api/crm/portal/approvals/{entryApprovalId}/decide", new { Decision = 1 }));
         await DrainAsync();
 
+        // FINDING-F2-4: with the entry approved the task has no gathering work left, so it drops off My Work.
+        Assert.DoesNotContain((await office.GetFromJsonAsync<JsonElement>("/api/crm/my-gathering-work")).EnumerateArray(),
+            r => r.GetProperty("projectTaskId").GetGuid() == taskId);
         JsonElement portalItems = await portal.GetFromJsonAsync<JsonElement>("/api/crm/portal/requirement-items?pageNumber=1&pageSize=50");
         Assert.Contains(portalItems.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetGuid() == itemId);
 

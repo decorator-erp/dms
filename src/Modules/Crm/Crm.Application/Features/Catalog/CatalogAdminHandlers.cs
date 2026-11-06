@@ -17,8 +17,10 @@ internal sealed class UpdateCrmCatalogEntryCommandValidator : AbstractValidator<
     {
         RuleFor(x => x.Kind).IsInEnum();
         RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
-        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(256);
-        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.NameEn).NotEmpty();
+        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.NameEn).MaximumLength(256).When(x => x.Kind == CrmCatalogEntryKind.Item);
+        RuleFor(x => x.NameAr).MaximumLength(256).When(x => x.Kind == CrmCatalogEntryKind.Item);
         RuleFor(x => x.NameEn).MaximumLength(128).When(x => x.Kind != CrmCatalogEntryKind.Item);
         RuleFor(x => x.NameAr).MaximumLength(128).When(x => x.Kind != CrmCatalogEntryKind.Item);
         RuleFor(x => x.SelectionMode).IsInEnum().When(x => x.SelectionMode is not null);
@@ -270,6 +272,24 @@ internal sealed class DeleteCrmCatalogEntryCommandHandler(CrmDbContext db) : ICo
         }
 
         return Result.Success();
+    }
+}
+
+/// <summary>crm-complete FINDING-F2-1: the catalog's unique indexes are all code indexes, so a unique violation on a
+/// catalog save is <see cref="CrmCatalogErrors.CodeTaken"/> (409).</summary>
+internal static class CatalogWrites
+{
+    public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return Result.Success();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return CrmCatalogErrors.CodeTaken;
+        }
     }
 }
 

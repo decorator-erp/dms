@@ -26,6 +26,28 @@ public sealed class CrmReviewLoopFTests(ApiFixture fixture)
         Assert.Contains("crm.catalog.CodeTaken", await taken.Content.ReadAsStringAsync());
     }
 
+    /// <summary>F2-1: catalog creates get the same column limits (400) and a taken code is 409, not a 500.</summary>
+    [Fact]
+    public async Task F2_1_catalog_create_too_long_is_400_and_a_taken_code_is_409()
+    {
+        string s = Guid.NewGuid().ToString("N")[..8];
+        (_, string userId) = await HrTestSeeding.HireEmployeeOverHttpAsync(fixture, $"rf21-{s}@example.com");
+        HttpClient admin = CrmPortalTestSeeding.Client(fixture, userId, "crm.catalog.read", "crm.catalog.manage");
+        Guid category = await IdAsync(await admin.PostAsJsonAsync("/api/crm/catalog/categories", new { Code = $"K{s}", NameEn = "K", NameAr = "K" }), "categoryId");
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/crm/catalog/categories", new { Code = new string('c', 65), NameEn = "x", NameAr = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/crm/catalog/items", new { CategoryId = category, Code = $"I{s}", NameEn = new string('n', 257), NameAr = "x" })).StatusCode);
+        HttpResponseMessage takenCategory = await admin.PostAsJsonAsync("/api/crm/catalog/categories", new { Code = $"K{s}", NameEn = "again", NameAr = "again" });
+        Assert.Equal(HttpStatusCode.Conflict, takenCategory.StatusCode);
+        Assert.Contains("crm.catalog.CodeTaken", await takenCategory.Content.ReadAsStringAsync());
+        await IdAsync(await admin.PostAsJsonAsync("/api/crm/catalog/items", new { CategoryId = category, Code = $"I{s}", NameEn = "i", NameAr = "i" }), "itemId");
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/crm/catalog/items", new { CategoryId = category, Code = $"I{s}", NameEn = "j", NameAr = "j" })).StatusCode);
+        Guid attribute = await IdAsync(await admin.PostAsJsonAsync("/api/crm/catalog/attributes", new { CategoryId = category, Code = $"A{s}", NameEn = "a", NameAr = "a", DataType = 5 }), "attributeId");
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/crm/catalog/attributes", new { CategoryId = category, Code = $"A{s}", NameEn = "b", NameAr = "b", DataType = 5 })).StatusCode);
+        await IdAsync(await admin.PostAsJsonAsync($"/api/crm/catalog/attributes/{attribute}/options", new { Code = $"O{s}", NameEn = "o", NameAr = "o" }), "optionId");
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/crm/catalog/attributes/{attribute}/options", new { Code = $"O{s}", NameEn = "p", NameAr = "p" })).StatusCode);
+    }
+
     /// <summary>F-2: an inactive category hides its whole subtree from the picker, and its items can't be picked.</summary>
     [Fact]
     public async Task F2_inactive_parent_hides_the_subtree_from_picker_and_storefront()
