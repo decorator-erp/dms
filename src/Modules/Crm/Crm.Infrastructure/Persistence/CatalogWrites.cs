@@ -6,7 +6,7 @@ using SharedKernel;
 namespace Crm.Infrastructure.Persistence;
 
 /// <summary>
-/// Save for space and space-type writes — <see cref="BriefWrites"/>' shape (A-7, B-M4). The handlers
+/// Save for space, space-type and catalog writes — <see cref="BriefWrites"/>' shape (A-7, B-M4). The handlers
 /// pre-check each rule for the sequential case; this maps the index violation a race still hits to the
 /// same 409 instead of a 500. Anything else still throws.
 /// </summary>
@@ -16,6 +16,12 @@ internal static class CatalogWrites
     {
         ["ux_crm_spaces_project_name"] = CrmSpaceErrors.DuplicateName,
         ["IX_crm_space_types_Code"] = CrmSpaceTypeErrors.DuplicateCode,
+
+        // crm-complete FINDING-F2-1/F3-1: the catalog's code indexes.
+        ["IX_crm_catalog_categories_Code"] = CrmCatalogErrors.CodeTaken,
+        ["IX_crm_catalog_items_Code"] = CrmCatalogErrors.CodeTaken,
+        ["IX_crm_catalog_attributes_CategoryId_Code"] = CrmCatalogErrors.CodeTaken,
+        ["IX_crm_catalog_attribute_options_AttributeId_Code"] = CrmCatalogErrors.CodeTaken,
     };
 
     public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)

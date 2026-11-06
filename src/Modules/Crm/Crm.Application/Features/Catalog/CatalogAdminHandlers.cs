@@ -89,18 +89,13 @@ internal sealed class UpdateCrmCatalogEntryCommandHandler(CrmDbContext db) : ICo
 
         try
         {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            return CrmCatalogErrors.CodeTaken; // FINDING-F-1
+            // FINDING-F-1/F3-2: a taken code is 409 CodeTaken, mapped by constraint name.
+            return await CatalogWrites.SaveAsync(db, ct);
         }
         catch (DbUpdateConcurrencyException)
         {
             return CrmCatalogErrors.EntryNotFound; // FINDING-F-8: deleted meanwhile
         }
-
-        return Result.Success();
     }
 }
 
@@ -272,24 +267,6 @@ internal sealed class DeleteCrmCatalogEntryCommandHandler(CrmDbContext db) : ICo
         }
 
         return Result.Success();
-    }
-}
-
-/// <summary>crm-complete FINDING-F2-1: the catalog's unique indexes are all code indexes, so a unique violation on a
-/// catalog save is <see cref="CrmCatalogErrors.CodeTaken"/> (409).</summary>
-internal static class CatalogWrites
-{
-    public static async Task<Result> SaveAsync(CrmDbContext db, CancellationToken ct)
-    {
-        try
-        {
-            await db.SaveChangesAsync(ct);
-            return Result.Success();
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            return CrmCatalogErrors.CodeTaken;
-        }
     }
 }
 
