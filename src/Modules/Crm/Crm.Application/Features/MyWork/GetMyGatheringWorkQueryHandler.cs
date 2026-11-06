@@ -15,14 +15,18 @@ namespace Crm.Application.Features.MyWork;
 /// projects they can reach (<see cref="IProjectAccessGuard.FilterAccessibleProjectsAsync"/>). Then one query
 /// per kind over the whole batch — briefs by stage, brief-space entries and requirement items by task, open
 /// periods and upcoming meetings by project — so the statement count does not grow with the task count. A task
-/// is listed when it has gathering work: a brief in Draft or ChangesRequested (Rejected), a pending or
-/// unresolved entry or item, a period closing within 7 days, or an upcoming meeting.
+/// is listed when it has its own gathering work: its stage's brief in Draft or ChangesRequested (Rejected), or a
+/// pending or unresolved entry or item linked to it; the open period and upcoming meetings only fill in the dates.
 /// </summary>
 internal sealed class GetMyGatheringWorkQueryHandler(
     CrmDbContext db, ICrmAccessGuard guard, IProjectDirectory projects, IProjectAccessGuard projectAccess)
     : IQueryHandler<GetMyGatheringWorkQuery, IReadOnlyList<MyGatheringWorkItemResponse>>
 {
+    /// <summary>FINDING-F-3: the cap applies to the rows returned, after the reachable and gathering-work filters;
+    /// up to <see cref="MaxCandidates"/> open tasks are considered.</summary>
     private const int MaxTasks = 200;
+
+    private const int MaxCandidates = 2000;
 
     public async Task<Result<IReadOnlyList<MyGatheringWorkItemResponse>>> HandleAsync(GetMyGatheringWorkQuery query, CancellationToken ct = default)
     {
@@ -37,7 +41,7 @@ internal sealed class GetMyGatheringWorkQueryHandler(
             return Result.Failure<IReadOnlyList<MyGatheringWorkItemResponse>>(Domain.CrmMyWorkErrors.NotAnEmployee);
         }
 
-        IReadOnlyList<TaskSummary> assigned = await projects.GetOpenTasksAssignedToAsync([me], MaxTasks, ct);
+        IReadOnlyList<TaskSummary> assigned = await projects.GetOpenTasksAssignedToAsync([me], MaxCandidates, ct);
         if (assigned.Count == 0)
         {
             return Result.Success<IReadOnlyList<MyGatheringWorkItemResponse>>([]);
@@ -103,11 +107,17 @@ internal sealed class GetMyGatheringWorkQueryHandler(
             var upcoming = meetings[task.ProjectId].ToList();
             DateTime? closes = periods.TryGetValue(task.ProjectId, out DateTime c) ? c : null;
 
+            // FINDING-F-4: listed only for the task's own gathering work (its stage's brief needing work, its entries
+            // and items); the project's period and meetings only fill in the dates.
             bool briefNeedsWork = brief?.Status is Domain.ApprovalState.Draft or Domain.ApprovalState.Rejected;
-            bool closingSoon = closes is { } at && at <= now.AddDays(7);
-            if (!briefNeedsWork && entryPending == 0 && itemPending == 0 && unresolved == 0 && !closingSoon && upcoming.Count == 0)
+            if (!briefNeedsWork && entryPending == 0 && itemPending == 0 && unresolved == 0)
             {
                 continue;
+            }
+
+            if (rows.Count == MaxTasks)
+            {
+                break;
             }
 
             rows.Add(new MyGatheringWorkItemResponse(

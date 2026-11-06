@@ -235,6 +235,9 @@ internal static class CrmCatalogErrors
 
     public static readonly Error EntryNotFound = Error.NotFound("crm.catalog.EntryNotFound", "Catalog entry was not found.");
 
+    /// <summary>crm-complete FINDING-F-1: another entry already uses that code.</summary>
+    public static readonly Error CodeTaken = Error.Conflict("crm.catalog.CodeTaken", "Another catalog entry already uses that code.");
+
     public static readonly Error MappingNotFound = Error.NotFound(
         "crm.catalog.MappingNotFound", "That category is not targeted to that space type.");
 

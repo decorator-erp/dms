@@ -103,11 +103,16 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
             approvalId = CrmApprovalIds.For(ApprovalSubjectType.BriefSpace, entry.Id, entry.SendCount + 1);
 
             // crm-complete F6 (D3): freeze the space's storefront picks into the entry, so the client approves what it saw.
+            // FINDING-F-5: always re-captured, so an entry re-sent without a space carries no picks.
             if (entry.SpaceId is { } snapshotSpaceId)
             {
                 List<Contracts.Spaces.CrmSpaceSelectionResponse> picks =
                     (await Spaces.StorefrontReads.LoadAsync(db, [snapshotSpaceId], ct)).GetValueOrDefault(snapshotSpaceId) ?? [];
                 entry.CaptureSelections(Spaces.StorefrontReads.Serialize(picks));
+            }
+            else
+            {
+                entry.CaptureSelections(null);
             }
 
             Result sendResult = entry.Send(approvalId);

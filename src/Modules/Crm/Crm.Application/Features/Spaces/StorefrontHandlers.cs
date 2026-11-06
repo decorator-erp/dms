@@ -64,9 +64,16 @@ internal static class StorefrontReads
             return CrmStorefrontErrors.ItemNotAvailable;
         }
 
+        // FINDING-F-2: every category on the item's path must be active, and only active mapped categories target.
+        List<Guid> pathIds = [.. item.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Guid.Parse)];
+        if (await db.CrmCatalogCategories.AsNoTracking().AnyAsync(c => pathIds.Contains(c.Id) && !c.IsActive, ct))
+        {
+            return CrmStorefrontErrors.ItemNotAvailable;
+        }
+
         List<string> targeted = await db.CrmCatalogCategorySpaceTypes.AsNoTracking()
             .Where(m => m.SpaceTypeId == spaceTypeId)
-            .Join(db.CrmCatalogCategories, m => m.CategoryId, c => c.Id, (m, c) => c.Path)
+            .Join(db.CrmCatalogCategories.Where(c => c.IsActive), m => m.CategoryId, c => c.Id, (m, c) => c.Path)
             .ToListAsync(ct);
         if (!targeted.Exists(p => item.Path.StartsWith(p, StringComparison.Ordinal)))
         {
@@ -99,7 +106,7 @@ internal sealed class AddCrmSpaceSelectionCommandValidator : AbstractValidator<A
     public AddCrmSpaceSelectionCommandValidator()
     {
         RuleFor(x => x.CatalogItemId).NotEmpty();
-        RuleFor(x => x.Quantity).GreaterThan(0).LessThanOrEqualTo(1_000_000);
+        RuleFor(x => x.Quantity).GreaterThanOrEqualTo(0.001m).LessThanOrEqualTo(1_000_000).PrecisionScale(18, 3, true); // FINDING-F-7
         RuleFor(x => x.Notes).MaximumLength(1000);
         RuleFor(x => x.Options).Must(o => o.Count <= 50);
     }
@@ -109,7 +116,7 @@ internal sealed class UpdateCrmSpaceSelectionCommandValidator : AbstractValidato
 {
     public UpdateCrmSpaceSelectionCommandValidator()
     {
-        RuleFor(x => x.Quantity).GreaterThan(0).LessThanOrEqualTo(1_000_000);
+        RuleFor(x => x.Quantity).GreaterThanOrEqualTo(0.001m).LessThanOrEqualTo(1_000_000).PrecisionScale(18, 3, true); // FINDING-F-7
         RuleFor(x => x.Notes).MaximumLength(1000);
         RuleFor(x => x.Options).Must(o => o is null || o.Count <= 50);
     }
@@ -137,7 +144,15 @@ internal sealed class AddCrmSpaceSelectionCommandHandler(CrmDbContext db) : ICom
         var selection = CrmSpaceSelection.Create(command.SpaceId, command.CatalogItemId, command.Quantity, command.Notes?.Trim(), next);
         selection.ReplaceOptions(command.Options.Select(o => (o.AttributeId, o.OptionId)));
         db.CrmSpaceSelections.Add(selection);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation })
+        {
+            return Result.Failure<Guid>(CrmStorefrontErrors.ItemNotAvailable); // FINDING-F-8: the item or space went meanwhile
+        }
+
         return selection.Id;
     }
 }

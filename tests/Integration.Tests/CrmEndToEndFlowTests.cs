@@ -175,7 +175,8 @@ public sealed class CrmEndToEndFlowTests(ApiFixture fixture)
         Assert.Equal(Pending, await GateStatusAsync(office, projectId, stageId, periodGateId));
 
         // --- crm-complete (E/F): a project member, a manual task, storefront picks in a brief entry the client
-        // approves in the portal, the portal items list (the client's own login, seeded by baseline v4) and My Work.
+        // approves in the portal, My Work while it waits, and the portal items list (the client's own login, seeded by
+        // baseline v4).
         (Guid memberEmployeeId, _) = await HrTestSeeding.HireEmployeeOverHttpAsync(fixture, $"e2e-member-{suffix}@example.com");
         await ExpectAsync(HttpStatusCode.OK, await office.PostAsJsonAsync($"/api/projects/{projectId}/members", new { EmployeeId = memberEmployeeId, Access = 2 }));
         Assert.Single((await office.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/members")).EnumerateArray());
@@ -200,16 +201,19 @@ public sealed class CrmEndToEndFlowTests(ApiFixture fixture)
         JsonElement portalBrief = await portal.GetFromJsonAsync<JsonElement>($"/api/crm/portal/projects/{projectId}/brief?stageId={stageId}");
         JsonElement portalEntry = portalBrief.GetProperty("spaces").EnumerateArray().Single(e => e.GetProperty("id").GetGuid() == entryId);
         Assert.Equal(4m, Assert.Single(portalEntry.GetProperty("selections").EnumerateArray()).GetProperty("quantity").GetDecimal());
+        // My Work while the entry awaits the client: the task's block shows it (FINDING-F-4: once everything is
+        // approved the task drops off the list).
+        JsonElement myWork = await office.GetFromJsonAsync<JsonElement>("/api/crm/my-gathering-work");
+        JsonElement workRow = Assert.Single(myWork.EnumerateArray(), r => r.GetProperty("projectTaskId").GetGuid() == taskId);
+        Assert.Equal(1, workRow.GetProperty("taskBlock").GetProperty("entryTotal").GetInt32());
+        Assert.Equal(1, workRow.GetProperty("taskBlock").GetProperty("unresolvedTotal").GetInt32());
+        Assert.NotEqual(JsonValueKind.Null, workRow.GetProperty("openPeriodClosesAtUtc").ValueKind);
         Guid entryApprovalId = await PendingPortalApprovalAsync(portal, subjectId: entryId);
         await ExpectAsync(HttpStatusCode.NoContent, await portal.PutAsJsonAsync($"/api/crm/portal/approvals/{entryApprovalId}/decide", new { Decision = 1 }));
         await DrainAsync();
 
         JsonElement portalItems = await portal.GetFromJsonAsync<JsonElement>("/api/crm/portal/requirement-items?pageNumber=1&pageSize=50");
         Assert.Contains(portalItems.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetGuid() == itemId);
-        JsonElement myWork = await office.GetFromJsonAsync<JsonElement>("/api/crm/my-gathering-work");
-        JsonElement workRow = Assert.Single(myWork.EnumerateArray(), r => r.GetProperty("projectTaskId").GetGuid() == taskId);
-        Assert.Equal(1, workRow.GetProperty("taskBlock").GetProperty("entryTotal").GetInt32());
-        Assert.NotEqual(JsonValueKind.Null, workRow.GetProperty("openPeriodClosesAtUtc").ValueKind);
 
         // --- The clock closes the period: the job, run after the close time has passed.
         await ExpirePeriodAsync(periodId);

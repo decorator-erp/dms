@@ -12,17 +12,20 @@ namespace Crm.Application.Features.Catalog;
 
 internal sealed class UpdateCrmCatalogEntryCommandValidator : AbstractValidator<UpdateCrmCatalogEntryCommand>
 {
+    /// <summary>FINDING-F-1: the limits are the columns' (items have 256-character names, the rest 128).</summary>
     public UpdateCrmCatalogEntryCommandValidator()
     {
         RuleFor(x => x.Kind).IsInEnum();
-        RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
-        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.NameEn).MaximumLength(128).When(x => x.Kind != CrmCatalogEntryKind.Item);
+        RuleFor(x => x.NameAr).MaximumLength(128).When(x => x.Kind != CrmCatalogEntryKind.Item);
         RuleFor(x => x.SelectionMode).IsInEnum().When(x => x.SelectionMode is not null);
-        RuleFor(x => x.Unit).MaximumLength(50);
-        RuleFor(x => x.DescriptionEn).MaximumLength(2000);
-        RuleFor(x => x.DescriptionAr).MaximumLength(2000);
-        RuleFor(x => x.ImageUri).MaximumLength(1000);
+        RuleFor(x => x.Unit).MaximumLength(32);
+        RuleFor(x => x.DescriptionEn).MaximumLength(1000);
+        RuleFor(x => x.DescriptionAr).MaximumLength(1000);
+        RuleFor(x => x.ImageUri).MaximumLength(1024);
     }
 }
 
@@ -82,7 +85,19 @@ internal sealed class UpdateCrmCatalogEntryCommandHandler(CrmDbContext db) : ICo
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return CrmCatalogErrors.CodeTaken; // FINDING-F-1
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return CrmCatalogErrors.EntryNotFound; // FINDING-F-8: deleted meanwhile
+        }
+
         return Result.Success();
     }
 }
@@ -118,7 +133,15 @@ internal sealed class SetCrmCatalogEntryActiveCommandHandler(CrmDbContext db) : 
                 break;
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return CrmCatalogErrors.EntryNotFound; // FINDING-F-8: deleted meanwhile
+        }
+
         return Result.Success();
     }
 
