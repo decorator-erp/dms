@@ -146,6 +146,13 @@ internal static class TeamErrors
     public static readonly Error MemberAlreadyExists = Error.Conflict(
         "teams.MemberAlreadyExists", "This employee is already a member of the stage team.");
 
+    /// <summary>E7: one team per (stage, department).</summary>
+    public static readonly Error AlreadyExists = Error.Conflict(
+        "projects.teams.AlreadyExists", "This stage already has a team for that department.");
+
+    public static readonly Error HeadNotFound = Error.NotFound(
+        "projects.teams.HeadNotFound", "The head was not found or is not active.");
+
     /// <summary>Instantiation-time only (G5-07): a template stage has an active
     /// <c>StageDepartment</c> whose department has no assigned head. Per decision #7, this fails the
     /// WHOLE instantiation — no partial materialization — matching the backend's own hard-block.</summary>
