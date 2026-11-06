@@ -138,3 +138,23 @@ public sealed record GetMyPortalRequirementItemsQuery(
     string AppUserId, Guid? ProjectId = null, Guid? PeriodId = null, CrmApprovalState? Status = null,
     int PageNumber = 1, int PageSize = 50)
     : IQuery<PagedResult<PortalRequirementItemResponse>>, ICrmScoped;
+
+/// <summary>crm-complete F2 (D5): the client's own profile. Field names follow the frontend's
+/// <c>ClientProfile</c>; nothing office-only (no notes, owner, job title or marital status).</summary>
+public sealed record PortalProfileResponse(
+    PortalClientIdentityResponse Client, IReadOnlyList<PortalProfileContactResponse> Contacts,
+    IReadOnlyList<PortalProfileProjectResponse> Projects);
+
+/// <summary><see cref="FirstName"/>/<see cref="LastName"/>/<see cref="PhoneNumber"/> come from the primary
+/// contact (falling back to the login's display name); <see cref="Email"/> is the portal login's.</summary>
+public sealed record PortalClientIdentityResponse(
+    Guid Id, string Name, string FirstName, string LastName, string? Email, string? PhoneNumber, string Address);
+
+public sealed record PortalProfileContactResponse(
+    Guid Id, string FirstName, string LastName, string? Email, string? Phone, string? Mobile, ContactRole Role, bool IsPrimary);
+
+public sealed record PortalProfileProjectResponse(
+    Guid Id, string Code, string Name, string Status, decimal ProgressPercentage, Guid? ActiveStageId, string? ActiveStageName,
+    Guid? OpenPeriodId);
+
+public sealed record GetMyPortalProfileQuery(string AppUserId) : IQuery<PortalProfileResponse>, ICrmScoped;

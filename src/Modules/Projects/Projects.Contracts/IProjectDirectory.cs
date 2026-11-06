@@ -19,6 +19,10 @@ namespace Projects.Contracts;
 public sealed record ProjectSummary(
     Guid Id, string Code, string Name, ProjectStatus Status, Guid ClientId, Guid OwnerId, bool IsActive);
 
+/// <summary>crm-complete F2/F3: a project's progress and its active stage (the lowest-order Active stage;
+/// null when none is active).</summary>
+public sealed record ProjectProgressSummary(Guid ProjectId, decimal ProgressPercentage, Guid? ActiveStageId, string? ActiveStageName);
+
 public sealed record StageSummary(Guid Id, Guid ProjectId, string Name, StageStatus Status);
 
 public sealed record TaskSummary(
@@ -38,6 +42,10 @@ public interface IProjectDirectory
     Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientAsync(Guid clientId, CancellationToken ct);
 
     Task<IReadOnlyList<ProjectSummary>> GetProjectsByClientsAsync(IReadOnlyCollection<Guid> clientIds, CancellationToken ct);
+
+    /// <summary>crm-complete F2/F3: progress and active stage for a batch of projects, two statements in all.
+    /// Projects that don't exist are absent.</summary>
+    Task<IReadOnlyList<ProjectProgressSummary>> GetProgressAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct);
 
     Task<StageSummary?> GetStageAsync(Guid stageId, CancellationToken ct);
     Task<IReadOnlyList<StageSummary>> GetStagesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);

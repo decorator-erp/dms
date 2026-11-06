@@ -66,6 +66,31 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         return await db.ProjectTasks.AsNoTracking().Where(t => ids.Contains(t.Id)).Select(ToTaskSummary()).ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<ProjectProgressSummary>> GetProgressAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        var projects = await db.Projects.AsNoTracking()
+            .Where(p => projectIds.Contains(p.Id))
+            .Select(p => new { p.Id, p.ProgressPercentage })
+            .ToListAsync(ct);
+        var active = await db.ProjectStages.AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId) && s.Status == Domain.StageStatus.Active)
+            .Select(s => new { s.ProjectId, s.Id, s.Name, s.Order })
+            .ToListAsync(ct);
+        var firstActive = active.GroupBy(s => s.ProjectId).ToDictionary(g => g.Key, g => g.OrderBy(s => s.Order).First());
+
+        return
+        [
+            .. projects.Select(p => firstActive.TryGetValue(p.Id, out var stage)
+                ? new ProjectProgressSummary(p.Id, p.ProgressPercentage, stage.Id, stage.Name)
+                : new ProjectProgressSummary(p.Id, p.ProgressPercentage, null, null)),
+        ];
+    }
+
     private static System.Linq.Expressions.Expression<Func<Domain.Project, ProjectSummary>> ToProjectSummary() => p =>
         new ProjectSummary(p.Id, p.Code, p.Name, ProjectsEnumMappingShim.ToContractsStatus(p.Status), p.ClientId, p.OwnerId, p.IsActive);
 
