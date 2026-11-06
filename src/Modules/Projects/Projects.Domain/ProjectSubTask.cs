@@ -41,4 +41,27 @@ internal sealed class ProjectSubTask : Entity, IAuditable
         CompletedAtUtc = DateTime.UtcNow;
         return Result.Success();
     }
+
+    /// <summary>E5: the office edits a sub-task by hand; done state is untouched.</summary>
+    public void Update(string title, string? description, int order, bool isRequired)
+    {
+        Title = title;
+        Description = description;
+        Order = order;
+        IsRequired = isRequired;
+    }
+
+    /// <summary>E5: undoes <see cref="Complete"/>.</summary>
+    public Result Reopen()
+    {
+        if (!IsDone)
+        {
+            return SubTaskErrors.NotDone;
+        }
+
+        IsDone = false;
+        CompletedById = null;
+        CompletedAtUtc = null;
+        return Result.Success();
+    }
 }

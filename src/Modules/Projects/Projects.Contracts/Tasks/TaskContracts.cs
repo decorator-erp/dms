@@ -61,6 +61,22 @@ public sealed record ProjectSubTaskResponse(
 public sealed record CompleteProjectSubTaskCommand(Guid ProjectId, Guid SubTaskId, string UserId)
     : ICommand, IProjectScoped;
 
+/// <summary>E5. <see cref="Order"/> defaults to the end of the task's sub-tasks.</summary>
+public sealed record CreateProjectSubTaskCommand(
+    Guid ProjectId, Guid TaskId, string UserId, string Title, string? Description, int? Order, bool IsRequired)
+    : ICommand<Guid>, IProjectScoped;
+
+public sealed record UpdateProjectSubTaskCommand(
+    Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId, string Title, string? Description, int Order, bool IsRequired)
+    : ICommand, IProjectScoped;
+
+public sealed record DeleteProjectSubTaskCommand(Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId)
+    : ICommand, IProjectScoped;
+
+/// <summary>E5: the task's assignee or a holder of <c>stage_tasks.manage</c>.</summary>
+public sealed record ReopenProjectSubTaskCommand(Guid ProjectId, Guid TaskId, Guid SubTaskId, string UserId)
+    : ICommand, IProjectScoped;
+
 public sealed record GetProjectSubTasksByTaskQuery(Guid ProjectId, Guid TaskId, string UserId)
     : IQuery<IReadOnlyList<ProjectSubTaskResponse>>, IProjectScoped;
 

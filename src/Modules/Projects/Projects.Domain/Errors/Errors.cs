@@ -111,6 +111,21 @@ internal static class SubTaskErrors
     public static readonly Error NotFound = Error.NotFound("subtasks.NotFound", "Project sub-task was not found.");
 
     public static readonly Error AlreadyDone = Error.Conflict("subtasks.AlreadyDone", "This sub-task is already done.");
+
+    /// <summary>E5: reopen needs a done sub-task.</summary>
+    public static readonly Error NotDone = Error.Conflict("projects.subtasks.NotDone", "This sub-task is not done.");
+
+    /// <summary>E5 (D2): a done sub-task has started and stays.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.subtasks.NotDeletable", "A done sub-task cannot be deleted.");
+
+    /// <summary>E5: a completed or cancelled task's sub-tasks are frozen.</summary>
+    public static readonly Error TaskClosed = Error.Conflict(
+        "projects.subtasks.TaskClosed", "The task is completed or cancelled; its sub-tasks can't change.");
+
+    /// <summary>E5: complete/reopen by someone who is neither the task's assignee nor a task manager.</summary>
+    public static readonly Error NotAssignee = Error.Forbidden(
+        "projects.subtasks.NotAssignee", "Only the task's assignee or a task manager can do this.");
 }
 
 internal static class TeamErrors
