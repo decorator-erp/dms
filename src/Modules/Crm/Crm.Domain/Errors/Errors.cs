@@ -201,6 +201,15 @@ internal static class CrmSpaceTypeErrors
 /// owns most of this error set.</summary>
 internal static class CrmCatalogErrors
 {
+    /// <summary>crm-complete F4 (D4): a hard delete of a catalog entry something still references.</summary>
+    public static readonly Error InUse = Error.Conflict(
+        "crm.catalog.InUse", "This catalog entry is in use; deactivate it instead.");
+
+    public static readonly Error EntryNotFound = Error.NotFound("crm.catalog.EntryNotFound", "Catalog entry was not found.");
+
+    public static readonly Error MappingNotFound = Error.NotFound(
+        "crm.catalog.MappingNotFound", "That category is not targeted to that space type.");
+
     public static readonly Error ItemNotFound = Error.NotFound("crm.catalog.ItemNotFound", "Catalog item was not found.");
 
     public static readonly Error CategoryNotFound = Error.NotFound(
