@@ -37,6 +37,14 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
             return result.Match(id => Results.Created($"/api/crm/spaces/{id}", new { SpaceId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Manage);
 
+        // crm-complete F5: the project's full space order (crm.spaces.manage).
+        byProject.MapPut("/order", async (
+            Guid projectId, SpaceOrderRequest request, ICurrentUser currentUser, ICommandHandler<ReorderCrmSpacesCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new ReorderCrmSpacesCommand(projectId, request.SpaceIds ?? [], currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Spaces.Manage);
+
         byProject.MapGet("/", async (
             Guid projectId, ICurrentUser currentUser,
             IQueryHandler<GetCrmSpacesByProjectQuery, IReadOnlyList<CrmSpaceResponse>> handler, CancellationToken ct) =>
@@ -68,6 +76,14 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Spaces.Manage);
 
+        // crm-complete F5 (D4): delete if unused (crm.spaces.manage).
+        byId.MapDelete("/", async (
+            Guid spaceId, ICurrentUser currentUser, ICommandHandler<DeleteCrmSpaceCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteCrmSpaceCommand(spaceId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Spaces.Manage);
+
         byId.MapPut("/active", async (
             Guid spaceId, SetActiveRequest request, ICurrentUser currentUser,
             ICommandHandler<SetCrmSpaceActiveCommand> handler, CancellationToken ct) =>
@@ -86,4 +102,6 @@ internal sealed class CrmSpaceEndpoints : IEndpoint
     private sealed record CreateSpaceRequest(Guid SpaceTypeId, string Name, int SortOrder = 0, string? Description = null);
     private sealed record UpdateSpaceRequest(Guid SpaceTypeId, string Name, string? Description);
     private sealed record SetActiveRequest(bool IsActive);
+
+    private sealed record SpaceOrderRequest(IReadOnlyList<Guid>? SpaceIds);
 }

@@ -168,6 +168,13 @@ internal static class CrmSpaceErrors
 {
     public static readonly Error SpaceNotFound = Error.NotFound("crm.spaces.SpaceNotFound", "Space was not found.");
 
+    /// <summary>crm-complete F5 (D4): a space with brief entries, space items, artifacts or storefront selections.</summary>
+    public static readonly Error InUse = Error.Conflict("crm.spaces.InUse", "This space is in use; deactivate it instead.");
+
+    /// <summary>F5: the reorder list must be exactly the project's spaces, each once.</summary>
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "crm.spaces.InvalidOrder", "The order must list every space of the project exactly once.");
+
     public static readonly Error ItemNotFound = Error.NotFound(
         "crm.spaces.ItemNotFound", "Space item was not found.");
 
