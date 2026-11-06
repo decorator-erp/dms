@@ -13,6 +13,13 @@ public partial class CrmCompleteProjects : Migration
     {
         migrationBuilder.Sql(CrmCompleteProjectsSql.Guard);
 
+        migrationBuilder.AddColumn<DateTime>(
+            name: "EditedAtUtc",
+            schema: "projects",
+            table: "task_comments",
+            type: "timestamp with time zone",
+            nullable: true);
+
         migrationBuilder.CreateTable(
             name: "project_members",
             schema: "projects",
@@ -65,5 +72,10 @@ public partial class CrmCompleteProjects : Migration
         migrationBuilder.DropTable(
             name: "project_members",
             schema: "projects");
+
+        migrationBuilder.DropColumn(
+            name: "EditedAtUtc",
+            schema: "projects",
+            table: "task_comments");
     }
 }

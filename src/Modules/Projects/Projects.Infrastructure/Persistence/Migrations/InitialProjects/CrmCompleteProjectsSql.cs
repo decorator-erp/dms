@@ -22,6 +22,10 @@ internal static class CrmCompleteProjectsSql
             IF to_regclass('projects.project_members') IS NOT NULL THEN
                 RAISE EXCEPTION 'crm-complete: projects.project_members already exists; refusing to re-create it';
             END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema = 'projects' AND table_name = 'task_comments' AND column_name = 'EditedAtUtc') THEN
+                RAISE EXCEPTION 'crm-complete: projects.task_comments."EditedAtUtc" already exists';
+            END IF;
             IF to_regclass('hr.employees') IS NULL THEN
                 RAISE EXCEPTION 'crm-complete: hr.employees is missing; the HR migrations must run first';
             END IF;

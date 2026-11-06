@@ -12,7 +12,7 @@ using Projects.Infrastructure.Persistence;
 namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects;
 
 [DbContext(typeof(ProjectsDbContext))]
-[Migration("20261106170948_CrmCompleteProjects")]
+[Migration("20261106173904_CrmCompleteProjects")]
 partial class CrmCompleteProjects
 {
     /// <inheritdoc />
@@ -975,6 +975,9 @@ partial class CrmCompleteProjects
                     .HasColumnType("character varying(4000)");
 
                 b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<DateTime?>("EditedAtUtc")
                     .HasColumnType("timestamp with time zone");
 
                 b.Property<Guid>("EmployeeId")

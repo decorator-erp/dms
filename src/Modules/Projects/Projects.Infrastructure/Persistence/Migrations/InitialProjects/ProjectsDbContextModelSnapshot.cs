@@ -974,6 +974,9 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("EditedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid");
 

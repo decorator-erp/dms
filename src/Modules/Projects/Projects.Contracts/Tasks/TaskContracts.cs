@@ -80,7 +80,18 @@ public sealed record ReopenProjectSubTaskCommand(Guid ProjectId, Guid TaskId, Gu
 public sealed record GetProjectSubTasksByTaskQuery(Guid ProjectId, Guid TaskId, string UserId)
     : IQuery<IReadOnlyList<ProjectSubTaskResponse>>, IProjectScoped;
 
-public sealed record TaskCommentResponse(Guid Id, Guid TaskId, Guid EmployeeId, string Content, DateTime CreatedAtUtc);
+/// <remarks>E6 adds <see cref="UpdatedAtUtc"/> (null until the comment is edited).</remarks>
+public sealed record TaskCommentResponse(
+    Guid Id, Guid TaskId, Guid EmployeeId, string Content, DateTime CreatedAtUtc, DateTime? UpdatedAtUtc = null);
+
+/// <summary>E6: the author, or a holder of <c>stage_tasks.manage</c>.</summary>
+public sealed record UpdateTaskCommentCommand(Guid ProjectId, Guid TaskId, Guid CommentId, string UserId, string Content)
+    : ICommand, IProjectScoped;
+
+/// <summary>E6: the author, or a holder of <c>stage_tasks.manage</c>. A hard delete: nothing references a
+/// comment.</summary>
+public sealed record DeleteTaskCommentCommand(Guid ProjectId, Guid TaskId, Guid CommentId, string UserId)
+    : ICommand, IProjectScoped;
 
 public sealed record AddTaskCommentCommand(Guid ProjectId, Guid TaskId, string UserId, string Content)
     : ICommand<Guid>, IProjectScoped;

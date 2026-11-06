@@ -128,6 +128,15 @@ internal static class SubTaskErrors
         "projects.subtasks.NotAssignee", "Only the task's assignee or a task manager can do this.");
 }
 
+/// <summary>E6: task comments.</summary>
+internal static class TaskCommentErrors
+{
+    public static readonly Error NotFound = Error.NotFound("projects.comments.NotFound", "Comment was not found.");
+
+    public static readonly Error NotAuthor = Error.Forbidden(
+        "projects.comments.NotAuthor", "Only the comment's author or a task manager can change it.");
+}
+
 internal static class TeamErrors
 {
     public static readonly Error NotFound = Error.NotFound("teams.NotFound", "Stage team was not found.");
