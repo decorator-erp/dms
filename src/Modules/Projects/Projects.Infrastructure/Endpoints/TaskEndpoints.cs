@@ -21,10 +21,50 @@ internal sealed class TaskEndpoints : IEndpoint
         RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
 
         group.MapGet("/", async (
-            Guid projectId, ICurrentUser currentUser,
+            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(
+                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Read);
+
+        // E3 (D2): manual tasks. stage_tasks.manage, the module's existing code for ProjectTask writes.
+        group.MapPost("/", async (
+            Guid projectId, TaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<CreateProjectTaskCommand, Guid> handler, CancellationToken ct) =>
+        {
+            Result<Guid> result = await handler.HandleAsync(new CreateProjectTaskCommand(
+                projectId, currentUser.UserId!, request.ProjectStageId, request.Name ?? string.Empty, request.Description,
+                request.Notes, request.AssignedToId, request.Priority ?? TaskPriority.Medium, request.Weight ?? 1.00m,
+                request.Order, request.DueDate), ct);
+            return result.Match(taskId => Results.Ok(new { TaskId = taskId }), r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapPut("/{taskId:guid}", async (
+            Guid projectId, Guid taskId, TaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<UpdateProjectTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UpdateProjectTaskCommand(
+                projectId, taskId, currentUser.UserId!, request.Name ?? string.Empty, request.Description, request.Notes,
+                request.Priority ?? TaskPriority.Medium, request.Weight ?? 1.00m, request.Order ?? 1, request.DueDate), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapDelete("/{taskId:guid}", async (
+            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            ICommandHandler<DeleteProjectTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapGet("/{taskId:guid}/details", async (
+            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            IQueryHandler<GetProjectTaskDetailsQuery, ProjectTaskDetailsResponse> handler, CancellationToken ct) =>
+        {
+            Result<ProjectTaskDetailsResponse> result = await handler.HandleAsync(
+                new GetProjectTaskDetailsQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -122,5 +162,11 @@ internal sealed class TaskEndpoints : IEndpoint
 
     private sealed record AssignTaskRequest(Guid EmployeeId);
     private sealed record RejectTaskRequest(string Reason);
+    /// <summary>The frontend's <c>CreateProjectTaskRequest</c>/<c>UpdateProjectTaskRequest</c> fields that
+    /// the domain has. Update ignores the stage and the assignee (use <c>/assign</c>).</summary>
+    private sealed record TaskRequest(
+        Guid? ProjectStageId, string? Name, string? Description, string? Notes, Guid? AssignedToId,
+        TaskPriority? Priority, decimal? Weight, int? Order, DateTime? DueDate);
+
     private sealed record AddCommentRequest(string Content);
 }

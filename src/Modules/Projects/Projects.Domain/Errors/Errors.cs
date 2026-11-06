@@ -73,6 +73,18 @@ internal static class TaskErrors
 
     public static readonly Error NegativeCost = Error.BadRequest("tasks.NegativeCost", "Cost cannot be negative.");
 
+    /// <summary>E3 (D2): the task has started (it left Open/Locked), has a done sub-task, a comment, a satisfied
+    /// gate or a document, or a gate elsewhere, CRM or Finance points at it.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.tasks.NotDeletable", "This task has started or is referenced elsewhere and cannot be deleted.");
+
+    /// <summary>E3: a task is not added to a stage that is already completed or rejected.</summary>
+    public static readonly Error StageClosed = Error.Conflict(
+        "projects.tasks.StageClosed", "Tasks cannot be added to a completed or rejected stage.");
+
+    public static readonly Error AssigneeNotFound = Error.NotFound(
+        "projects.tasks.AssigneeNotFound", "The assignee was not found or is not active.");
+
     /// <summary>Same as <see cref="StageErrors.GatesNotSatisfied"/>, for a task-owned
     /// <see cref="GateTrigger.Complete"/> gate.</summary>
     public static readonly Error GatesNotSatisfied = Error.Conflict(

@@ -211,8 +211,24 @@ internal sealed class GetProjectTasksByProjectQueryHandler(ProjectsDbContext db)
     public async Task<Result<IReadOnlyList<ProjectTaskResponse>>> HandleAsync(
         GetProjectTasksByProjectQuery query, CancellationToken ct = default)
     {
-        List<ProjectTaskResponse> tasks = await db.ProjectTasks.AsNoTracking()
-            .Where(t => t.ProjectId == query.ProjectId)
+        IQueryable<ProjectTask> tasksQuery = db.ProjectTasks.AsNoTracking().Where(t => t.ProjectId == query.ProjectId);
+        if (query.StageId is { } stageId)
+        {
+            tasksQuery = tasksQuery.Where(t => t.ProjectStageId == stageId);
+        }
+
+        if (query.AssigneeId is { } assigneeId)
+        {
+            tasksQuery = tasksQuery.Where(t => t.AssignedToId == assigneeId);
+        }
+
+        if (query.Status is { } status)
+        {
+            Domain.ProjectTaskStatus domainStatus = ProjectsEnumMapping.ToDomain(status);
+            tasksQuery = tasksQuery.Where(t => t.Status == domainStatus);
+        }
+
+        List<ProjectTaskResponse> tasks = await tasksQuery
             .OrderBy(t => t.Order)
             .Select(GetProjectTaskQueryHandler.ToResponse())
             .ToListAsync(ct);

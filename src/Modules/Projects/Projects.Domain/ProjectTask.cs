@@ -66,6 +66,19 @@ internal sealed class ProjectTask : Entity, IAuditable
         };
     }
 
+    /// <summary>E3 (D2): the office edits a task by hand. Status, assignment and progress are untouched.</summary>
+    public void Update(
+        string name, string? description, string? notes, TaskPriority priority, decimal weight, int order, DateTime? dueDate)
+    {
+        Name = name;
+        Description = description;
+        Notes = notes;
+        Priority = priority;
+        Weight = weight;
+        Order = order;
+        DueDate = dueDate;
+    }
+
     public Result SetCost(decimal? cost)
     {
         if (cost is < 0)

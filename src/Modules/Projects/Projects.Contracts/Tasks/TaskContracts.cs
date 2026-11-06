@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using Projects.Contracts.Projects;
 
 namespace Projects.Contracts.Tasks;
 
@@ -26,8 +27,33 @@ public sealed record ReopenProjectTaskCommand(Guid ProjectId, Guid TaskId, strin
 public sealed record GetProjectTaskQuery(Guid ProjectId, Guid TaskId, string UserId)
     : IQuery<ProjectTaskResponse>, IProjectScoped;
 
-public sealed record GetProjectTasksByProjectQuery(Guid ProjectId, string UserId)
+/// <summary>E3 adds the optional filters (all ANDed): the stage, the assignee, the status.</summary>
+public sealed record GetProjectTasksByProjectQuery(
+    Guid ProjectId, string UserId, Guid? StageId = null, Guid? AssigneeId = null, ProjectTaskStatus? Status = null)
     : IQuery<IReadOnlyList<ProjectTaskResponse>>, IProjectScoped;
+
+/// <summary>E3 (D2): a task added by hand. A Stage-workflow project needs <see cref="ProjectStageId"/> (and a
+/// settled stage structure); a FreeStyle one must not have it. <see cref="Order"/> defaults to the end of
+/// the stage.</summary>
+public sealed record CreateProjectTaskCommand(
+    Guid ProjectId, string UserId, Guid? ProjectStageId, string Name, string? Description, string? Notes,
+    Guid? AssignedToId, TaskPriority Priority, decimal Weight, int? Order, DateTime? DueDate)
+    : ICommand<Guid>, IProjectScoped;
+
+public sealed record UpdateProjectTaskCommand(
+    Guid ProjectId, Guid TaskId, string UserId, string Name, string? Description, string? Notes,
+    TaskPriority Priority, decimal Weight, int Order, DateTime? DueDate)
+    : ICommand, IProjectScoped;
+
+public sealed record DeleteProjectTaskCommand(Guid ProjectId, Guid TaskId, string UserId) : ICommand, IProjectScoped;
+
+/// <summary>E3: the task page's one-shot read — a fixed number of statements.</summary>
+public sealed record ProjectTaskDetailsResponse(
+    ProjectTaskResponse Task, IReadOnlyList<ProjectSubTaskResponse> SubTasks, int SubTasksCount, int CommentsCount,
+    GateSummary Gates);
+
+public sealed record GetProjectTaskDetailsQuery(Guid ProjectId, Guid TaskId, string UserId)
+    : IQuery<ProjectTaskDetailsResponse>, IProjectScoped;
 
 public sealed record ProjectSubTaskResponse(
     Guid Id, Guid ProjectTaskId, string Title, string? Description, int Order, bool IsRequired, bool IsDone);
