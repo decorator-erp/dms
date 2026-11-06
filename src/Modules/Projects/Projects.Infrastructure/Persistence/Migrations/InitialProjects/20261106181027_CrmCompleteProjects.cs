@@ -49,6 +49,12 @@ public partial class CrmCompleteProjects : Migration
             });
 
         migrationBuilder.CreateIndex(
+            name: "IX_project_members_AddedById",
+            schema: "projects",
+            table: "project_members",
+            column: "AddedById");
+
+        migrationBuilder.CreateIndex(
             name: "IX_project_members_EmployeeId",
             schema: "projects",
             table: "project_members",

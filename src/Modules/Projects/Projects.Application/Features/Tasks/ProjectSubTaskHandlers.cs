@@ -27,8 +27,8 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
             return Domain.SubTaskErrors.NotFound;
         }
 
-        // FINDING-E-3: hold the task row (FOR SHARE) against a racing task delete.
-        ProjectTask? task = await ProjectWriteLock.ShareTaskAsync(db, command.ProjectId, subTask.ProjectTaskId, ct)
+        // FINDING-E-3/E2-1: hold the task row (FOR NO KEY UPDATE) against a racing delete and racing ticks.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, subTask.ProjectTaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == subTask.ProjectTaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)

@@ -381,6 +381,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AddedById");
+
                     b.HasIndex("EmployeeId");
 
                     b.HasIndex("ProjectId", "EmployeeId")

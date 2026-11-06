@@ -25,6 +25,8 @@ internal sealed class ProjectMemberConfiguration : IEntityTypeConfiguration<Proj
         builder.HasIndex(m => new { m.ProjectId, m.EmployeeId }).IsUnique().HasDatabaseName(ProjectEmployeeIndex);
         // EmployeeId: bare Guid FK to hr.employees, raw-SQL constraint in the migration.
         builder.HasIndex(m => m.EmployeeId);
+        // AddedById: bare Guid FK to hr.employees, raw-SQL constraint in the migration.
+        builder.HasIndex(m => m.AddedById);
         builder.HasOne<Project>().WithMany().HasForeignKey(m => m.ProjectId).OnDelete(DeleteBehavior.Cascade);
     }
 }

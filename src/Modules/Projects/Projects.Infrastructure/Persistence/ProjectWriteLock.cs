@@ -50,13 +50,34 @@ internal static class ProjectWriteLock
         return result;
     }
 
-    /// <summary>FINDING-E-3: a writer that hangs work on a task (a comment, a sub-task completion, a start)
-    /// takes the task row <c>FOR SHARE</c> for its transaction, so it serialises against a delete holding the
+    /// <summary>FINDING-E-3: a writer that hangs work on a task without updating it (a comment) takes the task row
+    /// <c>FOR SHARE</c> for its transaction, so it serialises against a delete holding the
     /// row <c>FOR UPDATE</c>. False when the task is not (or no longer) in the project.</summary>
     public static async Task<bool> ShareTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
     {
         List<Guid> found = await db.Database
             .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM projects.project_tasks WHERE \"Id\" = {taskId} AND \"ProjectId\" = {projectId} FOR SHARE")
+            .ToListAsync(ct);
+        return found.Count == 1;
+    }
+
+    /// <summary>FINDING-E2-1/E2-2/E2-3: a writer that will UPDATE the task row (start, complete, assign, a sub-task
+    /// completion's counters, an Unlock gate's lock) takes it <c>FOR NO KEY UPDATE</c> instead: it still waits for
+    /// a delete holding <c>FOR UPDATE</c> (then finds the row gone, false), but two such writers queue rather than
+    /// both holding a share lock and deadlocking on their updates. FK key-share checks are not blocked.</summary>
+    public static async Task<bool> LockTaskForWriteAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
+    {
+        List<Guid> found = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM projects.project_tasks WHERE \"Id\" = {taskId} AND \"ProjectId\" = {projectId} FOR NO KEY UPDATE")
+            .ToListAsync(ct);
+        return found.Count == 1;
+    }
+
+    /// <summary>The stage form of <see cref="LockTaskForWriteAsync"/>, for a stage gate's creation.</summary>
+    public static async Task<bool> LockStageForWriteAsync(ProjectsDbContext db, Guid projectId, Guid stageId, CancellationToken ct)
+    {
+        List<Guid> found = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM projects.project_stages WHERE \"Id\" = {stageId} AND \"ProjectId\" = {projectId} FOR NO KEY UPDATE")
             .ToListAsync(ct);
         return found.Count == 1;
     }

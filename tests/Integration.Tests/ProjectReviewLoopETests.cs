@@ -153,6 +153,65 @@ public sealed class ProjectReviewLoopETests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync($"/api/projects/{unknown}/members")).StatusCode);
     }
 
+    /// <summary>FINDING-E2-1: concurrent sub-task completions on one task (and concurrent starts) must not
+    /// deadlock: each takes the task row FOR NO KEY UPDATE, so the second waits instead of both holding a share
+    /// lock and then both trying to update.</summary>
+    [Fact]
+    public async Task E2_1_concurrent_sub_task_completions_on_one_task_never_500()
+    {
+        (HttpClient owner, Guid projectId, Guid stageId) = await ConfirmedProjectAsync("e21");
+        Guid taskId = await CreateTaskAsync(owner, projectId, stageId, "Many ticks");
+        string subTasks = $"/api/projects/{projectId}/tasks/{taskId}/sub-tasks";
+        var ids = new List<Guid>();
+        for (int i = 1; i <= 16; i++)
+        {
+            HttpResponseMessage created = await owner.PostAsJsonAsync(subTasks, new { Title = $"Tick {i}", Order = i, IsRequired = true });
+            ids.Add((await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("subTaskId").GetGuid());
+        }
+
+        HttpResponseMessage[] responses = await Task.WhenAll(ids.Select(id =>
+            owner.PostAsync($"/api/projects/{projectId}/tasks/sub-tasks/{id}/complete", null)));
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.NoContent, r.StatusCode));
+
+        // The counters saw every completion, so the started task completes.
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.PostAsync($"/api/projects/{projectId}/tasks/{taskId}/start", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.PostAsync($"/api/projects/{projectId}/tasks/{taskId}/complete", null)).StatusCode);
+    }
+
+    /// <summary>FINDING-E2-2: a gate created on a task racing that task's delete waits for the row and then gets
+    /// 404 — no orphan gate.</summary>
+    [Fact]
+    public async Task E2_2_gate_create_racing_a_task_delete_waits_and_gets_404()
+    {
+        (HttpClient owner, Guid projectId, Guid stageId) = await ConfirmedProjectAsync("e22");
+        HttpClient gates = Client((await HrTestSeeding.HireEmployeeOverHttpAsync(fixture, $"e22g-{Guid.NewGuid():N}@example.com")).AppUserId,
+            "stage_tasks.manage_gates", "project.read_all");
+        Guid taskId = await CreateTaskAsync(owner, projectId, stageId, "Gated");
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction tx = await connection.BeginTransactionAsync();
+        await using (var lockTask = new NpgsqlCommand("SELECT 1 FROM projects.project_tasks WHERE \"Id\" = @id FOR UPDATE", connection, tx))
+        {
+            lockTask.Parameters.AddWithValue("id", taskId);
+            await lockTask.ExecuteScalarAsync();
+        }
+
+        Task<HttpResponseMessage> gate = gates.PostAsJsonAsync($"/api/projects/{projectId}/tasks/{taskId}/gates",
+            new { ConditionType = 4, Trigger = 2, Label = "late gate" });
+        await Task.WhenAny(gate, Task.Delay(1500));
+        Assert.False(gate.IsCompleted, "the gate create must wait for the task row");
+
+        await using (var delete = new NpgsqlCommand("DELETE FROM projects.project_tasks WHERE \"Id\" = @id", connection, tx))
+        {
+            delete.Parameters.AddWithValue("id", taskId);
+            await delete.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+        Assert.Equal(HttpStatusCode.NotFound, (await gate).StatusCode);
+    }
+
     private async Task<(HttpClient Owner, Guid ProjectId, Guid StageId)> ConfirmedProjectAsync(string label)
     {
         string suffix = Guid.NewGuid().ToString("N")[..10];

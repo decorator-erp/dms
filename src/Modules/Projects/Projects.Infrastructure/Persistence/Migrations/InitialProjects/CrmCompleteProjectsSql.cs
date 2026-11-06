@@ -48,7 +48,6 @@ internal static class CrmCompleteProjectsSql
             FOREIGN KEY ("EmployeeId") REFERENCES hr.employees("Id")
             ON DELETE RESTRICT;
 
-        CREATE INDEX "IX_project_members_AddedById" ON projects.project_members ("AddedById");
         ALTER TABLE projects.project_members
             ADD CONSTRAINT fk_project_members_added_by
             FOREIGN KEY ("AddedById") REFERENCES hr.employees("Id")
@@ -58,7 +57,6 @@ internal static class CrmCompleteProjectsSql
     public const string DropForeignKeys =
         """
         ALTER TABLE projects.project_members DROP CONSTRAINT IF EXISTS fk_project_members_added_by;
-        DROP INDEX IF EXISTS projects."IX_project_members_AddedById";
         ALTER TABLE projects.project_members DROP CONSTRAINT IF EXISTS fk_project_members_employee;
         """;
 }

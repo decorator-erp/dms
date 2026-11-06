@@ -12,7 +12,7 @@ using Projects.Infrastructure.Persistence;
 namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects;
 
 [DbContext(typeof(ProjectsDbContext))]
-[Migration("20261106173904_CrmCompleteProjects")]
+[Migration("20261106181027_CrmCompleteProjects")]
 partial class CrmCompleteProjects
 {
     /// <inheritdoc />
@@ -383,6 +383,8 @@ partial class CrmCompleteProjects
                     .HasColumnName("xmin");
 
                 b.HasKey("Id");
+
+                b.HasIndex("AddedById");
 
                 b.HasIndex("EmployeeId");
 

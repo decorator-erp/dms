@@ -24,8 +24,10 @@ internal sealed class AssignProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 {
     public async Task<Result> HandleAsync(AssignProjectTaskCommand command, CancellationToken ct = default)
     {
-        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // FINDING-E2-3: hold the task row (FOR NO KEY UPDATE) so a racing delete makes this a 404, not a 500.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;
@@ -55,8 +57,8 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(StartProjectTaskCommand command, CancellationToken ct = default)
     {
-        // FINDING-E-3: hold the task row (FOR SHARE) against a racing task delete.
-        ProjectTask? task = await ProjectWriteLock.ShareTaskAsync(db, command.ProjectId, command.TaskId, ct)
+        // FINDING-E-3/E2-1: hold the task row (FOR NO KEY UPDATE) against a racing delete and racing starts.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)
@@ -85,8 +87,10 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
 {
     public async Task<Result> HandleAsync(CompleteProjectTaskCommand command, CancellationToken ct = default)
     {
-        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // FINDING-E2-3: hold the task row (FOR NO KEY UPDATE) so a racing delete makes this a 404, not a 500.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;
