@@ -39,7 +39,11 @@ internal static class ManualSubTasks
     /// 409 if it is completed or cancelled.</summary>
     public static async Task<Result<Domain.ProjectTask>> OpenTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
     {
-        Domain.ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId && t.ProjectId == projectId, ct);
+        // FINDING-E3-1: the same task-row lock complete-sub-task takes, so concurrent recounts queue instead of
+        // the last writer storing a count that missed another's uncommitted change.
+        Domain.ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, projectId, taskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId && t.ProjectId == projectId, ct)
+            : null;
         if (task is null)
         {
             return Result.Failure<Domain.ProjectTask>(Domain.TaskErrors.NotFound);
