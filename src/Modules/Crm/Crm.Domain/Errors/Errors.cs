@@ -355,6 +355,13 @@ internal static class CrmItemErrors
 
 internal static class CrmArtifactErrors
 {
+    /// <summary>crm-complete F7.</summary>
+    public static readonly Error LinkNotFound = Error.NotFound("crm.artifacts.LinkNotFound", "Artifact link was not found.");
+
+    /// <summary>F7: only the employee who linked the document, or a <c>crm.artifacts.manage</c> holder, unlinks it.</summary>
+    public static readonly Error NotLinker = Error.Forbidden(
+        "crm.artifacts.NotLinker", "Only the employee who linked this document, or an artifacts manager, can remove it.");
+
     public static readonly Error InvalidSubject = Error.BadRequest(
         "crm.artifacts.InvalidSubject",
         "Exactly one of brief, space, requirement item, or meeting must be set.");

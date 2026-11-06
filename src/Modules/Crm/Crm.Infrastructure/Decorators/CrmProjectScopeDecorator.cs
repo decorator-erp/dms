@@ -90,6 +90,7 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
         CrmScopeTargetKind.Space => CrmSpaceErrors.SpaceNotFound,
         CrmScopeTargetKind.Meeting => CrmMeetingErrors.NotFound,
         CrmScopeTargetKind.MeetingSlot => CrmMeetingErrors.SlotNotFound,
+        CrmScopeTargetKind.ArtifactLink => CrmArtifactErrors.LinkNotFound,
         _ => message.GetType().Namespace switch
         {
             "Crm.Contracts.Periods" => CrmPeriodErrors.NotFound,
@@ -133,6 +134,40 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
             .Where(s => s.Id == target.Id)
             .Join(db.CrmMeetings, s => s.MeetingId, m => m.Id, (_, m) => (Guid?)m.ProjectId)
             .FirstOrDefaultAsync(ct),
+        CrmScopeTargetKind.ArtifactLink => await ResolveArtifactLinkProjectAsync(target.Id, ct),
         _ => null,
     };
+
+    /// <summary>crm-complete F7: a link has exactly one subject (brief, space, requirement item or meeting); its
+    /// project is that subject's.</summary>
+    private async Task<Guid?> ResolveArtifactLinkProjectAsync(Guid linkId, CancellationToken ct)
+    {
+        var link = await db.CrmArtifactDocuments.AsNoTracking()
+            .Where(a => a.Id == linkId)
+            .Select(a => new { a.BriefId, a.SpaceId, a.RequirementItemId, a.MeetingId })
+            .FirstOrDefaultAsync(ct);
+        if (link is null)
+        {
+            return null;
+        }
+
+        if (link.BriefId is { } briefId)
+        {
+            return await db.CrmDesignBriefs.AsNoTracking().Where(b => b.Id == briefId).Select(b => (Guid?)b.ProjectId).FirstOrDefaultAsync(ct);
+        }
+
+        if (link.SpaceId is { } spaceId)
+        {
+            return await db.CrmSpaces.AsNoTracking().Where(x => x.Id == spaceId).Select(x => (Guid?)x.ProjectId).FirstOrDefaultAsync(ct);
+        }
+
+        if (link.RequirementItemId is { } itemId)
+        {
+            return await db.CrmRequirementItems.AsNoTracking().Where(i => i.Id == itemId).Select(i => (Guid?)i.ProjectId).FirstOrDefaultAsync(ct);
+        }
+
+        return link.MeetingId is { } meetingId
+            ? await db.CrmMeetings.AsNoTracking().Where(m => m.Id == meetingId).Select(m => (Guid?)m.ProjectId).FirstOrDefaultAsync(ct)
+            : null;
+    }
 }

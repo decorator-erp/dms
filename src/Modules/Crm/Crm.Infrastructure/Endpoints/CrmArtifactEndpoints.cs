@@ -54,8 +54,16 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
             return result.Match(id => Results.Created($"/api/crm/artifacts/{id}", new { ArtifactDocumentId = id }), r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Manage);
 
+        // crm-complete F7: unlink. Route claim crm.artifacts.read; the handler allows the linker or a manager.
+        artifacts.MapDelete("/{linkId:guid}", async (
+            Guid linkId, ICurrentUser currentUser, ICommandHandler<DeleteCrmArtifactDocumentCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteCrmArtifactDocumentCommand(linkId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Artifacts.Read);
+
         artifacts.MapGet("/by-brief/{briefId:guid}", async (
-            Guid briefId, IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
+            Guid briefId, int? pageNumber, int? pageSize, IQueryHandler<GetCrmArtifactDocumentsByBriefQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             ICurrentUser currentUser, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
@@ -64,12 +72,12 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, userId.Value!), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByBriefQuery(briefId, userId.Value!, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-space/{spaceId:guid}", async (
-            Guid spaceId, IQueryHandler<GetCrmArtifactDocumentsBySpaceQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
+            Guid spaceId, int? pageNumber, int? pageSize, IQueryHandler<GetCrmArtifactDocumentsBySpaceQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             ICurrentUser currentUser, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
@@ -78,12 +86,12 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId, userId.Value!), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsBySpaceQuery(spaceId, userId.Value!, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-requirement-item/{requirementItemId:guid}", async (
-            Guid requirementItemId,
+            Guid requirementItemId, int? pageNumber, int? pageSize,
             IQueryHandler<GetCrmArtifactDocumentsByRequirementItemQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             ICurrentUser currentUser, CancellationToken ct) =>
         {
@@ -93,12 +101,12 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId, userId.Value!), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByRequirementItemQuery(requirementItemId, userId.Value!, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
 
         artifacts.MapGet("/by-meeting/{meetingId:guid}", async (
-            Guid meetingId, IQueryHandler<GetCrmArtifactDocumentsByMeetingQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
+            Guid meetingId, int? pageNumber, int? pageSize, IQueryHandler<GetCrmArtifactDocumentsByMeetingQuery, IReadOnlyList<CrmArtifactDocumentResponse>> handler,
             ICurrentUser currentUser, CancellationToken ct) =>
         {
             Result<string> userId = CrmEndpointActors.RequireUserId(currentUser.UserId);
@@ -107,7 +115,7 @@ internal sealed class CrmArtifactEndpoints : IEndpoint
                 return userId.ToProblem();
             }
 
-            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId, userId.Value!), ct);
+            Result<IReadOnlyList<CrmArtifactDocumentResponse>> result = await handler.HandleAsync(new GetCrmArtifactDocumentsByMeetingQuery(meetingId, userId.Value!, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Artifacts.Read);
     }

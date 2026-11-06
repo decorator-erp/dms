@@ -14,6 +14,9 @@ public enum CrmScopeTargetKind
     ProjectTask = 8,
     Meeting = 9,
     MeetingSlot = 10,
+
+    /// <summary>crm-complete F7: an artifact link, resolved through its one subject.</summary>
+    ArtifactLink = 11,
 }
 
 public sealed record CrmScopeTarget(CrmScopeTargetKind Kind, Guid Id)
@@ -26,6 +29,7 @@ public sealed record CrmScopeTarget(CrmScopeTargetKind Kind, Guid Id)
     public static CrmScopeTarget Item(Guid itemId) => new(CrmScopeTargetKind.Item, itemId);
     public static CrmScopeTarget Space(Guid spaceId) => new(CrmScopeTargetKind.Space, spaceId);
     public static CrmScopeTarget ProjectTask(Guid projectTaskId) => new(CrmScopeTargetKind.ProjectTask, projectTaskId);
+    public static CrmScopeTarget ArtifactLink(Guid linkId) => new(CrmScopeTargetKind.ArtifactLink, linkId);
     public static CrmScopeTarget Meeting(Guid meetingId) => new(CrmScopeTargetKind.Meeting, meetingId);
     public static CrmScopeTarget MeetingSlot(Guid slotId) => new(CrmScopeTargetKind.MeetingSlot, slotId);
 }
