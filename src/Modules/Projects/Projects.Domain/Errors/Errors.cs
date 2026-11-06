@@ -65,6 +65,21 @@ internal static class TaskErrors
         "tasks.GatesNotSatisfied", "This task has unsatisfied gate conditions that must be resolved before it can be completed.");
 }
 
+/// <summary>E1 (D1): project members.</summary>
+internal static class ProjectMemberErrors
+{
+    public static readonly Error NotFound = Error.NotFound("projects.members.NotFound", "Project member was not found.");
+
+    public static readonly Error EmployeeNotFound = Error.NotFound(
+        "projects.members.EmployeeNotFound", "The employee was not found or is not active.");
+
+    public static readonly Error AlreadyMember = Error.Conflict(
+        "projects.members.AlreadyMember", "This employee is already a member of the project.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.members.ConcurrentUpdate", "The member was changed by someone else. Reload and try again.");
+}
+
 internal static class SubTaskErrors
 {
     public static readonly Error NotFound = Error.NotFound("subtasks.NotFound", "Project sub-task was not found.");

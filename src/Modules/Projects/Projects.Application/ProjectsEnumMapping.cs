@@ -32,6 +32,9 @@ internal static class ProjectsEnumMapping
     public static Domain.StageTeamMemberRole ToDomain(Contracts.StageTeamMemberRole value) => (Domain.StageTeamMemberRole)value;
     public static Contracts.StageTeamMemberRole ToContracts(Domain.StageTeamMemberRole value) => (Contracts.StageTeamMemberRole)value;
 
+    public static Domain.ProjectMemberAccess ToDomain(Contracts.ProjectMemberAccess value) => (Domain.ProjectMemberAccess)value;
+    public static Contracts.ProjectMemberAccess ToContracts(Domain.ProjectMemberAccess value) => (Contracts.ProjectMemberAccess)value;
+
     public static Domain.WorkflowType ToDomain(Contracts.WorkflowType value) => (Domain.WorkflowType)value;
     public static Contracts.WorkflowType ToContracts(Domain.WorkflowType value) => (Contracts.WorkflowType)value;
 

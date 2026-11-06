@@ -237,6 +237,18 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
             projects = projects.Where(p => accessibleProjectIds.Contains(p.Id));
         }
 
+        if (query.Mine)
+        {
+            Guid? me = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct);
+            if (me is null)
+            {
+                return PagedResult<ProjectResponse>.Empty(query.PageNumber, query.PageSize);
+            }
+
+            IQueryable<Guid> myProjectIds = ProjectAccessGuard.MyProjectIds(db, me.Value);
+            projects = projects.Where(p => myProjectIds.Contains(p.Id));
+        }
+
         if (!string.IsNullOrWhiteSpace(query.NameFilter))
         {
             projects = projects.Where(p => p.Name.Contains(query.NameFilter));

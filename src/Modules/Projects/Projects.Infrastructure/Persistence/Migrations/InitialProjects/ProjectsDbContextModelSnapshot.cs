@@ -344,6 +344,52 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.ToTable("projects", "projects");
                 });
 
+            modelBuilder.Entity("Projects.Domain.ProjectMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Access")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("AddedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("AddedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("ProjectId", "EmployeeId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_project_members_ProjectId_EmployeeId");
+
+                    b.ToTable("project_members", "projects");
+                });
+
             modelBuilder.Entity("Projects.Domain.ProjectStage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -947,6 +993,15 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.HasIndex("TaskId");
 
                     b.ToTable("task_comments", "projects");
+                });
+
+            modelBuilder.Entity("Projects.Domain.ProjectMember", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>

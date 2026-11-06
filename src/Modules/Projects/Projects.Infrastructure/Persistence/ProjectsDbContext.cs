@@ -12,6 +12,7 @@ internal sealed class ProjectsDbContext(DbContextOptions<ProjectsDbContext> opti
     public DbSet<ProjectTask> ProjectTasks => Set<ProjectTask>();
     public DbSet<ProjectSubTask> ProjectSubTasks => Set<ProjectSubTask>();
     public DbSet<TaskComment> TaskComments => Set<TaskComment>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<StageTeam> StageTeams => Set<StageTeam>();
     public DbSet<StageTeamMember> StageTeamMembers => Set<StageTeamMember>();
     public DbSet<StageTemplate> StageTemplates => Set<StageTemplate>();

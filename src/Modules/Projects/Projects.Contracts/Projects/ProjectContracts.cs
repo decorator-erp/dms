@@ -42,7 +42,10 @@ public sealed record DeleteProjectCommand(Guid ProjectId, string UserId) : IComm
 
 public sealed record GetProjectQuery(Guid ProjectId, string UserId) : IQuery<ProjectResponse>, IProjectScoped;
 
-public sealed record GetProjectsQuery(int PageNumber, int PageSize, string UserId, string? NameFilter = null)
+/// <summary><see cref="Mine"/> (E1/E8): only projects the caller owns or is a member of — still inside
+/// project scope.</summary>
+public sealed record GetProjectsQuery(
+    int PageNumber, int PageSize, string UserId, string? NameFilter = null, bool Mine = false)
     : IQuery<PagedResult<ProjectResponse>>;
 
 /// <summary>B2-be: the project page's one-shot read, <c>GET /api/projects/{projectId}/details</c>. Project-scoped
