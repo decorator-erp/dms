@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
+using BuildingBlocks.Persistence;
 using Crm.Contracts;
 using FluentValidation;
 using Hr.Contracts;
@@ -103,6 +104,17 @@ internal sealed class CreateProjectCommandHandler(
 
         Result<IReadOnlyList<Guid>> instantiated = await new StageInstantiator(db, hrDirectory).InstantiateAsync(project, picks, ct);
         return instantiated.IsFailure ? instantiated.Error : Result.Success();
+    }
+}
+
+/// <summary>E8: the paging caps every list in this work uses.</summary>
+internal sealed class GetProjectsQueryValidator : AbstractValidator<GetProjectsQuery>
+{
+    public GetProjectsQueryValidator()
+    {
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
+        RuleFor(x => x.Search).MaximumLength(200);
     }
 }
 
@@ -247,6 +259,17 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
 
             IQueryable<Guid> myProjectIds = ProjectAccessGuard.MyProjectIds(db, me.Value);
             projects = projects.Where(p => myProjectIds.Contains(p.Id));
+        }
+
+        if (query.ClientId is { } clientId)
+        {
+            projects = projects.Where(p => p.ClientId == clientId);
+        }
+
+        if (Like.Contains(query.Search) is { } pattern)
+        {
+            projects = projects.Where(p =>
+                EF.Functions.ILike(p.Name, pattern, Like.EscapeCharacter) || EF.Functions.ILike(p.Code, pattern, Like.EscapeCharacter));
         }
 
         if (!string.IsNullOrWhiteSpace(query.NameFilter))

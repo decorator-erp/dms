@@ -42,10 +42,12 @@ public sealed record DeleteProjectCommand(Guid ProjectId, string UserId) : IComm
 
 public sealed record GetProjectQuery(Guid ProjectId, string UserId) : IQuery<ProjectResponse>, IProjectScoped;
 
-/// <summary><see cref="Mine"/> (E1/E8): only projects the caller owns or is a member of — still inside
-/// project scope.</summary>
+/// <summary>E8 filters, all ANDed and all inside project scope: <see cref="Mine"/> (projects the caller owns
+/// or is a member of), <see cref="ClientId"/>, and <see cref="Search"/> (name or code, case-insensitive,
+/// trimmed). <see cref="NameFilter"/> is the older case-sensitive name filter, kept as it was.</summary>
 public sealed record GetProjectsQuery(
-    int PageNumber, int PageSize, string UserId, string? NameFilter = null, bool Mine = false)
+    int PageNumber, int PageSize, string UserId, string? NameFilter = null, bool Mine = false,
+    Guid? ClientId = null, string? Search = null)
     : IQuery<PagedResult<ProjectResponse>>;
 
 /// <summary>B2-be: the project page's one-shot read, <c>GET /api/projects/{projectId}/details</c>. Project-scoped
