@@ -29,8 +29,10 @@ public sealed record ApprovalRequest(
 /// must apply it itself.</summary>
 public sealed record ApprovalRequestOutcome(Guid ApprovalId, ApprovalDecision? Decision);
 
+/// <remarks>crm-complete F1 adds <see cref="Comment"/>: the decider's comment, null until decided or when
+/// none was given.</remarks>
 public sealed record ApprovalSnapshot(Guid Id, ApprovalSubjectType SubjectType, Guid SubjectId,
-    ApprovalState State, ApprovalDecision? Decision, DateTimeOffset? DecidedAtUtc);
+    ApprovalState State, ApprovalDecision? Decision, DateTimeOffset? DecidedAtUtc, string? Comment = null);
 
 /// <summary>
 /// The only way another module creates or reads an approval. Approvals never reads another module's

@@ -123,3 +123,18 @@ public sealed record PortalApprovalResponse(
 public sealed record GetMyPortalApprovalsQuery(
     string AppUserId, string? Status = null, int PageNumber = 1, int PageSize = 50)
     : IQuery<PagedResult<PortalApprovalResponse>>, ICrmScoped;
+
+/// <summary>crm-complete F1 (D5): one row of the client's requirement-items list. Portal-safe: no office
+/// authors, notes, tasks or meetings. <see cref="Decision"/>/<see cref="DecisionComment"/>/<see cref="DecidedAtUtc"/>
+/// are the item's latest approval's decision, null while it is undecided or was never sent.</summary>
+public sealed record PortalRequirementItemResponse(
+    Guid Id, Guid ProjectId, string ProjectName, Guid PeriodId, RequirementCategory Category, string Title,
+    string? Description, string? Room, RequirementPriority Priority, Guid? SpaceTypeId, CrmApprovalState ApprovalStatus,
+    bool SubmittedByMe, PortalApprovalDecision? Decision, string? DecisionComment, DateTime? DecidedAtUtc, DateTime CreatedAtUtc);
+
+/// <summary>F1: the calling client's items across its active projects, newest first. Office drafts are hidden;
+/// a project or period that isn't the client's is 404.</summary>
+public sealed record GetMyPortalRequirementItemsQuery(
+    string AppUserId, Guid? ProjectId = null, Guid? PeriodId = null, CrmApprovalState? Status = null,
+    int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<PortalRequirementItemResponse>>, ICrmScoped;
