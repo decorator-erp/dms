@@ -79,7 +79,8 @@ internal sealed class DeleteCrmSpaceCommandHandler(CrmDbContext db) : ICommandHa
 
         bool inUse = await db.CrmBriefSpaces.AnyAsync(e => e.SpaceId == spaceId, ct)
             || await db.CrmSpaceItems.AnyAsync(i => i.SpaceId == spaceId, ct)
-            || await db.CrmArtifactDocuments.AnyAsync(a => a.SpaceId == spaceId, ct);
+            || await db.CrmArtifactDocuments.AnyAsync(a => a.SpaceId == spaceId, ct)
+            || await db.CrmSpaceSelections.AnyAsync(s => s.SpaceId == spaceId, ct);
         if (inUse)
         {
             return CrmSpaceErrors.InUse;

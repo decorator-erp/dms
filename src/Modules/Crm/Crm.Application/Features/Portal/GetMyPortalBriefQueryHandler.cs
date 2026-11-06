@@ -66,7 +66,8 @@ internal sealed class GetMyPortalBriefQueryHandler(CrmDbContext db, ICrmAccessGu
         return new PortalBriefViewResponse(
             latest is null ? null : ToHeadBlock(brief, latest),
             [.. BriefMapping.ToSpaceResponses(entries).Select(e => new PortalBriefSpaceResponse(
-                e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.ApprovalStatus, e.SupersedesSpaceId, e.IsCurrent))]);
+                e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.ApprovalStatus, e.SupersedesSpaceId, e.IsCurrent,
+                e.Selections))]);
     }
 
     private static BriefHeadBlock ToHeadBlock(CrmDesignBrief brief, CrmBriefHeadSnapshot s) => new(

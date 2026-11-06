@@ -29,6 +29,8 @@ internal sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbC
     public DbSet<CrmSpaceType> CrmSpaceTypes => Set<CrmSpaceType>();
     public DbSet<CrmSpace> CrmSpaces => Set<CrmSpace>();
     public DbSet<CrmSpaceItem> CrmSpaceItems => Set<CrmSpaceItem>();
+    public DbSet<CrmSpaceSelection> CrmSpaceSelections => Set<CrmSpaceSelection>();
+    public DbSet<CrmSpaceSelectionOption> CrmSpaceSelectionOptions => Set<CrmSpaceSelectionOption>();
     public DbSet<CrmSpaceItemAttributeValue> CrmSpaceItemAttributeValues => Set<CrmSpaceItemAttributeValue>();
     public DbSet<CrmCatalogCategory> CrmCatalogCategories => Set<CrmCatalogCategory>();
     public DbSet<CrmCatalogItem> CrmCatalogItems => Set<CrmCatalogItem>();

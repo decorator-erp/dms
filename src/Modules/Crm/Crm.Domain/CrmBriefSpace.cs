@@ -32,6 +32,10 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
     public Guid? ProjectTaskId { get; private set; }
     public Guid CreatedById { get; private set; }
 
+    /// <summary>crm-complete F6 (D3): the space's storefront picks as JSON, captured when the entry is sent (so
+    /// the client approves exactly what it saw); null until sent or for an entry with no space.</summary>
+    public string? Selections { get; private set; }
+
     private CrmBriefSpace() { }
 
     public static Result<CrmBriefSpace> Create(
@@ -100,6 +104,15 @@ internal sealed class CrmBriefSpace : Entity, IAuditable
         MeetingId = meetingId;
         ProjectTaskId = projectTaskId;
         return Result.Success();
+    }
+
+    /// <summary>F6: snapshots the space's picks; called by the send handler just before <see cref="Send"/>.</summary>
+    public void CaptureSelections(string? selectionsJson)
+    {
+        if (ApprovalStatus is ApprovalState.Draft or ApprovalState.Rejected)
+        {
+            Selections = selectionsJson;
+        }
     }
 
     public Result Send(Guid approvalId)

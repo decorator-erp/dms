@@ -49,9 +49,11 @@ public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList
 
 /// <summary>A-14 (B-L6): a brief-space entry as the client sees it — the office DTO
 /// (<see cref="CrmBriefSpaceResponse"/>) minus who wrote it and the office-side task and meeting links.</summary>
+/// <remarks>crm-complete F6 (D3): <see cref="Selections"/> are the storefront picks as sent, read-only.</remarks>
 public sealed record PortalBriefSpaceResponse(
     Guid Id, Guid BriefId, Guid? SpaceId, int? CountOrPieces, string? Requirements,
-    CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent);
+    CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent,
+    IReadOnlyList<Spaces.CrmSpaceSelectionResponse>? Selections = null);
 
 /// <summary>Meetings visible to the calling client's own projects only — resolved via
 /// <c>ICrmAccessGuard</c>, never a project id supplied by the caller. B-15 (MT-N7): paged, newest first —

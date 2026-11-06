@@ -206,6 +206,27 @@ internal static class CrmSpaceTypeErrors
 
 /// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05/G9-11), which
 /// owns most of this error set.</summary>
+/// <summary>crm-complete F6 (D3): the space storefront.</summary>
+internal static class CrmStorefrontErrors
+{
+    public static readonly Error SelectionNotFound = Error.NotFound("crm.storefront.SelectionNotFound", "Selection was not found.");
+
+    public static readonly Error ItemNotAvailable = Error.BadRequest(
+        "crm.storefront.ItemNotAvailable", "The catalog item doesn't exist or is inactive.");
+
+    public static readonly Error CategoryNotTargeted = Error.BadRequest(
+        "crm.storefront.CategoryNotTargeted", "The item's category is not targeted to this space's type.");
+
+    public static readonly Error OptionNotOfAttribute = Error.BadRequest(
+        "crm.storefront.OptionNotOfAttribute", "Each option must be an active option of an attribute of the item's category.");
+
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "crm.storefront.InvalidOrder", "The order must list every selection of the space exactly once.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.storefront.ConcurrentUpdate", "The selection was changed by someone else. Reload and try again.");
+}
+
 internal static class CrmCatalogErrors
 {
     /// <summary>crm-complete F4 (D4): a hard delete of a catalog entry something still references.</summary>

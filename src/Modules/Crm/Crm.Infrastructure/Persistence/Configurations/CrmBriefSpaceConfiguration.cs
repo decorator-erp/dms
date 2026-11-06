@@ -16,6 +16,7 @@ internal sealed class CrmBriefSpaceConfiguration : IEntityTypeConfiguration<CrmB
         builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
         builder.Property(e => e.Requirements).HasMaxLength(2000);
+        builder.Property(e => e.Selections).HasColumnType("jsonb");
         builder.Property(e => e.ApprovalStatus).HasConversion<int>();
 
         builder.HasOne<CrmDesignBrief>().WithMany().HasForeignKey(e => e.BriefId).OnDelete(DeleteBehavior.Cascade);

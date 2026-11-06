@@ -139,8 +139,8 @@ internal sealed class SetCrmCatalogEntryActiveCommandHandler(CrmDbContext db) : 
 /// F4 (D4): hard delete only when nothing references the entry, decided inside the delete's own transaction with
 /// the row locked (<c>FOR UPDATE</c>), so a concurrent writer can't add a reference between the check and the
 /// delete; an FK violation on the save is still mapped to 409. References: a category's child categories, items,
-/// attributes and custom space items; an item's space items (and, from F6, storefront selections); an attribute's options
-/// and any item/space-item value; an option's item/space-item values (and, from F6, storefront selections). An entry's own
+/// attributes and custom space items; an item's space items and storefront selections; an attribute's options
+/// and any item/space-item value; an option's item/space-item values and storefront selections. An entry's own
 /// dependants go with it: a category's space-type targets, an item's own attribute values.
 /// </summary>
 internal sealed class DeleteCrmCatalogEntryCommandHandler(CrmDbContext db) : ICommandHandler<DeleteCrmCatalogEntryCommand>
@@ -202,14 +202,17 @@ internal sealed class DeleteCrmCatalogEntryCommandHandler(CrmDbContext db) : ICo
                 || await db.CrmCatalogAttributes.AnyAsync(x => x.CategoryId == id, ct)
                 || await db.CrmSpaceItems.AnyAsync(x => x.CustomCategoryId == id, ct),
             CrmCatalogEntryKind.Item =>
-                await db.CrmSpaceItems.AnyAsync(x => x.CatalogItemId == id, ct),
+                await db.CrmSpaceItems.AnyAsync(x => x.CatalogItemId == id, ct)
+                || await db.CrmSpaceSelections.AnyAsync(x => x.CatalogItemId == id, ct),
             CrmCatalogEntryKind.Attribute =>
                 await db.CrmCatalogAttributeOptions.AnyAsync(x => x.AttributeId == id, ct)
                 || await db.CrmCatalogItemAttributeValues.AnyAsync(x => x.AttributeId == id, ct)
-                || await db.CrmSpaceItemAttributeValues.AnyAsync(x => x.AttributeId == id, ct),
+                || await db.CrmSpaceItemAttributeValues.AnyAsync(x => x.AttributeId == id, ct)
+                || await db.CrmSpaceSelectionOptions.AnyAsync(x => x.AttributeId == id, ct),
             _ =>
                 await db.CrmCatalogItemAttributeValues.AnyAsync(x => x.OptionId == id, ct)
-                || await db.CrmSpaceItemAttributeValues.AnyAsync(x => x.OptionId == id, ct),
+                || await db.CrmSpaceItemAttributeValues.AnyAsync(x => x.OptionId == id, ct)
+                || await db.CrmSpaceSelectionOptions.AnyAsync(x => x.OptionId == id, ct),
         };
         if (inUse)
         {
