@@ -50,6 +50,10 @@ public interface IProjectDirectory
     Task<StageSummary?> GetStageAsync(Guid stageId, CancellationToken ct);
     Task<IReadOnlyList<StageSummary>> GetStagesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 
+    /// <summary>crm-complete F3: the open tasks (not completed or cancelled) assigned to any of
+    /// <paramref name="employeeIds"/> on active projects, at most <paramref name="max"/>, in project/order.</summary>
+    Task<IReadOnlyList<TaskSummary>> GetOpenTasksAssignedToAsync(IReadOnlyCollection<Guid> employeeIds, int max, CancellationToken ct);
+
     Task<TaskSummary?> GetTaskAsync(Guid taskId, CancellationToken ct);
     Task<IReadOnlyList<TaskSummary>> GetTasksAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 }

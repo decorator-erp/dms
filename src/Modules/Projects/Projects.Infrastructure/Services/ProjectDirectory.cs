@@ -66,6 +66,25 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         return await db.ProjectTasks.AsNoTracking().Where(t => ids.Contains(t.Id)).Select(ToTaskSummary()).ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<TaskSummary>> GetOpenTasksAssignedToAsync(
+        IReadOnlyCollection<Guid> employeeIds, int max, CancellationToken ct)
+    {
+        if (employeeIds.Count == 0 || max <= 0)
+        {
+            return [];
+        }
+
+        IQueryable<Guid> activeProjects = db.Projects.AsNoTracking().Where(p => p.IsActive).Select(p => p.Id);
+        return await db.ProjectTasks.AsNoTracking()
+            .Where(t => t.AssignedToId != null && employeeIds.Contains(t.AssignedToId.Value)
+                && t.Status != Domain.ProjectTaskStatus.Completed && t.Status != Domain.ProjectTaskStatus.Cancelled
+                && activeProjects.Contains(t.ProjectId))
+            .OrderBy(t => t.ProjectId).ThenBy(t => t.Order).ThenBy(t => t.Id)
+            .Take(max)
+            .Select(ToTaskSummary())
+            .ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<ProjectProgressSummary>> GetProgressAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
     {
         if (projectIds.Count == 0)

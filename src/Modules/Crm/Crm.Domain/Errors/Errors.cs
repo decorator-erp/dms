@@ -417,6 +417,12 @@ internal static class CrmMeetingErrors
 /// project" and "a real project that isn't this client's own" — 404-over-403, per <c>CLAUDE.md</c>'s
 /// authorization order (a caller who can't see a resource shouldn't learn it exists), matching
 /// <c>ProjectScopeDecorator</c>'s own precedent for the identical trade.</summary>
+/// <summary>crm-complete F3: My Work.</summary>
+internal static class CrmMyWorkErrors
+{
+    public static readonly Error NotAnEmployee = Error.Forbidden("crm.mywork.NotAnEmployee", "My Work is for employees.");
+}
+
 internal static class CrmPortalErrors
 {
     public static readonly Error NotFound = Error.NotFound(
