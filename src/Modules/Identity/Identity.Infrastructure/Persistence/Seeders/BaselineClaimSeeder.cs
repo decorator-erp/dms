@@ -27,7 +27,8 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// reach them. v2 gives <c>client</c> <c>notifications.view_own</c>, which v1 missed — without it a
 /// portal client could not read the meeting notifications CRM sends them. v3 (B1.4) gives <c>client</c>
 /// <c>crm.approvals.view_own</c> and <c>crm.approvals.decide_own</c>, so a portal client can list and decide
-/// the approvals CRM sends them; it adds only those two, so a v1/v2 code an admin removed stays removed.</para>
+/// the approvals CRM sends them; it adds only those two, so a v1/v2 code an admin removed stays removed. v4 (crm-complete F) gives <c>client</c>
+/// <c>requirements.view_own</c> for the portal requirement-items list, and only that.</para>
 /// </summary>
 internal static class BaselineClaimSeeder
 {
@@ -36,6 +37,8 @@ internal static class BaselineClaimSeeder
     public const string V2MarkerKey = "baseline-claims-v2";
 
     public const string V3MarkerKey = "baseline-claims-v3";
+
+    public const string V4MarkerKey = "baseline-claims-v4";
 
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
@@ -59,9 +62,16 @@ internal static class BaselineClaimSeeder
         [DefaultRoles.Client] = ["crm.approvals.view_own", "crm.approvals.decide_own"],
     };
 
+    /// <summary>crm-complete part F (C5): the client reads its own requirement items in the portal (F1). Only this
+    /// one code; nothing a v1–v3 step granted is re-granted.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV4 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Client] = ["requirements.view_own"],
+    };
+
     /// <summary>Applied in order, each behind its own marker.</summary>
     private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
-        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3)];
+        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3), (V4MarkerKey, BaselineV4)];
 
     public static async Task SeedAsync(
         RoleManager<ApplicationRole> roleManager,

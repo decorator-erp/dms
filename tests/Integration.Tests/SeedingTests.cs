@@ -80,6 +80,27 @@ public sealed class SeedingTests(ApiFixture fixture)
         }
     }
 
+    /// <summary>C5 (crm-complete, part F): baseline step v4 gives the client role <c>requirements.view_own</c>, the
+    /// code behind the portal requirement-items list (F1), and nothing else; admin/manager hold it through
+    /// RoleClaimSeeder; employee never gets it. The marker is written, so a later admin removal sticks.</summary>
+    [Fact]
+    public async Task Part_f_baseline_v4_gives_the_client_requirements_view_own_only()
+    {
+        HttpClient client = fixture.CreateClient();
+        await client.GetAsync("/health");
+
+        Dictionary<string, HashSet<string>> claims = await RoleClaimsAsync(fixture.ConnectionString);
+        Assert.Contains("requirements.view_own", claims["client"]);
+        Assert.Contains("requirements.view_own", claims["admin"]);
+        Assert.DoesNotContain("requirements.view_own", claims.GetValueOrDefault("employee") ?? []);
+        Assert.DoesNotContain(claims["client"], c => c is "crm.spaces.manage" or "crm.catalog.manage" or "crm.artifacts.manage" or "crm.briefs.read");
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var marker = new NpgsqlCommand("SELECT count(*) FROM identity.seed_markers WHERE \"Key\" = 'baseline-claims-v4'", connection);
+        Assert.Equal(1L, (long)(await marker.ExecuteScalarAsync())!);
+    }
+
     /// <summary>Role name → its permission claims, read straight from <c>identity.role_claims</c>.</summary>
     internal static async Task<Dictionary<string, HashSet<string>>> RoleClaimsAsync(string connectionString)
     {
