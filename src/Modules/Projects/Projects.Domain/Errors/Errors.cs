@@ -39,6 +39,20 @@ internal static class StageErrors
     /// satisfied").</summary>
     public static readonly Error GatesNotSatisfied = Error.Conflict(
         "stages.GatesNotSatisfied", "This stage has unsatisfied gate conditions that must be resolved before it can be completed.");
+
+    /// <summary>E2 (D2): a stage is added by hand only once the project's stage structure is settled — the
+    /// scope of work is confirmed, or (no scope of work) the project was created from a template.</summary>
+    public static readonly Error ScopeNotConfirmed = Error.Conflict(
+        "projects.stages.ScopeNotConfirmed", "Stages can be added by hand only after the scope of work is confirmed.");
+
+    /// <summary>E2: a FreeStyle project's tasks may not belong to a stage, so it has no stages to manage.</summary>
+    public static readonly Error WorkflowNotSupported = Error.Conflict(
+        "projects.stages.WorkflowNotSupported", "A free-style project has no stages.");
+
+    /// <summary>E2: the stage has started (a task left Open/Locked, a done sub-task, a comment or a satisfied
+    /// gate), or another gate, a document, CRM or Finance still points at it or its tasks.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.stages.NotDeletable", "This stage has started or is referenced elsewhere and cannot be deleted.");
 }
 
 internal static class TaskErrors

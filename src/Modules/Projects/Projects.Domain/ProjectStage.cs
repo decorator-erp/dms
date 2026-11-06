@@ -50,6 +50,20 @@ internal sealed class ProjectStage : Entity, IAuditable
             Status = StageStatus.Active,
         };
 
+    /// <summary>E2 (D2): the office edits a stage by hand. Status and progress are untouched.</summary>
+    public void Update(
+        string name, string? description, string? notes, DateTime? estimatedStartDate, DateTime? estimatedEndDate)
+    {
+        Name = name;
+        Description = description;
+        Notes = notes;
+        EstimatedStartDate = estimatedStartDate;
+        EstimatedEndDate = estimatedEndDate;
+    }
+
+    /// <summary>E2: the caller keeps the project's stage orders contiguous (1..n).</summary>
+    public void SetOrder(int order) => Order = order;
+
     public Result SetCost(decimal? cost)
     {
         if (cost is < 0)

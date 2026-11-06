@@ -5,6 +5,7 @@ using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Finance.Contracts;
 using Finance.Infrastructure.Persistence;
+using Finance.Infrastructure.Services;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +43,9 @@ internal sealed class FinanceModule : IModule
     public IServiceCollection Register(IServiceCollection services, IConfiguration cfg)
     {
         services.AddModuleDbContext<FinanceDbContext>(cfg);
+
+        // crm-complete E2/E3: Projects asks which stages/tasks have money attached before a hard delete.
+        services.AddScoped<IFinanceProjectWorkUsage, FinanceProjectWorkUsage>();
 
         // Never a re-typed literal — FinancePermissions.All is the single list, and F1-09 adds its
         // Count to the running permission total rather than a hard-coded number.
