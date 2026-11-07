@@ -23,6 +23,7 @@ internal sealed class ProjectsModule : IModule
         services.AddModuleDbContext<ProjectsDbContext>(cfg);
 
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
+        services.AddScoped<IProjectAccessLevelReader, ProjectAccessLevelReader>();
         services.AddScoped<IProjectDirectory, ProjectDirectory>();
 
         var applicationAssembly = Assembly.Load("Projects.Application");

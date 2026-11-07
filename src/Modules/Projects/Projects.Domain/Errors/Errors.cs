@@ -16,6 +16,10 @@ internal static class ProjectErrors
     public static readonly Error AccessDenied = Error.Forbidden(
         "projects.AccessDenied", "The current user does not have access to this project.");
 
+    /// <summary>P10: in scope, but the caller's effective level on the project is below what the action needs.</summary>
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        "projects.InsufficientLevel", "Your access level on this project does not allow this action.");
+
     /// <summary>G9-13: closes the Phase 2 deferral — <c>Project.ClientId</c> now must name a real
     /// <c>crm.clients</c> row, checked via <c>Crm.Contracts.IClientDirectory.ExistAsync</c> in
     /// <c>CreateProjectCommandHandler</c> before <c>Project.Create</c> is ever called (validation lives

@@ -27,6 +27,15 @@ internal static class ProjectScopeRegistration
 
         foreach (Type? type in scopedTypes)
         {
+            // P10 (C5): a scoped command states the level it needs; refuse to boot without one.
+            bool isCommand = typeof(ICommand).IsAssignableFrom(type) || type.GetInterfaces()
+                .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
+            if (isCommand && !typeof(IRequiresProjectLevel).IsAssignableFrom(type))
+            {
+                throw new InvalidOperationException(
+                    $"{type.FullName} is an IProjectScoped command without an IRequiresProjectLevel declaration.");
+            }
+
             if (typeof(ICommand).IsAssignableFrom(type))
             {
                 DecorateIfRegistered(services, typeof(ICommandHandler<>).MakeGenericType(type),
