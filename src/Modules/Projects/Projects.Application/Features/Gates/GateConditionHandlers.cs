@@ -18,7 +18,8 @@ internal sealed class CreateStageGateConditionCommandValidator : AbstractValidat
 
 /// <summary>
 /// Resolves the matching <see cref="IGateConditionTypeHandler"/> for create-time validation, then per
-/// the facts table: an <see cref="GateTrigger.Unlock"/>-trigger gate locks its owner immediately, and an
+/// the facts table: an <see cref="GateTrigger.Unlock"/>-trigger gate locks its owner immediately (NP2: only an owner
+/// that is open or already Locked, else 409 <c>gate_conditions.OwnerNotOpen</c>), and an
 /// <see cref="ConditionType.Approval"/> gate requests the approval end-to-end (decision #1: eligible
 /// approvers are the project owner and the owning stage's team head, resolved to their
 /// <c>Employee.AppUserId</c> via <see cref="IHrDirectory"/> — Approvals never sees an Employee id).
@@ -37,6 +38,11 @@ internal sealed class CreateStageGateConditionCommandHandler(
         if (stage is null)
         {
             return Result.Failure<Guid>(Domain.StageErrors.NotFound);
+        }
+
+        if (command.Trigger == GateTrigger.Unlock && !stage.IsLockable)
+        {
+            return Result.Failure<Guid>(Domain.GateConditionErrors.OwnerNotOpen);
         }
 
         IGateConditionTypeHandler? typeHandler = typeHandlers.SingleOrDefault(h => h.Type == command.ConditionType);
@@ -105,6 +111,11 @@ internal sealed class CreateTaskGateConditionCommandHandler(
         if (task is null)
         {
             return Result.Failure<Guid>(Domain.TaskErrors.NotFound);
+        }
+
+        if (command.Trigger == GateTrigger.Unlock && !task.IsLockable)
+        {
+            return Result.Failure<Guid>(Domain.GateConditionErrors.OwnerNotOpen);
         }
 
         IGateConditionTypeHandler? typeHandler = typeHandlers.SingleOrDefault(h => h.Type == command.ConditionType);

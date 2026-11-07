@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Finance.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
@@ -22,10 +23,15 @@ namespace Projects.Infrastructure.IntegrationEvents;
 /// (see <c>CreateGateConditionCommandHandler</c>, which does the same on the command path). Re-linking an
 /// existing gate does not: the owner is already locked by it.</para>
 ///
+/// <para><b>NP2: a new gate needs an owner that is open or already Locked.</b> Locking started, completed, rejected
+/// or cancelled work would overwrite its state (and the later unlock would reopen it), so on such an owner no gate
+/// is opened: the event is skipped and logged, not failed, because an event cannot be refused.</para>
+///
 /// <para>Stages the writes only, per <c>InboxDedupeDecorator</c>'s contract — never calls its own
 /// <c>SaveChangesAsync</c>.</para>
 /// </summary>
-internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext db)
+internal sealed partial class VariationRaisedIntegrationEventHandler(
+    ProjectsDbContext db, ILogger<VariationRaisedIntegrationEventHandler> logger)
     : IIntegrationEventHandler<VariationRaisedIntegrationEvent>
 {
     public async Task HandleAsync(VariationRaisedIntegrationEvent @event, CancellationToken ct)
@@ -52,6 +58,18 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
             return;
         }
 
+        ProjectTask? task = @event.ProjectTaskId is Guid taskId
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct)
+            : null;
+        ProjectStage? stage = task is null && @event.ProjectStageId is Guid stageId
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct)
+            : null;
+        if (task is { IsLockable: false } || stage is { IsLockable: false })
+        {
+            LogOwnerNotOpen(logger, @event.VariationId, @event.ProjectTaskId ?? @event.ProjectStageId ?? Guid.Empty);
+            return;
+        }
+
         Result<GateCondition> created = Domain.GateCondition.Create(
             @event.ProjectStageId, @event.ProjectTaskId,
             Domain.ConditionType.Budget, Domain.GateTrigger.Unlock,
@@ -66,17 +84,13 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
         db.GateConditions.Add(created.Value!);
 
         // An Unlock-trigger gate locks its owner the moment it exists.
-        if (@event.ProjectTaskId is Guid taskId)
-        {
-            ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct);
-            task?.Lock();
-        }
-        else if (@event.ProjectStageId is Guid stageId)
-        {
-            ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
-            stage?.Lock();
-        }
+        task?.Lock();
+        stage?.Lock();
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Variation {VariationId} was raised on work {OwnerId} that has already started or closed; no budget gate was opened.")]
+    private static partial void LogOwnerNotOpen(ILogger logger, Guid variationId, Guid ownerId);
 }
 
 /// <summary>

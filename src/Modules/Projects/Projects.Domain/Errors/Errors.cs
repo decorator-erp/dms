@@ -244,6 +244,12 @@ internal static class GateConditionErrors
 
     /// <summary>P4: a satisfied gate is history, and a pending approval gate has an open request in the Approvals
     /// inbox that deleting the gate would orphan.</summary>
+    /// <summary>NP2: an Unlock gate locks its owner, so it is added only while the owner is open (a task Open, a stage
+    /// Active) or already Locked — never on started, completed, rejected or cancelled work, which locking would
+    /// overwrite.</summary>
+    public static readonly Error OwnerNotOpen = Error.Conflict(
+        "gate_conditions.OwnerNotOpen", "An unlock gate can only be added to work that has not started yet.");
+
     public static readonly Error NotDeletable = Error.Conflict(
         "gate_conditions.NotDeletable", "A satisfied gate, or an approval gate still waiting for its decision, cannot be deleted.");
 }

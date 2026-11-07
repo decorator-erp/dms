@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Projects.Contracts;
 using Projects.Contracts.Gates;
+using Projects.Contracts.Stages;
 using Projects.Contracts.Tasks;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
@@ -112,6 +113,36 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         await PublishAsync(new Finance.Contracts.VariationClosedIntegrationEvent(
             Guid.NewGuid(), variationId, p.ProjectId, Cancelled: true, DateTimeOffset.UtcNow));
         Assert.Equal(Domain.StageStatus.Active, await StageStatusAsync(stageId));
+    }
+
+    /// <summary>NP2: an Unlock gate is created only on an owner that is open (a task Open, a stage Active) or already
+    /// Locked; on a started, completed or rejected owner it is 409 <c>gate_conditions.OwnerNotOpen</c> and the owner
+    /// keeps its state. A Finance variation raised on such an owner opens no gate (skipped and logged).</summary>
+    [Fact]
+    public async Task NP2_AnUnlockGateOnAStartedOrClosedOwner_IsRefused()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("np2", 2);
+        await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+
+        Result<Guid> onStarted = await RunAsync<CreateTaskGateConditionCommand, Guid>(p, new CreateTaskGateConditionCommand(
+            p.ProjectId, tasks[0], p.OfficeUserId, ConditionType.ManualCheck, GateTrigger.Unlock, "Too late"));
+        AssertError(onStarted, "gate_conditions.OwnerNotOpen", 409);
+        Assert.Equal(Domain.ProjectTaskStatus.InProgress, await TaskStatusAsync(tasks[0]));
+
+        // A Complete gate on a started task is still fine, and a second Unlock gate on a Locked task too.
+        await CreateTaskGateAsync(p, tasks[0], ConditionType.ManualCheck, GateTrigger.Complete);
+        await CreateTaskGateAsync(p, tasks[1], ConditionType.ManualCheck, GateTrigger.Unlock);
+        await CreateTaskGateAsync(p, tasks[1], ConditionType.ManualCheck, GateTrigger.Unlock);
+
+        await PublishAsync(new Finance.Contracts.VariationRaisedIntegrationEvent(
+            Guid.NewGuid(), Guid.NewGuid(), p.ProjectId, null, tasks[0], DateTimeOffset.UtcNow));
+        Assert.Equal(Domain.ProjectTaskStatus.InProgress, await TaskStatusAsync(tasks[0]));
+
+        await ExpectOkAsync(p, new RejectProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId, "Redo"));
+        Result<Guid> onRejected = await RunAsync<CreateStageGateConditionCommand, Guid>(p, new CreateStageGateConditionCommand(
+            p.ProjectId, stageId, p.OfficeUserId, ConditionType.ManualCheck, GateTrigger.Unlock, "Too late"));
+        AssertError(onRejected, "gate_conditions.OwnerNotOpen", 409);
+        Assert.Equal(Domain.StageStatus.Rejected, await StageStatusAsync(stageId));
     }
 
     // ---- helpers ----

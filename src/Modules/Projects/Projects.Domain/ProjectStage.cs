@@ -104,6 +104,9 @@ internal sealed class ProjectStage : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>NP2: an <c>Unlock</c>-trigger gate may lock this stage only while it is Active or already Locked.</summary>
+    public bool IsLockable => Status is StageStatus.Active or StageStatus.Locked;
+
     /// <summary>Called when an <c>Unlock</c>-trigger gate is created against this stage.</summary>
     public void Lock() => Status = StageStatus.Locked;
 
