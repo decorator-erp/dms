@@ -266,7 +266,7 @@ internal static class GateApprovalRequests
                 break;
             case ApprovalDecision.Rejected:
                 gate.MarkRejected(null);
-                await GateOwnerLocks.ReleaseIfLastAsync(db, gate, ct);
+                await GateOwnerLocks.ReleaseOnRejectionAsync(db, gate, ct);
                 break;
         }
 

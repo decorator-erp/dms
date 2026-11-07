@@ -83,10 +83,11 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.ProjectTaskStatus.Open, await TaskStatusAsync(tasks[0]));
     }
 
-    /// <summary>B-P-H4: a rejected Unlock gate — an approval rejected through Approvals, or a Finance variation
-    /// cancelled — releases its owner once no other Unlock gate of it is pending, instead of leaving it Locked.</summary>
+    /// <summary>B-P-H4 as narrowed by R1-4: a rejected Finance (Budget) Unlock gate — its variation cancelled or
+    /// rejected — releases its owner once no other Unlock gate of it is pending. A rejected <i>Approval</i> Unlock gate
+    /// does not: "no" to the approval keeps the work locked (the original behaviour).</summary>
     [Fact]
-    public async Task BPH4_ARejectedUnlockGate_ReleasesItsOwner()
+    public async Task BPH4_ARejectedBudgetGate_ReleasesItsOwner_ARejectedApprovalGateDoesNot()
     {
         (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("bph4", 1);
 
@@ -104,7 +105,7 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
 
         await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
         Assert.Equal(Domain.GateStatus.Rejected, await GateStatusAsync(approval));
-        Assert.Equal(Domain.ProjectTaskStatus.Open, await TaskStatusAsync(tasks[0]));
+        Assert.Equal(Domain.ProjectTaskStatus.Locked, await TaskStatusAsync(tasks[0]));
 
         var variationId = Guid.NewGuid();
         await PublishAsync(new Finance.Contracts.VariationRaisedIntegrationEvent(
