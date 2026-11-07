@@ -57,7 +57,7 @@ internal sealed class CreateSiteCommandHandler(
             return SiteErrors.ProjectNotFound;
         }
 
-        // B-S-M7: a survey is new work; a deactivated, Completed or Cancelled project takes none.
+        // B-S-M7 / R1-7: a survey is new work; a deactivated, on-hold, Completed or Cancelled project takes none.
         if (Infrastructure.Decorators.SiteScopeDecorator.IsClosed(project))
         {
             return SiteErrors.ProjectClosed;

@@ -116,11 +116,12 @@ internal static class SiteErrors
         $"{Prefix}.{nameof(ProjectNotFound)}", "The requested project was not found.");
 
     /// <summary>
-    /// B-S-M7: a survey cannot be started on a project that is deactivated, Completed or Cancelled.
+    /// B-S-M7 / R1-7: a project that is deactivated, on hold, Completed or Cancelled takes no survey
+    /// work. Only deciding an already-submitted survey is still allowed.
     /// </summary>
     public static readonly Error ProjectClosed = Error.Conflict(
         $"{Prefix}.{nameof(ProjectClosed)}",
-        "The project is inactive or closed; no new site survey can be started on it.");
+        "The project is inactive, on hold or closed; its site surveys cannot be changed.");
 
     public static readonly Error LabelTaken = Error.Conflict(
         $"{Prefix}.{nameof(LabelTaken)}", "Another record in this module already uses that label.");
