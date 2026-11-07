@@ -920,6 +920,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasKey("Id");
 
+                    b.HasIndex("HeadId");
+
                     b.HasIndex("ProjectStageId");
 
                     b.ToTable("stage_teams", "projects");

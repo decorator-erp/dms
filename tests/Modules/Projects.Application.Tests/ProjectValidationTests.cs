@@ -66,6 +66,20 @@ public sealed class ProjectValidationTests(ProjectsApplicationFixture fixture)
         Assert.True(notRejected.Count == 0, "expected 400 for: " + string.Join("; ", notRejected));
     }
 
+    /// <summary>R1-12: <c>stage_teams."HeadId"</c> is read on every access check (a team head is Manager on the
+    /// project) and by its foreign key's checks, so it leads an index.</summary>
+    [Fact]
+    public async Task R1_12_StageTeamHeadId_IsIndexed()
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT count(*) FROM pg_indexes
+            WHERE schemaname = 'projects' AND tablename = 'stage_teams' AND indexdef LIKE '%("HeadId")%'
+            """, connection);
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+    }
+
     /// <summary>NP4: every enum column has a CHECK constraint naming its range, and it bites.</summary>
     [Fact]
     public async Task NP4_EveryEnumColumn_HasACheckConstraint_ThatRefusesAnOutOfRangeValue()

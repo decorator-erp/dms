@@ -14,7 +14,9 @@ internal sealed class StageTeamConfiguration : IEntityTypeConfiguration<StageTea
 
         builder.HasIndex(t => t.ProjectStageId);
         // HeadId/DepartmentId: bare Guid FKs to hr.employees/hr.departments, raw-SQL constraints in the
-        // migration.
+        // migration. R1-12: HeadId is indexed — every access check reads it (a team head is Manager on the
+        // project) and its foreign key's checks would otherwise scan the table.
+        builder.HasIndex(t => t.HeadId);
 
         // Members lives on StageTeamMember's own table (its own DbSet, its own Id) - a regular
         // relationship via the real StageTeamMember.StageTeamId property, not an EF-owned collection
