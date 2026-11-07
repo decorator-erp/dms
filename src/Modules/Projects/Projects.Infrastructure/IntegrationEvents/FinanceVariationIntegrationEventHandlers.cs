@@ -111,11 +111,11 @@ internal sealed class VariationApprovedIntegrationEventHandler(ProjectsDbContext
 /// <summary>
 /// F1-08. Marks the linked gate Rejected when its variation is rejected or cancelled.
 ///
-/// <para><b>The owner deliberately stays Locked.</b> The backend's <c>MarkLinkedGateRejectedAsync</c>
-/// bypasses the gate service's approval reject path for exactly this reason, and its comment says so:
-/// that path would also send the owning STAGE to Rejected, which is a much larger consequence than "this
-/// budget change will not happen". The work is still blocked and still needs a funded route — a
-/// different variation, or a budget increase — so unlocking would be wrong too.</para>
+/// <para><b>B-P-H4 (owner decision): the owner is released once no Unlock gate of it is still pending</b>, through
+/// <see cref="GateOwnerLocks.ReleaseIfLastAsync(ProjectsDbContext, GateCondition, CancellationToken)"/> — the same
+/// rule as a gate satisfied, deleted or rejected through Approvals. A rejected gate can never be satisfied again, so
+/// leaving the owner Locked (the backend's behaviour) blocked it for good with nothing left to unlock it. The stage
+/// is still never sent to Rejected: "this budget change will not happen" is all the rejection means.</para>
 ///
 /// <para>An already-satisfied gate is left alone: the variation was approved, the owner was unlocked,
 /// and a later cancellation of the variation record does not retroactively re-block work that has
@@ -135,6 +135,13 @@ internal sealed class VariationClosedIntegrationEventHandler(ProjectsDbContext d
         foreach (GateCondition? gate in gates)
         {
             gate.MarkRejected(null, note);
+        }
+
+        // Owners in id order, so two handlers releasing overlapping owners take the rows in the same order.
+        foreach (GateCondition gate in gates.Where(g => g.Trigger == Domain.GateTrigger.Unlock)
+                     .DistinctBy(g => g.ProjectStageId ?? g.ProjectTaskId).OrderBy(g => g.ProjectStageId ?? g.ProjectTaskId))
+        {
+            await GateOwnerLocks.ReleaseIfLastAsync(db, gate, ct);
         }
     }
 }

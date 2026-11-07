@@ -48,6 +48,9 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
             return result;
         }
 
+        // This stage and every stage its completion unlocks, in id order (GateOwnerLocks).
+        await GateOwnerLocks.LockCompletionCascadeAsync(db, stage.Id, null, stage.Id, ct);
+
         db.Outbox().Enqueue(new ProjectStageCompletedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
 

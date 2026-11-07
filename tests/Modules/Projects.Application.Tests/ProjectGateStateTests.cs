@@ -37,7 +37,97 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         AssertError(again, "gate_conditions.NotManuallySatisfiable", 409);
     }
 
+
+    /// <summary>NP1: with two Unlock gates on one task, satisfying the first leaves the task Locked; it opens only when
+    /// the last pending Unlock gate is satisfied.</summary>
+    [Fact]
+    public async Task NP1_ATaskWithTwoUnlockGates_OpensOnlyWhenTheLastIsSatisfied()
+    {
+        (ScopeTestProject p, _, Guid[] tasks) = await StageProjectWithTasksAsync("np1", 1);
+        Guid first = await CreateTaskGateAsync(p, tasks[0], ConditionType.ManualCheck, GateTrigger.Unlock);
+        Guid second = await CreateTaskGateAsync(p, tasks[0], ConditionType.ManualCheck, GateTrigger.Unlock);
+        Assert.Equal(Domain.ProjectTaskStatus.Locked, await TaskStatusAsync(tasks[0]));
+
+        await ExpectOkAsync(p, new SatisfyGateConditionCommand(p.ProjectId, first, p.OfficeUserId));
+        Assert.Equal(Domain.ProjectTaskStatus.Locked, await TaskStatusAsync(tasks[0]));
+
+        await ExpectOkAsync(p, new SatisfyGateConditionCommand(p.ProjectId, second, p.OfficeUserId));
+        Assert.Equal(Domain.ProjectTaskStatus.Open, await TaskStatusAsync(tasks[0]));
+    }
+
+    /// <summary>P4: a satisfied gate and a pending approval gate are 409 <c>gate_conditions.NotDeletable</c>; a task gate
+    /// needs <c>stage_tasks.manage_gates</c> (403 with only the stage claim); deleting the owner's last pending Unlock
+    /// gate releases the owner.</summary>
+    [Fact]
+    public async Task P4_GateDelete_RefusesSatisfiedAndPendingApprovalGates_AndReleasesTheOwner()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("p4", 1);
+
+        Guid approval = await CreateTaskGateAsync(p, tasks[0], ConditionType.Approval, GateTrigger.Complete,
+            approvalType: ApprovalType.ManagerApproval);
+        AssertError(await RunAsync(p, new DeleteGateConditionCommand(p.ProjectId, approval, p.OfficeUserId)),
+            "gate_conditions.NotDeletable", 409);
+
+        Guid satisfied = await CreateStageGateAsync(p, stageId, ConditionType.ManualCheck, GateTrigger.Complete);
+        await ExpectOkAsync(p, new SatisfyGateConditionCommand(p.ProjectId, satisfied, p.OfficeUserId));
+        AssertError(await RunAsync(p, new DeleteGateConditionCommand(p.ProjectId, satisfied, p.OfficeUserId)),
+            "gate_conditions.NotDeletable", 409);
+
+        Guid unlock = await CreateTaskGateAsync(p, tasks[0], ConditionType.ManualCheck, GateTrigger.Unlock);
+        Assert.Equal(Domain.ProjectTaskStatus.Locked, await TaskStatusAsync(tasks[0]));
+        AssertError(await RunAsync(p, new DeleteGateConditionCommand(p.ProjectId, unlock, p.OfficeUserId),
+            ProjectsPermissions.Stages.ManageGates), "projects.AccessDenied", 403);
+
+        await ExpectOkAsync(p, new DeleteGateConditionCommand(p.ProjectId, unlock, p.OfficeUserId));
+        Assert.Equal(Domain.ProjectTaskStatus.Open, await TaskStatusAsync(tasks[0]));
+    }
+
+    /// <summary>B-P-H4: a rejected Unlock gate — an approval rejected through Approvals, or a Finance variation
+    /// cancelled — releases its owner once no other Unlock gate of it is pending, instead of leaving it Locked.</summary>
+    [Fact]
+    public async Task BPH4_ARejectedUnlockGate_ReleasesItsOwner()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("bph4", 1);
+
+        Guid approval = await CreateTaskGateAsync(p, tasks[0], ConditionType.Approval, GateTrigger.Unlock,
+            approvalType: ApprovalType.ManagerApproval);
+        Assert.Equal(Domain.ProjectTaskStatus.Locked, await TaskStatusAsync(tasks[0]));
+        Guid approvalId = await ApprovalIdAsync(approval);
+        await using (AsyncServiceScope scope = GateScope(p))
+        {
+            Result decided = await scope.ServiceProvider.GetRequiredService<ICommandHandler<Approvals.Contracts.Approvals.DecideApprovalCommand>>()
+                .HandleAsync(new Approvals.Contracts.Approvals.DecideApprovalCommand(
+                    approvalId, Approvals.Contracts.ApprovalDecision.Rejected, "No"));
+            Assert.True(decided.IsSuccess, decided.IsFailure ? decided.Error.ToString() : null);
+        }
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+        Assert.Equal(Domain.GateStatus.Rejected, await GateStatusAsync(approval));
+        Assert.Equal(Domain.ProjectTaskStatus.Open, await TaskStatusAsync(tasks[0]));
+
+        var variationId = Guid.NewGuid();
+        await PublishAsync(new Finance.Contracts.VariationRaisedIntegrationEvent(
+            Guid.NewGuid(), variationId, p.ProjectId, stageId, null, DateTimeOffset.UtcNow));
+        Assert.Equal(Domain.StageStatus.Locked, await StageStatusAsync(stageId));
+        await PublishAsync(new Finance.Contracts.VariationClosedIntegrationEvent(
+            Guid.NewGuid(), variationId, p.ProjectId, Cancelled: true, DateTimeOffset.UtcNow));
+        Assert.Equal(Domain.StageStatus.Active, await StageStatusAsync(stageId));
+    }
+
     // ---- helpers ----
+
+    private async Task PublishAsync<TEvent>(TEvent @event) where TEvent : BuildingBlocks.Events.IIntegrationEvent
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<BuildingBlocks.Events.IEventBus>().PublishAsync(@event, CancellationToken.None);
+    }
+
+    private async Task<Guid> ApprovalIdAsync(Guid gateId)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().GateConditions.AsNoTracking()
+            .Where(g => g.Id == gateId).Select(g => g.ApprovalId!.Value).SingleAsync();
+    }
 
     internal static void AssertError(Result result, string code, int status)
     {

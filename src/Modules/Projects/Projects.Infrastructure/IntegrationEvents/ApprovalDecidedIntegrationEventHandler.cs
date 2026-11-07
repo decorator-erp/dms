@@ -41,6 +41,9 @@ internal sealed class ApprovalDecidedIntegrationEventHandler(ProjectsDbContext d
                 break;
             case ApprovalDecision.Rejected:
                 gate.MarkRejected(employeeId);
+                // B-P-H4: a rejected Unlock gate can never be satisfied, so its owner is released once no other
+                // Unlock gate of it is pending, instead of staying Locked for good.
+                await GateOwnerLocks.ReleaseIfLastAsync(db, gate, ct);
                 break;
             case ApprovalDecision.ChangesRequested:
                 break;
