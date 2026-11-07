@@ -55,6 +55,36 @@ public sealed class SiteProjectLevelTests(SitesApplicationFixture fixture)
         Assert.Equal($"409 {SiteErrors.ProjectClosed.Code}", Outcome(await RunAsync(manager, new DeleteSiteCommand(siteId, manager))));
     }
 
+    /// <summary>R1-7: Sites' "closed" matches Projects' (<c>ProjectLiveness</c>): an on-hold project also takes no
+    /// capture writes (update, a new survey), nor reopen or delete. Deciding is the exception: a survey already
+    /// submitted can still be approved or rejected on a closed project (on hold or Completed), so it is not stuck.</summary>
+    [Fact]
+    public async Task R1_7_AnOnHoldProjectIsClosed_ButASubmittedSurveyCanStillBeDecided()
+    {
+        await SiteTestData.OwnersAsync(fixture);
+        Guid projectId = await SiteTestData.CreateProjectInStateAsync(fixture, status: 2, isActive: true);
+        (Guid editorId, string editor) = await MemberAsync(projectId, "r17-editor", ProjectMemberAccess.Editor);
+        (Guid managerId, string manager) = await MemberAsync(projectId, "r17-manager", ProjectMemberAccess.Manager);
+
+        Guid first = (await CreateAsync(projectId, editorId, editor)).Value;
+        Guid second = (await CreateAsync(projectId, editorId, editor)).Value;
+        Assert.Equal("ok", Outcome(await RunAsync(editor, new SubmitSiteCommand(first, editorId, editor))));
+        Assert.Equal("ok", Outcome(await RunAsync(editor, new SubmitSiteCommand(second, editorId, editor))));
+
+        string closed = $"409 {SiteErrors.ProjectClosed.Code}";
+        await ExecuteAsync($"""UPDATE projects.projects SET "Status" = 3 WHERE "Id" = '{projectId}';""");
+        Assert.Equal(closed, Outcome(await CreateAsync(projectId, editorId, editor)));
+        Assert.Equal(closed, Outcome(await RunAsync(editor, new UpdateSiteCommand(
+            first, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "on hold")), editor))));
+        Assert.Equal("ok", Outcome(await RunAsync(manager, new DecideSiteCommand(first, new DecideSiteRequest(true, null), managerId, manager))));
+        Assert.Equal(closed, Outcome(await RunAsync(manager, new ReopenSiteCommand(first, manager))));
+
+        await ExecuteAsync($"""UPDATE projects.projects SET "Status" = 4 WHERE "Id" = '{projectId}';""");
+        Assert.Equal("ok", Outcome(await RunAsync(manager, new DecideSiteCommand(second, new DecideSiteRequest(false, "No"), managerId, manager))));
+        Assert.Equal(closed, Outcome(await RunAsync(manager, new ReopenSiteCommand(second, manager))));
+        Assert.Equal(closed, Outcome(await RunAsync(manager, new DeleteSiteCommand(second, manager))));
+    }
+
     private static string Outcome(Result result) => result.IsSuccess ? "ok" : $"{result.Error.Status} {result.Error.Code}";
 
     private async Task<(Guid EmployeeId, string AppUserId)> MemberAsync(Guid projectId, string label, ProjectMemberAccess level)

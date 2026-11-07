@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
 using Sites.Contracts;
+using Sites.Contracts.Surveys;
 using Sites.Domain;
 using Sites.Infrastructure.Persistence;
 
@@ -52,7 +53,9 @@ internal static class SiteScopeDecorator
 
     /// <summary>C6: a write needs scope (404), then the level <see cref="SiteProjectLevels"/> names for it (403
     /// <see cref="SiteErrors.InsufficientLevel"/>), then a project that takes work (409
-    /// <see cref="SiteErrors.ProjectClosed"/>: inactive, Completed or Cancelled, as B-S-M7 refuses a new survey).
+    /// <see cref="SiteErrors.ProjectClosed"/>: <see cref="IsClosed"/>, as B-S-M7 refuses a new survey). R1-7: the
+    /// decision on a submitted survey is the one write a closed project still takes, so a survey submitted before the
+    /// project closed is resolved rather than stuck; capture, reopen and delete stay refused.
     /// The level reader's sources are the guard's scope, so no level is the same 404.</summary>
     private static async Task<Result> CheckWriteAsync(
         ISiteScoped scoped, SitesDbContext db, IProjectAccessLevelReader levels, IProjectDirectory projects,
@@ -86,12 +89,13 @@ internal static class SiteScopeDecorator
             return SiteErrors.NotFound;
         }
 
-        return IsClosed(summary) ? SiteErrors.ProjectClosed : Result.Success();
+        return IsClosed(summary) && scoped is not DecideSiteCommand ? SiteErrors.ProjectClosed : Result.Success();
     }
 
-    /// <summary>B-S-M7 / C6: a deactivated, Completed or Cancelled project takes no survey work.</summary>
+    /// <summary>B-S-M7 / C6 / R1-7: the same "closed" as Projects' own <c>ProjectLiveness</c> — a deactivated, on-hold,
+    /// Completed or Cancelled project takes no survey work (only Draft and InProgress do).</summary>
     internal static bool IsClosed(ProjectSummary project) =>
-        !project.IsActive || project.Status is ProjectStatus.Completed or ProjectStatus.Cancelled;
+        !project.IsActive || project.Status is not (ProjectStatus.Draft or ProjectStatus.InProgress);
 
     internal sealed class CommandHandler<TCommand>(
         ICommandHandler<TCommand> innerHandler, SitesDbContext db, IProjectAccessLevelReader levels,
