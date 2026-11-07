@@ -155,9 +155,69 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Guid gate = await CreateStageGateAsync(p, stageId, ConditionType.Approval, GateTrigger.Complete,
             approvalType: ApprovalType.ManagerApproval);
 
-        Assert.Equal(Features.Gates.GateApprovalIds.For(gate), await ApprovalIdAsync(gate));
-        Assert.NotEqual(Features.Gates.GateApprovalIds.For(Guid.NewGuid()), Features.Gates.GateApprovalIds.For(gate));
-        Assert.Equal(Features.Gates.GateApprovalIds.For(gate), Features.Gates.GateApprovalIds.For(gate));
+        Assert.Equal(GateApprovalIds.For(gate), await ApprovalIdAsync(gate));
+        Assert.NotEqual(GateApprovalIds.For(Guid.NewGuid()), GateApprovalIds.For(gate));
+        Assert.Equal(GateApprovalIds.For(gate), GateApprovalIds.For(gate));
+    }
+
+    /// <summary>R1-6 (B-P-M7's race): an approval decided before its gate's row is visible (the gate's transaction not
+    /// yet committed) used to find no gate, succeed, and be marked processed — the gate stayed Pending for good. Now the
+    /// Projects handler fails, so the outbox keeps the message and retries it with backoff (bounded by
+    /// <c>Outbox:MaxAttempts</c>); the delivery after the gate appears applies the decision.</summary>
+    [Fact]
+    public async Task R1_6_ADecisionThatArrivesBeforeItsGate_IsRetried_AndThenApplied()
+    {
+        (ScopeTestProject p, Guid stageId, _) = await StageProjectWithTasksAsync("r1-6", 1);
+        Guid gate = await CreateStageGateAsync(p, stageId, ConditionType.Approval, GateTrigger.Complete,
+            approvalType: ApprovalType.ManagerApproval);
+        Guid approvalId = await ApprovalIdAsync(gate);
+
+        // Hide the gate row, as an uncommitted insert would be.
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await ExecuteAsync(connection, $"""
+            CREATE TEMP TABLE hidden_gate AS SELECT * FROM projects.gate_conditions WHERE "Id" = '{gate}';
+            DELETE FROM projects.gate_conditions WHERE "Id" = '{gate}';
+            """);
+
+        await using (AsyncServiceScope scope = GateScope(p))
+        {
+            Result decided = await scope.ServiceProvider.GetRequiredService<ICommandHandler<Approvals.Contracts.Approvals.DecideApprovalCommand>>()
+                .HandleAsync(new Approvals.Contracts.Approvals.DecideApprovalCommand(
+                    approvalId, Approvals.Contracts.ApprovalDecision.Approved, "Yes"));
+            Assert.True(decided.IsSuccess, decided.IsFailure ? decided.Error.ToString() : null);
+        }
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+        string pending = $"""
+            SELECT count(*) FROM shared.outbox_messages
+            WHERE type LIKE 'Approvals.Contracts.ApprovalDecidedIntegrationEvent%' AND processed_utc IS NULL
+              AND dead_lettered_utc IS NULL AND content->>'approvalId' = '{approvalId}'
+            """;
+        Assert.Equal(1L, await ScalarAsync(connection, pending));
+
+        // The gate commits; the next attempt (its backoff cut short) applies the decision.
+        await ExecuteAsync(connection, $"""
+            INSERT INTO projects.gate_conditions SELECT * FROM hidden_gate;
+            UPDATE shared.outbox_messages SET next_attempt_utc = now() - interval '1 second'
+            WHERE processed_utc IS NULL AND content->>'approvalId' = '{approvalId}';
+            """);
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.Equal(0L, await ScalarAsync(connection, pending));
+        Assert.Equal(Domain.GateStatus.Satisfied, await GateStatusAsync(gate));
+    }
+
+    private static async Task ExecuteAsync(Npgsql.NpgsqlConnection connection, string sql)
+    {
+        await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<long> ScalarAsync(Npgsql.NpgsqlConnection connection, string sql)
+    {
+        await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     /// <summary>Approver pick: with two teams on a stage the approver is the head of the stage's first team (created

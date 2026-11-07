@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Projects.Application.Features.Gates;
+namespace Projects.Infrastructure.Persistence;
 
 /// <summary>
 /// B-P-M7: the approval id of an approval gate, derived from the gate id — a name-based GUID (RFC 9562 version 5
@@ -9,9 +9,11 @@ namespace Projects.Application.Features.Gates;
 ///
 /// <para><b>Why deterministic.</b> The gate's approval is requested inside the command's Projects transaction, but it
 /// commits in Approvals' own transaction first. The approval and the gate are therefore bound by an id either side
-/// can compute: a decision on an approval whose gate never committed finds no gate and is ignored, and a request
-/// repeated for the same gate returns the approval already made (with its decision, when it was decided in
-/// between), which the handler applies to the gate instead of opening a second request.</para>
+/// can compute: a request repeated for the same gate returns the approval already made (with its decision, when it
+/// was decided in between), which the handler applies to the gate instead of opening a second request; and (R1-6) a
+/// decision whose approval id is <see cref="For"/> its subject is known to be a Projects gate's, so when that gate
+/// is not visible yet (its transaction still open) <c>ApprovalDecidedIntegrationEventHandler</c> fails and the outbox
+/// retries it, while a decision on any other approval is not this module's to wait for.</para>
 /// </summary>
 internal static class GateApprovalIds
 {
