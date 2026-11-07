@@ -156,7 +156,14 @@ internal sealed class RejectProjectTaskCommandValidator : AbstractValidator<Reje
 /// <summary>P7: an unknown status filter is a 400.</summary>
 internal sealed class GetProjectTasksByProjectQueryValidator : AbstractValidator<GetProjectTasksByProjectQuery>
 {
-    public GetProjectTasksByProjectQueryValidator() => RuleFor(x => x.Status).IsInEnum().When(x => x.Status is not null);
+    public GetProjectTasksByProjectQueryValidator()
+    {
+        RuleFor(x => x.Status).IsInEnum().When(x => x.Status is not null);
+
+        // P13: GetProjectsQueryValidator's caps.
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
+    }
 }
 
 internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : ICommandHandler<RejectProjectTaskCommand>
@@ -311,6 +318,9 @@ internal sealed class GetProjectTasksByProjectQueryHandler(ProjectsDbContext db)
 
         List<ProjectTaskResponse> tasks = await tasksQuery
             .OrderBy(t => t.Order)
+            .ThenBy(t => t.Id)
+            .Skip((query.PageNumber - 1) * query.PageSize)
+            .Take(query.PageSize)
             .Select(GetProjectTaskQueryHandler.ToResponse())
             .ToListAsync(ct);
 

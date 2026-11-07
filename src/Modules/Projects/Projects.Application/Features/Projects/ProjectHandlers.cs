@@ -375,6 +375,7 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
         int totalCount = await projects.CountAsync(ct);
         List<ProjectResponse> items = await projects
             .OrderBy(p => p.Name)
+            .ThenBy(p => p.Id) // P13: a total order, so pages neither repeat nor skip a project.
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)
             .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks))

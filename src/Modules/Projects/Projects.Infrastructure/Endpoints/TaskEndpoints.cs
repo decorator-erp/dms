@@ -21,11 +21,13 @@ internal sealed class TaskEndpoints : IEndpoint
         RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
 
         group.MapGet("/", async (
-            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, ICurrentUser currentUser,
+            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, int? pageNumber, int? pageSize,
+            ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
+            // P13: optional paging; the body stays a plain array (page 1 of 200 when not asked).
             Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(
-                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status), ct);
+                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -181,10 +183,12 @@ internal sealed class TaskEndpoints : IEndpoint
         }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete);
 
         group.MapGet("/{taskId:guid}/comments", async (
-            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            Guid projectId, Guid taskId, int? pageNumber, int? pageSize, ICurrentUser currentUser,
             IQueryHandler<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!), ct);
+            // P13: optional paging; the body stays a plain array (page 1 of 200 when not asked).
+            Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(
+                new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!, pageNumber ?? 1, pageSize ?? 200), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 

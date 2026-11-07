@@ -27,9 +27,11 @@ public sealed record ReopenProjectTaskCommand(Guid ProjectId, Guid TaskId, strin
 public sealed record GetProjectTaskQuery(Guid ProjectId, Guid TaskId, string UserId)
     : IQuery<ProjectTaskResponse>, IProjectScoped;
 
-/// <summary>E3 adds the optional filters (all ANDed): the stage, the assignee, the status.</summary>
+/// <summary>E3 adds the optional filters (all ANDed): the stage, the assignee, the status. P13: one page, by task order
+/// then id; <see cref="PageNumber"/> 1..1,000,000 and <see cref="PageSize"/> 1..200, as the project list.</summary>
 public sealed record GetProjectTasksByProjectQuery(
-    Guid ProjectId, string UserId, Guid? StageId = null, Guid? AssigneeId = null, ProjectTaskStatus? Status = null)
+    Guid ProjectId, string UserId, Guid? StageId = null, Guid? AssigneeId = null, ProjectTaskStatus? Status = null,
+    int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<ProjectTaskResponse>>, IProjectScoped;
 
 /// <summary>E3 (D2): a task added by hand. A Stage-workflow project needs <see cref="ProjectStageId"/> (and a
@@ -99,5 +101,6 @@ public sealed record DeleteTaskCommentCommand(Guid ProjectId, Guid TaskId, Guid 
 public sealed record AddTaskCommentCommand(Guid ProjectId, Guid TaskId, string UserId, string Content)
     : ICommand<Guid>, IProjectScoped, IRequiresProjectEditor;
 
-public sealed record GetTaskCommentsQuery(Guid ProjectId, Guid TaskId, string UserId)
+/// <summary>P13: one page, oldest first then by id; the same caps as the task list.</summary>
+public sealed record GetTaskCommentsQuery(Guid ProjectId, Guid TaskId, string UserId, int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<TaskCommentResponse>>, IProjectScoped;
