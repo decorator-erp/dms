@@ -410,4 +410,31 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Assert.Contains("Kitchen wall missing.", body, StringComparison.Ordinal);
         Assert.DoesNotContain("has been reopened", body, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// <b>B-S-M7.</b> A survey could be started on a deactivated, Completed or Cancelled project — the
+    /// only check was that the project exists.
+    /// </summary>
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, true)]
+    [InlineData(2, false)]
+    public async Task BSM7_CreatingASiteOnAClosedOrInactiveProject_IsProjectClosed(int status, bool isActive)
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid projectId = await SiteTestData.CreateProjectInStateAsync(fixture, status, isActive);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
+            .Grant(ProjectsPermissions.Projects.ReadAll);
+
+        Result<Guid> result = await scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<CreateSiteCommand, Guid>>()
+            .HandleAsync(new CreateSiteCommand(
+                new CreateSiteRequest(projectId, new SiteUnitDataRequest(Address: "1 Closed St")),
+                owners.EmployeeId, SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ProjectClosed, result.Error);
+        Assert.Equal(409, result.Error.Status);
+    }
 }

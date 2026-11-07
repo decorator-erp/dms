@@ -43,9 +43,16 @@ internal sealed class CreateSiteCommandHandler(
         // sailed through, Site.Create accepted it (it only rejects Guid.Empty), and the foreign key blew
         // up in SaveChanges as an unexplained 500. SiteErrors.ProjectNotFound existed for exactly this
         // and was referenced nowhere in the backend.
-        if (await projects.GetProjectAsync(command.Request.ProjectId, ct) is null)
+        ProjectSummary? project = await projects.GetProjectAsync(command.Request.ProjectId, ct);
+        if (project is null)
         {
             return SiteErrors.ProjectNotFound;
+        }
+
+        // B-S-M7: a survey is new work; a deactivated, Completed or Cancelled project takes none.
+        if (!project.IsActive || project.Status is ProjectStatus.Completed or ProjectStatus.Cancelled)
+        {
+            return SiteErrors.ProjectClosed;
         }
 
         Result<string> code = await NextCodeAsync(db, ct);

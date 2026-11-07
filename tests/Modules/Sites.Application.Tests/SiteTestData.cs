@@ -215,6 +215,26 @@ internal static class SiteTestData
         return documentId;
     }
 
+    /// <summary>A fresh project on the shared owner, then forced into <paramref name="status"/> /
+    /// <paramref name="isActive"/> by raw SQL — the states B-S-M7 refuses.</summary>
+    public static async Task<Guid> CreateProjectInStateAsync(
+        SitesApplicationFixture fixture, int status, bool isActive)
+    {
+        await SharedOwnersAsync(fixture);
+        Guid projectId;
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            projectId = await CreateAnotherProjectAsync(scope.ServiceProvider, Guid.NewGuid().ToString("N"));
+        }
+
+        await ExecuteAsync(fixture, $"""
+            UPDATE projects.projects SET "Status" = {status}, "IsActive" = {(isActive ? "true" : "false")}
+            WHERE "Id" = '{projectId}';
+            """);
+
+        return projectId;
+    }
+
     private static async Task<Guid> CreateAnotherProjectAsync(IServiceProvider sp, string suffix)
     {
         // CreateProjectCommand resolves its owner from the acting user, so the caller must be a real
