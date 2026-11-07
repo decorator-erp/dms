@@ -22,7 +22,6 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(p => p.WorkflowType).HasConversion<int>();
         builder.Property(p => p.Address).HasMaxLength(500).IsRequired();
         builder.Property(p => p.Notes).HasMaxLength(2000);
-        builder.Property(p => p.ProgressPercentage).HasPrecision(5, 2);
 
         builder.HasIndex(p => p.Code).IsUnique().HasDatabaseName(CodeIndex);
 

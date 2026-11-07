@@ -59,26 +59,6 @@ internal static class ManualTasks
             ? await ManualStages.EnsureEditableAsync(db, projectId, ct)
             : project;
     }
-
-    /// <summary>The stage's task counters, recounted from the rows (the new or removed task included).</summary>
-    public static async Task RecountStageAsync(ProjectsDbContext db, Guid? stageId, int delta, CancellationToken ct)
-    {
-        if (stageId is null)
-        {
-            return;
-        }
-
-        Domain.ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
-        if (stage is null)
-        {
-            return;
-        }
-
-        int total = await db.ProjectTasks.CountAsync(t => t.ProjectStageId == stageId, ct) + delta;
-        int completed = await db.ProjectTasks.CountAsync(
-            t => t.ProjectStageId == stageId && t.Status == Domain.ProjectTaskStatus.Completed, ct);
-        stage.RecalculateProgress(completed, Math.Max(total, 0));
-    }
 }
 
 /// <summary>E3 (D2). Route claim → scope (404) → state (409), under the project lock. The assignee must be
@@ -171,8 +151,8 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
                 Guid.NewGuid(), task.ProjectId, task.Id, task.Name, assignee, DateTimeOffset.UtcNow));
         }
 
-        await ManualTasks.RecountStageAsync(db, command.ProjectStageId, delta: 1, ct);
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, command.ProjectStageId, ct);
         return task.Id;
     }
 }
@@ -238,7 +218,6 @@ internal sealed class DeleteProjectTaskCommandHandler(
         }
 
         await guard.RemoveTasksAsync([task.Id], ct);
-        await ManualTasks.RecountStageAsync(db, task.ProjectStageId, delta: -1, ct);
         try
         {
             await db.SaveChangesAsync(ct);
@@ -248,6 +227,7 @@ internal sealed class DeleteProjectTaskCommandHandler(
             return Domain.TaskErrors.NotDeletable;
         }
 
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }

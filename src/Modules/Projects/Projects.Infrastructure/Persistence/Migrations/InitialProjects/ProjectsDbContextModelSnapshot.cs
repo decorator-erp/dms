@@ -319,10 +319,6 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("ProgressPercentage")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 

@@ -28,7 +28,6 @@ internal sealed class Project : Entity, IAuditable
     public WorkflowType WorkflowType { get; private set; }
     public string Address { get; private set; } = string.Empty;
     public string? Notes { get; private set; }
-    public decimal ProgressPercentage { get; private set; }
     public DateTime? EstimatedStartDate { get; private set; }
     public DateTime? EstimatedEndDate { get; private set; }
     public DateTime? ActualStartDate { get; private set; }
@@ -120,8 +119,6 @@ internal sealed class Project : Entity, IAuditable
         Status = status;
         return Result.Success();
     }
-
-    public void RecalculateProgress(decimal progressPercentage) => ProgressPercentage = progressPercentage;
 
     /// <summary>Set by a confirmed scope of work from its planned start and duration.</summary>
     public void SetEstimatedDates(DateTime estimatedStartDate, DateTime estimatedEndDate)

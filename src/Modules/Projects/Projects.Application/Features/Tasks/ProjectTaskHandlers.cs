@@ -113,6 +113,7 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }
@@ -138,6 +139,7 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }
@@ -163,6 +165,7 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }
@@ -188,6 +191,7 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
 
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }

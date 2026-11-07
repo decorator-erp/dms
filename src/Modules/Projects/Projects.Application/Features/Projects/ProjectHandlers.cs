@@ -206,19 +206,27 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandl
     {
         ProjectResponse? response = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
-            .Select(ToResponse(db.ProjectStages))
+            .Select(ToResponse(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
 
         return response is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : response;
     }
 
-    /// <summary>The response projection. <paramref name="stages"/> is the context's <c>ProjectStages</c>: the
-    /// stage count is a correlated subquery of the same SQL statement (Project has no Stages navigation),
-    /// so a page of projects is still one query, never one count per project.</summary>
-    internal static Expression<Func<Domain.Project, ProjectResponse>> ToResponse(IQueryable<Domain.ProjectStage> stages) => p =>
+    /// <summary>The response projection. <paramref name="stages"/> and <paramref name="tasks"/> are the context's
+    /// <c>ProjectStages</c> and <c>ProjectTasks</c>: the stage count and the progress sums are correlated subqueries
+    /// of the same SQL statement (Project has no navigations), so a page of projects is still one query, never one
+    /// count per project. P2/NP5: progress is computed here from the stages' counters plus the unstaged tasks
+    /// (<see cref="ProjectProgress"/>), never read from a stored column.</summary>
+    internal static Expression<Func<Domain.Project, ProjectResponse>> ToResponse(
+        IQueryable<Domain.ProjectStage> stages, IQueryable<Domain.ProjectTask> tasks) => p =>
         new ProjectResponse(
             p.Id, p.Code, p.Name, p.Description, ProjectsEnumMapping.ToContracts(p.Status),
-            ProjectsEnumMapping.ToContracts(p.WorkflowType), p.Address, p.Notes, p.ProgressPercentage,
+            ProjectsEnumMapping.ToContracts(p.WorkflowType), p.Address, p.Notes,
+            ProjectProgress.Percent(
+                stages.Where(s => s.ProjectId == p.Id).Sum(s => s.CompletedTasks)
+                    + tasks.Count(t => t.ProjectId == p.Id && t.ProjectStageId == null && t.Status == Domain.ProjectTaskStatus.Completed),
+                stages.Where(s => s.ProjectId == p.Id).Sum(s => s.TotalTasks)
+                    + tasks.Count(t => t.ProjectId == p.Id && t.ProjectStageId == null && t.Status != Domain.ProjectTaskStatus.Cancelled)),
             p.EstimatedStartDate, p.EstimatedEndDate, p.ActualStartDate, p.ActualEndDate,
             p.ClientId, p.OwnerId, p.IsActive, stages.Count(s => s.ProjectId == p.Id));
 }
@@ -285,7 +293,7 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
             .OrderBy(p => p.Name)
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages))
+            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks))
             .ToListAsync(ct);
 
         return new PagedResult<ProjectResponse>(items, query.PageNumber, query.PageSize, totalCount);
