@@ -14,12 +14,16 @@ namespace Projects.Contracts.Projects;
 ///
 /// <para><see cref="StageCount"/> is how many stages the project has (0 until a template or a confirmed scope
 /// of work creates them).</para>
+///
+/// <para><see cref="MyLevel"/> is the caller's own level on the project (1 Viewer, 2 Editor, 3 Manager), read from
+/// <see cref="IProjectAccessLevelReader"/>, the same source the scope decorator enforces with — so a command the
+/// level does not reach is the 403 <c>projects.InsufficientLevel</c> the UI can predict.</para>
 /// </summary>
 public sealed record ProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,
     string Address, string? Notes, decimal ProgressPercentage,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
-    Guid ClientId, Guid OwnerId, bool IsActive, int StageCount);
+    Guid ClientId, Guid OwnerId, bool IsActive, int StageCount, ProjectMemberAccess MyLevel);
 
 public sealed record CreateProjectCommand(
     string Code, string Name, string Address, WorkflowType WorkflowType, Guid ClientId,
@@ -58,15 +62,18 @@ public sealed record GetProjectDetailsQuery(Guid ProjectId, string UserId)
 
 /// <summary><see cref="UnstagedTasks"/> are the tasks with no stage (a FreeStyle project's). <see cref="TaskCounts"/>
 /// counts every task of the project by status, only the statuses that occur. <see cref="Gates"/> summarises
-/// every gate of the project, stage-owned and task-owned.</summary>
+/// every gate of the project, stage-owned and task-owned. <see cref="MyLevel"/> is the caller's level, as on
+/// <see cref="ProjectResponse.MyLevel"/>.</summary>
 public sealed record ProjectDetailsResponse(
     ProjectDetailsProjectResponse Project,
     IReadOnlyList<ProjectStageDetailsResponse> Stages,
     IReadOnlyList<ProjectTaskResponse> UnstagedTasks,
     IReadOnlyList<TaskStatusCount> TaskCounts,
-    GateSummary Gates);
+    GateSummary Gates,
+    ProjectMemberAccess MyLevel);
 
-/// <summary><see cref="ProjectResponse"/>'s fields plus <see cref="ClientName"/>, the client's display name read
+/// <summary><see cref="ProjectResponse"/>'s fields (except <c>MyLevel</c>, which sits on
+/// <see cref="ProjectDetailsResponse"/> itself) plus <see cref="ClientName"/>, the client's display name read
 /// through <c>Crm.Contracts.IClientDirectory</c>; null when the client cannot be resolved.</summary>
 public sealed record ProjectDetailsProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,

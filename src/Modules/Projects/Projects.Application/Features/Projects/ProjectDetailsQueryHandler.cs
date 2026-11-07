@@ -25,15 +25,25 @@ namespace Projects.Application.Features.Projects;
 /// <para>FINDING-P1-1: the client's name is two depth-1 reads made here, never one CRM call that itself reads
 /// Identity (Projects → CRM → Identity would be A→B→C): <see cref="IClientDirectory.GetAsync"/> for the
 /// client's <c>AppUserId</c>, then <see cref="IUserDirectory.GetAsync"/> for that login's display name.</para>
+///
+/// <para>L1: <see cref="ProjectDetailsResponse.MyLevel"/> comes from <see cref="IProjectAccessLevelReader.GetLevelAsync"/>
+/// for the query's own user, as on <see cref="GetProjectQueryHandler"/>; no level is 404.</para>
 /// </summary>
-internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClientDirectory clientDirectory, IUserDirectory userDirectory)
+internal sealed class GetProjectDetailsQueryHandler(
+    ProjectsDbContext db, IClientDirectory clientDirectory, IUserDirectory userDirectory, IProjectAccessLevelReader levels)
     : IQueryHandler<GetProjectDetailsQuery, ProjectDetailsResponse>
 {
     public async Task<Result<ProjectDetailsResponse>> HandleAsync(GetProjectDetailsQuery query, CancellationToken ct = default)
     {
-        ProjectResponse? project = await db.Projects.AsNoTracking()
+        ProjectMemberAccess? level = await levels.GetLevelAsync(query.ProjectId, query.UserId, ct);
+        if (level is null)
+        {
+            return Result.Failure<ProjectDetailsResponse>(Domain.ProjectErrors.NotFound);
+        }
+
+        ProjectRow? project = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks))
+            .Select(GetProjectQueryHandler.ToRow(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
         if (project is null)
         {
@@ -109,7 +119,8 @@ internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClien
             stageResponses,
             [.. tasks.Where(t => t.ProjectStageId is null)],
             CountByStatus(tasks),
-            Summarize(gates.Select(g => g.Status)));
+            Summarize(gates.Select(g => g.Status)),
+            level.Value);
     }
 
     private static List<TaskStatusCount> CountByStatus(IEnumerable<ProjectTaskResponse> tasks) =>
