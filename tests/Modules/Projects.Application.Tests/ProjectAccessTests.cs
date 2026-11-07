@@ -97,11 +97,14 @@ public sealed class ProjectAccessTests(ProjectsApplicationFixture fixture)
             Assert.Equal(Expect(level, ProjectMemberAccess.Manager), Outcome(edit));
         }
 
-        // Level (403) before state (409): on a project on hold a Viewer's start is 403, an Editor's is 409.
+        // Level (403) before state (409): on a project on hold a Viewer's start is 403, the assignee's is 409.
         await OfficeOkAsync(p, new ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
         await OfficeOkAsync(p, new ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.OnHold));
         Assert.Equal("403 projects.InsufficientLevel", Outcome(await RunAsAsync(viewerUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], viewerUser))));
         Assert.Equal("409 projects.Closed", Outcome(await RunAsAsync(assigneeUser, new StartProjectTaskCommand(p.ProjectId, tasks[1], assigneeUser))));
+
+        // R1-3: the actor check (403) also comes before the closed project's 409.
+        Assert.Equal("403 projects.tasks.NotAssignee", Outcome(await RunAsAsync(editorUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], editorUser))));
     }
 
     /// <summary>R1-1: an Editor starts and completes only the task they are assigned. The assignee of one task is 403

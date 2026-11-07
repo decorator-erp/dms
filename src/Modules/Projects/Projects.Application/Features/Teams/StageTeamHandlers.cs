@@ -41,13 +41,6 @@ internal sealed class AddStageTeamMemberCommandHandler(ProjectsDbContext db, IHr
 {
     public async Task<Result<Guid>> HandleAsync(AddStageTeamMemberCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return Result.Failure<Guid>(live.Error);
-        }
-
         StageTeam? team = await db.StageTeams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
         {
@@ -58,6 +51,13 @@ internal sealed class AddStageTeamMemberCommandHandler(ProjectsDbContext db, IHr
         if (employee is null || !employee.IsActive)
         {
             return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
         }
 
         Result<StageTeamMember> result = team.AddMember(command.EmployeeId, ProjectsEnumMapping.ToDomain(command.Role));
@@ -75,13 +75,6 @@ internal sealed class ChangeStageTeamMemberRoleCommandHandler(ProjectsDbContext 
 {
     public async Task<Result> HandleAsync(ChangeStageTeamMemberRoleCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         StageTeamMember? member = await db.StageTeamMembers.FindAsync([command.StageTeamMemberId], ct);
         if (member is null)
         {
@@ -92,6 +85,13 @@ internal sealed class ChangeStageTeamMemberRoleCommandHandler(ProjectsDbContext 
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
         {
             return Domain.TeamErrors.NotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         member.ChangeRole(ProjectsEnumMapping.ToDomain(command.Role));
@@ -105,13 +105,6 @@ internal sealed class ChangeStageTeamHeadCommandHandler(ProjectsDbContext db, IH
 {
     public async Task<Result> HandleAsync(ChangeStageTeamHeadCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         StageTeam? team = await db.StageTeams.FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
         {
@@ -122,6 +115,13 @@ internal sealed class ChangeStageTeamHeadCommandHandler(ProjectsDbContext db, IH
         if (employee is null || !employee.IsActive)
         {
             return Domain.ProjectErrors.AccessDenied;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         team.ChangeHead(command.HeadId);

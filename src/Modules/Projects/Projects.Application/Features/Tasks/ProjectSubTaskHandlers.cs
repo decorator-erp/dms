@@ -24,13 +24,6 @@ internal sealed class CompleteProjectSubTaskCommandHandler(
 {
     public async Task<Result> HandleAsync(CompleteProjectSubTaskCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         ProjectSubTask? subTask = await db.ProjectSubTasks.FindAsync([command.SubTaskId], ct);
         if (subTask is null)
         {
@@ -57,6 +50,13 @@ internal sealed class CompleteProjectSubTaskCommandHandler(
         if (!currentUser.HasPermission(ProjectsPermissions.StageTasks.Manage) && task.AssignedToId != employeeId)
         {
             return Domain.SubTaskErrors.NotAssignee;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         if (task.Status is Domain.ProjectTaskStatus.Completed or Domain.ProjectTaskStatus.Cancelled)

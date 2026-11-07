@@ -24,13 +24,6 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
 {
     public async Task<Result> HandleAsync(CompleteProjectStageCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         // P11: hold this stage and every stage its completion unlocks, in id order (GateOwnerLocks), before reading
         // it, so a racing writer is waited for and seen instead of overwritten.
         await GateOwnerLocks.LockCompletionCascadeAsync(db, command.StageId, null, command.StageId, ct);
@@ -46,6 +39,13 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
         if (employeeId is null)
         {
             return Domain.ProjectErrors.AccessDenied;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         // The stage's own state first: a stage that is no longer Active is a transition error whatever its gates
@@ -95,13 +95,6 @@ internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(RejectProjectStageCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         // P11: hold the stage row first, so a racing writer is waited for and seen instead of overwritten.
         ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
             ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
@@ -109,6 +102,13 @@ internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : I
         if (stage is null)
         {
             return Domain.StageErrors.NotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result result = stage.Reject(command.Reason);

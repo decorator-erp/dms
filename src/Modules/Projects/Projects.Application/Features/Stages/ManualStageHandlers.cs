@@ -110,6 +110,12 @@ internal sealed class CreateProjectStageCommandHandler(ProjectsDbContext db, IHr
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the template stage's 404 before the project's 409s.
+        if (command.TemplateStageId is { } pickedStageId && !await db.Stages.AsNoTracking().AnyAsync(s => s.Id == pickedStageId, ct))
+        {
+            return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageNotFound);
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -121,11 +127,6 @@ internal sealed class CreateProjectStageCommandHandler(ProjectsDbContext db, IHr
         Domain.ProjectStage stage;
         if (command.TemplateStageId is { } templateStageId)
         {
-            if (!await db.Stages.AsNoTracking().AnyAsync(s => s.Id == templateStageId, ct))
-            {
-                return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageNotFound);
-            }
-
             Result<IReadOnlyList<Guid>> created = await new StageInstantiator(db, hrDirectory).InstantiateAsync(
                 editable.Value!, [new StagePick(templateStageId, command.Name.Trim(), command.Description, stages.Count + 1, null)], ct);
             if (created.IsFailure)
@@ -160,6 +161,12 @@ internal sealed class UpdateProjectStageCommandHandler(ProjectsDbContext db) : I
 
     private async Task<Result> UpdateAsync(UpdateProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the stage's 404 before the project's 409s.
+        if (!await db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.StageErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -197,6 +204,12 @@ internal sealed class DeleteProjectStageCommandHandler(
 
     private async Task<Result> DeleteAsync(DeleteProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the stage's 404 before the project's 409s.
+        if (!await db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.StageErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {

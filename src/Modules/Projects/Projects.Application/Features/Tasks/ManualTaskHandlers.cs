@@ -75,14 +75,11 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectTaskCommand command, CancellationToken ct)
     {
-        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
+        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
+        if (project is null)
         {
-            return Result.Failure<Guid>(live.Error);
+            return Result.Failure<Guid>(Domain.ProjectErrors.NotFound);
         }
-
-        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == command.ProjectId, ct);
 
         // The workflow rule first (400), so a missing stage on a stage project reads as a bad request.
         if (project.WorkflowType == Domain.WorkflowType.Stage && command.ProjectStageId is null)
@@ -95,12 +92,6 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
             return Result.Failure<Guid>(Domain.TaskErrors.StageNotAllowed);
         }
 
-        Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
-        {
-            return Result.Failure<Guid>(editable.Error);
-        }
-
         Domain.ProjectStage? stage = null;
         if (command.ProjectStageId is { } stageId)
         {
@@ -108,11 +99,6 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
             if (stage is null)
             {
                 return Result.Failure<Guid>(Domain.StageErrors.NotFound);
-            }
-
-            if (stage.Status is Domain.StageStatus.Completed or Domain.StageStatus.Rejected)
-            {
-                return Result.Failure<Guid>(Domain.TaskErrors.StageClosed);
             }
         }
 
@@ -123,6 +109,18 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
             {
                 return Result.Failure<Guid>(Domain.TaskErrors.AssigneeNotFound);
             }
+        }
+
+        // NP3 and the settled-structure rule (409), after the 404s (R1-3).
+        Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return Result.Failure<Guid>(editable.Error);
+        }
+
+        if (stage?.Status is Domain.StageStatus.Completed or Domain.StageStatus.Rejected)
+        {
+            return Result.Failure<Guid>(Domain.TaskErrors.StageClosed);
         }
 
         int order = command.Order ?? (await db.ProjectTasks
@@ -170,6 +168,12 @@ internal sealed class UpdateProjectTaskCommandHandler(ProjectsDbContext db) : IC
 
     private async Task<Result> UpdateAsync(UpdateProjectTaskCommand command, CancellationToken ct)
     {
+        // R1-3: the task's 404 before the project's 409s.
+        if (!await db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.TaskErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -203,6 +207,12 @@ internal sealed class DeleteProjectTaskCommandHandler(
 
     private async Task<Result> DeleteAsync(DeleteProjectTaskCommand command, CancellationToken ct)
     {
+        // R1-3: the task's 404 before the project's 409s.
+        if (!await db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.TaskErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {

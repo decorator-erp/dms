@@ -33,16 +33,16 @@ internal sealed class CreateStageTeamCommandHandler(ProjectsDbContext db, IHrDir
 
     private async Task<Result<Guid>> CreateAsync(CreateStageTeamCommand command, CancellationToken ct)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        if (!await StageTeamAccess.BelongsToProjectAsync(db, command.ProjectStageId, command.ProjectId, ct))
+        {
+            return Result.Failure<Guid>(Domain.StageErrors.NotFound);
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
         Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
         if (live.IsFailure)
         {
             return Result.Failure<Guid>(live.Error);
-        }
-
-        if (!await StageTeamAccess.BelongsToProjectAsync(db, command.ProjectStageId, command.ProjectId, ct))
-        {
-            return Result.Failure<Guid>(Domain.StageErrors.NotFound);
         }
 
         Domain.StageTeam team;
@@ -84,13 +84,6 @@ internal sealed class RemoveStageTeamMemberCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(RemoveStageTeamMemberCommand command, CancellationToken ct = default)
     {
-        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
-        if (live.IsFailure)
-        {
-            return live;
-        }
-
         Domain.StageTeamMember? member = await db.StageTeamMembers
             .Where(m => m.Id == command.StageTeamMemberId)
             .Join(db.StageTeams, m => m.StageTeamId, t => t.Id, (m, t) => new { m, t })
@@ -101,6 +94,13 @@ internal sealed class RemoveStageTeamMemberCommandHandler(ProjectsDbContext db) 
         if (member is null)
         {
             return Domain.TeamErrors.MemberNotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         db.StageTeamMembers.Remove(member);

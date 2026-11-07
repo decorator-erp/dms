@@ -316,6 +316,51 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         AssertError(await RunAsync(p, new CancelProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId)), "projects.Closed", 409);
     }
 
+    /// <summary>R1-3: the authorization order is route claim (403) → scope (404) → actor (403) → state (409), and a
+    /// closed project is state. On a project on hold, a missing child id is still its 404, and a caller without the
+    /// gate's own claim or not the sub-task's assignee is still 403 — not the closed project's 409.</summary>
+    [Fact]
+    public async Task R1_3_OnAClosedProject_AMissingChildIs404_AndAMissingClaimIs403()
+    {
+        (ScopeTestProject p, _, Guid[] tasks) = await StageProjectWithTasksAsync("r1-3", 1);
+        Guid subTask = await SubTaskOfAsync(tasks[0]);
+        Guid taskGate = await CreateTaskGateAsync(p, tasks[0], ConditionType.ManualCheck, GateTrigger.Complete);
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.OnHold));
+        var missing = Guid.NewGuid();
+
+        AssertError(await RunAsync(p, new StartProjectTaskCommand(p.ProjectId, missing, p.OfficeUserId)), "tasks.NotFound", 404);
+        AssertError(await RunAsync(p, new CompleteProjectTaskCommand(p.ProjectId, missing, p.OfficeUserId)), "tasks.NotFound", 404);
+        AssertError(await RunAsync(p, new ReopenProjectTaskCommand(p.ProjectId, missing, p.OfficeUserId)), "tasks.NotFound", 404);
+        AssertError(await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, missing, p.OfficeUserId)), "subtasks.NotFound", 404);
+        AssertError(await RunAsync(p, new UpdateProjectSubTaskCommand(p.ProjectId, tasks[0], missing, p.OfficeUserId, "Renamed", null, null, null)),
+            "subtasks.NotFound", 404);
+        AssertError(await RunAsync(p, new UpdateProjectTaskCommand(p.ProjectId, missing, p.OfficeUserId, "Renamed", null, null, null, null, null, null)),
+            "tasks.NotFound", 404);
+        AssertError(await RunAsync(p, new UpdateProjectStageCommand(p.ProjectId, missing, p.OfficeUserId, "Renamed", null, null, null, null, null)),
+            "stages.NotFound", 404);
+        AssertError(await RunAsync(p, new RejectProjectStageCommand(p.ProjectId, missing, p.OfficeUserId, "No")), "stages.NotFound", 404);
+        AssertError(await RunAsync(p, new DeleteGateConditionCommand(p.ProjectId, missing, p.OfficeUserId)), "gate_conditions.NotFound", 404);
+        AssertError(await RunAsync<CreateTaskGateConditionCommand, Guid>(p, new CreateTaskGateConditionCommand(
+            p.ProjectId, missing, p.OfficeUserId, ConditionType.ManualCheck, GateTrigger.Complete, "Late gate")), "tasks.NotFound", 404);
+        AssertError(await RunAsync(p, new Contracts.Scope.UpdateScopeOfWorkItemCommand(p.ProjectId, p.OfficeUserId, missing, "Item", null, 0m)),
+            "projects.scope.ItemNotFound", 404);
+
+        // A task gate needs stage_tasks.manage_gates; the stage claim alone is 403 before the 409.
+        AssertError(await RunAsync(p, new SatisfyGateConditionCommand(p.ProjectId, taskGate, p.OfficeUserId),
+            ProjectsPermissions.Stages.ManageGates), "projects.AccessDenied", 403);
+        AssertError(await RunAsync(p, new DeleteGateConditionCommand(p.ProjectId, taskGate, p.OfficeUserId),
+            ProjectsPermissions.Stages.ManageGates), "projects.AccessDenied", 403);
+
+        // Not the task's assignee and no stage_tasks.manage: 403 before the 409.
+        AssertError(await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, subTask, p.OfficeUserId),
+            ProjectsPermissions.StageTasks.Complete), "projects.subtasks.NotAssignee", 403);
+
+        // With every 404 and 403 passed, the closed project is the 409.
+        AssertError(await RunAsync(p, new SatisfyGateConditionCommand(p.ProjectId, taskGate, p.OfficeUserId)), "projects.Closed", 409);
+        AssertError(await RunAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId)), "projects.Closed", 409);
+    }
+
     private async Task AssertClosedAsync(ScopeTestProject p, Guid stageId, Guid taskId, Guid subTaskId)
     {
         const string closed = "projects.Closed";

@@ -105,18 +105,31 @@ internal static class ScopeOfWorkStore
     /// check this first.</summary>
     public static async Task<Result> EnsureEditableProjectAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        // NP3: an inactive, on-hold, completed or cancelled project takes no scope writes (409).
-        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
-        if (live.IsFailure)
+        Result workflow = await EnsureStageWorkflowAsync(db, projectId, ct);
+        if (workflow.IsFailure)
         {
-            return live;
+            return workflow;
         }
 
-        WorkflowType workflow = await db.Projects.AsNoTracking()
+        // NP3: an inactive, on-hold, completed or cancelled project takes no scope writes (409).
+        return await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+    }
+
+    /// <summary>The project exists (404) and has a stage workflow (409 <see cref="ScopeOfWorkErrors.WorkflowNotSupported"/>:
+    /// a FreeStyle project has no scope, so no item of it can be looked up). An item write checks this, then its item
+    /// (404), then <see cref="ProjectLiveness"/> (R1-3).</summary>
+    public static async Task<Result> EnsureStageWorkflowAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
+    {
+        WorkflowType? workflow = await db.Projects.AsNoTracking()
             .Where(p => p.Id == projectId)
-            .Select(p => p.WorkflowType)
-            .FirstAsync(ct);
-        return workflow == WorkflowType.FreeStyle ? ScopeOfWorkErrors.WorkflowNotSupported : Result.Success();
+            .Select(p => (WorkflowType?)p.WorkflowType)
+            .FirstOrDefaultAsync(ct);
+        return workflow switch
+        {
+            null => Domain.ProjectErrors.NotFound,
+            WorkflowType.FreeStyle => ScopeOfWorkErrors.WorkflowNotSupported,
+            _ => Result.Success(),
+        };
     }
 
     public static Task<ScopeOfWork?> FindAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
@@ -390,15 +403,23 @@ internal sealed class UpdateScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(UpdateScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
-        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
+        Result workflow = await ScopeOfWorkStore.EnsureStageWorkflowAsync(db, command.ProjectId, ct);
+        if (workflow.IsFailure)
         {
-            return editable;
+            return workflow;
         }
 
-        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
+        // R1-3: the item's 404 before the closed project's 409.
+        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope
+            || scope.Items.All(i => i.Id != command.ItemId))
         {
             return ScopeOfWorkErrors.ItemNotFound;
+        }
+
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result updated = scope.UpdateItem(command.ItemId, command.Name.Trim(), command.Description, command.Fee);
@@ -410,15 +431,23 @@ internal sealed class RemoveScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(RemoveScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
-        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
+        Result workflow = await ScopeOfWorkStore.EnsureStageWorkflowAsync(db, command.ProjectId, ct);
+        if (workflow.IsFailure)
         {
-            return editable;
+            return workflow;
         }
 
-        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
+        // R1-3: the item's 404 before the closed project's 409.
+        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope
+            || scope.Items.All(i => i.Id != command.ItemId))
         {
             return ScopeOfWorkErrors.ItemNotFound;
+        }
+
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result removed = scope.RemoveItem(command.ItemId);
