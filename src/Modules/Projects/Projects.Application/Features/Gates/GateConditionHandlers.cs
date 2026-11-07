@@ -30,8 +30,10 @@ internal sealed class CreateStageGateConditionCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateStageGateConditionCommand command, CancellationToken ct = default)
     {
-        Domain.ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
-            s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
+        // FINDING-E2-2: hold the stage row against a racing stage delete (no orphan gate or approval request).
+        Domain.ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
+            : null;
         if (stage is null)
         {
             return Result.Failure<Guid>(Domain.StageErrors.NotFound);
@@ -96,8 +98,10 @@ internal sealed class CreateTaskGateConditionCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateTaskGateConditionCommand command, CancellationToken ct = default)
     {
-        Domain.ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // FINDING-E2-2: hold the task row against a racing task delete (no orphan gate or approval request).
+        Domain.ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Result.Failure<Guid>(Domain.TaskErrors.NotFound);

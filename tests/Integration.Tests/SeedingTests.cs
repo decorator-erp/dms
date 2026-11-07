@@ -59,6 +59,27 @@ public sealed class SeedingTests(ApiFixture fixture)
         Assert.DoesNotContain(claims.GetValueOrDefault("client") ?? [], c => c.StartsWith("scope.", StringComparison.Ordinal));
     }
 
+    /// <summary>C5 (crm-complete, part E): the role → code matrix. The one new code, <c>project.manage_members</c>,
+    /// reaches admin and manager through <c>RoleClaimSeeder</c> (full-access roles get every catalog code), as do the
+    /// existing <c>stages.manage</c> and <c>stage_tasks.manage</c> that the manual stage and task routes reuse. No
+    /// baseline step grants employee or client a Projects write code, so nothing an admin removed comes back.</summary>
+    [Fact]
+    public async Task Part_e_codes_reach_admin_and_manager_only()
+    {
+        HttpClient client = fixture.CreateClient();
+        await client.GetAsync("/health");
+
+        Dictionary<string, HashSet<string>> claims = await RoleClaimsAsync(fixture.ConnectionString);
+        string[] partE = ["project.manage_members", "stages.manage", "stage_tasks.manage"];
+
+        Assert.All(partE, p => Assert.Contains(p, claims["admin"]));
+        Assert.All(partE, p => Assert.Contains(p, claims["manager"]));
+        foreach (string role in new[] { "employee", "client" })
+        {
+            Assert.DoesNotContain(claims.GetValueOrDefault(role) ?? [], c => partE.Contains(c, StringComparer.Ordinal));
+        }
+    }
+
     /// <summary>Role name → its permission claims, read straight from <c>identity.role_claims</c>.</summary>
     internal static async Task<Dictionary<string, HashSet<string>>> RoleClaimsAsync(string connectionString)
     {

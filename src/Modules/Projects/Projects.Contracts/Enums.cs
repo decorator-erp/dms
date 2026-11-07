@@ -52,6 +52,16 @@ public enum StageTeamMemberRole
     Observer = 4,
 }
 
+/// <summary>E1 (D1): a project member's access level. Every level counts toward project scope;
+/// <c>Editor</c> and <c>Manager</c> can execute tasks, <c>Manager</c> can manage. The frontend's
+/// <c>Contributor</c> is <c>Editor</c> (2).</summary>
+public enum ProjectMemberAccess
+{
+    Viewer = 1,
+    Editor = 2,
+    Manager = 3,
+}
+
 /// <summary>Ported verbatim from <c>../backend/Domain/Enums/WorkflowType.cs</c> — governs whether
 /// <c>ProjectTask.ProjectStageId</c> must (<see cref="Stage"/>) or must not (<see cref="FreeStyle"/>) be
 /// set.</summary>

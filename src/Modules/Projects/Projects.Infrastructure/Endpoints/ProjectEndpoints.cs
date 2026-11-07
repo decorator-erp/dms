@@ -24,10 +24,11 @@ internal sealed class ProjectEndpoints : IEndpoint
         RouteGroupBuilder group = app.MapGroup("/api/projects").WithTags("Projects");
 
         group.MapGet("/", async (
-            int pageNumber, int pageSize, string? nameFilter, ICurrentUser currentUser,
-            IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>> handler, CancellationToken ct) =>
+            int pageNumber, int pageSize, string? nameFilter, bool? mine, Guid? clientId, string? search,
+            ICurrentUser currentUser, IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>> handler, CancellationToken ct) =>
         {
-            Result<PagedResult<ProjectResponse>> result = await handler.HandleAsync(new GetProjectsQuery(pageNumber, pageSize, currentUser.UserId!, nameFilter), ct);
+            Result<PagedResult<ProjectResponse>> result = await handler.HandleAsync(
+                new GetProjectsQuery(pageNumber, pageSize, currentUser.UserId!, nameFilter, mine ?? false, clientId, search), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.Projects.Read);
 

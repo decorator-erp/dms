@@ -24,6 +24,10 @@ public static class ProjectsPermissions
         public const string SetActive = "project.set_active";
         public const string ChangeStatus = "project.change_status";
         public const string Delete = "project.delete";
+
+        /// <summary>E1 (D1): add, re-level and remove project members. Reading the member list needs only
+        /// <see cref="Read"/>.</summary>
+        public const string ManageMembers = "project.manage_members";
     }
 
     public static class Stages

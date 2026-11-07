@@ -50,6 +50,38 @@ internal sealed class DocumentQueries(DocumentsDbContext db) : IDocumentQueries
             .Select(ToSummary())
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<Guid>> StagesReferencedAsync(IReadOnlyCollection<Guid> projectStageIds, CancellationToken ct)
+    {
+        if (projectStageIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.ProjectDocuments.AsNoTracking()
+            .Where(d => d.ProjectStageId != null && projectStageIds.Contains(d.ProjectStageId.Value))
+            .Select(d => d.ProjectStageId!.Value)
+            .Union(db.DocumentFolders.AsNoTracking()
+                .Where(f => f.ProjectStageId != null && projectStageIds.Contains(f.ProjectStageId.Value))
+                .Select(f => f.ProjectStageId!.Value))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<Guid>> TasksReferencedAsync(IReadOnlyCollection<Guid> projectTaskIds, CancellationToken ct)
+    {
+        if (projectTaskIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.ProjectDocuments.AsNoTracking()
+            .Where(d => d.ProjectTaskId != null && projectTaskIds.Contains(d.ProjectTaskId.Value))
+            .Select(d => d.ProjectTaskId!.Value)
+            .Union(db.DocumentFolders.AsNoTracking()
+                .Where(f => f.ProjectTaskId != null && projectTaskIds.Contains(f.ProjectTaskId.Value))
+                .Select(f => f.ProjectTaskId!.Value))
+            .ToListAsync(ct);
+    }
+
     private static System.Linq.Expressions.Expression<Func<Domain.ProjectDocument, DocumentSummary>> ToSummary() => d =>
         new DocumentSummary(
             d.Id, d.ProjectId, d.FolderId, d.ProjectStageId, d.ProjectTaskId, d.FileName, d.Version,

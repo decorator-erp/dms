@@ -97,7 +97,8 @@ internal sealed class GetProjectStageQueryHandler(ProjectsDbContext db)
     internal static System.Linq.Expressions.Expression<Func<Domain.ProjectStage, ProjectStageResponse>> ToResponse() => s =>
         new ProjectStageResponse(
             s.Id, s.ProjectId, s.Name, s.Description, s.Order, ProjectsEnumMapping.ToContracts(s.Status),
-            s.ProgressPercent, s.CompletedTasks, s.TotalTasks, s.Cost);
+            s.ProgressPercent, s.CompletedTasks, s.TotalTasks, s.Cost,
+            s.StageId, s.Notes, s.EstimatedStartDate, s.EstimatedEndDate, s.ActualStartDate, s.ActualEndDate);
 }
 
 internal sealed class GetProjectStagesByProjectQueryHandler(ProjectsDbContext db)

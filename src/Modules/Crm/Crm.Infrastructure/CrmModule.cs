@@ -30,6 +30,7 @@ internal sealed class CrmModule : IModule
 
         services.AddScoped<ICrmAccessGuard, CrmAccessGuard>();
         services.AddScoped<ICrmGateReader, CrmGateReader>();
+        services.AddScoped<ICrmProjectWorkUsage, CrmProjectWorkUsage>();
         services.AddScoped<CrmApprovalOutcomes>();
         services.AddScoped<CrmProjectScope>();
         services.AddScoped<CrmClientScope>();

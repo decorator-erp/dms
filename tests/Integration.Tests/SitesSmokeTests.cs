@@ -56,9 +56,12 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// <summary>C-1 <c>crm.clients.read_all</c> and C-8 <c>crm.notes.manage_all</c>.</summary>
     private static readonly string[] CrmAddedByBackendCompletion = [CrmPermissions.Clients.ReadAll, CrmPermissions.Notes.ManageAll];
 
+    /// <summary>crm-complete E1 (D1): <c>project.manage_members</c>.</summary>
+    private static readonly string[] ProjectsAddedByCrmComplete = [ProjectsPermissions.Projects.ManageMembers];
+
     private static int TotalPermissionsAcrossAllModules =>
         PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count
-        + ProjectsPermissions.Scope.All.Count + CrmAddedByBackendCompletion.Length;
+        + ProjectsPermissions.Scope.All.Count + CrmAddedByBackendCompletion.Length + ProjectsAddedByCrmComplete.Length;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()

@@ -71,6 +71,7 @@ internal sealed class ProjectsModule : IModule
                 ProjectsPermissions.Projects.SetActive,
                 ProjectsPermissions.Projects.ChangeStatus,
                 ProjectsPermissions.Projects.Delete,
+                ProjectsPermissions.Projects.ManageMembers,
                 ProjectsPermissions.Stages.Read,
                 ProjectsPermissions.Stages.Manage,
                 ProjectsPermissions.Stages.Complete,

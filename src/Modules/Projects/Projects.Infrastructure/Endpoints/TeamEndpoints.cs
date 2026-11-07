@@ -18,6 +18,34 @@ internal sealed class TeamEndpoints : IEndpoint
     {
         RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/teams").WithTags("StageTeams");
 
+        // E7: the project's team list (a read: stages.read), a team made by hand and member removal
+        // (stage_teams.manage).
+        group.MapGet("/", async (
+            Guid projectId, Guid? stageId, ICurrentUser currentUser,
+            IQueryHandler<GetProjectTeamsQuery, IReadOnlyList<ProjectTeamListItemResponse>> handler, CancellationToken ct) =>
+        {
+            Result<IReadOnlyList<ProjectTeamListItemResponse>> result =
+                await handler.HandleAsync(new GetProjectTeamsQuery(projectId, currentUser.UserId!, stageId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.Stages.Read);
+
+        group.MapPost("/", async (
+            Guid projectId, CreateTeamRequest request, ICurrentUser currentUser,
+            ICommandHandler<CreateStageTeamCommand, Guid> handler, CancellationToken ct) =>
+        {
+            Result<Guid> result = await handler.HandleAsync(new CreateStageTeamCommand(
+                projectId, currentUser.UserId!, request.ProjectStageId, request.DepartmentId, request.HeadId), ct);
+            return result.Match(stageTeamId => Results.Ok(new { StageTeamId = stageTeamId }), r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTeams.Manage);
+
+        group.MapDelete("/members/{stageTeamMemberId:guid}", async (
+            Guid projectId, Guid stageTeamMemberId, ICurrentUser currentUser,
+            ICommandHandler<RemoveStageTeamMemberCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new RemoveStageTeamMemberCommand(projectId, stageTeamMemberId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTeams.Manage);
+
         group.MapGet("/{stageTeamId:guid}", async (
             Guid projectId, Guid stageTeamId, ICurrentUser currentUser,
             IQueryHandler<GetStageTeamQuery, StageTeamResponse> handler, CancellationToken ct) =>
@@ -65,4 +93,6 @@ internal sealed class TeamEndpoints : IEndpoint
     private sealed record AddMemberRequest(Guid EmployeeId, StageTeamMemberRole Role);
     private sealed record ChangeRoleRequest(StageTeamMemberRole Role);
     private sealed record ChangeHeadRequest(Guid HeadId);
+
+    private sealed record CreateTeamRequest(Guid ProjectStageId, Guid? DepartmentId, Guid? HeadId);
 }

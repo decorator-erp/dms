@@ -46,6 +46,14 @@ internal enum StageTeamMemberRole
     Observer = 4,
 }
 
+/// <summary>E1 (D1): a project member's access level.</summary>
+internal enum ProjectMemberAccess
+{
+    Viewer = 1,
+    Editor = 2,
+    Manager = 3,
+}
+
 internal enum WorkflowType
 {
     Stage = 1,

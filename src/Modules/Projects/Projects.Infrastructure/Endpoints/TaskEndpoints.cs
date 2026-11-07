@@ -21,10 +21,50 @@ internal sealed class TaskEndpoints : IEndpoint
         RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
 
         group.MapGet("/", async (
-            Guid projectId, ICurrentUser currentUser,
+            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!), ct);
+            Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(
+                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Read);
+
+        // E3 (D2): manual tasks. stage_tasks.manage, the module's existing code for ProjectTask writes.
+        group.MapPost("/", async (
+            Guid projectId, TaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<CreateProjectTaskCommand, Guid> handler, CancellationToken ct) =>
+        {
+            Result<Guid> result = await handler.HandleAsync(new CreateProjectTaskCommand(
+                projectId, currentUser.UserId!, request.ProjectStageId, request.Name ?? string.Empty, request.Description,
+                request.Notes, request.AssignedToId, request.Priority ?? TaskPriority.Medium, request.Weight ?? 1.00m,
+                request.Order, request.DueDate), ct);
+            return result.Match(taskId => Results.Ok(new { TaskId = taskId }), r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapPut("/{taskId:guid}", async (
+            Guid projectId, Guid taskId, TaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<UpdateProjectTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UpdateProjectTaskCommand(
+                projectId, taskId, currentUser.UserId!, request.Name ?? string.Empty, request.Description, request.Notes,
+                request.Priority, request.Weight, request.Order, request.DueDate), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapDelete("/{taskId:guid}", async (
+            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            ICommandHandler<DeleteProjectTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapGet("/{taskId:guid}/details", async (
+            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            IQueryHandler<GetProjectTaskDetailsQuery, ProjectTaskDetailsResponse> handler, CancellationToken ct) =>
+        {
+            Result<ProjectTaskDetailsResponse> result = await handler.HandleAsync(
+                new GetProjectTaskDetailsQuery(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -94,6 +134,44 @@ internal sealed class TaskEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
+        // E5: sub-task writes. Create/update/delete: stage_tasks.manage. Reopen: the task's assignee (with
+        // stage_tasks.complete) or a manager - checked in the handler after the scope decorator.
+        group.MapPost("/{taskId:guid}/sub-tasks", async (
+            Guid projectId, Guid taskId, SubTaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<CreateProjectSubTaskCommand, Guid> handler, CancellationToken ct) =>
+        {
+            Result<Guid> result = await handler.HandleAsync(new CreateProjectSubTaskCommand(
+                projectId, taskId, currentUser.UserId!, request.Title ?? string.Empty, request.Description, request.Order,
+                request.IsRequired ?? true), ct);
+            return result.Match(subTaskId => Results.Ok(new { SubTaskId = subTaskId }), r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapPut("/{taskId:guid}/sub-tasks/{subTaskId:guid}", async (
+            Guid projectId, Guid taskId, Guid subTaskId, SubTaskRequest request, ICurrentUser currentUser,
+            ICommandHandler<UpdateProjectSubTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UpdateProjectSubTaskCommand(
+                projectId, taskId, subTaskId, currentUser.UserId!, request.Title ?? string.Empty, request.Description,
+                request.Order, request.IsRequired), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapDelete("/{taskId:guid}/sub-tasks/{subTaskId:guid}", async (
+            Guid projectId, Guid taskId, Guid subTaskId, ICurrentUser currentUser,
+            ICommandHandler<DeleteProjectSubTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteProjectSubTaskCommand(projectId, taskId, subTaskId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        group.MapPost("/{taskId:guid}/sub-tasks/{subTaskId:guid}/reopen", async (
+            Guid projectId, Guid taskId, Guid subTaskId, ICurrentUser currentUser,
+            ICommandHandler<ReopenProjectSubTaskCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new ReopenProjectSubTaskCommand(projectId, taskId, subTaskId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete);
+
         group.MapPost("/sub-tasks/{subTaskId:guid}/complete", async (
             Guid projectId, Guid subTaskId, ICurrentUser currentUser,
             ICommandHandler<CompleteProjectSubTaskCommand> handler, CancellationToken ct) =>
@@ -115,12 +193,39 @@ internal sealed class TaskEndpoints : IEndpoint
             ICommandHandler<AddTaskCommentCommand, Guid> handler, CancellationToken ct) =>
         {
             Result<Guid> result = await handler.HandleAsync(
-                new AddTaskCommentCommand(projectId, taskId, currentUser.UserId!, request.Content), ct);
+                new AddTaskCommentCommand(projectId, taskId, currentUser.UserId!, request.Content ?? string.Empty), ct);
             return result.Match(commentId => Results.Ok(new { CommentId = commentId }), r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+
+        // E6: edit and delete a comment. The route needs only stage_tasks.read; the handler allows the author or
+        // a stage_tasks.manage holder (403), after the scope decorator (404).
+        group.MapPut("/{taskId:guid}/comments/{commentId:guid}", async (
+            Guid projectId, Guid taskId, Guid commentId, AddCommentRequest request, ICurrentUser currentUser,
+            ICommandHandler<UpdateTaskCommentCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(
+                new UpdateTaskCommentCommand(projectId, taskId, commentId, currentUser.UserId!, request.Content ?? string.Empty), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Read);
+
+        group.MapDelete("/{taskId:guid}/comments/{commentId:guid}", async (
+            Guid projectId, Guid taskId, Guid commentId, ICurrentUser currentUser,
+            ICommandHandler<DeleteTaskCommentCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteTaskCommentCommand(projectId, taskId, commentId, currentUser.UserId!), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(ProjectsPermissions.StageTasks.Read);
     }
 
     private sealed record AssignTaskRequest(Guid EmployeeId);
     private sealed record RejectTaskRequest(string Reason);
-    private sealed record AddCommentRequest(string Content);
+    /// <summary>The frontend's <c>CreateProjectTaskRequest</c>/<c>UpdateProjectTaskRequest</c> fields that
+    /// the domain has. Update ignores the stage and the assignee (use <c>/assign</c>).</summary>
+    private sealed record TaskRequest(
+        Guid? ProjectStageId, string? Name, string? Description, string? Notes, Guid? AssignedToId,
+        TaskPriority? Priority, decimal? Weight, int? Order, DateTime? DueDate);
+
+    private sealed record SubTaskRequest(string? Title, string? Description, int? Order, bool? IsRequired);
+
+    private sealed record AddCommentRequest(string? Content);
 }

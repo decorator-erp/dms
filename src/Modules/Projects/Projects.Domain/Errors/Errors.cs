@@ -39,6 +39,20 @@ internal static class StageErrors
     /// satisfied").</summary>
     public static readonly Error GatesNotSatisfied = Error.Conflict(
         "stages.GatesNotSatisfied", "This stage has unsatisfied gate conditions that must be resolved before it can be completed.");
+
+    /// <summary>E2 (D2): a stage is added by hand only once the project's stage structure is settled — the
+    /// scope of work is confirmed, or (no scope of work) the project was created from a template.</summary>
+    public static readonly Error ScopeNotConfirmed = Error.Conflict(
+        "projects.stages.ScopeNotConfirmed", "Stages can be added by hand only after the scope of work is confirmed.");
+
+    /// <summary>E2: a FreeStyle project's tasks may not belong to a stage, so it has no stages to manage.</summary>
+    public static readonly Error WorkflowNotSupported = Error.Conflict(
+        "projects.stages.WorkflowNotSupported", "A free-style project has no stages.");
+
+    /// <summary>E2: the stage has started (a task left Open/Locked, a done sub-task, a comment or a satisfied
+    /// gate), or another gate, a document, CRM or Finance still points at it or its tasks.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.stages.NotDeletable", "This stage has started or is referenced elsewhere and cannot be deleted.");
 }
 
 internal static class TaskErrors
@@ -59,10 +73,37 @@ internal static class TaskErrors
 
     public static readonly Error NegativeCost = Error.BadRequest("tasks.NegativeCost", "Cost cannot be negative.");
 
+    /// <summary>E3 (D2): the task has started (it left Open/Locked), has a done sub-task, a comment, a satisfied
+    /// gate or a document, or a gate elsewhere, CRM or Finance points at it.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.tasks.NotDeletable", "This task has started or is referenced elsewhere and cannot be deleted.");
+
+    /// <summary>E3: a task is not added to a stage that is already completed or rejected.</summary>
+    public static readonly Error StageClosed = Error.Conflict(
+        "projects.tasks.StageClosed", "Tasks cannot be added to a completed or rejected stage.");
+
+    public static readonly Error AssigneeNotFound = Error.NotFound(
+        "projects.tasks.AssigneeNotFound", "The assignee was not found or is not active.");
+
     /// <summary>Same as <see cref="StageErrors.GatesNotSatisfied"/>, for a task-owned
     /// <see cref="GateTrigger.Complete"/> gate.</summary>
     public static readonly Error GatesNotSatisfied = Error.Conflict(
         "tasks.GatesNotSatisfied", "This task has unsatisfied gate conditions that must be resolved before it can be completed.");
+}
+
+/// <summary>E1 (D1): project members.</summary>
+internal static class ProjectMemberErrors
+{
+    public static readonly Error NotFound = Error.NotFound("projects.members.NotFound", "Project member was not found.");
+
+    public static readonly Error EmployeeNotFound = Error.NotFound(
+        "projects.members.EmployeeNotFound", "The employee was not found or is not active.");
+
+    public static readonly Error AlreadyMember = Error.Conflict(
+        "projects.members.AlreadyMember", "This employee is already a member of the project.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.members.ConcurrentUpdate", "The member was changed by someone else. Reload and try again.");
 }
 
 internal static class SubTaskErrors
@@ -70,6 +111,30 @@ internal static class SubTaskErrors
     public static readonly Error NotFound = Error.NotFound("subtasks.NotFound", "Project sub-task was not found.");
 
     public static readonly Error AlreadyDone = Error.Conflict("subtasks.AlreadyDone", "This sub-task is already done.");
+
+    /// <summary>E5: reopen needs a done sub-task.</summary>
+    public static readonly Error NotDone = Error.Conflict("projects.subtasks.NotDone", "This sub-task is not done.");
+
+    /// <summary>E5 (D2): a done sub-task has started and stays.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.subtasks.NotDeletable", "A done sub-task cannot be deleted.");
+
+    /// <summary>E5: a completed or cancelled task's sub-tasks are frozen.</summary>
+    public static readonly Error TaskClosed = Error.Conflict(
+        "projects.subtasks.TaskClosed", "The task is completed or cancelled; its sub-tasks can't change.");
+
+    /// <summary>E5: complete/reopen by someone who is neither the task's assignee nor a task manager.</summary>
+    public static readonly Error NotAssignee = Error.Forbidden(
+        "projects.subtasks.NotAssignee", "Only the task's assignee or a task manager can do this.");
+}
+
+/// <summary>E6: task comments.</summary>
+internal static class TaskCommentErrors
+{
+    public static readonly Error NotFound = Error.NotFound("projects.comments.NotFound", "Comment was not found.");
+
+    public static readonly Error NotAuthor = Error.Forbidden(
+        "projects.comments.NotAuthor", "Only the comment's author or a task manager can change it.");
 }
 
 internal static class TeamErrors
@@ -80,6 +145,13 @@ internal static class TeamErrors
 
     public static readonly Error MemberAlreadyExists = Error.Conflict(
         "teams.MemberAlreadyExists", "This employee is already a member of the stage team.");
+
+    /// <summary>E7: one team per (stage, department).</summary>
+    public static readonly Error AlreadyExists = Error.Conflict(
+        "projects.teams.AlreadyExists", "This stage already has a team for that department.");
+
+    public static readonly Error HeadNotFound = Error.NotFound(
+        "projects.teams.HeadNotFound", "The head was not found or is not active.");
 
     /// <summary>Instantiation-time only (G5-07): a template stage has an active
     /// <c>StageDepartment</c> whose department has no assigned head. Per decision #7, this fails the
