@@ -77,7 +77,7 @@ internal sealed class AddSiteRecordCommandHandler(
 
         db.SiteRecords.Add(record.Value!);
 
-        Result saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, ct);
         return saved.IsFailure ? saved.Error : record.Value!.Id;
     }
 }
@@ -138,7 +138,7 @@ internal sealed class UpdateSiteRecordCommandHandler(
             return updated;
         }
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, site, ct);
     }
 }
 
@@ -156,7 +156,7 @@ internal sealed class DeleteSiteRecordCommandHandler(SitesDbContext db)
         // Soft: the label frees for reuse because ux_site_records_label is partial on IsActive.
         loaded.Value.Record.Deactivate();
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, loaded.Value.Site, ct);
     }
 }
 
@@ -197,7 +197,7 @@ internal sealed class SetSiteRecordValuesCommandHandler(SitesDbContext db, ISite
             return validated;
         }
 
-        return await SiteRecordWrites.ReplaceValuesAsync(db, record, command.Request.Values, ct);
+        return await SiteRecordWrites.ReplaceValuesAsync(db, loaded.Value.Site, record, command.Request.Values, ct);
     }
 }
 
@@ -378,7 +378,7 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
         // Nothing above this line has touched the database as a write. Every early return leaves the
         // change tracker dirty and the database untouched, and the scoped DbContext is discarded with the
         // request -- so "all or nothing" holds without an explicit transaction.
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, site, pending.Select(p => p.Record), ct);
     }
 
     private static async Task<Dictionary<Guid, SiteRecord>> LoadExistingAsync(

@@ -1,5 +1,6 @@
 using System.Globalization;
 using BuildingBlocks.Messaging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
@@ -10,6 +11,7 @@ using Sites.Contracts.Documents;
 using Sites.Contracts.Records;
 using Sites.Contracts.Surveys;
 using Sites.Domain;
+using Sites.Infrastructure.Persistence;
 using Xunit;
 using SiteDocumentKind = Sites.Contracts.SiteDocumentKind;
 using SiteItemDataType = Sites.Contracts.SiteItemDataType;
@@ -775,6 +777,113 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
 
         Assert.Equal(95m, await ReadNumberAsync(record.Value, widthId));
         Assert.Equal(210m, await ReadNumberAsync(record.Value, heightId));
+    }
+
+    /// <summary>
+    /// <b>S3 / NS1 / NS3.</b> Record, value and document writes never touched the site row, so its
+    /// <c>xmin</c> was never checked: a grid save that loaded the survey as Draft could commit AFTER a
+    /// submit had frozen it, and the approver would decide on content that changed under them.
+    /// Deterministic interleave: scope A loads the site, scope B submits and commits, then A's grid
+    /// save runs against its stale copy — exactly one of the two must lose with a 409.
+    /// </summary>
+    [Fact]
+    public async Task S3_BulkSaveRacingASubmit_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+
+        // A: load the site as Draft (tracked), the way the grid save's own load would.
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        Site stale = await db.Sites.SingleAsync(s => s.Id == siteId);
+        Assert.Equal(Sites.Domain.SiteStatus.Draft, stale.Status);
+
+        // B: submit and commit.
+        Result submitted = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Assert.True(submitted.IsSuccess);
+
+        // A: the grid save on its stale copy.
+        Result saved = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<BulkSaveSiteRecordsCommand>>()
+            .HandleAsync(new BulkSaveSiteRecordsCommand(
+                siteId,
+                new BulkSaveSiteRecordsRequest(
+                [
+                    new BulkSiteRecordRequest(null, moduleId, "Late door", null, null, 0, null,
+                        [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                ]),
+                SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, saved.Error);
+        Assert.Equal(409, saved.Error.Status);
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            $"""SELECT count(*) FROM sites.site_records WHERE "SiteId"='{siteId}';""", connection);
+        Assert.Equal(0, Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// <b>NS1.</b> Two value saves on one record from two tablets: the second, staged against a stale
+    /// read, used to overwrite (or collide on the composite key) instead of being told to reload. The
+    /// record's <c>xmin</c> now guards its value set.
+    /// </summary>
+    [Fact]
+    public async Task NS1_ValueSaveOnAStaleRecord_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        _ = await db.SiteRecords.SingleAsync(r => r.Id == record.Value);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result late = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<SetSiteRecordValuesCommand>>()
+            .HandleAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value,
+                new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 120m)]),
+                SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, late.Error);
+        Assert.Equal(90m, await ReadNumberAsync(record.Value, itemId));
+    }
+
+    /// <summary><b>NS3.</b> A document link staged against a Draft read must not land on a survey
+    /// submitted in between.</summary>
+    [Fact]
+    public async Task NS3_DocumentLinkRacingASubmit_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        _ = await db.Sites.SingleAsync(s => s.Id == siteId);
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<Guid> late = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<LinkSiteDocumentCommand, Guid>>()
+            .HandleAsync(new LinkSiteDocumentCommand(
+                siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+                owners.EmployeeId, SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, late.Error);
     }
 
     // ── Pivot ──────────────────────────────────────────────────────────────────

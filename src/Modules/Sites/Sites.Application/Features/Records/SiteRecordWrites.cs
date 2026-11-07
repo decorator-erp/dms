@@ -66,7 +66,8 @@ internal static class SiteRecordWrites
 
     /// <summary>Stages a record's whole value set, then saves.</summary>
     public static async Task<Result> ReplaceValuesAsync(
-        SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
+        SitesDbContext db, Site site, SiteRecord record, IReadOnlyList<SiteValueRequest> values,
+        CancellationToken ct)
     {
         Result staged = await StageValuesAsync(db, record, values, ct);
         if (staged.IsFailure)
@@ -74,7 +75,8 @@ internal static class SiteRecordWrites
             return staged;
         }
 
-        return await SiteWrites.SaveAsync(db, ct);
+        // NS1: the record's xmin guards its value set, the site's guards the freeze.
+        return await SiteWrites.SaveGuardedAsync(db, site, [record], ct);
     }
 
     /// <summary>

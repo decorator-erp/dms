@@ -48,6 +48,41 @@ internal static class SiteWrites
         }
     }
 
+    /// <summary>
+    /// S3 / NS1 / NS3: save a write to a site's CHILD rows — records, values, document links — with the
+    /// parent's <c>xmin</c> checked. Those writes never touch the site row, so on their own they never
+    /// see a concurrent submit: a grid save that read the survey as Draft could commit after it was
+    /// frozen. Marking the site (and each named record, for value writes) Modified makes EF issue an
+    /// <c>UPDATE … WHERE xmin = @read</c>, so a stale read fails as
+    /// <see cref="SiteErrors.ConcurrencyConflict"/> and the whole save rolls back. The
+    /// <c>ScopeWrites</c> shape from Projects.
+    /// </summary>
+    public static Task<Result> SaveGuardedAsync(SitesDbContext db, Site site, CancellationToken ct) =>
+        SaveGuardedAsync(db, site, [], ct);
+
+    /// <inheritdoc cref="SaveGuardedAsync(SitesDbContext, Site, CancellationToken)"/>
+    public static Task<Result> SaveGuardedAsync(
+        SitesDbContext db, Site site, IEnumerable<SiteRecord> records, CancellationToken ct)
+    {
+        MarkModified(db, site);
+
+        foreach (SiteRecord record in records)
+        {
+            MarkModified(db, record);
+        }
+
+        return SaveAsync(db, ct);
+    }
+
+    private static void MarkModified(SitesDbContext db, object entity)
+    {
+        Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry = db.Entry(entity);
+        if (entry.State == EntityState.Unchanged)
+        {
+            entry.State = EntityState.Modified;
+        }
+    }
+
     private static Error? MapUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: { } name }
         && UniqueViolations.TryGetValue(name, out Error? error)

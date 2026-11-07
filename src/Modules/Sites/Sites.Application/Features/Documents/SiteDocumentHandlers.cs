@@ -93,7 +93,7 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
 
         db.SiteDocuments.Add(link.Value!);
 
-        Result saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, ct);
         return saved.IsFailure ? saved.Error : link.Value!.Id;
     }
 }
@@ -137,7 +137,7 @@ internal sealed class UnlinkSiteDocumentCommandHandler(SitesDbContext db)
         // Unlinks only. The document and its bytes keep their own lifecycle.
         link.Deactivate();
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, site, ct);
     }
 }
 
