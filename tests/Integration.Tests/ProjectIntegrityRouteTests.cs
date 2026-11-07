@@ -107,7 +107,11 @@ public sealed class ProjectIntegrityRouteTests(ApiFixture fixture)
         Guid categoryId = (await category.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("costCategoryId").GetGuid();
         HttpResponseMessage budget = await owner.PostAsJsonAsync("/api/budget-lines", new
         {
-            Code = "BL-1", ProjectId = budgeted, CostCategoryId = categoryId, Name = "Budget", AllocatedAmount = 100m,
+            Code = "BL-1",
+            ProjectId = budgeted,
+            CostCategoryId = categoryId,
+            Name = "Budget",
+            AllocatedAmount = 100m,
         });
         Assert.True(budget.IsSuccessStatusCode, await budget.Content.ReadAsStringAsync());
         await AssertNotDeletableAsync(owner, budgeted);
@@ -115,7 +119,10 @@ public sealed class ProjectIntegrityRouteTests(ApiFixture fixture)
         (_, Guid gated, Guid gatedStage) = await ConfirmedProjectAsync("p1-gate", owner);
         HttpResponseMessage gate = await owner.PostAsJsonAsync($"/api/projects/{gated}/stages/{gatedStage}/gates", new
         {
-            ConditionType = 3, Trigger = 2, Label = "Sign-off", ApprovalType = 1,
+            ConditionType = 3,
+            Trigger = 2,
+            Label = "Sign-off",
+            ApprovalType = 1,
         });
         Assert.True(gate.StatusCode == HttpStatusCode.OK, await gate.Content.ReadAsStringAsync());
         await AssertNotDeletableAsync(owner, gated);
