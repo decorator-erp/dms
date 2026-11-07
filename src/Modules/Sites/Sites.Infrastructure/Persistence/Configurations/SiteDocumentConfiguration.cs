@@ -9,6 +9,11 @@ internal sealed class SiteDocumentConfiguration : IEntityTypeConfiguration<SiteD
 {
     public void Configure(EntityTypeBuilder<SiteDocument> builder)
     {
+        // S1: unlink is a soft delete (SiteDocument.Deactivate), so every read -- the gallery, the
+        // unlink lookup, the duplicate pre-check -- must see active links only. Without this filter an
+        // unlinked attachment kept listing and a second unlink "succeeded".
+        builder.HasQueryFilter(x => x.IsActive);
+
         builder.ToTable("site_documents", t =>
         {
             // The database twin of SiteDocument.Create's XOR.

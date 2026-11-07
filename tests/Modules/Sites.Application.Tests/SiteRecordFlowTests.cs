@@ -588,6 +588,41 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Contains(listed.Value!, d => d.RecordId == record.Value && d.SiteId is null);
     }
 
+    // ── Phase 1 fixes ──────────────────────────────────────────────────────────
+
+    private Task<Result<IReadOnlyList<SiteDocumentResponse>>> ListDocumentsAsync(Guid siteId) =>
+        ResolveAsync(sp => sp
+            .GetRequiredService<IQueryHandler<GetSiteDocumentsQuery, IReadOnlyList<SiteDocumentResponse>>>()
+            .HandleAsync(new GetSiteDocumentsQuery(siteId, SiteTestData.OwnerUserId)));
+
+    /// <summary>
+    /// <b>S1.</b> Unlink is a soft delete, but nothing filtered <c>IsActive</c>: the unlinked attachment
+    /// still listed, and unlinking it again "succeeded".
+    /// </summary>
+    [Fact]
+    public async Task S1_UnlinkedDocument_IsNotListedAndASecondUnlinkIsDocumentNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        Result<Guid> link = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Sketch),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(link.IsSuccess);
+
+        Assert.True((await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, link.Value, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<IReadOnlyList<SiteDocumentResponse>> listed = await ListDocumentsAsync(siteId);
+        Assert.True(listed.IsSuccess);
+        Assert.Empty(listed.Value!);
+
+        Result again = await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, link.Value, SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.DocumentNotFound, again.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
