@@ -34,6 +34,18 @@ public sealed record SetCrmSpaceActiveCommand(Guid SpaceId, bool IsActive, strin
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
 }
 
+/// <summary>crm-complete F5: the project's full space order; exactly its spaces, each once (else 400).</summary>
+public sealed record ReorderCrmSpacesCommand(Guid ProjectId, IReadOnlyList<Guid> SpaceIds, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Project(ProjectId);
+}
+
+/// <summary>F5 (D4): hard delete only when nothing references the space (409 <c>crm.spaces.InUse</c>).</summary>
+public sealed record DeleteCrmSpaceCommand(Guid SpaceId, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
+}
+
 public sealed record GetCrmSpaceTypesQuery : IQuery<IReadOnlyList<CrmSpaceTypeResponse>>;
 
 public sealed record GetCrmSpacesByProjectQuery(Guid ProjectId, string UserId) : IQuery<IReadOnlyList<CrmSpaceResponse>>, ICrmProjectScoped

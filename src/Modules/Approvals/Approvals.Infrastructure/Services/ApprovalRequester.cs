@@ -137,7 +137,7 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
 
     private static ApprovalSnapshot ToSnapshot(Domain.Approval a) =>
         new(a.Id, ToContracts(a.SubjectType), a.SubjectId, ToContracts(a.State),
-            a.Decision.HasValue ? ToContracts(a.Decision.Value) : null, a.DecidedAtUtc);
+            a.Decision.HasValue ? ToContracts(a.Decision.Value) : null, a.DecidedAtUtc, a.Comment);
 
     internal static Domain.ApprovalSubjectType ToDomain(ApprovalSubjectType t) => t switch
     {

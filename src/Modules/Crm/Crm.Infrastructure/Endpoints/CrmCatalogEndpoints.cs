@@ -81,11 +81,52 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Catalog.Manage);
 
         catalog.MapGet("/tree", async (
-            IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> handler, CancellationToken ct) =>
+            Guid? spaceTypeId, IQueryHandler<GetCrmCatalogTreeQuery, IReadOnlyList<CrmCatalogCategoryResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<CrmCatalogCategoryResponse>> result = await handler.HandleAsync(new GetCrmCatalogTreeQuery(), ct);
+            Result<IReadOnlyList<CrmCatalogCategoryResponse>> result = await handler.HandleAsync(new GetCrmCatalogTreeQuery(spaceTypeId), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Read);
+
+        // crm-complete F4 (D4/D5): catalog admin. {kind} is categories|items|attributes|options.
+        catalog.MapGet("/attributes/{attributeId:guid}/options", async (
+            Guid attributeId, bool? includeInactive,
+            IQueryHandler<GetCrmCatalogAttributeOptionsQuery, IReadOnlyList<CrmCatalogAttributeOptionResponse>> handler, CancellationToken ct) =>
+        {
+            Result<IReadOnlyList<CrmCatalogAttributeOptionResponse>> result =
+                await handler.HandleAsync(new GetCrmCatalogAttributeOptionsQuery(attributeId, includeInactive ?? false), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Read);
+
+        catalog.MapDelete("/categories/{categoryId:guid}/space-types/{spaceTypeId:guid}", async (
+            Guid categoryId, Guid spaceTypeId, ICommandHandler<UnmapCrmCatalogCategoryFromSpaceTypeCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UnmapCrmCatalogCategoryFromSpaceTypeCommand(categoryId, spaceTypeId), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Manage);
+
+        catalog.MapPut("/{kind:regex(^(categories|items|attributes|options)$)}/{id:guid}", async (
+            string kind, Guid id, CatalogEntryRequest request, ICommandHandler<UpdateCrmCatalogEntryCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UpdateCrmCatalogEntryCommand(
+                Kind(kind), id, request.Code ?? string.Empty, request.NameEn ?? string.Empty, request.NameAr ?? string.Empty,
+                request.SelectionMode, request.IsRequired, request.IsPurchasable, request.Unit, request.DescriptionEn,
+                request.DescriptionAr, request.ImageUri), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Manage);
+
+        catalog.MapPut("/{kind:regex(^(categories|items|attributes|options)$)}/{id:guid}/active", async (
+            string kind, Guid id, CatalogActiveRequest request, ICommandHandler<SetCrmCatalogEntryActiveCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new SetCrmCatalogEntryActiveCommand(Kind(kind), id, request.IsActive), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Manage);
+
+        catalog.MapDelete("/{kind:regex(^(categories|items|attributes|options)$)}/{id:guid}", async (
+            string kind, Guid id, ICommandHandler<DeleteCrmCatalogEntryCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new DeleteCrmCatalogEntryCommand(Kind(kind), id), ct);
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Manage);
 
         catalog.MapGet("/categories/{categoryId:guid}/items", async (
             Guid categoryId, IQueryHandler<GetCrmCatalogItemsByCategoryQuery, IReadOnlyList<CrmCatalogItemResponse>> handler,
@@ -104,7 +145,23 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
         }).RequirePermission(CrmPermissions.Catalog.Read);
     }
 
+    private static CrmCatalogEntryKind Kind(string kind) => kind switch
+    {
+        "categories" => CrmCatalogEntryKind.Category,
+        "items" => CrmCatalogEntryKind.Item,
+        "attributes" => CrmCatalogEntryKind.Attribute,
+        _ => CrmCatalogEntryKind.Option,
+    };
+
+    private sealed record CatalogEntryRequest(
+        string? Code, string? NameEn, string? NameAr, CatalogSelectionMode? SelectionMode, bool? IsRequired, bool? IsPurchasable,
+        string? Unit, string? DescriptionEn, string? DescriptionAr, string? ImageUri);
+
+    private sealed record CatalogActiveRequest(bool IsActive);
+
     private sealed record MoveCategoryRequest(Guid? NewParentId);
+
     private sealed record SetItemAttributeValuesRequest(IReadOnlyList<CatalogAttributeValueData> Values);
+
     private sealed record CreateAttributeOptionRequest(string Code, string NameEn, string NameAr, int SortOrder = 0, string? ImageUri = null);
 }

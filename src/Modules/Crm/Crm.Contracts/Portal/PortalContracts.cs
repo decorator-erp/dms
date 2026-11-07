@@ -49,9 +49,11 @@ public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList
 
 /// <summary>A-14 (B-L6): a brief-space entry as the client sees it — the office DTO
 /// (<see cref="CrmBriefSpaceResponse"/>) minus who wrote it and the office-side task and meeting links.</summary>
+/// <remarks>crm-complete F6 (D3): <see cref="Selections"/> are the storefront picks as sent, read-only.</remarks>
 public sealed record PortalBriefSpaceResponse(
     Guid Id, Guid BriefId, Guid? SpaceId, int? CountOrPieces, string? Requirements,
-    CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent);
+    CrmApprovalState ApprovalStatus, Guid? SupersedesSpaceId, bool IsCurrent,
+    IReadOnlyList<Spaces.CrmSpaceSelectionResponse>? Selections = null);
 
 /// <summary>Meetings visible to the calling client's own projects only — resolved via
 /// <c>ICrmAccessGuard</c>, never a project id supplied by the caller. B-15 (MT-N7): paged, newest first —
@@ -123,3 +125,38 @@ public sealed record PortalApprovalResponse(
 public sealed record GetMyPortalApprovalsQuery(
     string AppUserId, string? Status = null, int PageNumber = 1, int PageSize = 50)
     : IQuery<PagedResult<PortalApprovalResponse>>, ICrmScoped;
+
+/// <summary>crm-complete F1 (D5): one row of the client's requirement-items list. Portal-safe: no office
+/// authors, notes, tasks or meetings. <see cref="Decision"/>/<see cref="DecisionComment"/>/<see cref="DecidedAtUtc"/>
+/// are the item's latest approval's decision, null while it is undecided or was never sent.</summary>
+public sealed record PortalRequirementItemResponse(
+    Guid Id, Guid ProjectId, string ProjectName, Guid PeriodId, RequirementCategory Category, string Title,
+    string? Description, string? Room, RequirementPriority Priority, Guid? SpaceTypeId, CrmApprovalState ApprovalStatus,
+    bool SubmittedByMe, PortalApprovalDecision? Decision, string? DecisionComment, DateTime? DecidedAtUtc, DateTime CreatedAtUtc);
+
+/// <summary>F1: the calling client's items across its active projects, newest first. Office drafts are hidden;
+/// a project or period that isn't the client's is 404.</summary>
+public sealed record GetMyPortalRequirementItemsQuery(
+    string AppUserId, Guid? ProjectId = null, Guid? PeriodId = null, CrmApprovalState? Status = null,
+    int PageNumber = 1, int PageSize = 50)
+    : IQuery<PagedResult<PortalRequirementItemResponse>>, ICrmScoped;
+
+/// <summary>crm-complete F2 (D5): the client's own profile. Field names follow the frontend's
+/// <c>ClientProfile</c>; nothing office-only (no notes, owner, job title or marital status).</summary>
+public sealed record PortalProfileResponse(
+    PortalClientIdentityResponse Client, IReadOnlyList<PortalProfileContactResponse> Contacts,
+    IReadOnlyList<PortalProfileProjectResponse> Projects);
+
+/// <summary><see cref="FirstName"/>/<see cref="LastName"/>/<see cref="PhoneNumber"/> come from the primary
+/// contact (falling back to the login's display name); <see cref="Email"/> is the portal login's.</summary>
+public sealed record PortalClientIdentityResponse(
+    Guid Id, string Name, string FirstName, string LastName, string? Email, string? PhoneNumber, string Address);
+
+public sealed record PortalProfileContactResponse(
+    Guid Id, string FirstName, string LastName, string? Email, string? Phone, string? Mobile, ContactRole Role, bool IsPrimary);
+
+public sealed record PortalProfileProjectResponse(
+    Guid Id, string Code, string Name, string Status, decimal ProgressPercentage, Guid? ActiveStageId, string? ActiveStageName,
+    Guid? OpenPeriodId);
+
+public sealed record GetMyPortalProfileQuery(string AppUserId) : IQuery<PortalProfileResponse>, ICrmScoped;

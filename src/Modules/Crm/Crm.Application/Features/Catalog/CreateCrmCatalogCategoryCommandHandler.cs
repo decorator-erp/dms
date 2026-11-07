@@ -12,9 +12,9 @@ internal sealed class CreateCrmCatalogCategoryCommandValidator : AbstractValidat
 {
     public CreateCrmCatalogCategoryCommandValidator()
     {
-        RuleFor(x => x.Code).NotEmpty();
-        RuleFor(x => x.NameEn).NotEmpty();
-        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
     }
 }
 
@@ -57,7 +57,13 @@ internal sealed class CreateCrmCatalogCategoryCommandHandler(CrmDbContext db)
         category.SetPath(CategoryPathHelper.ChildPath(parent?.Path, category.Id), depth);
 
         db.CrmCatalogCategories.Add(category);
-        await db.SaveChangesAsync(ct);
+        // crm-complete FINDING-F2-1: a taken code is 409, not a 500.
+        Result saved = await CatalogWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
+
 
         return category.Id;
     }

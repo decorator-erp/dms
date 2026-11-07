@@ -25,23 +25,23 @@ public class CrmDbContextConfigurationTests
     }
 
     [Fact]
-    public void CrmDbContext_HasExactly24DbSetProperties()
+    public void CrmDbContext_HasExactly26DbSetProperties()
     {
         int dbSetPropertyCount = typeof(CrmDbContext)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Count(p => p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
 
-        Assert.Equal(24, dbSetPropertyCount);
+        Assert.Equal(26, dbSetPropertyCount); // 24 + crm-complete F6 CrmSpaceSelection, CrmSpaceSelectionOption
     }
 
     [Fact]
-    public void Assembly_HasExactly24EntityTypeConfigurations()
+    public void Assembly_HasExactly26EntityTypeConfigurations()
     {
         int configurationCount = typeof(CrmDbContext).Assembly.GetTypes()
             .Count(t => t.GetInterfaces().Any(i =>
                 i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)));
 
-        Assert.Equal(24, configurationCount);
+        Assert.Equal(26, configurationCount); // 24 + crm-complete F6 storefront configurations
     }
 
     [Fact]

@@ -13,9 +13,9 @@ internal sealed class CreateCrmCatalogAttributeOptionCommandValidator : Abstract
     public CreateCrmCatalogAttributeOptionCommandValidator()
     {
         RuleFor(x => x.AttributeId).NotEmpty();
-        RuleFor(x => x.Code).NotEmpty();
-        RuleFor(x => x.NameEn).NotEmpty();
-        RuleFor(x => x.NameAr).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.NameEn).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.NameAr).NotEmpty().MaximumLength(128);
     }
 }
 
@@ -39,7 +39,13 @@ internal sealed class CreateCrmCatalogAttributeOptionCommandHandler(CrmDbContext
 
         CrmCatalogAttributeOption option = result.Value!;
         db.CrmCatalogAttributeOptions.Add(option);
-        await db.SaveChangesAsync(ct);
+        // crm-complete FINDING-F2-1: a taken code is 409, not a 500.
+        Result saved = await CatalogWrites.SaveAsync(db, ct);
+        if (saved.IsFailure)
+        {
+            return Result.Failure<Guid>(saved.Error);
+        }
+
 
         return option.Id;
     }

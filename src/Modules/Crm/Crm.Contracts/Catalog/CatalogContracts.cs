@@ -51,7 +51,35 @@ public sealed record SetCrmCatalogItemAttributeValuesCommand(
 
 public sealed record MapCrmCatalogCategoryToSpaceTypeCommand(Guid CategoryId, Guid SpaceTypeId) : ICommand;
 
-public sealed record GetCrmCatalogTreeQuery : IQuery<IReadOnlyList<CrmCatalogCategoryResponse>>;
+/// <remarks>crm-complete F4: with <see cref="SpaceTypeId"/> the tree is a picker — only active categories
+/// targeted to that space type (directly or through an ancestor).</remarks>
+public sealed record GetCrmCatalogTreeQuery(Guid? SpaceTypeId = null) : IQuery<IReadOnlyList<CrmCatalogCategoryResponse>>;
+
+/// <summary>crm-complete F4 (D4): the four catalog entry kinds the admin routes take as <c>{kind}</c>.</summary>
+public enum CrmCatalogEntryKind
+{
+    Category = 1,
+    Item = 2,
+    Attribute = 3,
+    Option = 4,
+}
+
+/// <summary>F4: edit a catalog entry. The fields a kind doesn't have are ignored; a left-out optional field keeps
+/// its value.</summary>
+public sealed record UpdateCrmCatalogEntryCommand(
+    CrmCatalogEntryKind Kind, Guid Id, string Code, string NameEn, string NameAr, CatalogSelectionMode? SelectionMode,
+    bool? IsRequired, bool? IsPurchasable, string? Unit, string? DescriptionEn, string? DescriptionAr, string? ImageUri)
+    : ICommand;
+
+public sealed record SetCrmCatalogEntryActiveCommand(CrmCatalogEntryKind Kind, Guid Id, bool IsActive) : ICommand;
+
+/// <summary>F4 (D4): hard delete only when nothing references the entry; otherwise 409 <c>crm.catalog.InUse</c>.</summary>
+public sealed record DeleteCrmCatalogEntryCommand(CrmCatalogEntryKind Kind, Guid Id) : ICommand;
+
+public sealed record GetCrmCatalogAttributeOptionsQuery(Guid AttributeId, bool IncludeInactive = false)
+    : IQuery<IReadOnlyList<CrmCatalogAttributeOptionResponse>>;
+
+public sealed record UnmapCrmCatalogCategoryFromSpaceTypeCommand(Guid CategoryId, Guid SpaceTypeId) : ICommand;
 
 public sealed record GetCrmCatalogItemsByCategoryQuery(Guid CategoryId)
     : IQuery<IReadOnlyList<CrmCatalogItemResponse>>;

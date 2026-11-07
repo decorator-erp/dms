@@ -163,9 +163,9 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(3L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers"));
+        Assert.Equal(4L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v4 (crm-complete F adds v4)
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
-        Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count);
+        Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count); // v4's requirements.view_own is not in this catalog, so it is skipped
     }
 
     private static async Task SeedBaselineAsync(ServiceProvider provider)

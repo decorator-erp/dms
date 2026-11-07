@@ -62,6 +62,6 @@ internal static class BriefMapping
         return [.. entries.Select(e => new Contracts.Briefs.CrmBriefSpaceResponse(
             e.Id, e.BriefId, e.SpaceId, e.CountOrPieces, e.Requirements, e.MeetingId,
             CrmEnumMapping.ToContracts(e.ApprovalStatus), e.SupersedesSpaceId, e.ProjectTaskId, e.CreatedById,
-            IsCurrent: !superseded.Contains(e.Id)))];
+            IsCurrent: !superseded.Contains(e.Id), Selections: Spaces.StorefrontReads.Parse(e.Selections)))];
     }
 }

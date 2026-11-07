@@ -32,26 +32,33 @@ public sealed record LinkCrmArtifactDocumentCommand(
 }
 
 /// <summary>D-12 (A-F3): each lookup is project-scoped on the subject it names — an outsider gets 404.</summary>
-public sealed record GetCrmArtifactDocumentsByBriefQuery(Guid BriefId, string UserId)
+public sealed record GetCrmArtifactDocumentsByBriefQuery(Guid BriefId, string UserId, int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Brief(BriefId);
 }
 
-public sealed record GetCrmArtifactDocumentsBySpaceQuery(Guid SpaceId, string UserId)
+public sealed record GetCrmArtifactDocumentsBySpaceQuery(Guid SpaceId, string UserId, int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Space(SpaceId);
 }
 
-public sealed record GetCrmArtifactDocumentsByRequirementItemQuery(Guid RequirementItemId, string UserId)
+public sealed record GetCrmArtifactDocumentsByRequirementItemQuery(Guid RequirementItemId, string UserId, int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Item(RequirementItemId);
 }
 
-public sealed record GetCrmArtifactDocumentsByMeetingQuery(Guid MeetingId, string UserId)
+public sealed record GetCrmArtifactDocumentsByMeetingQuery(Guid MeetingId, string UserId, int PageNumber = 1, int PageSize = 200)
     : IQuery<IReadOnlyList<CrmArtifactDocumentResponse>>, ICrmProjectScoped
 {
     CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.Meeting(MeetingId);
+}
+
+/// <summary>crm-complete F7: unlink a document. The linker or a <c>crm.artifacts.manage</c> holder (403 otherwise),
+/// behind the project scope of the link's subject (404).</summary>
+public sealed record DeleteCrmArtifactDocumentCommand(Guid LinkId, string UserId) : ICommand, ICrmProjectScoped
+{
+    CrmScopeTarget ICrmProjectScoped.ScopeTarget => CrmScopeTarget.ArtifactLink(LinkId);
 }

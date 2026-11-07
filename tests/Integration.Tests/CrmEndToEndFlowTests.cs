@@ -174,6 +174,50 @@ public sealed class CrmEndToEndFlowTests(ApiFixture fixture)
         await DrainAsync();
         Assert.Equal(Pending, await GateStatusAsync(office, projectId, stageId, periodGateId));
 
+        // --- crm-complete (E/F): a project member, a manual task, storefront picks in a brief entry the client
+        // approves in the portal, My Work while it waits, and the portal items list (the client's own login, seeded by
+        // baseline v4).
+        (Guid memberEmployeeId, _) = await HrTestSeeding.HireEmployeeOverHttpAsync(fixture, $"e2e-member-{suffix}@example.com");
+        await ExpectAsync(HttpStatusCode.OK, await office.PostAsJsonAsync($"/api/projects/{projectId}/members", new { EmployeeId = memberEmployeeId, Access = 2 }));
+        Assert.Single((await office.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/members")).EnumerateArray());
+
+        HttpResponseMessage taskResponse = await office.PostAsJsonAsync($"/api/projects/{projectId}/tasks",
+            new { ProjectStageId = stageId, Name = "Gather kitchen picks", AssignedToId = employeeId });
+        await ExpectAsync(HttpStatusCode.OK, taskResponse);
+        Guid taskId = (await Json(taskResponse)).GetProperty("taskId").GetGuid();
+
+        Guid spaceTypeId = (await Json(await office.PostAsJsonAsync("/api/crm/space-types", new { Code = $"K{suffix[..8]}", NameEn = "Kitchen", NameAr = "مطبخ" }))).GetProperty("spaceTypeId").GetGuid();
+        Guid categoryId = (await Json(await office.PostAsJsonAsync("/api/crm/catalog/categories", new { Code = $"C{suffix[..8]}", NameEn = "Cabinets", NameAr = "خزائن" }))).GetProperty("categoryId").GetGuid();
+        await ExpectAsync(HttpStatusCode.NoContent, await office.PostAsync($"/api/crm/catalog/categories/{categoryId}/space-types/{spaceTypeId}", content: null));
+        Guid catalogItemId = (await Json(await office.PostAsJsonAsync("/api/crm/catalog/items", new { CategoryId = categoryId, Code = $"I{suffix[..8]}", NameEn = "Base unit", NameAr = "وحدة" }))).GetProperty("itemId").GetGuid();
+        Guid spaceId = (await Json(await office.PostAsJsonAsync($"/api/crm/projects/{projectId}/spaces", new { SpaceTypeId = spaceTypeId, Name = "Main kitchen" }))).GetProperty("spaceId").GetGuid();
+        await ExpectAsync(HttpStatusCode.OK, await office.PostAsJsonAsync($"/api/crm/spaces/{spaceId}/selections", new { CatalogItemId = catalogItemId, Quantity = 4 }));
+
+        HttpResponseMessage entryResponse = await office.PostAsJsonAsync($"/api/crm/briefs/{briefId}/spaces",
+            new { SpaceId = spaceId, CountOrPieces = 1, Requirements = "Handleless", ProjectTaskId = taskId });
+        Assert.True(entryResponse.IsSuccessStatusCode, await entryResponse.Content.ReadAsStringAsync());
+        Guid entryId = (await Json(entryResponse)).GetProperty("briefSpaceId").GetGuid();
+        await ExpectAsync(HttpStatusCode.NoContent, await office.PutAsync($"/api/crm/brief-spaces/{entryId}/send", content: null));
+        JsonElement portalBrief = await portal.GetFromJsonAsync<JsonElement>($"/api/crm/portal/projects/{projectId}/brief?stageId={stageId}");
+        JsonElement portalEntry = portalBrief.GetProperty("spaces").EnumerateArray().Single(e => e.GetProperty("id").GetGuid() == entryId);
+        Assert.Equal(4m, Assert.Single(portalEntry.GetProperty("selections").EnumerateArray()).GetProperty("quantity").GetDecimal());
+        // My Work while the entry awaits the client: the task's block shows it (FINDING-F-4: once everything is
+        // approved the task drops off the list).
+        JsonElement myWork = await office.GetFromJsonAsync<JsonElement>("/api/crm/my-gathering-work");
+        JsonElement workRow = Assert.Single(myWork.EnumerateArray(), r => r.GetProperty("projectTaskId").GetGuid() == taskId);
+        Assert.Equal(1, workRow.GetProperty("taskBlock").GetProperty("entryTotal").GetInt32());
+        Assert.Equal(1, workRow.GetProperty("taskBlock").GetProperty("unresolvedTotal").GetInt32());
+        Assert.NotEqual(JsonValueKind.Null, workRow.GetProperty("openPeriodClosesAtUtc").ValueKind);
+        Guid entryApprovalId = await PendingPortalApprovalAsync(portal, subjectId: entryId);
+        await ExpectAsync(HttpStatusCode.NoContent, await portal.PutAsJsonAsync($"/api/crm/portal/approvals/{entryApprovalId}/decide", new { Decision = 1 }));
+        await DrainAsync();
+
+        // FINDING-F2-4: with the entry approved the task has no gathering work left, so it drops off My Work.
+        Assert.DoesNotContain((await office.GetFromJsonAsync<JsonElement>("/api/crm/my-gathering-work")).EnumerateArray(),
+            r => r.GetProperty("projectTaskId").GetGuid() == taskId);
+        JsonElement portalItems = await portal.GetFromJsonAsync<JsonElement>("/api/crm/portal/requirement-items?pageNumber=1&pageSize=50");
+        Assert.Contains(portalItems.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetGuid() == itemId);
+
         // --- The clock closes the period: the job, run after the close time has passed.
         await ExpirePeriodAsync(periodId);
         await RunPeriodCloseJobAsync();

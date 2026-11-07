@@ -168,6 +168,13 @@ internal static class CrmSpaceErrors
 {
     public static readonly Error SpaceNotFound = Error.NotFound("crm.spaces.SpaceNotFound", "Space was not found.");
 
+    /// <summary>crm-complete F5 (D4): a space with brief entries, space items, artifacts or storefront selections.</summary>
+    public static readonly Error InUse = Error.Conflict("crm.spaces.InUse", "This space is in use; deactivate it instead.");
+
+    /// <summary>F5: the reorder list must be exactly the project's spaces, each once.</summary>
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "crm.spaces.InvalidOrder", "The order must list every space of the project exactly once.");
+
     public static readonly Error ItemNotFound = Error.NotFound(
         "crm.spaces.ItemNotFound", "Space item was not found.");
 
@@ -199,8 +206,41 @@ internal static class CrmSpaceTypeErrors
 
 /// <summary>Shared by <see cref="CrmSpaceItem"/> (G9-04) and the Catalog sub-area (G9-05/G9-11), which
 /// owns most of this error set.</summary>
+/// <summary>crm-complete F6 (D3): the space storefront.</summary>
+internal static class CrmStorefrontErrors
+{
+    public static readonly Error SelectionNotFound = Error.NotFound("crm.storefront.SelectionNotFound", "Selection was not found.");
+
+    public static readonly Error ItemNotAvailable = Error.BadRequest(
+        "crm.storefront.ItemNotAvailable", "The catalog item doesn't exist or is inactive.");
+
+    public static readonly Error CategoryNotTargeted = Error.BadRequest(
+        "crm.storefront.CategoryNotTargeted", "The item's category is not targeted to this space's type.");
+
+    public static readonly Error OptionNotOfAttribute = Error.BadRequest(
+        "crm.storefront.OptionNotOfAttribute", "Each option must be an active option of an attribute of the item's category.");
+
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "crm.storefront.InvalidOrder", "The order must list every selection of the space exactly once.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "crm.storefront.ConcurrentUpdate", "The selection was changed by someone else. Reload and try again.");
+}
+
 internal static class CrmCatalogErrors
 {
+    /// <summary>crm-complete F4 (D4): a hard delete of a catalog entry something still references.</summary>
+    public static readonly Error InUse = Error.Conflict(
+        "crm.catalog.InUse", "This catalog entry is in use; deactivate it instead.");
+
+    public static readonly Error EntryNotFound = Error.NotFound("crm.catalog.EntryNotFound", "Catalog entry was not found.");
+
+    /// <summary>crm-complete FINDING-F-1: another entry already uses that code.</summary>
+    public static readonly Error CodeTaken = Error.Conflict("crm.catalog.CodeTaken", "Another catalog entry already uses that code.");
+
+    public static readonly Error MappingNotFound = Error.NotFound(
+        "crm.catalog.MappingNotFound", "That category is not targeted to that space type.");
+
     public static readonly Error ItemNotFound = Error.NotFound("crm.catalog.ItemNotFound", "Catalog item was not found.");
 
     public static readonly Error CategoryNotFound = Error.NotFound(
@@ -318,6 +358,13 @@ internal static class CrmItemErrors
 
 internal static class CrmArtifactErrors
 {
+    /// <summary>crm-complete F7.</summary>
+    public static readonly Error LinkNotFound = Error.NotFound("crm.artifacts.LinkNotFound", "Artifact link was not found.");
+
+    /// <summary>F7: only the employee who linked the document, or a <c>crm.artifacts.manage</c> holder, unlinks it.</summary>
+    public static readonly Error NotLinker = Error.Forbidden(
+        "crm.artifacts.NotLinker", "Only the employee who linked this document, or an artifacts manager, can remove it.");
+
     public static readonly Error InvalidSubject = Error.BadRequest(
         "crm.artifacts.InvalidSubject",
         "Exactly one of brief, space, requirement item, or meeting must be set.");
@@ -417,6 +464,12 @@ internal static class CrmMeetingErrors
 /// project" and "a real project that isn't this client's own" — 404-over-403, per <c>CLAUDE.md</c>'s
 /// authorization order (a caller who can't see a resource shouldn't learn it exists), matching
 /// <c>ProjectScopeDecorator</c>'s own precedent for the identical trade.</summary>
+/// <summary>crm-complete F3: My Work.</summary>
+internal static class CrmMyWorkErrors
+{
+    public static readonly Error NotAnEmployee = Error.Forbidden("crm.mywork.NotAnEmployee", "My Work is for employees.");
+}
+
 internal static class CrmPortalErrors
 {
     public static readonly Error NotFound = Error.NotFound(

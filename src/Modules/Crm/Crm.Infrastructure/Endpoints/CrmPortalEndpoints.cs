@@ -49,6 +49,24 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Briefs.ViewOwn);
 
+        // crm-complete F2 (D5): the client's own profile. crm.portal. Read-only: the portal has no edit form.
+        portal.MapGet("/profile", async (
+            ICurrentUser currentUser, IQueryHandler<GetMyPortalProfileQuery, PortalProfileResponse> handler, CancellationToken ct) =>
+        {
+            Result<PortalProfileResponse> result = await handler.HandleAsync(new GetMyPortalProfileQuery(currentUser.UserId!), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Portal);
+
+        // crm-complete F1 (D5): the client's own requirement items. requirements.view_own (the existing _own code).
+        portal.MapGet("/requirement-items", async (
+            Guid? projectId, Guid? periodId, CrmApprovalState? status, int? pageNumber, int? pageSize, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalRequirementItemsQuery, PagedResult<PortalRequirementItemResponse>> handler, CancellationToken ct) =>
+        {
+            Result<PagedResult<PortalRequirementItemResponse>> result = await handler.HandleAsync(new GetMyPortalRequirementItemsQuery(
+                currentUser.UserId!, projectId, periodId, status, pageNumber ?? 1, pageSize ?? 50), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Requirements.ViewOwn);
+
         portal.MapPost("/requirement-items", async (
             AddPortalItemRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<CreateCrmRequirementItemByClientCommand, Guid> handler, CancellationToken ct) =>
