@@ -370,6 +370,29 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.ProjectTaskStatus.Completed, await TaskStatusAsync(tasks[0]));
     }
 
+    /// <summary>R2-1: a manual task create takes its stage row before reading the stage's status, so a stage completing
+    /// at the same time (holding that row) is waited for and seen: 409 <c>projects.tasks.StageClosed</c>, and the
+    /// Completed stage is not left with an Open task (NP7).</summary>
+    [Fact]
+    public async Task R2_1_ATaskCreateRacingTheStagesCompletion_WaitsAndIsRefused()
+    {
+        (ScopeTestProject p, Guid stageId, _) = await StageProjectWithTasksAsync("r2-1", 1);
+
+        Result created = await RaceAsync(
+            $"UPDATE projects.project_stages SET \"Status\" = {(int)Domain.StageStatus.Completed} WHERE \"Id\" = '{stageId}'",
+            async () =>
+            {
+                Result<Guid> r = await RunAsync<CreateProjectTaskCommand, Guid>(p, new CreateProjectTaskCommand(
+                    p.ProjectId, p.OfficeUserId, stageId, "Late task", null, null, null, TaskPriority.Medium, 1m, null, null));
+                return r.IsSuccess ? Result.Success() : Result.Failure(r.Error);
+            });
+
+        AssertError(created, "projects.tasks.StageClosed", 409);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Assert.False(await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().ProjectTasks.AsNoTracking()
+            .AnyAsync(t => t.ProjectStageId == stageId && t.Name == "Late task"));
+    }
+
     /// <summary>R1-11: NP3's completion rule for a project's stage-less (FreeStyle) work — a project with an open task
     /// that belongs to no stage is not marked Completed (409 <c>projects.TasksOpen</c>); once the task is done or
     /// cancelled it is.</summary>

@@ -95,7 +95,12 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
         Domain.ProjectStage? stage = null;
         if (command.ProjectStageId is { } stageId)
         {
-            stage = await db.ProjectStages.AsNoTracking().FirstOrDefaultAsync(s => s.Id == stageId && s.ProjectId == command.ProjectId, ct);
+            // R2-1 (NP7): the stage row before its status is read (project → stage → task, R1-2), so a stage completing
+            // at the same time — which holds the row while it checks for open tasks — is waited for and seen as
+            // Completed (409 StageClosed below) instead of gaining an Open task behind its back.
+            stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, stageId, ct)
+                ? await db.ProjectStages.AsNoTracking().FirstOrDefaultAsync(s => s.Id == stageId && s.ProjectId == command.ProjectId, ct)
+                : null;
             if (stage is null)
             {
                 return Result.Failure<Guid>(Domain.StageErrors.NotFound);
