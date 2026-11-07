@@ -184,8 +184,8 @@ internal sealed class GetProjectTasksByProjectQueryValidator : AbstractValidator
         RuleFor(x => x.Status).IsInEnum().When(x => x.Status is not null);
 
         // P13: GetProjectsQueryValidator's caps.
-        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000);
-        RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000).When(x => x.PageNumber is not null);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200).When(x => x.PageSize is not null);
     }
 }
 
@@ -342,8 +342,7 @@ internal sealed class GetProjectTasksByProjectQueryHandler(ProjectsDbContext db)
         List<ProjectTaskResponse> tasks = await tasksQuery
             .OrderBy(t => t.Order)
             .ThenBy(t => t.Id)
-            .Skip((query.PageNumber - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .PageIfAsked(query.PageNumber, query.PageSize)
             .Select(GetProjectTaskQueryHandler.ToResponse())
             .ToListAsync(ct);
 

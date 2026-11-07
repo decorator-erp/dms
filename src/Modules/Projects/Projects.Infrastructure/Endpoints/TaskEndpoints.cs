@@ -25,9 +25,9 @@ internal sealed class TaskEndpoints : IEndpoint
             ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
-            // P13: optional paging; the body stays a plain array (page 1 of 200 when not asked).
+            // P13/R1-5: opt-in paging; the body stays a plain array (every task when neither parameter is sent).
             Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(
-                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status, pageNumber ?? 1, pageSize ?? 200), ct);
+                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -186,9 +186,9 @@ internal sealed class TaskEndpoints : IEndpoint
             Guid projectId, Guid taskId, int? pageNumber, int? pageSize, ICurrentUser currentUser,
             IQueryHandler<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>> handler, CancellationToken ct) =>
         {
-            // P13: optional paging; the body stays a plain array (page 1 of 200 when not asked).
+            // P13/R1-5: opt-in paging; the body stays a plain array (every comment when neither parameter is sent).
             Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(
-                new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!, pageNumber ?? 1, pageSize ?? 200), ct);
+                new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 

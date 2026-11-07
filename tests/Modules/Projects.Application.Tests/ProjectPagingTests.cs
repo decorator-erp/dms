@@ -10,7 +10,8 @@ using Xunit;
 namespace Projects.Application.Tests;
 
 /// <summary>Sites/Projects review, phase 5 (P13): the task and comment lists page (optional pageNumber/pageSize,
-/// default 1/200, the project list's caps), in a total order, so walking the pages gives every row once.</summary>
+/// opt-in since R1-5: either one given pages with the other defaulting to 1/200, within the project list's caps), in
+/// a total order, so walking the pages gives every row once.</summary>
 [Collection(ProjectsApplicationCollection.Name)]
 public sealed class ProjectPagingTests(ProjectsApplicationFixture fixture)
 {
@@ -75,6 +76,40 @@ public sealed class ProjectPagingTests(ProjectsApplicationFixture fixture)
         }
 
         Assert.Equal(projectIds.Order(), walked.Order());
+    }
+
+    /// <summary>R1-5: paging is opt-in. With neither pageNumber nor pageSize the task and comment lists return every
+    /// row, as before P13 (no silent cap at 200); with either one given they page, within the caps.</summary>
+    [Fact]
+    public async Task R1_5_WithoutPagingParameters_TheListsAreUnbounded()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "r1-5", WorkflowType.FreeStyle);
+        Result<Guid> created = await RunAsync<CreateProjectTaskCommand, Guid>(p, new CreateProjectTaskCommand(
+            p.ProjectId, p.OfficeUserId, null, "Busy task", null, null, null, TaskPriority.Medium, 1m, 1, null));
+        Assert.True(created.IsSuccess, created.IsFailure ? created.Error.ToString() : null);
+        Guid taskId = created.Value;
+
+        await using (AsyncServiceScope seed = fixture.CreateScope())
+        {
+            Infrastructure.Persistence.ProjectsDbContext db = seed.ServiceProvider.GetRequiredService<Infrastructure.Persistence.ProjectsDbContext>();
+            db.TaskComments.AddRange(Enumerable.Range(0, 205).Select(i => Domain.TaskComment.Create($"Note {i}", taskId, p.OfficeEmployeeId)));
+            db.ProjectTasks.AddRange(Enumerable.Range(0, 204).Select(i => Domain.ProjectTask.Create(
+                p.ProjectId, $"Bulk {i}", i + 2, Domain.WorkflowType.FreeStyle, 1m, null).Value!));
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(205, (await QueryAsync<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>(
+            p, new GetProjectTasksByProjectQuery(p.ProjectId, p.OfficeUserId))).Value!.Count);
+        Assert.Equal(205, (await QueryAsync<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>>(
+            p, new GetTaskCommentsQuery(p.ProjectId, taskId, p.OfficeUserId))).Value!.Count);
+
+        // Either parameter alone opts in: the other takes its default (page 1, 200 rows).
+        Assert.Equal(200, (await QueryAsync<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>(
+            p, new GetProjectTasksByProjectQuery(p.ProjectId, p.OfficeUserId, PageNumber: 1))).Value!.Count);
+        Assert.Equal(5, (await QueryAsync<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>>(
+            p, new GetTaskCommentsQuery(p.ProjectId, taskId, p.OfficeUserId, PageNumber: 2))).Value!.Count);
+        Assert.Equal(10, (await QueryAsync<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>>(
+            p, new GetTaskCommentsQuery(p.ProjectId, taskId, p.OfficeUserId, PageSize: 10))).Value!.Count);
     }
 
     private async Task<Guid> ClientOfAsync(ScopeTestProject p) =>

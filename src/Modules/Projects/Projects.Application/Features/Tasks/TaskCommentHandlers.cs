@@ -45,8 +45,8 @@ internal sealed class GetTaskCommentsQueryValidator : AbstractValidator<GetTaskC
 {
     public GetTaskCommentsQueryValidator()
     {
-        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000);
-        RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000).When(x => x.PageNumber is not null);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200).When(x => x.PageSize is not null);
     }
 }
 
@@ -67,8 +67,7 @@ internal sealed class GetTaskCommentsQueryHandler(ProjectsDbContext db)
             .Where(c => c.TaskId == query.TaskId)
             .OrderBy(c => c.CreatedAtUtc)
             .ThenBy(c => c.Id)
-            .Skip((query.PageNumber - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .PageIfAsked(query.PageNumber, query.PageSize)
             .Select(c => new TaskCommentResponse(c.Id, c.TaskId, c.EmployeeId, c.Content, c.CreatedAtUtc, c.EditedAtUtc))
             .ToListAsync(ct);
 

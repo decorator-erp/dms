@@ -27,11 +27,13 @@ public sealed record ReopenProjectTaskCommand(Guid ProjectId, Guid TaskId, strin
 public sealed record GetProjectTaskQuery(Guid ProjectId, Guid TaskId, string UserId)
     : IQuery<ProjectTaskResponse>, IProjectScoped;
 
-/// <summary>E3 adds the optional filters (all ANDed): the stage, the assignee, the status. P13: one page, by task order
-/// then id; <see cref="PageNumber"/> 1..1,000,000 and <see cref="PageSize"/> 1..200, as the project list.</summary>
+/// <summary>E3 adds the optional filters (all ANDed): the stage, the assignee, the status. Ordered by task order then
+/// id. P13/R1-5: paging is opt-in — with neither <see cref="PageNumber"/> nor <see cref="PageSize"/> every task comes
+/// back (as before P13); with either, one page, the other defaulting to 1 / 200, within 1..1,000,000 and 1..200 (the
+/// project list's caps).</summary>
 public sealed record GetProjectTasksByProjectQuery(
     Guid ProjectId, string UserId, Guid? StageId = null, Guid? AssigneeId = null, ProjectTaskStatus? Status = null,
-    int PageNumber = 1, int PageSize = 200)
+    int? PageNumber = null, int? PageSize = null)
     : IQuery<IReadOnlyList<ProjectTaskResponse>>, IProjectScoped;
 
 /// <summary>E3 (D2): a task added by hand. A Stage-workflow project needs <see cref="ProjectStageId"/> (and a
@@ -101,6 +103,7 @@ public sealed record DeleteTaskCommentCommand(Guid ProjectId, Guid TaskId, Guid 
 public sealed record AddTaskCommentCommand(Guid ProjectId, Guid TaskId, string UserId, string Content)
     : ICommand<Guid>, IProjectScoped, IRequiresProjectEditor;
 
-/// <summary>P13: one page, oldest first then by id; the same caps as the task list.</summary>
-public sealed record GetTaskCommentsQuery(Guid ProjectId, Guid TaskId, string UserId, int PageNumber = 1, int PageSize = 200)
+/// <summary>Oldest first then by id. P13/R1-5: paging is opt-in, as on the task list — neither parameter returns
+/// every comment; either one pages, with the same defaults and caps.</summary>
+public sealed record GetTaskCommentsQuery(Guid ProjectId, Guid TaskId, string UserId, int? PageNumber = null, int? PageSize = null)
     : IQuery<IReadOnlyList<TaskCommentResponse>>, IProjectScoped;
