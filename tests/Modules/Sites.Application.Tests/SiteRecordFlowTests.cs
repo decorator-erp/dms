@@ -977,6 +977,53 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
     }
 
     /// <summary>
+    /// <b>R1-8.</b> S5's bounds were open at the top only: 999999.995 m² is below 1,000,000 yet Postgres rounds it to
+    /// 1000000.00, past <c>numeric(8,2)</c> (a 500 at commit); the same for a value just under 1e14 with a fifth
+    /// decimal against <c>numeric(18,4)</c>. The bounds are now the columns' own: at most 999999.99 with two decimals,
+    /// and at most 99999999999999.9999 in magnitude with four.
+    /// </summary>
+    [Fact]
+    public async Task R1_8_AValueThatRoundsPastItsColumn_IsAValidationError()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        foreach (decimal area in new[] { 999_999.995m, 1.005m })
+        {
+            Result<Guid> rounded = await SendAsync(new CreateSiteCommand(
+                new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: area)),
+                owners.EmployeeId, SiteTestData.OwnerUserId), true);
+            Assert.IsType<ValidationError>(rounded.Error);
+        }
+
+        Result<Guid> widest = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: 999_999.99m)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(widest.IsSuccess, widest.IsFailure ? widest.Error.ToString() : null);
+
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("r18"), "R18", "ر")), true)).Value;
+        Guid numberId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("r18n"), "N", "ن", SiteItemDataType.Number)), true)).Value;
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(numberId)), true);
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Wall"), SiteTestData.OwnerUserId), true);
+
+        foreach (decimal number in new[] { 99_999_999_999_999.99995m, -99_999_999_999_999.99995m, 1.00005m })
+        {
+            Result rounded = await SendAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value, new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: number)]),
+                SiteTestData.OwnerUserId));
+            Assert.IsType<ValidationError>(rounded.Error);
+        }
+
+        Result edge = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value, new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: -99_999_999_999_999.9999m)]),
+            SiteTestData.OwnerUserId));
+        Assert.True(edge.IsSuccess, edge.IsFailure ? edge.Error.ToString() : null);
+    }
+
+    /// <summary>
     /// <b>S9.</b> Swapping two labels in one grid save was refused: each row's stored-label check
     /// excluded only its own record, so it saw the other row's OLD label as taken — and had it passed,
     /// the single UPDATE batch would have hit <c>ux_site_records_label</c> mid-statement as a 500. Now the

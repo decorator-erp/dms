@@ -11,7 +11,9 @@ namespace Sites.Application;
 /// </summary>
 internal static class SiteInputLimits
 {
-    /// <summary><c>numeric(8,2)</c> — <c>sites."AreaSqm"</c>.</summary>
+    /// <summary><c>numeric(8,2)</c> — <c>sites."AreaSqm"</c>. R1-8: checked as precision 8 / scale 2
+    /// (<see cref="SiteUnitDataRequestValidator"/>), so at most 999999.99: a third decimal would let Postgres round a
+    /// value under <see cref="MaxAreaSqm"/> up past the column.</summary>
     public const decimal MaxAreaSqm = 1_000_000m;
 
     /// <summary>Inside <c>numeric(18,4)</c> (values, item bounds) and <c>numeric(18,3)</c> (tolerance).</summary>
@@ -34,7 +36,8 @@ internal sealed class SiteUnitDataRequestValidator : AbstractValidator<SiteUnitD
         RuleFor(x => x.BuildingKind).IsInEnum();
         RuleFor(x => x.Position).IsInEnum();
         RuleFor(x => x.ElevatorStatus).IsInEnum();
-        RuleFor(x => x.AreaSqm).LessThan(SiteInputLimits.MaxAreaSqm);
+        RuleFor(x => x.AreaSqm).LessThan(SiteInputLimits.MaxAreaSqm)
+            .PrecisionScale(8, 2, ignoreTrailingZeros: true); // R1-8: numeric(8,2) exactly, no rounding past it
     }
 }
 
@@ -45,7 +48,8 @@ internal sealed class SiteValueRequestValidator : AbstractValidator<SiteValueReq
     {
         RuleFor(x => x.ItemId).NotEmpty();
         RuleFor(x => x.ValueNumber)
-            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude)
+            .PrecisionScale(18, 4, ignoreTrailingZeros: true); // R1-8: numeric(18,4) exactly, no rounding past it
         RuleFor(x => x.ValueText).MaximumLength(SiteInputLimits.MaxValueText);
     }
 }
