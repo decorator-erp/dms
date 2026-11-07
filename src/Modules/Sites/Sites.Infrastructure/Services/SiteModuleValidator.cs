@@ -13,16 +13,28 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
     private const string Prefix = "sites.validation";
 
     public async Task<Result> ValidateAsync(
-        Guid moduleId, IReadOnlyList<SiteValueRequest> values, CancellationToken ct = default)
+        Guid moduleId, IReadOnlyList<SiteValueRequest> values, CancellationToken ct = default) =>
+        (await ValidateManyAsync([new SiteModuleValueSet(moduleId, values)], ct))[0];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Result>> ValidateManyAsync(
+        IReadOnlyList<SiteModuleValueSet> sets, CancellationToken ct = default)
     {
-        // The module's field set, with each item's declared type and limits. One round trip; the schema
-        // is small (a module has a handful of fields) and this runs once per record save.
-        var fields = await (
+        if (sets.Count == 0)
+        {
+            return [];
+        }
+
+        var moduleIds = sets.Select(s => s.ModuleId).Distinct().ToList();
+
+        // Every named module's field set, with each item's declared type and limits. One round trip for
+        // the whole grid (S7); the schema is small (a module has a handful of fields).
+        var fieldsByModule = (await (
             from link in db.SiteModuleItems.AsNoTracking()
             join item in db.SiteItems.AsNoTracking() on link.ItemId equals item.Id
-            where link.ModuleId == moduleId && link.IsActive && item.IsActive
-            select new
-            {
+            where moduleIds.Contains(link.ModuleId) && link.IsActive && item.IsActive
+            select new Field(
+                link.ModuleId,
                 link.ItemId,
                 link.IsRequired,
                 item.Code,
@@ -30,44 +42,86 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
                 item.MinValue,
                 item.MaxValue,
                 item.MaxLength,
-                item.RegexPattern,
-            }).ToListAsync(ct);
+                item.RegexPattern)).ToListAsync(ct))
+            .GroupBy(f => f.ModuleId)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         // B-S-L5: no active fields is a legitimate form (a new module, or every field detached), not a
         // missing module. Only a module that does not exist is ModuleNotFound; otherwise an empty value set
-        // passes and any supplied value is reported as an unknown item below.
-        if (fields.Count == 0 && !await db.SiteModules.AnyAsync(m => m.Id == moduleId, ct))
-        {
-            return SiteErrors.ModuleNotFound;
-        }
-
-        var byItem = fields.ToDictionary(f => f.ItemId);
+        // passes and any supplied value is reported as an unknown item below. One query for every module
+        // without fields.
+        var fieldless = moduleIds.Where(id => !fieldsByModule.ContainsKey(id)).ToList();
+        HashSet<Guid> existing = fieldless.Count == 0
+            ? []
+            : (await db.SiteModules.Where(m => fieldless.Contains(m.Id)).Select(m => m.Id).ToListAsync(ct))
+                .ToHashSet();
 
         // Defect B7's fix. The backend issues one AnyAsync PER Select value, inside the loop -- the
         // exact N+1 its own domain service carries a comment about having removed ("a 50-row grid of 25
         // fields spent over a thousand round trips holding it open"), reintroduced one layer up. One
-        // batched load instead, and only for the items a Select value was actually supplied for.
-        var optionIds = values
-            .Where(v => v.OptionId.HasValue && byItem.ContainsKey(v.ItemId))
-            .Select(v => v.ItemId)
+        // batched load instead, for the whole grid, and only for the items a Select value was actually
+        // supplied for.
+        var optionItemIds = sets
+            .SelectMany(set => set.Values
+                .Where(v => v.OptionId.HasValue
+                            && fieldsByModule.TryGetValue(set.ModuleId, out List<Field>? f)
+                            && f.Exists(x => x.ItemId == v.ItemId))
+                .Select(v => v.ItemId))
             .Distinct()
             .ToList();
 
-        Dictionary<Guid, HashSet<Guid>> activeOptionsByItem = optionIds.Count == 0
+        Dictionary<Guid, HashSet<Guid>> activeOptionsByItem = optionItemIds.Count == 0
             ? []
             : (await db.SiteItemOptions.AsNoTracking()
-                    .Where(o => optionIds.Contains(o.ItemId) && o.IsActive)
+                    .Where(o => optionItemIds.Contains(o.ItemId) && o.IsActive)
                     .Select(o => new { o.ItemId, o.Id })
                     .ToListAsync(ct))
                 .GroupBy(o => o.ItemId)
                 .ToDictionary(g => g.Key, g => g.Select(o => o.Id).ToHashSet());
+
+        var results = new List<Result>(sets.Count);
+
+        foreach (SiteModuleValueSet set in sets)
+        {
+            if (fieldsByModule.TryGetValue(set.ModuleId, out List<Field>? fields))
+            {
+                results.Add(Validate(fields, set.Values, activeOptionsByItem));
+            }
+            else
+            {
+                results.Add(existing.Contains(set.ModuleId)
+                    ? Validate([], set.Values, activeOptionsByItem)
+                    : SiteErrors.ModuleNotFound);
+            }
+        }
+
+        return results;
+    }
+
+    private sealed record Field(
+        Guid ModuleId,
+        Guid ItemId,
+        bool IsRequired,
+        string Code,
+        Sites.Domain.SiteItemDataType DataType,
+        decimal? MinValue,
+        decimal? MaxValue,
+        int? MaxLength,
+        string? RegexPattern);
+
+    /// <summary>The pure rule, for one record's values against its module's fields.</summary>
+    private static Result Validate(
+        List<Field> fields, IReadOnlyList<SiteValueRequest> values,
+        Dictionary<Guid, HashSet<Guid>> activeOptionsByItem)
+    {
+        var byItem = fields.ToDictionary(f => f.ItemId);
 
         var supplied = new HashSet<Guid>();
         var errors = new List<Error>();
 
         foreach (SiteValueRequest value in values)
         {
-            if (!byItem.TryGetValue(value.ItemId, out var field))
+            if (!byItem.TryGetValue(value.ItemId, out Field? field))
             {
                 errors.Add(Error.BadRequest(
                     $"{Prefix}.UnknownItem",
@@ -170,7 +224,7 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
         }
 
         // Only detectable across the whole set: a missing value has no row of its own to fail on.
-        foreach (var field in fields.Where(f => f.IsRequired && !supplied.Contains(f.ItemId)))
+        foreach (Field field in fields.Where(f => f.IsRequired && !supplied.Contains(f.ItemId)))
         {
             errors.Add(Error.BadRequest(
                 $"{Prefix}.{field.Code}.Required", $"'{field.Code}' is required by this module."));

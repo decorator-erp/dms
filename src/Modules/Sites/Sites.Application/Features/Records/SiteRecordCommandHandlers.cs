@@ -330,20 +330,21 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             }
         }
 
-        foreach (ResolvedRow row in resolved)
+        // S7: one validator pass for the whole grid -- a fixed number of queries, never one per row. The
+        // first failing row, in grid order, answers, exactly as the per-row loop did.
+        IReadOnlyList<Result> validations = await validator.ValidateManyAsync(
+            [.. resolved.Select(r => new SiteModuleValueSet(r.ModuleId, r.Request.Values))], ct);
+
+        if (validations.FirstOrDefault(v => v.IsFailure) is { } invalid)
         {
-            Result validated = await validator.ValidateAsync(row.ModuleId, row.Request.Values, ct);
-            if (validated.IsFailure)
-            {
-                return validated;
-            }
+            return invalid;
         }
 
         // Two rows of one grid claiming the same label within a module. The stored-label check cannot see
         // it -- neither row is written yet -- so unguarded it reaches the unique index as an unhandled
         // write failure. Keyed on the RESOLVED module, per B3.
         bool duplicate = resolved
-            .GroupBy(r => (r.ModuleId, Label: r.Request.Label.Trim().ToLowerInvariant()))
+            .GroupBy(r => (r.ModuleId, Label: SiteRecordWrites.Normalize(r.Request.Label)))
             .Any(g => g.Count() > 1);
 
         if (duplicate)
@@ -361,25 +362,52 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             .Select(r => r.Existing!.Id)
             .ToList();
 
+        // S7: spaces, catalog items and stored labels each read ONCE for the whole grid, then judged row
+        // by row in grid order -- so the first failing row answers with the same error as before.
+        var spaceIds = resolved
+            .Where(r => r.Request.SpaceId.HasValue)
+            .Select(r => r.Request.SpaceId!.Value)
+            .Distinct()
+            .ToList();
+        Dictionary<Guid, CrmSpaceSummary> spacesById = spaceIds.Count == 0
+            ? []
+            : (await spaces.GetManyAsync(spaceIds, ct)).ToDictionary(s => s.Id);
+
+        var catalogItemIds = resolved
+            .Where(r => r.Request.CatalogItemId.HasValue)
+            .Select(r => r.Request.CatalogItemId!.Value)
+            .Distinct()
+            .ToList();
+        Dictionary<Guid, CrmCatalogItemSummary> catalogById = catalogItemIds.Count == 0
+            ? []
+            : (await catalog.GetManyAsync(catalogItemIds, ct)).ToDictionary(c => c.Id);
+
+        HashSet<(Guid ModuleId, string Label)> taken = await SiteRecordWrites.TakenLabelsAsync(
+            db, command.SiteId, [.. resolved.Select(r => (r.ModuleId, r.Request.Label))], batchRecordIds, ct);
+
         foreach (ResolvedRow row in resolved)
         {
-            Result space = await SiteWrites.ValidateSpaceAsync(spaces, row.Request.SpaceId, site.ProjectId, ct);
-            if (space.IsFailure)
+            if (row.Request.SpaceId is { } spaceId)
             {
-                return space;
+                Result space = SiteWrites.CheckSpace(spacesById.GetValueOrDefault(spaceId), site.ProjectId);
+                if (space.IsFailure)
+                {
+                    return space;
+                }
             }
 
-            Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, row.Request.CatalogItemId, ct);
-            if (catalogItem.IsFailure)
+            if (row.Request.CatalogItemId is { } catalogItemId)
             {
-                return catalogItem;
+                Result catalogItem = SiteWrites.CheckCatalogItem(catalogById.GetValueOrDefault(catalogItemId));
+                if (catalogItem.IsFailure)
+                {
+                    return catalogItem;
+                }
             }
 
-            Result stored = await SiteRecordWrites.EnsureLabelFreeOfBatchAsync(
-                db, command.SiteId, row.ModuleId, row.Request.Label, batchRecordIds, ct);
-            if (stored.IsFailure)
+            if (taken.Contains((row.ModuleId, SiteRecordWrites.Normalize(row.Request.Label))))
             {
-                return stored;
+                return SiteErrors.LabelTaken;
             }
         }
 
@@ -450,13 +478,11 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
 
         // The records are tracked entities, so the value pass works from them directly. Ids are
         // client-generated UUIDv7, so a value can reference a record that has not been written yet.
-        foreach ((SiteRecord? record, IReadOnlyList<SiteValueRequest>? values) in pending)
+        // S7: staged set-based, a fixed number of queries for the whole grid.
+        Result set = await SiteRecordWrites.StageValuesManyAsync(db, pending, ct);
+        if (set.IsFailure)
         {
-            Result set = await SiteRecordWrites.StageValuesAsync(db, record, values, ct);
-            if (set.IsFailure)
-            {
-                return set;
-            }
+            return set;
         }
 
         // Every early return leaves the database untouched: either nothing was flushed yet, or the

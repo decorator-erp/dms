@@ -23,4 +23,17 @@ public interface ISiteModuleValidator
 {
     Task<Result> ValidateAsync(
         Guid moduleId, IReadOnlyList<SiteValueRequest> values, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch, mandatory — never call <see cref="ValidateAsync"/> in a loop over a grid (S7). Judges
+    /// every set in one pass over the definition, a fixed number of queries whatever the row count.
+    /// Returns one <see cref="Result"/> per set, in the order given, each exactly what
+    /// <see cref="ValidateAsync"/> would answer for that set alone.
+    /// </summary>
+    Task<IReadOnlyList<Result>> ValidateManyAsync(
+        IReadOnlyList<SiteModuleValueSet> sets, CancellationToken ct = default);
 }
+
+/// <summary>One record's proposed values and the module that judges them — an input to
+/// <see cref="ISiteModuleValidator.ValidateManyAsync"/>.</summary>
+public sealed record SiteModuleValueSet(Guid ModuleId, IReadOnlyList<SiteValueRequest> Values);

@@ -142,8 +142,13 @@ internal static class SiteWrites
             return Result.Success();
         }
 
-        CrmSpaceSummary? space = await spaces.GetAsync(id, ct);
+        return CheckSpace(await spaces.GetAsync(id, ct), projectId);
+    }
 
+    /// <summary>The rule of <see cref="ValidateSpaceAsync"/> over a space already read — the grid save
+    /// reads every row's space in one <c>GetManyAsync</c> (S7) and judges each row here.</summary>
+    public static Result CheckSpace(CrmSpaceSummary? space, Guid projectId)
+    {
         if (space is null || !space.IsActive)
         {
             return SiteErrors.SpaceNotFound;
@@ -165,8 +170,11 @@ internal static class SiteWrites
             return Result.Success();
         }
 
-        CrmCatalogItemSummary? item = await catalog.GetAsync(id, ct);
-
-        return item is { IsActive: true } ? Result.Success() : SiteErrors.CatalogItemNotFound;
+        return CheckCatalogItem(await catalog.GetAsync(id, ct));
     }
+
+    /// <summary>The rule of <see cref="ValidateCatalogItemAsync"/> over an item already read, for the
+    /// grid save's batched read (S7).</summary>
+    public static Result CheckCatalogItem(CrmCatalogItemSummary? item) =>
+        item is { IsActive: true } ? Result.Success() : SiteErrors.CatalogItemNotFound;
 }

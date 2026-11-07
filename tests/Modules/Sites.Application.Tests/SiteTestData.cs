@@ -153,10 +153,23 @@ internal static class SiteTestData
     public static async Task<Guid> CreateSpaceInAnotherProjectAsync(SitesApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
-        IServiceProvider sp = scope.ServiceProvider;
-        string suffix = Guid.NewGuid().ToString("N");
+        Guid otherProjectId = await CreateAnotherProjectAsync(scope.ServiceProvider, Guid.NewGuid().ToString("N"));
 
-        Guid otherProjectId = await CreateAnotherProjectAsync(sp, suffix);
+        return await CreateSpaceAsync(scope.ServiceProvider, otherProjectId);
+    }
+
+    /// <summary>A CRM space on the shared project — a legitimate record space.</summary>
+    public static async Task<Guid> CreateSpaceInSharedProjectAsync(SitesApplicationFixture fixture)
+    {
+        Owners owners = await SharedOwnersAsync(fixture);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+
+        return await CreateSpaceAsync(scope.ServiceProvider, owners.ProjectId);
+    }
+
+    private static async Task<Guid> CreateSpaceAsync(IServiceProvider sp, Guid projectId)
+    {
+        string suffix = Guid.NewGuid().ToString("N");
 
         Guid spaceTypeId = (await sp
             .GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
@@ -167,7 +180,7 @@ internal static class SiteTestData
         currentUser.UserId ??= OwnerUserId;
         currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
         Guid spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
-            .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom", currentUser.UserId))).Value;
+            .HandleAsync(new CreateCrmSpaceCommand(projectId, spaceTypeId, $"Bedroom {suffix[..6]}", currentUser.UserId))).Value;
 
         return spaceId;
     }
