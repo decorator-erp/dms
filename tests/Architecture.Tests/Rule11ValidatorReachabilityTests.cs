@@ -51,6 +51,12 @@ public class Rule11ValidatorReachabilityTests
         // SetValidator(new ...()); its Residential block is nested again, run the same way from it.
         "Crm.Application.Features.Leads.CrmLeadIntakeDataValidator",
         "Crm.Application.Features.Leads.CrmLeadIntakeResidentialDataValidator",
+
+        // S5: SiteUnitDataRequest is nested in CreateSiteCommand/UpdateSiteCommand, and SiteValueRequest
+        // in SetSiteRecordValuesCommand and every BulkSaveSiteRecordsCommand row; both run via
+        // SetValidator(new ...()).
+        "Sites.Application.SiteUnitDataRequestValidator",
+        "Sites.Application.SiteValueRequestValidator",
     ];
 
     private static readonly Type[] DecoratedHandlerShapes =
