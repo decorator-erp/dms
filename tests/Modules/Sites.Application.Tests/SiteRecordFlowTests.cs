@@ -1103,6 +1103,178 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.IsType<ValidationError>(unknown.Error);
     }
 
+    // ── S13: coverage the review found missing ─────────────────────────────────
+
+    /// <summary>
+    /// <b>S13.</b> Replacing a value on the SAME item. The value table's key is (RecordId, ItemId), so a
+    /// replace is a delete and an insert of one key in one save — through both the single-record route
+    /// and the grid. Exactly one row must remain, holding the new value.
+    /// </summary>
+    [Fact]
+    public async Task S13_ReplacingAValueOnTheSameItem_KeepsOneRowWithTheNewValue()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        foreach (decimal width in new[] { 90m, 95m })
+        {
+            Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value,
+                new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: width)]),
+                SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        Assert.Equal(1, await CountValuesAsync(record.Value));
+        Assert.Equal(95m, await ReadNumberAsync(record.Value, itemId));
+
+        Assert.True((await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Front door", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 120m)]),
+            ]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.Equal(1, await CountValuesAsync(record.Value));
+        Assert.Equal(120m, await ReadNumberAsync(record.Value, itemId));
+    }
+
+    /// <summary>
+    /// The BOQ reads its measures by the well-known item codes (<c>quantity</c>, <c>width_cm</c>,
+    /// <c>height_cm</c>, <c>length_cm</c>). Item codes are global, so the items are created once per
+    /// fixture and reused.
+    /// </summary>
+    private async Task<Guid> WellKnownNumberItemAsync(string code)
+    {
+        Result<Guid> created = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(code, code, code, SiteItemDataType.Number)), true);
+        if (created.IsSuccess)
+        {
+            return created.Value;
+        }
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            $"""SELECT "Id" FROM sites.site_items WHERE lower("Code") = '{code}';""", connection);
+        return (Guid)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
+    /// <b>S13.</b> The BOQ rollup had no test. One line per (module, kind): occurrences, distinct
+    /// spaces, quantity (a missing quantity counts 1), area in m² from cm × cm and length in m from cm.
+    /// A record with a second Select ("material") is still ONE occurrence of its kind — the first Select
+    /// by the form's field order — and a deleted record is not counted. A total with nothing measured is
+    /// null, not 0.
+    /// </summary>
+    [Fact]
+    public async Task S13_Boq_RollsUpOccurrencesSpacesQuantityAreaAndLengthPerKind()
+    {
+        Guid siteId = await CreateSiteAsync();
+
+        string moduleCode = Unique("boq");
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(moduleCode, "Openings", "الفتحات")), true)).Value;
+
+        Guid kindId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("kind"), "Kind", "النوع", SiteItemDataType.Select)), true)).Value;
+        Guid doorId = (await SendAsync(new AddSiteItemOptionCommand(
+            kindId, new SiteItemOptionRequest("door", "Door", "باب")), true)).Value;
+        Guid windowId = (await SendAsync(new AddSiteItemOptionCommand(
+            kindId, new SiteItemOptionRequest("window", "Window", "نافذة")), true)).Value;
+
+        Guid materialId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("mat"), "Material", "الخامة", SiteItemDataType.Select)), true)).Value;
+        Guid woodId = (await SendAsync(new AddSiteItemOptionCommand(
+            materialId, new SiteItemOptionRequest("aaa_wood", "Wood", "خشب")), true)).Value;
+
+        Guid quantityId = await WellKnownNumberItemAsync("quantity");
+        Guid widthId = await WellKnownNumberItemAsync("width_cm");
+        Guid heightId = await WellKnownNumberItemAsync("height_cm");
+        Guid lengthId = await WellKnownNumberItemAsync("length_cm");
+
+        // Kind first in the form's field order, material second -- material's option code sorts first,
+        // so a tie broken on the option code instead of the field order would pick the wrong kind.
+        int order = 0;
+        foreach (Guid item in new[] { kindId, materialId, quantityId, widthId, heightId, lengthId })
+        {
+            Assert.True((await SendAsync(new AttachSiteItemCommand(
+                moduleId, new AttachSiteItemRequest(item, SortOrder: order++)), true)).IsSuccess);
+        }
+
+        Guid spaceA = await SiteTestData.CreateSpaceInSharedProjectAsync(fixture);
+        Guid spaceB = await SiteTestData.CreateSpaceInSharedProjectAsync(fixture);
+
+        Result saved = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door 1", spaceA, null, 0, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(materialId, OptionId: woodId),
+                    new SiteValueRequest(quantityId, ValueNumber: 2m),
+                    new SiteValueRequest(widthId, ValueNumber: 100m),
+                    new SiteValueRequest(heightId, ValueNumber: 200m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Door 2", spaceB, null, 1, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(widthId, ValueNumber: 50m),
+                    new SiteValueRequest(heightId, ValueNumber: 100m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Window 1", spaceA, null, 2, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: windowId),
+                    new SiteValueRequest(lengthId, ValueNumber: 300m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Door deleted", spaceA, null, 3, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(quantityId, ValueNumber: 50m),
+                ]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.True(saved.IsSuccess);
+
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                $"""SELECT "Id" FROM sites.site_records WHERE "SiteId"='{siteId}' AND "Label"='Door deleted';""",
+                connection);
+            var deletedId = (Guid)(await command.ExecuteScalarAsync())!;
+            Assert.True((await SendAsync(new DeleteSiteRecordCommand(
+                siteId, deletedId, SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        Result<SiteBoqResponse> boq = await ResolveAsync(sp => sp
+            .GetRequiredService<IQueryHandler<GetSiteBoqQuery, SiteBoqResponse>>()
+            .HandleAsync(new GetSiteBoqQuery(siteId, SiteTestData.OwnerUserId)));
+
+        Assert.True(boq.IsSuccess);
+        Assert.Equal(2, boq.Value!.Lines.Count);
+
+        SiteBoqLineResponse door = Assert.Single(boq.Value.Lines, l => l.KindCode == "door");
+        Assert.Equal(moduleCode, door.ModuleCode);
+        Assert.Equal(2, door.Occurrences);
+        Assert.Equal(2, door.Spaces);
+        Assert.Equal(3m, door.TotalQty);
+        Assert.Equal(4.5m, door.TotalAreaSqm);   // (2 x 100 x 200 + 1 x 50 x 100) / 10000
+        Assert.Null(door.TotalLengthM);
+
+        SiteBoqLineResponse window = Assert.Single(boq.Value.Lines, l => l.KindCode == "window");
+        Assert.Equal(1, window.Occurrences);
+        Assert.Equal(1, window.Spaces);
+        Assert.Equal(1m, window.TotalQty);
+        Assert.Null(window.TotalAreaSqm);
+        Assert.Equal(3m, window.TotalLengthM);   // 1 x 300 / 100
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
