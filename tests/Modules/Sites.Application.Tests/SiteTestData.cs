@@ -27,6 +27,10 @@ internal static class SiteTestData
     public static string OwnerUserId => _owners?.AppUserId
         ?? throw new InvalidOperationException("Call OwnersAsync first.");
 
+    /// <summary>The employee id of <see cref="OwnerUserId"/> — the actor the lifecycle commands stamp.</summary>
+    public static Guid OwnerEmployeeId => _owners?.EmployeeId
+        ?? throw new InvalidOperationException("Call OwnersAsync first.");
+
     /// <summary>The shared project and employee, created on first use.</summary>
     public static Task<Owners> OwnersAsync(SitesApplicationFixture fixture) => SharedOwnersAsync(fixture);
 

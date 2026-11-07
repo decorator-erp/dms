@@ -267,7 +267,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
             SiteTestData.OwnerUserId));
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -305,7 +305,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
             SiteTestData.OwnerUserId));
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
@@ -325,7 +325,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Added after review"),
@@ -801,7 +801,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(Sites.Domain.SiteStatus.Draft, stale.Status);
 
         // B: submit and commit.
-        Result submitted = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Result submitted = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         Assert.True(submitted.IsSuccess);
 
         // A: the grid save on its stale copy.
@@ -875,7 +875,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
         _ = await db.Sites.SingleAsync(s => s.Id == siteId);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result<Guid> late = await racer.ServiceProvider
             .GetRequiredService<ICommandHandler<LinkSiteDocumentCommand, Guid>>()

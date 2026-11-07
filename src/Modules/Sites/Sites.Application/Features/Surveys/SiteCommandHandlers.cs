@@ -155,6 +155,16 @@ internal sealed class DeleteSiteCommandHandler(SitesDbContext db) : ICommandHand
     }
 }
 
+internal sealed class SubmitSiteCommandValidator : AbstractValidator<SubmitSiteCommand>
+{
+    public SubmitSiteCommandValidator()
+    {
+        RuleFor(x => x.SiteId).NotEmpty();
+        RuleFor(x => x.SubmittedById).NotEmpty();
+        RuleFor(x => x.AppUserId).NotEmpty();
+    }
+}
+
 internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider timeProvider)
     : ICommandHandler<SubmitSiteCommand>
 {
@@ -175,7 +185,7 @@ internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider t
         // Enqueued in the SAME SaveChanges as the status change -- the outbox row and the write commit
         // together or not at all.
         db.Outbox().Enqueue(new SiteSubmittedIntegrationEvent(
-            Guid.CreateVersion7(), site.Id, site.ProjectId, site.CreatedById, timeProvider.GetUtcNow()));
+            Guid.CreateVersion7(), site.Id, site.ProjectId, command.SubmittedById, timeProvider.GetUtcNow()));
 
         return await SiteWrites.SaveAsync(db, ct);
     }

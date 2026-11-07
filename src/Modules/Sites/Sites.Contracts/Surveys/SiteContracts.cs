@@ -77,8 +77,13 @@ public sealed record UpdateSiteCommand(Guid SiteId, UpdateSiteRequest Request, s
 public sealed record DeleteSiteCommand(Guid SiteId, string AppUserId) : ICommand, ISiteScoped;
 
 /// <summary>Draft → Submitted. The timestamp comes from an injected <c>TimeProvider</c>, never from
-/// the caller.</summary>
-public sealed record SubmitSiteCommand(Guid SiteId, string AppUserId) : ICommand, ISiteScoped;
+/// the caller.
+///
+/// <para><see cref="SubmittedById"/> is a pre-resolved HR employee id, resolved at the endpoint like
+/// <c>DecidedById</c> (S10) — the event used to carry the survey's creator instead.</para>
+/// </summary>
+public sealed record SubmitSiteCommand(Guid SiteId, Guid SubmittedById, string AppUserId)
+    : ICommand, ISiteScoped;
 
 /// <summary>
 /// Submitted → Approved | Rejected. <see cref="DecidedById"/> is a pre-resolved HR employee id — see

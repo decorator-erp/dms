@@ -135,7 +135,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     {
         Guid siteId = await CreateSiteAsync();
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         (int Status, string? Address, DateTime? SubmittedAt, bool IsActive) row = await ReadRowAsync(siteId);
         Assert.Equal(2, row.Status);
@@ -147,7 +147,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     {
         Guid siteId = await CreateSiteAsync(address: null);
 
-        Result result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Result result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
 
         Assert.Equal(SiteErrors.AddressRequiredToSubmit, result.Error);
 
@@ -162,7 +162,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true, "Checked."),
             owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
@@ -193,7 +193,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result blocked = await SendAsync(new UpdateSiteCommand(
             siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Changed after review")),
@@ -222,7 +222,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: false, "Rework the openings."),
             owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
@@ -263,7 +263,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -298,7 +298,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -322,7 +322,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     {
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
         Guid siteId = await CreateSiteAsync();
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
 
         await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
