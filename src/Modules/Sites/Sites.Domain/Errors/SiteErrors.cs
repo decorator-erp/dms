@@ -98,6 +98,11 @@ internal static class SiteErrors
     public static readonly Error NotFound = Error.NotFound(
         $"{Prefix}.{nameof(NotFound)}", "The requested site was not found.");
 
+    /// <summary>C6: the caller reaches the site's project, but below the level this write needs (Editor to
+    /// capture, Manager to decide, reopen or delete).</summary>
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        $"{Prefix}.{nameof(InsufficientLevel)}", "Your access level on this project does not allow this action.");
+
     public static readonly Error RecordNotFound = Error.NotFound(
         $"{Prefix}.{nameof(RecordNotFound)}", "The requested site record was not found.");
 

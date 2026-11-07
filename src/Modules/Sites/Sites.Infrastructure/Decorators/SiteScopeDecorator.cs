@@ -50,26 +50,71 @@ internal static class SiteScopeDecorator
         return access.IsFailure ? SiteErrors.NotFound : Result.Success();
     }
 
+    /// <summary>C6: a write needs scope (404), then the level <see cref="SiteProjectLevels"/> names for it (403
+    /// <see cref="SiteErrors.InsufficientLevel"/>), then a project that takes work (409
+    /// <see cref="SiteErrors.ProjectClosed"/>: inactive, Completed or Cancelled, as B-S-M7 refuses a new survey).
+    /// The level reader's sources are the guard's scope, so no level is the same 404.</summary>
+    private static async Task<Result> CheckWriteAsync(
+        ISiteScoped scoped, SitesDbContext db, IProjectAccessLevelReader levels, IProjectDirectory projects,
+        CancellationToken ct)
+    {
+        Guid? projectId = await db.Sites
+            .AsNoTracking()
+            .Where(s => s.Id == scoped.SiteId)
+            .Select(s => (Guid?)s.ProjectId)
+            .FirstOrDefaultAsync(ct);
+
+        if (projectId is not { } project)
+        {
+            return SiteErrors.NotFound;
+        }
+
+        ProjectMemberAccess? level = await levels.GetLevelAsync(project, scoped.AppUserId, ct);
+        if (level is null)
+        {
+            return SiteErrors.NotFound;
+        }
+
+        if (level.Value < SiteProjectLevels.Required[scoped.GetType()])
+        {
+            return SiteErrors.InsufficientLevel;
+        }
+
+        ProjectSummary? summary = await projects.GetProjectAsync(project, ct);
+        if (summary is null)
+        {
+            return SiteErrors.NotFound;
+        }
+
+        return IsClosed(summary) ? SiteErrors.ProjectClosed : Result.Success();
+    }
+
+    /// <summary>B-S-M7 / C6: a deactivated, Completed or Cancelled project takes no survey work.</summary>
+    internal static bool IsClosed(ProjectSummary project) =>
+        !project.IsActive || project.Status is ProjectStatus.Completed or ProjectStatus.Cancelled;
+
     internal sealed class CommandHandler<TCommand>(
-        ICommandHandler<TCommand> innerHandler, SitesDbContext db, IProjectAccessGuard guard)
+        ICommandHandler<TCommand> innerHandler, SitesDbContext db, IProjectAccessLevelReader levels,
+        IProjectDirectory projects)
         : ICommandHandler<TCommand>
         where TCommand : ICommand, ISiteScoped
     {
         public async Task<Result> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            Result check = await CheckAsync(command, db, guard, ct);
+            Result check = await CheckWriteAsync(command, db, levels, projects, ct);
             return check.IsFailure ? check : await innerHandler.HandleAsync(command, ct);
         }
     }
 
     internal sealed class CommandHandler<TCommand, TResponse>(
-        ICommandHandler<TCommand, TResponse> innerHandler, SitesDbContext db, IProjectAccessGuard guard)
+        ICommandHandler<TCommand, TResponse> innerHandler, SitesDbContext db, IProjectAccessLevelReader levels,
+        IProjectDirectory projects)
         : ICommandHandler<TCommand, TResponse>
         where TCommand : ICommand<TResponse>, ISiteScoped
     {
         public async Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken ct = default)
         {
-            Result check = await CheckAsync(command, db, guard, ct);
+            Result check = await CheckWriteAsync(command, db, levels, projects, ct);
             return check.IsFailure
                 ? Result.Failure<TResponse>(check.Error)
                 : await innerHandler.HandleAsync(command, ct);

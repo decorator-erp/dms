@@ -28,7 +28,7 @@ internal sealed class CreateSiteCommandValidator : AbstractValidator<CreateSiteC
 /// authorizes itself.
 /// </summary>
 internal sealed class CreateSiteCommandHandler(
-    SitesDbContext db, IProjectAccessGuard access, IProjectDirectory projects)
+    SitesDbContext db, IProjectAccessGuard access, IProjectAccessLevelReader levels, IProjectDirectory projects)
     : ICommandHandler<CreateSiteCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(CreateSiteCommand command, CancellationToken ct = default)
@@ -37,6 +37,13 @@ internal sealed class CreateSiteCommandHandler(
         if (scope.IsFailure)
         {
             return scope.Error;
+        }
+
+        // C6: a new survey is Editor work; checked before any 409 below.
+        ProjectMemberAccess? level = await levels.GetLevelAsync(command.Request.ProjectId, command.AppUserId, ct);
+        if (level is null || level.Value < Infrastructure.Decorators.SiteProjectLevels.Create)
+        {
+            return SiteErrors.InsufficientLevel;
         }
 
         // Defect B1's fix. The backend's only guard is the access check above -- and a caller holding
@@ -51,7 +58,7 @@ internal sealed class CreateSiteCommandHandler(
         }
 
         // B-S-M7: a survey is new work; a deactivated, Completed or Cancelled project takes none.
-        if (!project.IsActive || project.Status is ProjectStatus.Completed or ProjectStatus.Cancelled)
+        if (Infrastructure.Decorators.SiteScopeDecorator.IsClosed(project))
         {
             return SiteErrors.ProjectClosed;
         }
