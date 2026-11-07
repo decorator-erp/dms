@@ -22,6 +22,12 @@ internal static class ProjectErrors
     /// in the handler, never in the aggregate, per the plan's explicit note).</summary>
     public static readonly Error ClientNotFound = Error.NotFound(
         "projects.ClientNotFound", "The specified client was not found.");
+
+    /// <summary>P8: the project code is unique (<c>IX_projects_Code</c>). Pre-checked in
+    /// <c>CreateProjectCommandHandler</c>; a create racing past the pre-check trips the index, which
+    /// <c>ProjectWrites</c> maps to this same 409.</summary>
+    public static readonly Error CodeTaken = Error.Conflict(
+        "projects.CodeTaken", "Another project already uses this code.");
 }
 
 internal static class StageErrors

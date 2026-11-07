@@ -7,6 +7,9 @@ namespace Projects.Infrastructure.Persistence.Configurations;
 
 internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 {
+    /// <summary>P8: the unique code index, named so <see cref="ProjectWrites"/> can map its violation to 409.</summary>
+    public const string CodeIndex = "IX_projects_Code";
+
     public void Configure(EntityTypeBuilder<Project> builder)
     {
         builder.ToTable("projects");
@@ -21,7 +24,7 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(p => p.Notes).HasMaxLength(2000);
         builder.Property(p => p.ProgressPercentage).HasPrecision(5, 2);
 
-        builder.HasIndex(p => p.Code).IsUnique();
+        builder.HasIndex(p => p.Code).IsUnique().HasDatabaseName(CodeIndex);
 
         // ClientId: FK to crm.clients (G9-13, closing the Phase 2 deferral) - raw-SQL constraint in
         // the AddClientForeignKey migration (EF cannot emit it - two different models), validated in

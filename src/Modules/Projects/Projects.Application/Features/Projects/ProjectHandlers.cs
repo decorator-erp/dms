@@ -60,6 +60,12 @@ internal sealed class CreateProjectCommandHandler(
             return Result.Failure<Guid>(Domain.ProjectErrors.ClientNotFound);
         }
 
+        // P8: the sequential case; a create racing past this trips IX_projects_Code, mapped by ProjectWrites.
+        if (await db.Projects.AsNoTracking().AnyAsync(p => p.Code == command.Code, ct))
+        {
+            return Result.Failure<Guid>(Domain.ProjectErrors.CodeTaken);
+        }
+
         var project = Domain.Project.Create(
             command.Code, command.Name, command.Address, ProjectsEnumMapping.ToDomain(command.WorkflowType),
             command.ClientId, ownerId.Value, command.Description, command.Notes,
@@ -75,8 +81,8 @@ internal sealed class CreateProjectCommandHandler(
             }
         }
 
-        await db.SaveChangesAsync(ct);
-        return project.Id;
+        Result saved = await ProjectWrites.SaveAsync(db, ct);
+        return saved.IsSuccess ? project.Id : Result.Failure<Guid>(saved.Error);
     }
 
     /// <summary>
