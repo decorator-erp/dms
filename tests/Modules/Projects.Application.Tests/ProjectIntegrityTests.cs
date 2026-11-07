@@ -51,6 +51,33 @@ public sealed class ProjectIntegrityTests(ProjectsApplicationFixture fixture)
         Assert.Equal("projects.CodeTaken", saved.Error.Code);
     }
 
+    /// <summary>P9: an edit made from a stale copy of the project (another edit committed after it was read) is a
+    /// 409 ConcurrentUpdate, not a silent lost update. The stale copy is pre-tracked in the handler's own scope,
+    /// so the handler's <c>FindAsync</c> returns it, as a read racing the other edit would.</summary>
+    [Fact]
+    public async Task P9_AnEditFromAStaleCopyOfTheProject_IsConcurrentUpdate()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "p9");
+
+        await using AsyncServiceScope stale = ScopeOfWorkSeeding.OfficeScope(fixture, p);
+        ProjectsDbContext staleDb = stale.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+        Assert.NotNull(await staleDb.Projects.FindAsync(p.ProjectId));
+
+        await using (AsyncServiceScope other = ScopeOfWorkSeeding.OfficeScope(fixture, p))
+        {
+            Result first = await other.ServiceProvider.GetRequiredService<ICommandHandler<UpdateProjectCommand>>()
+                .HandleAsync(new UpdateProjectCommand(p.ProjectId, p.OfficeUserId, Name: "Renamed first"));
+            Assert.True(first.IsSuccess, first.IsFailure ? first.Error.ToString() : null);
+        }
+
+        Result second = await stale.ServiceProvider.GetRequiredService<ICommandHandler<UpdateProjectCommand>>()
+            .HandleAsync(new UpdateProjectCommand(p.ProjectId, p.OfficeUserId, Notes: "From a stale read"));
+
+        Assert.True(second.IsFailure);
+        Assert.Equal("projects.ConcurrentUpdate", second.Error.Code);
+        Assert.Equal(409, second.Error.Status);
+    }
+
     private async Task<string> CodeOfAsync(Guid projectId)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();

@@ -332,12 +332,19 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<int>("WorkflowType")
                         .HasColumnType("integer");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClientId");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_projects_Code");
 
                     b.HasIndex("OwnerId");
 

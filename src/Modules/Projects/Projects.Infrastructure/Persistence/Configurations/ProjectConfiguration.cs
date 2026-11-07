@@ -26,6 +26,11 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 
         builder.HasIndex(p => p.Code).IsUnique().HasDatabaseName(CodeIndex);
 
+        // P9: Postgres' system xmin as the optimistic-concurrency token, as on members and the scope of work.
+        // ProjectWrites maps a stale token to 409. Task/stage progress is never written to this row (it is
+        // computed on read), so task transitions don't move it.
+        builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
         // ClientId: FK to crm.clients (G9-13, closing the Phase 2 deferral) - raw-SQL constraint in
         // the AddClientForeignKey migration (EF cannot emit it - two different models), validated in
         // application code by CreateProjectCommandHandler via Crm.Contracts.IClientDirectory before

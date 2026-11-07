@@ -137,8 +137,7 @@ internal sealed class UpdateProjectCommandHandler(ProjectsDbContext db) : IComma
         project.Update(
             command.Name, command.Description, command.Address, command.Notes,
             ProjectDates.ToUtc(command.EstimatedStartDate), ProjectDates.ToUtc(command.EstimatedEndDate));
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await ProjectWrites.SaveAsync(db, ct);
     }
 }
 
@@ -158,8 +157,7 @@ internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db) : 
             return result;
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await ProjectWrites.SaveAsync(db, ct);
     }
 }
 
@@ -182,8 +180,7 @@ internal sealed class SetProjectActiveCommandHandler(ProjectsDbContext db) : ICo
             project.Deactivate();
         }
 
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await ProjectWrites.SaveAsync(db, ct);
     }
 }
 

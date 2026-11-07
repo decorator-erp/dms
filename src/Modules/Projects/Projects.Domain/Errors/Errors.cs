@@ -28,6 +28,10 @@ internal static class ProjectErrors
     /// <c>ProjectWrites</c> maps to this same 409.</summary>
     public static readonly Error CodeTaken = Error.Conflict(
         "projects.CodeTaken", "Another project already uses this code.");
+
+    /// <summary>P9: the project row's <c>xmin</c> moved between the read and the save.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.ConcurrentUpdate", "The project was changed by someone else. Reload and try again.");
 }
 
 internal static class StageErrors
