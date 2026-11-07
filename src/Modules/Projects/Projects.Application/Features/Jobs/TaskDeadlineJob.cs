@@ -7,7 +7,12 @@ using Projects.Infrastructure.Persistence;
 
 namespace Projects.Application.Features.Jobs;
 
-/// <summary>Task due-date reminders: −3d, −1d, due day, +1d → assignee + stage owner.</summary>
+/// <summary>Task due-date reminders: −3d, −1d, due day, +1d → assignee + stage owner.
+///
+/// <para>A fixed number of queries per run whatever the number of due tasks: the tasks (only those of an active,
+/// Draft or InProgress project, as <see cref="ProjectDeadlineJob"/> filters projects), the stage heads of all their
+/// stages, and one HR lookup for every recipient. The due date is part of the dedupe key, so moving a deadline
+/// reminds again instead of being swallowed by the reminder already sent for the old date.</para></summary>
 internal sealed class TaskDeadlineJob(
     ProjectsDbContext db,
     IHrDirectory hrDirectory,
@@ -27,43 +32,42 @@ internal sealed class TaskDeadlineJob(
         DateTime windowStart = now.AddDays(-30); // bound the overdue scan; dedupe already stops repeats.
         DateTime windowEnd = now.AddDays(3);     // earliest tier is -3d.
 
-        var tasks = await db.ProjectTasks
+        var tasks = (await db.ProjectTasks
             .AsNoTracking()
             .Where(t => t.IsActive
                         && t.DueDate != null
                         && ActiveStatuses.Contains(t.Status)
-                        && t.DueDate >= windowStart && t.DueDate <= windowEnd)
+                        && t.DueDate >= windowStart && t.DueDate <= windowEnd
+                        && DeadlineProjects.Live(db).Contains(t.ProjectId))
             .Select(t => new { t.Id, t.Name, Due = t.DueDate!.Value, t.ProjectStageId, t.AssignedToId })
-            .ToListAsync(ct);
-
-        foreach (var task in tasks)
+            .ToListAsync(ct))
+            .Select(t => new { Task = t, Tier = DeadlineTiers.MostRelevant(now, t.Due, Tiers) })
+            .Where(x => x.Tier is not null)
+            .ToList();
+        if (tasks.Count == 0)
         {
-            if (DeadlineTiers.MostRelevant(now, task.Due, Tiers) is not { } tier)
-            {
-                continue;
-            }
+            return;
+        }
 
-            Guid? stageHeadId = null;
-            if (task.ProjectStageId is { } stageId)
+        Dictionary<Guid, Guid> stageHeads = await DeadlineProjects.StageHeadsAsync(
+            db, [.. tasks.Where(x => x.Task.ProjectStageId != null).Select(x => x.Task.ProjectStageId!.Value)], ct);
+        Dictionary<Guid, string> users = await DeadlineProjects.AppUsersAsync(
+            hrDirectory,
+            [.. tasks.SelectMany(x => new[]
             {
-                stageHeadId = await db.StageTeams
-                    .AsNoTracking()
-                    .Where(t => t.ProjectStageId == stageId && t.IsActive)
-                    .OrderBy(t => t.CreatedAtUtc)
-                    .Select(t => (Guid?)t.HeadId)
-                    .FirstOrDefaultAsync(ct);
-            }
+                x.Task.AssignedToId,
+                x.Task.ProjectStageId is { } s && stageHeads.TryGetValue(s, out Guid head) ? head : null,
+            })],
+            ct);
 
-            Guid[] employeeIds =
-                [.. new[] { task.AssignedToId, stageHeadId }.Where(id => id is not null).Select(id => id!.Value).Distinct()];
-            if (employeeIds.Length == 0)
-            {
-                continue;
-            }
-
-            IReadOnlyList<EmployeeSummary> employees = await hrDirectory.GetManyAsync(employeeIds, ct);
-            var targets = employees.Select(e => e.AppUserId)
-                .Where(id => !string.IsNullOrEmpty(id))
+        foreach (var item in tasks)
+        {
+            var task = item.Task;
+            int tier = item.Tier!.Value;
+            Guid? stageHeadId = task.ProjectStageId is { } stageId && stageHeads.TryGetValue(stageId, out Guid head) ? head : null;
+            var targets = new[] { task.AssignedToId, stageHeadId }
+                .Where(id => id is not null && users.ContainsKey(id.Value))
+                .Select(id => users[id!.Value])
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (targets.Count == 0)
@@ -78,7 +82,7 @@ internal sealed class TaskDeadlineJob(
                 body: $"Task '{task.Name}' is {DeadlineTiers.Phrase(tier)} (due {task.Due:yyyy-MM-dd}).",
                 entityType: NotificationEntityType.ProjectTask,
                 entityId: task.Id,
-                dedupeKey: $"task-{task.Id}-due-{tier}d",
+                dedupeKey: $"task-{task.Id}-due-{task.Due:yyyyMMdd}-{tier}d",
                 ct: ct);
         }
     }

@@ -76,7 +76,7 @@ internal sealed class ProjectDeadlineJob(
                 body: $"Project '{project.Name}' delivery is {DeadlineTiers.Phrase(tier)} (estimated end {project.Due:yyyy-MM-dd}).",
                 entityType: NotificationEntityType.Project,
                 entityId: project.Id,
-                dedupeKey: $"project-{project.Id}-due-{tier}d",
+                dedupeKey: $"project-{project.Id}-due-{project.Due:yyyyMMdd}-{tier}d", // a moved deadline reminds again
                 ct: ct);
         }
     }

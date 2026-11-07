@@ -474,6 +474,90 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(400, tooLong.Error.Status);
     }
 
+    /// <summary>Deadline jobs: a fixed number of queries whatever the number of due tasks or stages; the due date is in
+    /// the dedupe key (a moved deadline reminds again); and work of an inactive or closed project is skipped.</summary>
+    [Fact]
+    public async Task DeadlineJobs_AreBatched_KeyOnTheDueDate_AndSkipClosedProjects()
+    {
+        var now = new DateTimeOffset(2041, 5, 6, 9, 0, 0, TimeSpan.Zero);
+        DateTime due = now.UtcDateTime.Date.AddDays(1);
+        (ScopeTestProject live, Guid liveStage, Guid[] liveTasks) = await StageProjectWithTasksAsync("deadline-live", 6);
+        (ScopeTestProject closed, Guid closedStage, _) = await StageProjectWithTasksAsync("deadline-closed", 1);
+        await ExpectOkAsync(closed, new Contracts.Projects.ChangeProjectStatusCommand(closed.ProjectId, closed.OfficeUserId, ProjectStatus.Cancelled));
+        await SetDueAsync(closed.ProjectId, due);
+
+        await SetDueAsync(live.ProjectId, due, liveTasks[..1]);
+        (int oneTaskQueries, List<Notified> first) = await RunJobAsync<Features.Jobs.TaskDeadlineJob>(now);
+        await SetDueAsync(live.ProjectId, due);
+        (int sixTaskQueries, List<Notified> tasks) = await RunJobAsync<Features.Jobs.TaskDeadlineJob>(now);
+        (_, List<Notified> stages) = await RunJobAsync<Features.Jobs.StageDeadlineJob>(now);
+
+        bool IsLive(Notified n) => n.EntityId is { } id && liveTasks.Contains(id);
+        Assert.Equal(oneTaskQueries, sixTaskQueries);
+        Assert.Single(first, IsLive);
+        Assert.Equal(6, tasks.Count(IsLive));
+        Assert.All(tasks.Where(IsLive), n => Assert.Contains($"{due:yyyyMMdd}", n.DedupeKey));
+        Assert.Contains(stages, n => n.EntityId == liveStage && n.DedupeKey!.Contains($"{due:yyyyMMdd}"));
+        Assert.DoesNotContain(stages, n => n.EntityId == closedStage);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        List<Guid> closedTasks = await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().ProjectTasks.AsNoTracking()
+            .Where(t => t.ProjectId == closed.ProjectId).Select(t => t.Id).ToListAsync();
+        Assert.DoesNotContain(tasks, n => n.EntityId is { } id && closedTasks.Contains(id));
+    }
+
+    private sealed record Notified(Guid? EntityId, string? DedupeKey);
+
+    private sealed class RecordingNotifications : Notifications.Contracts.INotificationService
+    {
+        public List<Notified> Sent { get; } = [];
+
+        public Task NotifyAsync(string recipientUserId, Notifications.Contracts.NotificationType type, string title, string? body = null,
+            Notifications.Contracts.NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null,
+            CancellationToken ct = default)
+        {
+            Sent.Add(new Notified(entityId, dedupeKey));
+            return Task.CompletedTask;
+        }
+
+        public Task NotifyManyAsync(IReadOnlyCollection<string> recipientUserIds, Notifications.Contracts.NotificationType type, string title,
+            string? body = null, Notifications.Contracts.NotificationEntityType? entityType = null, Guid? entityId = null,
+            string? dedupeKey = null, CancellationToken ct = default)
+        {
+            Sent.Add(new Notified(entityId, dedupeKey));
+            return Task.CompletedTask;
+        }
+    }
+
+    private async Task<(int Queries, List<Notified> Sent)> RunJobAsync<TJob>(DateTimeOffset now)
+        where TJob : BuildingBlocks.Jobs.IPeriodicJob
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        var notifications = new RecordingNotifications();
+        TJob job = ActivatorUtilities.CreateInstance<TJob>(scope.ServiceProvider, notifications, new FixedTimeProvider(now));
+        DbCommandCounter.Counts counts = DbCommandCounter.Begin();
+        try
+        {
+            await job.RunAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DbCommandCounter.End();
+        }
+
+        return (counts.Queries, notifications.Sent);
+    }
+
+    private async Task SetDueAsync(Guid projectId, DateTime due, Guid[]? onlyTasks = null)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ProjectsDbContext db = scope.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+        Guid[] tasks = onlyTasks ?? await db.ProjectTasks.Where(t => t.ProjectId == projectId).Select(t => t.Id).ToArrayAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE projects.project_tasks SET \"DueDate\" = {due} WHERE \"Id\" = ANY({tasks})");
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE projects.project_stages SET \"EstimatedEndDate\" = {due} WHERE \"ProjectId\" = {projectId}");
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts
