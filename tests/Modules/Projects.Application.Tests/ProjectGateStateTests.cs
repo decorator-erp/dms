@@ -145,6 +145,20 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.StageStatus.Rejected, await StageStatusAsync(stageId));
     }
 
+    /// <summary>B-P-M7: an approval gate's approval is requested under an id derived from the gate id, so the two stay
+    /// bound even when the gate's own save fails after Approvals committed.</summary>
+    [Fact]
+    public async Task BPM7_AnApprovalGate_IsRequestedUnderAnIdDerivedFromTheGate()
+    {
+        (ScopeTestProject p, Guid stageId, _) = await StageProjectWithTasksAsync("bpm7", 1);
+        Guid gate = await CreateStageGateAsync(p, stageId, ConditionType.Approval, GateTrigger.Complete,
+            approvalType: ApprovalType.ManagerApproval);
+
+        Assert.Equal(Features.Gates.GateApprovalIds.For(gate), await ApprovalIdAsync(gate));
+        Assert.NotEqual(Features.Gates.GateApprovalIds.For(Guid.NewGuid()), Features.Gates.GateApprovalIds.For(gate));
+        Assert.Equal(Features.Gates.GateApprovalIds.For(gate), Features.Gates.GateApprovalIds.For(gate));
+    }
+
     // ---- helpers ----
 
     private async Task PublishAsync<TEvent>(TEvent @event) where TEvent : BuildingBlocks.Events.IIntegrationEvent

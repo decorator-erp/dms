@@ -208,17 +208,34 @@ internal static class GateApprovalRequests
         var approvers = summaries.Select(s => new ApproverSpec(ApproverKind.Employee, s.AppUserId)).ToList();
         string requestedByUserId = currentUser.UserId ?? approvers[0].ApproverUserId;
 
+        // B-P-M7: the approval id is derived from the gate id (GateApprovalIds), so a repeated request for this gate
+        // returns the approval already made instead of opening a second one.
         Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
-                Guid.NewGuid(), ApprovalSubjectType.GateCondition, gate.Id, (global::Approvals.Contracts.ApprovalType)approvalType,
-                requestedByUserId, approvers, DueAtUtc: null),
+                GateApprovalIds.For(gate.Id), ApprovalSubjectType.GateCondition, gate.Id,
+                (global::Approvals.Contracts.ApprovalType)approvalType, requestedByUserId, approvers, DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
         {
             return requestResult.Error;
         }
 
-        gate.LinkApproval(requestResult.Value!.ApprovalId);
+        ApprovalRequestOutcome outcome = requestResult.Value!;
+        gate.LinkApproval(outcome.ApprovalId);
+
+        // A decision made before this gate committed found no gate to bind to and was dropped; apply it here, as
+        // ApprovalDecidedIntegrationEventHandler would have (CRM's CrmApprovalOutcomes pattern).
+        switch (outcome.Decision)
+        {
+            case ApprovalDecision.Approved:
+                gate.MarkSatisfied(null);
+                break;
+            case ApprovalDecision.Rejected:
+                gate.MarkRejected(null);
+                await GateOwnerLocks.ReleaseIfLastAsync(db, gate, ct);
+                break;
+        }
+
         return Result.Success();
     }
 }
