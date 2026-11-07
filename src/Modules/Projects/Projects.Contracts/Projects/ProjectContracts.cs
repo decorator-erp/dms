@@ -72,7 +72,8 @@ public sealed record ProjectDetailsResponse(
     GateSummary Gates,
     ProjectMemberAccess MyLevel);
 
-/// <summary><see cref="ProjectResponse"/>'s fields plus <see cref="ClientName"/>, the client's display name read
+/// <summary><see cref="ProjectResponse"/>'s fields (except <c>MyLevel</c>, which sits on
+/// <see cref="ProjectDetailsResponse"/> itself) plus <see cref="ClientName"/>, the client's display name read
 /// through <c>Crm.Contracts.IClientDirectory</c>; null when the client cannot be resolved.</summary>
 public sealed record ProjectDetailsProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,

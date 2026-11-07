@@ -76,6 +76,7 @@ public sealed class ProjectMyLevelTests(ProjectsApplicationFixture fixture, ITes
         (Guid viewerAssigneeId, string viewerAssignee) = await HireAsync("l3-viewer-assignee");
         (Guid editorSeatId, string editorSeat) = await HireAsync("l3-editor-seat");
         (Guid viewerReadAllId, string viewerReadAll) = await HireAsync("l3-viewer-readall");
+        (Guid managerSeatId, string managerSeat) = await HireAsync("l3-manager-seat");
         foreach (Guid id in new[] { viewerHeadId, viewerAssigneeId, viewerReadAllId })
         {
             await OfficeOkAsync<AddProjectMemberCommand, Guid>(p, new AddProjectMemberCommand(p.ProjectId, p.OfficeUserId, id, ProjectMemberAccess.Viewer));
@@ -86,9 +87,14 @@ public sealed class ProjectMyLevelTests(ProjectsApplicationFixture fixture, ITes
         await OfficeOkAsync(p, new AssignProjectTaskCommand(p.ProjectId, s.TaskIds[1], p.OfficeUserId, viewerAssigneeId));
         await OfficeOkAsync<AddStageTeamMemberCommand, Guid>(p, new AddStageTeamMemberCommand(p.ProjectId, s.TeamId, p.OfficeUserId, editorSeatId, StageTeamMemberRole.Contributor));
 
+        // The member row is the highest source here: a Manager row must not be lowered by an Editor-level seat.
+        await OfficeOkAsync<AddProjectMemberCommand, Guid>(p, new AddProjectMemberCommand(p.ProjectId, p.OfficeUserId, managerSeatId, ProjectMemberAccess.Manager));
+        await OfficeOkAsync<AddStageTeamMemberCommand, Guid>(p, new AddStageTeamMemberCommand(p.ProjectId, s.TeamId, p.OfficeUserId, managerSeatId, StageTeamMemberRole.Contributor));
+
         Assert.Equal(Three(ProjectMemberAccess.Manager), await MyLevelsAsync(p.ProjectId, viewerHead, s.Label));
         Assert.Equal(Three(ProjectMemberAccess.Editor), await MyLevelsAsync(p.ProjectId, viewerAssignee, s.Label));
         Assert.Equal(Three(ProjectMemberAccess.Editor), await MyLevelsAsync(p.ProjectId, editorSeat, s.Label));
+        Assert.Equal(Three(ProjectMemberAccess.Manager), await MyLevelsAsync(p.ProjectId, managerSeat, s.Label));
         Assert.Equal(Three(ProjectMemberAccess.Manager), await MyLevelsAsync(p.ProjectId, viewerReadAll, s.Label, readAll: true));
     }
 
