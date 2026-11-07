@@ -178,7 +178,7 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new CompleteProjectSubTaskCommand(projectId, subTaskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Complete);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete);
 
         group.MapGet("/{taskId:guid}/comments", async (
             Guid projectId, Guid taskId, ICurrentUser currentUser,

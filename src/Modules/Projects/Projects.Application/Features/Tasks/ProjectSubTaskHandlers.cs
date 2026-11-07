@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Projects;
+using Projects.Contracts;
 using Projects.Contracts.Tasks;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -11,11 +12,14 @@ using Domain = Projects.Domain;
 namespace Projects.Application.Features.Tasks;
 
 /// <summary>
+/// Route claim (<c>stage_tasks.manage</c> or <c>stage_tasks.complete</c>, 403) → scope (404) → the caller is the
+/// task's assignee or holds <c>stage_tasks.manage</c> (403) → the task is still open (409), as reopen checks.
 /// Recomputes the parent task's <c>CompletedSubTasks</c>/<c>TotalSubTasks</c> counters (required sub-tasks only,
 /// P14) through <see cref="ManualSubTasks.RecountAsync"/>, which merges the database with the tracked rows, so the
 /// just-completed sub-task counts before its own <c>IsDone</c> flip is saved.
 /// </summary>
-internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
+internal sealed class CompleteProjectSubTaskCommandHandler(
+    ProjectsDbContext db, IHrDirectory hrDirectory, BuildingBlocks.ICurrentUser currentUser)
     : ICommandHandler<CompleteProjectSubTaskCommand>
 {
     public async Task<Result> HandleAsync(CompleteProjectSubTaskCommand command, CancellationToken ct = default)
@@ -46,6 +50,18 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
         if (employeeId is null)
         {
             return Domain.ProjectErrors.AccessDenied;
+        }
+
+        // The same rules as reopen (ManualSubTaskHandlers): the task's assignee or a task manager (403), on a task
+        // that is still open (409).
+        if (!currentUser.HasPermission(ProjectsPermissions.StageTasks.Manage) && task.AssignedToId != employeeId)
+        {
+            return Domain.SubTaskErrors.NotAssignee;
+        }
+
+        if (task.Status is Domain.ProjectTaskStatus.Completed or Domain.ProjectTaskStatus.Cancelled)
+        {
+            return Domain.SubTaskErrors.TaskClosed;
         }
 
         Result result = subTask.Complete(employeeId.Value);

@@ -374,6 +374,31 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         public override DateTimeOffset GetUtcNow() => now;
     }
 
+    /// <summary>Sub-task complete gets reopen's checks: only the task's assignee or a task manager
+    /// (<c>stage_tasks.manage</c>) may tick it (403 <c>projects.subtasks.NotAssignee</c>), and a completed or cancelled
+    /// task's sub-tasks are frozen (409 <c>projects.subtasks.TaskClosed</c>).</summary>
+    [Fact]
+    public async Task SubTaskComplete_NeedsTheAssigneeOrAManager_AndAnOpenTask()
+    {
+        (ScopeTestProject p, _, Guid[] tasks) = await StageProjectWithTasksAsync("subtask", 1);
+        Guid required = await SubTaskOfAsync(tasks[0]);
+
+        AssertError(await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, required, p.OfficeUserId),
+            ProjectsPermissions.StageTasks.Complete), "projects.subtasks.NotAssignee", 403);
+
+        await ExpectOkAsync(p, new AssignProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId, p.OfficeEmployeeId));
+        Result asAssignee = await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, required, p.OfficeUserId),
+            ProjectsPermissions.StageTasks.Complete);
+        Assert.True(asAssignee.IsSuccess, asAssignee.IsFailure ? asAssignee.Error.ToString() : null);
+
+        Result<Guid> optional = await RunAsync<CreateProjectSubTaskCommand, Guid>(p, new CreateProjectSubTaskCommand(
+            p.ProjectId, tasks[0], p.OfficeUserId, "Optional", null, null, IsRequired: false));
+        await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+        await ExpectOkAsync(p, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+        AssertError(await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, optional.Value, p.OfficeUserId)),
+            "projects.subtasks.TaskClosed", 409);
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts

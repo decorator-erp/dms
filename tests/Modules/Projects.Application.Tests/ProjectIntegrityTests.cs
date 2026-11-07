@@ -179,6 +179,8 @@ public sealed class ProjectIntegrityTests(ProjectsApplicationFixture fixture)
     private async Task<Result> RunAsync<TCommand>(ScopeTestProject p, TCommand command) where TCommand : ICommand
     {
         await using AsyncServiceScope scope = ScopeOfWorkSeeding.OfficeScope(fixture, p);
+        // The office user ticks sub-tasks of tasks assigned to no one, as a task manager may.
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.StageTasks.Manage);
         return await scope.ServiceProvider.GetRequiredService<ICommandHandler<TCommand>>().HandleAsync(command);
     }
 
