@@ -43,7 +43,8 @@ internal sealed class UpdateProjectStageCommandValidator : AbstractValidator<Upd
 internal static class ManualStages
 {
     /// <summary>D2: a Stage-workflow project whose stage structure is settled — its scope of work is
-    /// confirmed or, with no scope of work at all, it was created from a template (it already has stages).
+    /// confirmed or, with no scope of work at all (or only a Draft, P5), it was created from a template (it already
+    /// has stages).
     /// An inactive or missing project is 404, as everywhere in this module.</summary>
     public static async Task<Result<Domain.Project>> EnsureEditableAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
@@ -62,12 +63,10 @@ internal static class ManualStages
             .Where(s => s.ProjectId == projectId)
             .Select(s => (Domain.ScopeOfWorkStatus?)s.Status)
             .FirstOrDefaultAsync(ct);
-        bool settled = scope switch
-        {
-            Domain.ScopeOfWorkStatus.Confirmed => true,
-            null => await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct),
-            _ => false,
-        };
+        // P5: a Draft scope beside existing stages (a template-created project whose scope was touched before
+        // FindOrCreateAsync refused that) can never be confirmed, so it counts as "no scope", not as unsettled.
+        bool settled = scope == Domain.ScopeOfWorkStatus.Confirmed
+            || await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct);
 
         return settled ? project : Result.Failure<Domain.Project>(Domain.StageErrors.ScopeNotConfirmed);
     }

@@ -193,6 +193,34 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.DoesNotContain(secondHeadUser, approvers);
     }
 
+    /// <summary>P5: a scope-of-work write on a template-created project (stages, no scope) is 409
+    /// <c>projects.scope.ProjectHasStages</c> instead of creating a Draft that can never be confirmed; and a project
+    /// already stuck with such a Draft counts as settled again, so manual stage edits work.</summary>
+    [Fact]
+    public async Task P5_AScopeWriteOnAProjectWithStages_IsRefused_AndAStuckDraftCountsAsSettled()
+    {
+        (ScopeTestProject p, _, _) = await StageProjectWithTasksAsync("p5", 1);
+
+        Result header = await RunAsync(p, new Contracts.Scope.UpdateScopeOfWorkHeaderCommand(
+            p.ProjectId, p.OfficeUserId, 30, null, 0m, null, "Too late"));
+        AssertError(header, "projects.scope.ProjectHasStages", 409);
+
+        // A row stuck by the old behaviour: a Draft scope beside template stages.
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            ProjectsDbContext db = scope.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+            if (!await db.ScopesOfWork.AnyAsync(s => s.ProjectId == p.ProjectId))
+            {
+                db.ScopesOfWork.Add(Domain.ScopeOfWork.Create(p.ProjectId));
+                await db.SaveChangesAsync();
+            }
+        }
+
+        Result<Guid> stage = await RunAsync<CreateProjectStageCommand, Guid>(p, new CreateProjectStageCommand(
+            p.ProjectId, p.OfficeUserId, "Added by hand", 2, null, null, null, null, null));
+        Assert.True(stage.IsSuccess, stage.IsFailure ? stage.Error.ToString() : null);
+    }
+
     // ---- helpers ----
 
     private async Task PublishAsync<TEvent>(TEvent @event) where TEvent : BuildingBlocks.Events.IIntegrationEvent

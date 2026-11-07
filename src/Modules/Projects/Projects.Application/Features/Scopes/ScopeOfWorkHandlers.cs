@@ -118,7 +118,8 @@ internal static class ScopeOfWorkStore
     public static Task<ScopeOfWork?> FindAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
         db.ScopesOfWork.Include(s => s.Items).FirstOrDefaultAsync(s => s.ProjectId == projectId, ct);
 
-    /// <summary>The project's scope, or a new Draft staged for insert on the first write. A missing project is
+    /// <summary>The project's scope, or a new Draft staged for insert on the first write — refused with 409
+    /// <see cref="ScopeOfWorkErrors.ProjectHasStages"/> when the project already has stages (P5). A missing project is
     /// <see cref="Domain.ProjectErrors.NotFound"/>: the scope decorator lets a project-wide reader through
     /// without checking the row exists, and the insert would otherwise hit the foreign key (a 500).</summary>
     public static async Task<Result<ScopeOfWork>> FindOrCreateAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
@@ -131,6 +132,13 @@ internal static class ScopeOfWorkStore
         if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
             return Result.Failure<ScopeOfWork>(Domain.ProjectErrors.NotFound);
+        }
+
+        // P5: a project that already has stages (created from a template) can never confirm a scope, so a first
+        // scope write there would leave a Draft that blocks every manual stage and task edit for good.
+        if (await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct))
+        {
+            return Result.Failure<ScopeOfWork>(ScopeOfWorkErrors.ProjectHasStages);
         }
 
         var scope = ScopeOfWork.Create(projectId);
