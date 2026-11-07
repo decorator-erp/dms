@@ -72,6 +72,17 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
         "ux_site_modules_code",
         "ux_site_records_label",
         "ux_sites_code",
+        "ux_site_documents_link",
+    ];
+
+    /// <summary>
+    /// Later migrations that touch only the sites schema. They are applied on top of
+    /// <c>InitialSites</c> by script, one at a time, skipping <c>SitesCrossSchemaForeignKeys</c> — whose
+    /// targets do not exist in this isolated container (see <see cref="InitializeAsync"/>).
+    /// </summary>
+    private static readonly string[] SitesLocalMigrations =
+    [
+        "SiteDocumentLinkUnique",
     ];
 
     public async Task InitializeAsync()
@@ -91,6 +102,16 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
             // Rule9CrossSchemaForeignKeyTests migrates every module in SchemaOrder and asserts each FK
             // points in an allowed direction. This file owns exactly what InitialSites creates.
             await context.Database.GetService<IMigrator>().MigrateAsync("InitialSites");
+
+            IMigrator migrator = context.Database.GetService<IMigrator>();
+            var ids = context.Database.GetService<IMigrationsAssembly>().Migrations.Keys.Order().ToList();
+
+            foreach (string name in SitesLocalMigrations)
+            {
+                int index = ids.FindIndex(id => id.EndsWith("_" + name, StringComparison.Ordinal));
+                string script = migrator.GenerateScript(ids[index - 1], ids[index]);
+                await context.Database.ExecuteSqlRawAsync(script);
+            }
         }
 
         _connection = new NpgsqlConnection(_postgres.GetConnectionString());
@@ -254,6 +275,39 @@ public sealed class SitesSchemaObjectTests : IAsyncLifetime
                 """));
 
         Assert.Equal("ck_site_modules_code_blank", ex.ConstraintName);
+    }
+
+    /// <summary>
+    /// NS2: one active link per (document, subject). <c>NULLS NOT DISTINCT</c> is load-bearing — every
+    /// row has exactly one null subject column, so a default unique index would never bite. Partial on
+    /// <c>IsActive</c>, so an unlinked row does not block a relink.
+    /// </summary>
+    [Fact]
+    public async Task TheDocumentLinkIndex_RefusesADuplicateActiveLinkButNotAnInactiveOne()
+    {
+        string definition = await TextAsync(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname='sites' AND indexname='ux_site_documents_link';");
+        Assert.Contains("NULLS NOT DISTINCT", definition, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("WHERE", definition, StringComparison.OrdinalIgnoreCase);
+
+        var siteId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        string insert = $"""
+            INSERT INTO sites.sites ("Id","ProjectId","Code","Status","CreatedById","IsActive","CreatedAtUtc")
+            VALUES ('{siteId}', gen_random_uuid(), 'SITE-99001', 1, gen_random_uuid(), true, now());
+            INSERT INTO sites.site_documents ("Id","DocumentId","SiteId","Kind","AddedById","IsActive","CreatedAtUtc")
+            VALUES (gen_random_uuid(), '{documentId}', '{siteId}', 1, gen_random_uuid(), false, now()),
+                   (gen_random_uuid(), '{documentId}', '{siteId}', 1, gen_random_uuid(), true, now());
+            """;
+        await ExecuteAsync(insert);
+
+        PostgresException ex = await Assert.ThrowsAsync<PostgresException>(async () =>
+            await ExecuteAsync($"""
+                INSERT INTO sites.site_documents ("Id","DocumentId","SiteId","Kind","AddedById","IsActive","CreatedAtUtc")
+                VALUES (gen_random_uuid(), '{documentId}', '{siteId}', 2, gen_random_uuid(), true, now());
+                """));
+
+        Assert.Equal("ux_site_documents_link", ex.ConstraintName);
     }
 
     private async Task<long> ScalarAsync(string sql)

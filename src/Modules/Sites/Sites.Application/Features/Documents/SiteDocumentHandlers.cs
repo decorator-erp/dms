@@ -69,6 +69,19 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
             }
         }
 
+        // NS2: one active link per (document, subject). Pre-checked for the sequential case; the
+        // partial unique index ux_site_documents_link catches the race and SiteWrites maps it to the
+        // same 409. The IsActive query filter is what lets an unlinked subject be linked again.
+        Guid? linkRecordId = command.Request.RecordId;
+        if (await db.SiteDocuments.AnyAsync(
+                d => d.DocumentId == command.Request.DocumentId
+                     && d.SiteId == siteId
+                     && d.RecordId == linkRecordId,
+                ct))
+        {
+            return SiteErrors.DocumentAlreadyLinked;
+        }
+
         Result<SiteDocument> link = SiteDocument.Create(
             command.Request.DocumentId, SiteEnumMapping.ToDomain(command.Request.Kind),
             command.AddedById, siteId, command.Request.RecordId);

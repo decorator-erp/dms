@@ -623,6 +623,55 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(SiteErrors.DocumentNotFound, again.Error);
     }
 
+    /// <summary>
+    /// <b>NS2.</b> Nothing stopped one document being linked to the same subject twice, so the gallery
+    /// showed it twice. Linking it to the site AND to one of its records is two subjects and stays legal;
+    /// unlinking frees the subject again.
+    /// </summary>
+    [Fact]
+    public async Task NS2_LinkingADocumentTwiceToOneSubject_IsDocumentAlreadyLinked()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
+
+        Result<Guid> toSite = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Result<Guid> toRecord = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, record.Value),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+
+        Assert.True(toSite.IsSuccess);
+        Assert.True(toRecord.IsSuccess);
+
+        Result<Guid> siteAgain = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Sketch),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Result<Guid> recordAgain = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, record.Value),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+
+        Assert.Equal(SiteErrors.DocumentAlreadyLinked, siteAgain.Error);
+        Assert.Equal(409, siteAgain.Error.Status);
+        Assert.Equal(SiteErrors.DocumentAlreadyLinked, recordAgain.Error);
+
+        Assert.True((await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, toSite.Value, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<Guid> relinked = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(relinked.IsSuccess);
+
+        Result<IReadOnlyList<SiteDocumentResponse>> listed = await ListDocumentsAsync(siteId);
+        Assert.Equal(2, listed.Value!.Count);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>

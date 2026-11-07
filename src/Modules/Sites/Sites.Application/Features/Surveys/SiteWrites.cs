@@ -1,5 +1,6 @@
 using Crm.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SharedKernel;
 using Sites.Domain;
 using Sites.Infrastructure.Persistence;
@@ -12,6 +13,16 @@ namespace Sites.Application.Features.Surveys;
 /// </summary>
 internal static class SiteWrites
 {
+    /// <summary>
+    /// Unique indexes a race can still hit after a handler's pre-check, by constraint name, mapped to
+    /// the same 409 the pre-check answers — <c>CatalogWrites</c>' shape. Anything else stays
+    /// <see cref="SiteErrors.SaveFailed"/>.
+    /// </summary>
+    private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
+    {
+        ["ux_site_documents_link"] = SiteErrors.DocumentAlreadyLinked,
+    };
+
     /// <summary>
     /// Save, translating an <c>xmin</c> conflict to a 409. Two surveyors editing one survey from two
     /// tablets is the collision the token exists for, and a retry is the whole remedy.
@@ -27,11 +38,21 @@ internal static class SiteWrites
         {
             return SiteErrors.ConcurrencyConflict;
         }
+        catch (DbUpdateException ex) when (MapUniqueViolation(ex) is { } mapped)
+        {
+            return mapped;
+        }
         catch (DbUpdateException)
         {
             return SiteErrors.SaveFailed;
         }
     }
+
+    private static Error? MapUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: { } name }
+        && UniqueViolations.TryGetValue(name, out Error? error)
+            ? error
+            : null;
 
     /// <summary>
     /// Loads a site TRACKED, for writing.

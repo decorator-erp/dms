@@ -152,6 +152,13 @@ internal static class SiteErrors
     public static readonly Error DocumentNotFound = Error.NotFound(
         $"{Prefix}.{nameof(DocumentNotFound)}", "The requested site attachment was not found.");
 
+    /// <summary>
+    /// NS2: the document is already attached to this exact subject (the site, or that record). Backed
+    /// by <c>ux_site_documents_link</c>, partial on <c>IsActive</c>, so unlinking frees the subject.
+    /// </summary>
+    public static readonly Error DocumentAlreadyLinked = Error.Conflict(
+        $"{Prefix}.{nameof(DocumentAlreadyLinked)}", "That document is already attached here.");
+
     public static readonly Error InvalidDocumentSubject = Error.BadRequest(
         $"{Prefix}.{nameof(InvalidDocumentSubject)}",
         "An attachment must belong to exactly one of a site or a record.");
