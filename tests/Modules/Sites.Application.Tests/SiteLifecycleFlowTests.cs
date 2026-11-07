@@ -318,7 +318,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     // ── Listing ────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSites_ClampsThePageSizeAndFiltersByStatus()
+    public async Task GetSites_PagesAndFiltersByStatus()
     {
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
         Guid siteId = await CreateSiteAsync();
@@ -332,14 +332,43 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
             .GetRequiredService<IQueryHandler<GetSitesQuery, BuildingBlocks.Pagination.PagedResult<SiteListItemResponse>>>();
 
         Result<PagedResult<SiteListItemResponse>> submitted = await handler.HandleAsync(new GetSitesQuery(
-            owners.ProjectId, SiteStatus.Submitted, SiteTestData.OwnerUserId, PageIndex: 0, PageSize: 9999));
+            owners.ProjectId, SiteStatus.Submitted, SiteTestData.OwnerUserId, PageIndex: 1, PageSize: 200));
 
         Assert.True(submitted.IsSuccess);
 
-        // Clamped, not trusted: an unbounded page size is a denial-of-service on a large project.
+        // Out-of-range paging is a 400 now (S8 -- see S8_OutOfRangePagingOrStatus_IsAValidationError).
         Assert.Equal(1, submitted.Value!.PageNumber);
         Assert.Equal(200, submitted.Value!.PageSize);
         Assert.Contains(submitted.Value!.Items, s => s.Id == siteId);
         Assert.All(submitted.Value!.Items, s => Assert.Equal(SiteStatus.Submitted, s.Status));
+    }
+
+    /// <summary>
+    /// <b>S8.</b> Paging was clamped rather than validated, and the page index was not bounded at all:
+    /// <c>(PageIndex - 1) * PageSize</c> overflows <c>int</c> long before <c>int.MaxValue</c>, which
+    /// reached the database as a negative OFFSET (500). Now <c>GetProjectsQueryValidator</c>'s bounds —
+    /// page 1..1,000,000, size 1..200 — and an unknown status number are each a 400.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 25, 1)]
+    [InlineData(1_000_001, 25, 1)]
+    [InlineData(int.MaxValue, 200, 1)]
+    [InlineData(1, 0, 1)]
+    [InlineData(1, 201, 1)]
+    [InlineData(1, 25, 99)]
+    public async Task S8_OutOfRangePagingOrStatus_IsAValidationError(int pageIndex, int pageSize, int status)
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
+            .Grant(ProjectsPermissions.Projects.ReadAll);
+
+        Result<PagedResult<SiteListItemResponse>> result = await scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetSitesQuery, PagedResult<SiteListItemResponse>>>()
+            .HandleAsync(new GetSitesQuery(
+                owners.ProjectId, (SiteStatus)status, SiteTestData.OwnerUserId, pageIndex, pageSize));
+
+        Assert.IsType<ValidationError>(result.Error);
     }
 }
