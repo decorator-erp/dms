@@ -736,6 +736,47 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(SiteErrors.CatalogItemNotFound, retired.Error);
     }
 
+    /// <summary>
+    /// <b>B-S-H2.</b> A value save deleted EVERY stored value of the record before re-inserting the
+    /// incoming set — including values for items detached from the module, which the caller cannot
+    /// send (the validator refuses them). So detach, re-save, reattach silently lost the measurement the
+    /// pivot test above promises survives a detach.
+    /// </summary>
+    [Fact]
+    public async Task BSH2_ValueOfADetachedItem_SurvivesAResaveAndReturnsOnReattach()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid widthId) = await CreateFormAsync();
+
+        Guid heightId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("height"), "Height", "الارتفاع", SiteItemDataType.Number, "cm")),
+            true)).Value;
+        Assert.True((await SendAsync(new AttachSiteItemCommand(
+            moduleId, new AttachSiteItemRequest(heightId)), true)).IsSuccess);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest(
+                [new SiteValueRequest(widthId, ValueNumber: 90m), new SiteValueRequest(heightId, ValueNumber: 210m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.True((await SendAsync(new DetachSiteItemCommand(moduleId, heightId))).IsSuccess);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(widthId, ValueNumber: 95m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.True((await SendAsync(new AttachSiteItemCommand(
+            moduleId, new AttachSiteItemRequest(heightId)), true)).IsSuccess);
+
+        Assert.Equal(95m, await ReadNumberAsync(record.Value, widthId));
+        Assert.Equal(210m, await ReadNumberAsync(record.Value, heightId));
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>

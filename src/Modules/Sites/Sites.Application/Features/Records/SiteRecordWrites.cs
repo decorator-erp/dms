@@ -81,8 +81,9 @@ internal static class SiteRecordWrites
     /// Replaces a record's value set on the change tracker without saving, so the grid save can stage
     /// many records inside one transaction.
     ///
-    /// <para>Delete-all-then-insert, because a value absent from the incoming set is <b>cleared</b>: the
-    /// table has no soft-delete flag, and a cleared measurement is not a measurement.</para>
+    /// <para>Delete-then-insert over the module's CURRENT items, because a value absent from the incoming
+    /// set is <b>cleared</b>: the table has no soft-delete flag, and a cleared measurement is not a
+    /// measurement. Values of items no longer on the form are left alone (B-S-H2).</para>
     ///
     /// <para>Item types and options are loaded in two batched queries, never per value — the N+1 the
     /// backend's own domain service carries a comment about having removed.</para>
@@ -90,17 +91,6 @@ internal static class SiteRecordWrites
     public static async Task<Result> StageValuesAsync(
         SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
     {
-        List<SiteRecordValue> existing = await db.SiteRecordValues
-            .Where(v => v.RecordId == record.Id)
-            .ToListAsync(ct);
-
-        db.SiteRecordValues.RemoveRange(existing);
-
-        if (values.Count == 0)
-        {
-            return Result.Success();
-        }
-
         // Only items actually linked to this record's module may carry a value. The validator says the
         // same thing with a nicer message; this is the structural guard, and it is what stops a value
         // being written against a field the module does not have.
@@ -110,6 +100,22 @@ internal static class SiteRecordWrites
             where link.ModuleId == record.ModuleId && link.IsActive && item.IsActive
             select item)
             .ToDictionaryAsync(i => i.Id, ct);
+
+        // B-S-H2: clear only the values the caller could have sent -- those of items currently on the
+        // form. A value captured against an item since detached (or retired) is outside this set; the
+        // caller cannot resend it, so deleting it here would lose it for good, and it must survive to
+        // reappear when the item is reattached.
+        var allowedIds = allowed.Keys.ToList();
+        List<SiteRecordValue> existing = await db.SiteRecordValues
+            .Where(v => v.RecordId == record.Id && allowedIds.Contains(v.ItemId))
+            .ToListAsync(ct);
+
+        db.SiteRecordValues.RemoveRange(existing);
+
+        if (values.Count == 0)
+        {
+            return Result.Success();
+        }
 
         var optionItemIds = values
             .Where(v => v.OptionId.HasValue)
