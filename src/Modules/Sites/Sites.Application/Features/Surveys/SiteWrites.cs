@@ -112,4 +112,22 @@ internal static class SiteWrites
 
         return space.ProjectId == projectId ? Result.Success() : SiteErrors.SpaceNotInProject;
     }
+
+    /// <summary>
+    /// S2: a record's catalog item, when named, must exist and be active in CRM. Read through
+    /// <c>ICrmCatalogItemReader</c>; the cross-schema foreign key alone made a bad id a 500 and let a
+    /// retired item through.
+    /// </summary>
+    public static async Task<Result> ValidateCatalogItemAsync(
+        ICrmCatalogItemReader catalog, Guid? catalogItemId, CancellationToken ct)
+    {
+        if (catalogItemId is not { } id)
+        {
+            return Result.Success();
+        }
+
+        CrmCatalogItemSummary? item = await catalog.GetAsync(id, ct);
+
+        return item is { IsActive: true } ? Result.Success() : SiteErrors.CatalogItemNotFound;
+    }
 }

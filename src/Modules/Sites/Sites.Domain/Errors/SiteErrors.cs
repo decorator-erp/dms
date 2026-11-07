@@ -125,6 +125,13 @@ internal static class SiteErrors
     public static readonly Error SpaceNotFound = Error.NotFound(
         $"{Prefix}.{nameof(SpaceNotFound)}", "The requested space was not found.");
 
+    /// <summary>
+    /// S2: a record's catalog item must exist and be active in CRM. Read through
+    /// <c>Crm.Contracts.ICrmCatalogItemReader</c>; the foreign key alone turned a bad id into a 500.
+    /// </summary>
+    public static readonly Error CatalogItemNotFound = Error.NotFound(
+        $"{Prefix}.{nameof(CatalogItemNotFound)}", "The requested catalog item was not found.");
+
     public static readonly Error InvalidTransition = Error.Conflict(
         $"{Prefix}.{nameof(InvalidTransition)}",
         "That status change is not allowed from the site's current status.");

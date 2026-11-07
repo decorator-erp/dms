@@ -23,7 +23,8 @@ internal sealed class AddSiteRecordCommandValidator : AbstractValidator<AddSiteR
     }
 }
 
-internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceReader spaces)
+internal sealed class AddSiteRecordCommandHandler(
+    SitesDbContext db, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<AddSiteRecordCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(
@@ -50,6 +51,12 @@ internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceRe
         if (space.IsFailure)
         {
             return space.Error;
+        }
+
+        Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, command.Request.CatalogItemId, ct);
+        if (catalogItem.IsFailure)
+        {
+            return catalogItem.Error;
         }
 
         Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
@@ -89,7 +96,8 @@ internal sealed class UpdateSiteRecordCommandValidator : AbstractValidator<Updat
     }
 }
 
-internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceReader spaces)
+internal sealed class UpdateSiteRecordCommandHandler(
+    SitesDbContext db, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<UpdateSiteRecordCommand>
 {
     public async Task<Result> HandleAsync(UpdateSiteRecordCommand command, CancellationToken ct = default)
@@ -106,6 +114,12 @@ internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpac
         if (space.IsFailure)
         {
             return space;
+        }
+
+        Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, command.Request.CatalogItemId, ct);
+        if (catalogItem.IsFailure)
+        {
+            return catalogItem;
         }
 
         Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
@@ -216,7 +230,7 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
 /// signal mid-save must not leave half a room measured.
 /// </summary>
 internal sealed class BulkSaveSiteRecordsCommandHandler(
-    SitesDbContext db, ISiteModuleValidator validator, ICrmSpaceReader spaces)
+    SitesDbContext db, ISiteModuleValidator validator, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<BulkSaveSiteRecordsCommand>
 {
     public async Task<Result> HandleAsync(
@@ -306,6 +320,12 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             if (space.IsFailure)
             {
                 return space;
+            }
+
+            Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, row.Request.CatalogItemId, ct);
+            if (catalogItem.IsFailure)
+            {
+                return catalogItem;
             }
 
             Result stored = await SiteRecordWrites.EnsureLabelFreeAsync(

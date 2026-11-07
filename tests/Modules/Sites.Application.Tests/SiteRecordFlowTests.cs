@@ -672,6 +672,70 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(2, listed.Value!.Count);
     }
 
+    private async Task<Guid> CreateCatalogItemAsync()
+    {
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        Guid categoryId = (await SendAsync(new Crm.Contracts.Catalog.CreateCrmCatalogCategoryCommand(
+            null, $"cat{suffix}", "Doors", "أبواب"), true)).Value;
+
+        Result<Guid> item = await SendAsync(new Crm.Contracts.Catalog.CreateCrmCatalogItemCommand(
+            categoryId, $"itm{suffix}", "Flush door", "باب"), true);
+        Assert.True(item.IsSuccess);
+        return item.Value;
+    }
+
+    /// <summary>
+    /// <b>S2.</b> <c>CatalogItemId</c> was never validated: a missing id reached the foreign key as a
+    /// 500, and a retired catalog item was accepted. Checked through <c>ICrmCatalogItemReader</c> on
+    /// add, update and the grid save.
+    /// </summary>
+    [Fact]
+    public async Task S2_RecordWithAMissingOrRetiredCatalogItem_IsCatalogItemNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+        Guid catalogItemId = await CreateCatalogItemAsync();
+
+        Result<Guid> valid = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 1", CatalogItemId: catalogItemId),
+            SiteTestData.OwnerUserId), true);
+        Assert.True(valid.IsSuccess);
+
+        Result<Guid> missingAdd = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 2", CatalogItemId: Guid.NewGuid()),
+            SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingAdd.Error);
+
+        Result missingUpdate = await SendAsync(new UpdateSiteRecordCommand(
+            siteId, valid.Value, new UpdateSiteRecordRequest("Door 1", null, Guid.NewGuid(), 0, null),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingUpdate.Error);
+
+        Result missingBulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door 3", null, Guid.NewGuid(), 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingBulk.Error);
+
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                $"""UPDATE crm.crm_catalog_items SET "IsActive" = false WHERE "Id" = '{catalogItemId}';""",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        Result<Guid> retired = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 4", CatalogItemId: catalogItemId),
+            SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.CatalogItemNotFound, retired.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
