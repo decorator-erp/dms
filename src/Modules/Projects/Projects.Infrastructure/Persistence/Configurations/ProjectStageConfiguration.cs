@@ -20,6 +20,10 @@ internal sealed class ProjectStageConfiguration : IEntityTypeConfiguration<Proje
         builder.Property(s => s.Notes).HasMaxLength(2000);
 
         builder.HasIndex(s => s.ProjectId);
+
+        // P1: RESTRICT, never cascade: a project is hard-deleted only by DeleteProjectCommandHandler, which removes
+        // its work first, so a delete that would orphan a row fails instead of silently taking the work with it.
+        builder.HasOne<Project>().WithMany().HasForeignKey(s => s.ProjectId).OnDelete(DeleteBehavior.Restrict);
         // CompletedById: bare Guid FK to hr.employees, raw-SQL constraint in the migration.
         builder.HasIndex(s => s.CompletedById);
     }

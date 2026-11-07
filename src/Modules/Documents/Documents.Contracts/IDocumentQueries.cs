@@ -49,4 +49,9 @@ public interface IDocumentQueries
 
     /// <summary>The task form of <see cref="StagesReferencedAsync"/>.</summary>
     Task<IReadOnlyList<Guid>> TasksReferencedAsync(IReadOnlyCollection<Guid> projectTaskIds, CancellationToken ct);
+
+    /// <summary>P1: the project form of <see cref="StagesReferencedAsync"/> — the subset of
+    /// <paramref name="projectIds"/> that any document row (active or soft-deleted) or folder names, asked before
+    /// Projects hard-deletes a project.</summary>
+    Task<IReadOnlyList<Guid>> ProjectsReferencedAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct);
 }

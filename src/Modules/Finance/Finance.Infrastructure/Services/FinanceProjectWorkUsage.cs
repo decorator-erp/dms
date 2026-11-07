@@ -36,4 +36,19 @@ internal sealed class FinanceProjectWorkUsage(FinanceDbContext db) : IFinancePro
             .Union(db.BoqSnapshotLines.AsNoTracking().Where(x => x.ProjectTaskId != null && projectTaskIds.Contains(x.ProjectTaskId.Value)).Select(x => x.ProjectTaskId!.Value))
             .ToListAsync(ct);
     }
+
+    public async Task<IReadOnlyList<Guid>> ProjectsInUseAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.BudgetLines.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId)
+            .Union(db.LedgerEntries.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.Invoices.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.Variations.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.BoqSnapshots.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .ToListAsync(ct);
+    }
 }

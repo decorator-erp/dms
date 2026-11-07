@@ -66,6 +66,22 @@ internal sealed class DocumentQueries(DocumentsDbContext db) : IDocumentQueries
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Guid>> ProjectsReferencedAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.ProjectDocuments.AsNoTracking()
+            .Where(d => projectIds.Contains(d.ProjectId))
+            .Select(d => d.ProjectId)
+            .Union(db.DocumentFolders.AsNoTracking()
+                .Where(f => projectIds.Contains(f.ProjectId))
+                .Select(f => f.ProjectId))
+            .ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<Guid>> TasksReferencedAsync(IReadOnlyCollection<Guid> projectTaskIds, CancellationToken ct)
     {
         if (projectTaskIds.Count == 0)

@@ -4,15 +4,19 @@ using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using BuildingBlocks.Persistence;
 using Crm.Contracts;
+using Documents.Contracts;
+using Finance.Contracts;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Stages;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using Projects.Infrastructure.Services;
 using SharedKernel;
+using Sites.Contracts;
 using Domain = Projects.Domain;
 
 namespace Projects.Application.Features.Projects;
@@ -184,18 +188,61 @@ internal sealed class SetProjectActiveCommandHandler(ProjectsDbContext db) : ICo
     }
 }
 
-internal sealed class DeleteProjectCommandHandler(ProjectsDbContext db) : ICommandHandler<DeleteProjectCommand>
+/// <summary>
+/// P1: a guarded hard delete, under the project lock (<see cref="ProjectWriteLock.RunAsync(ProjectsDbContext, Guid, Func{Task{Result}}, CancellationToken)"/>).
+/// Allowed only while nothing has happened on the project and nothing points at it
+/// (<see cref="WorkDeletionGuard.CanDeleteProjectAsync"/>: every stage and task passes the stage/task delete rules,
+/// no pending approval gate, no document, no site — soft-deleted ones included — and no CRM or Finance row);
+/// otherwise 409 <c>projects.NotDeletable</c>. The gates, sub-tasks, tasks, stage teams and stages go in the same
+/// transaction (members and the scope of work by their cascading foreign keys); an FK violation from a row a
+/// contract could not see yet is the same 409.
+/// </summary>
+internal sealed class DeleteProjectCommandHandler(
+    ProjectsDbContext db, IDocumentQueries documents, ICrmProjectWorkUsage crm, IFinanceProjectWorkUsage finance,
+    ISiteProjectUsage sites)
+    : ICommandHandler<DeleteProjectCommand>
 {
-    public async Task<Result> HandleAsync(DeleteProjectCommand command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(DeleteProjectCommand command, CancellationToken ct = default) =>
+        ProjectWriteLock.RunAsync(db, command.ProjectId, () => DeleteAsync(command, ct), ct);
+
+    private async Task<Result> DeleteAsync(DeleteProjectCommand command, CancellationToken ct)
     {
-        Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
+        Project? project = await db.Projects.FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
         if (project is null)
         {
             return Domain.ProjectErrors.NotFound;
         }
 
+        var guard = new WorkDeletionGuard(db, documents, crm, finance);
+        await guard.LockProjectWorkAsync(project.Id, ct);
+        List<Guid> stageIds = await db.ProjectStages.AsNoTracking()
+            .Where(s => s.ProjectId == project.Id).Select(s => s.Id).ToListAsync(ct);
+        List<Guid> taskIds = await db.ProjectTasks.AsNoTracking()
+            .Where(t => t.ProjectId == project.Id).Select(t => t.Id).ToListAsync(ct);
+        if (!await guard.CanDeleteProjectAsync(project.Id, stageIds, taskIds, sites, ct))
+        {
+            return Domain.ProjectErrors.NotDeletable;
+        }
+
+        await guard.RemoveTasksAsync(taskIds, ct);
+        db.GateConditions.RemoveRange(await db.GateConditions
+            .Where(g => g.ProjectStageId != null && stageIds.Contains(g.ProjectStageId.Value)).ToListAsync(ct));
+        db.StageTeams.RemoveRange(await db.StageTeams.Where(t => stageIds.Contains(t.ProjectStageId)).ToListAsync(ct));
+        db.ProjectStages.RemoveRange(await db.ProjectStages.Where(s => s.ProjectId == project.Id).ToListAsync(ct));
         db.Projects.Remove(project);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Domain.ProjectErrors.ConcurrentUpdate;
+        }
+        catch (DbUpdateException ex) when (ProjectWriteLock.IsForeignKeyViolation(ex))
+        {
+            return Domain.ProjectErrors.NotDeletable;
+        }
+
         return Result.Success();
     }
 }

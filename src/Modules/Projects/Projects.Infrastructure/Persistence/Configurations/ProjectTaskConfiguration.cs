@@ -21,6 +21,10 @@ internal sealed class ProjectTaskConfiguration : IEntityTypeConfiguration<Projec
         builder.Property(t => t.Cost).HasPrecision(18, 2);
 
         builder.HasIndex(t => t.ProjectId);
+
+        // P1: RESTRICT, never cascade: a project is hard-deleted only by DeleteProjectCommandHandler, which removes
+        // its work first, so a delete that would orphan a row fails instead of silently taking the work with it.
+        builder.HasOne<Project>().WithMany().HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(t => t.ProjectStageId);
         // AssignedToId/DepartmentId: bare Guid FKs to hr.employees/hr.departments, raw-SQL constraints
         // in the migration.

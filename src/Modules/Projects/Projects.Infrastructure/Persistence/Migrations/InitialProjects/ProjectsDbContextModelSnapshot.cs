@@ -1012,6 +1012,24 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Projects.Domain.ProjectStage", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Projects.Domain.ProjectTask", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>
                 {
                     b.HasOne("Projects.Domain.Project", null)

@@ -32,6 +32,11 @@ internal static class ProjectErrors
     /// <summary>P9: the project row's <c>xmin</c> moved between the read and the save.</summary>
     public static readonly Error ConcurrentUpdate = Error.Conflict(
         "projects.ConcurrentUpdate", "The project was changed by someone else. Reload and try again.");
+
+    /// <summary>P1: the project has work under way (a started or touched task, a closed stage, a satisfied or
+    /// pending-approval gate), or a document, site (soft-deleted included), CRM or Finance row still names it.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.NotDeletable", "This project has started or is referenced elsewhere and cannot be deleted.");
 }
 
 internal static class StageErrors

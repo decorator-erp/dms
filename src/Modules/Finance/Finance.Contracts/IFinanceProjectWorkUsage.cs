@@ -10,4 +10,8 @@ public interface IFinanceProjectWorkUsage
     Task<IReadOnlyList<Guid>> StagesInUseAsync(IReadOnlyCollection<Guid> projectStageIds, CancellationToken ct);
 
     Task<IReadOnlyList<Guid>> TasksInUseAsync(IReadOnlyCollection<Guid> projectTaskIds, CancellationToken ct);
+
+    /// <summary>P1: the subset of <paramref name="projectIds"/> that any budget line, ledger entry, invoice,
+    /// variation or BOQ snapshot names, so Projects can refuse to hard-delete such a project (409).</summary>
+    Task<IReadOnlyList<Guid>> ProjectsInUseAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct);
 }

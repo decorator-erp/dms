@@ -38,4 +38,22 @@ internal sealed class CrmProjectWorkUsage(CrmDbContext db) : Contracts.ICrmProje
                 .Select(s => s.ProjectTaskId!.Value))
             .ToListAsync(ct);
     }
+
+    public async Task<IReadOnlyList<Guid>> ProjectsInUseAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.CrmMeetings.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId)
+            .Union(db.CrmDesignBriefs.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.CrmBriefHeadSnapshots.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.CrmSpaces.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.CrmRequirementPeriods.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.CrmRequirementItems.AsNoTracking().Where(x => projectIds.Contains(x.ProjectId)).Select(x => x.ProjectId))
+            .Union(db.CrmClientNotes.AsNoTracking()
+                .Where(x => x.ProjectId != null && projectIds.Contains(x.ProjectId.Value)).Select(x => x.ProjectId!.Value))
+            .ToListAsync(ct);
+    }
 }

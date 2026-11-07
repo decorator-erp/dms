@@ -3,6 +3,7 @@ using Documents.Contracts;
 using Finance.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Infrastructure.Persistence;
+using Sites.Contracts;
 using Domain = Projects.Domain;
 
 namespace Projects.Application.Features.Stages;
@@ -16,6 +17,11 @@ namespace Projects.Application.Features.Stages;
 /// brief-space entry (CRM) and no budget, ledger, invoice, variation or BOQ row (Finance) may point at them.
 /// A fixed number of statements whatever the task count; the caller holds the project lock
 /// (<see cref="ProjectWriteLock"/>), so the answer still holds when it deletes.
+///
+/// <para>P1: <see cref="CanDeleteProjectAsync"/> applies the same rules to a whole project at once (set-based,
+/// so references between the project's own stages and tasks don't block), plus the project-level ones:
+/// no document or folder, no site (soft-deleted ones included, <see cref="ISiteProjectUsage"/>), and no CRM or Finance
+/// row naming the project.</para>
 /// </summary>
 internal sealed class WorkDeletionGuard(
     ProjectsDbContext db, IDocumentQueries documents, ICrmProjectWorkUsage crm, IFinanceProjectWorkUsage finance)
@@ -46,6 +52,64 @@ internal sealed class WorkDeletionGuard(
     }
 
     public Task<bool> CanDeleteTaskAsync(Guid taskId, CancellationToken ct) => CanDeleteTasksAsync([taskId], ct);
+
+    /// <summary>P1: every stage still Active or Locked and every task never started and untouched (the same rules
+    /// as <see cref="CanDeleteStageAsync"/>/<see cref="CanDeleteTaskAsync"/>, for the whole set at once); no
+    /// satisfied or pending-approval gate on the work; no gate outside the project referencing it; and nothing in
+    /// Documents, Sites, CRM or Finance naming the project, its stages or its tasks. The caller holds the project
+    /// lock and has taken the work rows with <see cref="LockProjectWorkAsync"/>.</summary>
+    public async Task<bool> CanDeleteProjectAsync(
+        Guid projectId, IReadOnlyCollection<Guid> stageIds, IReadOnlyCollection<Guid> taskIds, ISiteProjectUsage sites,
+        CancellationToken ct)
+    {
+        bool closedStage = await db.ProjectStages.AsNoTracking().AnyAsync(s =>
+            s.ProjectId == projectId && s.Status != Domain.StageStatus.Active && s.Status != Domain.StageStatus.Locked, ct);
+        bool startedTask = await db.ProjectTasks.AsNoTracking().AnyAsync(t =>
+            t.ProjectId == projectId && t.Status != Domain.ProjectTaskStatus.Open && t.Status != Domain.ProjectTaskStatus.Locked, ct);
+        if (closedStage || startedTask)
+        {
+            return false;
+        }
+
+        bool touched = await db.ProjectSubTasks.AsNoTracking().AnyAsync(s => taskIds.Contains(s.ProjectTaskId) && s.IsDone, ct)
+            || await db.TaskComments.AsNoTracking().AnyAsync(c => taskIds.Contains(c.TaskId), ct)
+            || await db.GateConditions.AsNoTracking().AnyAsync(g =>
+                (g.ProjectStageId != null && stageIds.Contains(g.ProjectStageId.Value) || g.ProjectTaskId != null && taskIds.Contains(g.ProjectTaskId.Value))
+                && (g.Status == Domain.GateStatus.Satisfied
+                    || g.ConditionType == Domain.ConditionType.Approval && g.Status == Domain.GateStatus.Pending), ct)
+            || await db.GateConditions.AsNoTracking().AnyAsync(g =>
+                (g.ReferencedStageId != null && stageIds.Contains(g.ReferencedStageId.Value)
+                    || g.ReferencedTaskId != null && taskIds.Contains(g.ReferencedTaskId.Value))
+                && (g.ProjectStageId == null || !stageIds.Contains(g.ProjectStageId.Value))
+                && (g.ProjectTaskId == null || !taskIds.Contains(g.ProjectTaskId.Value)), ct);
+        if (touched)
+        {
+            return false;
+        }
+
+        Guid[] project = [projectId];
+        return (await documents.ProjectsReferencedAsync(project, ct)).Count == 0
+            && (await documents.StagesReferencedAsync(stageIds, ct)).Count == 0
+            && (await documents.TasksReferencedAsync(taskIds, ct)).Count == 0
+            && (await sites.ProjectsInUseAsync(project, ct)).Count == 0
+            && (await crm.ProjectsInUseAsync(project, ct)).Count == 0
+            && (await crm.StagesInUseAsync(stageIds, ct)).Count == 0
+            && (await crm.TasksInUseAsync(taskIds, ct)).Count == 0
+            && (await finance.ProjectsInUseAsync(project, ct)).Count == 0
+            && (await finance.StagesInUseAsync(stageIds, ct)).Count == 0
+            && (await finance.TasksInUseAsync(taskIds, ct)).Count == 0;
+    }
+
+    /// <summary>P1: takes every stage and task row of the project <c>FOR UPDATE</c> (one statement each) before the
+    /// checks, as <see cref="LockAsync"/> does for one stage, so a racing transition, comment or sub-task completion
+    /// either commits first and is seen, or waits and then finds its row gone.</summary>
+    public async Task LockProjectWorkAsync(Guid projectId, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM projects.project_stages WHERE \"ProjectId\" = {projectId} FOR UPDATE", ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM projects.project_tasks WHERE \"ProjectId\" = {projectId} FOR UPDATE", ct);
+    }
 
     /// <summary>FINDING-E-3: locks the rows about to be deleted (<c>FOR UPDATE</c>) before any check, so a writer
     /// that takes the task row (<see cref="ProjectWriteLock.ShareTaskAsync"/>: comment, sub-task complete, start)
