@@ -121,6 +121,41 @@ public sealed class ProjectIntegrityRouteTests(ApiFixture fixture)
         await AssertNotDeletableAsync(owner, gated);
     }
 
+    /// <summary>R1-2: one lock order, stage rows before task rows. A stage delete (the stage, then its tasks) and a
+    /// task completion in that stage used to take the two rows in opposite orders and deadlock (40P01, a 500). A third
+    /// transaction holds the stage so the delete queues on it first and the completion second; once it lets go, one
+    /// wins and the other sees its result.</summary>
+    [Fact]
+    public async Task R1_2_DeletingAStageWhileCompletingOneOfItsTasks_DoesNotDeadlock()
+    {
+        (HttpClient owner, Guid projectId, Guid stageId) = await ConfirmedProjectAsync("r1-2");
+        Guid task = await CreateTaskAsync(owner, projectId, stageId, "Racing");
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.PostAsync($"/api/projects/{projectId}/tasks/{task}/start", null)).StatusCode);
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using NpgsqlTransaction tx = await connection.BeginTransactionAsync();
+        await using (var hold = new NpgsqlCommand(
+            "SELECT 1 FROM projects.project_stages WHERE \"Id\" = @id FOR NO KEY UPDATE", connection, tx))
+        {
+            hold.Parameters.AddWithValue("id", stageId);
+            await hold.ExecuteNonQueryAsync();
+        }
+
+        Task<HttpResponseMessage> delete = owner.DeleteAsync($"/api/projects/{projectId}/stages/{stageId}");
+        await Task.Delay(500);
+        Task<HttpResponseMessage> complete = owner.PostAsync($"/api/projects/{projectId}/tasks/{task}/complete", null);
+        await Task.Delay(500);
+        await tx.CommitAsync();
+
+        HttpResponseMessage deleted = await delete;
+        HttpResponseMessage completed = await complete;
+
+        // The task had started, so the delete is refused and the completion goes through.
+        Assert.True(deleted.StatusCode == HttpStatusCode.Conflict, $"{deleted.StatusCode}: {await deleted.Content.ReadAsStringAsync()}");
+        Assert.True(completed.StatusCode == HttpStatusCode.NoContent, $"{completed.StatusCode}: {await completed.Content.ReadAsStringAsync()}");
+    }
+
     private static async Task AssertNotDeletableAsync(HttpClient owner, Guid projectId)
     {
         HttpResponseMessage refused = await owner.DeleteAsync($"/api/projects/{projectId}");

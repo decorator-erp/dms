@@ -18,10 +18,11 @@ namespace Projects.Infrastructure.Persistence;
 /// this context's tracked gates (a gate changed or deleted but not yet saved counts as it is now), because the
 /// integration-event and cascade paths call this before the change is flushed.</para>
 ///
-/// <para><b>Lock order.</b> A transition that both recounts its own stage (<see cref="StageCounters"/>) and cascades
-/// into other stages' Unlock gates takes every one of those stage rows up front in one statement, sorted by id
-/// (<see cref="LockCompletionCascadeAsync"/>), so two such transitions crossing each other's stages queue instead of
-/// deadlocking (A then B against B then A).</para>
+/// <para><b>Lock order (R1-2): stage rows before task rows, each set sorted by id.</b> A transition that both
+/// recounts its own stage (<see cref="StageCounters"/>) and cascades into other owners' Unlock gates takes every one
+/// of those stage rows up front in one statement, then every task row (its own and the cascade's) in another
+/// (<see cref="LockCompletionCascadeAsync"/>), so two such transitions crossing each other's rows, or a transition
+/// crossing a stage delete, queue instead of deadlocking (A then B against B then A).</para>
 /// </summary>
 internal static class GateOwnerLocks
 {
@@ -58,29 +59,45 @@ internal static class GateOwnerLocks
 
     /// <summary>Takes, sorted by id in one statement, the completing owner's own stage (<paramref name="ownStageId"/>,
     /// which <see cref="StageCounters"/> will recount) plus every stage whose pending Unlock gate the completion of
-    /// <paramref name="completedTaskId"/> or <paramref name="completedStageId"/> is about to satisfy.</summary>
+    /// <paramref name="completedTaskId"/> or <paramref name="completedStageId"/> is about to satisfy; then (R1-2: stage
+    /// rows before task rows), sorted by id in one statement, the completing task itself and every task whose pending
+    /// Unlock gate the completion satisfies, so the cascade's <see cref="ReleaseIfLastAsync(ProjectsDbContext, GateOwnerKind, Guid, CancellationToken)"/>
+    /// finds them already held. Call it before taking any task row.</summary>
     public static async Task LockCompletionCascadeAsync(
         ProjectsDbContext db, Guid? ownStageId, Guid? completedTaskId, Guid? completedStageId, CancellationToken ct)
     {
-        List<Guid> stageIds = await db.GateConditions.AsNoTracking()
-            .Where(g => g.ProjectStageId != null && g.Trigger == GateTrigger.Unlock && g.Status == GateStatus.Pending
+        var owners = await db.GateConditions.AsNoTracking()
+            .Where(g => g.Trigger == GateTrigger.Unlock && g.Status == GateStatus.Pending
                 && (completedTaskId != null && g.ConditionType == ConditionType.Task && g.ReferencedTaskId == completedTaskId
                     || completedStageId != null && g.ConditionType == ConditionType.Stage && g.ReferencedStageId == completedStageId))
-            .Select(g => g.ProjectStageId!.Value)
+            .Select(g => new { g.ProjectStageId, g.ProjectTaskId })
             .ToListAsync(ct);
+
+        List<Guid> stageIds = [.. owners.Where(o => o.ProjectStageId != null).Select(o => o.ProjectStageId!.Value)];
         if (ownStageId is { } own)
         {
             stageIds.Add(own);
         }
 
-        Guid[] sorted = [.. stageIds.Distinct().Order()];
-        if (sorted.Length == 0)
+        List<Guid> taskIds = [.. owners.Where(o => o.ProjectTaskId != null).Select(o => o.ProjectTaskId!.Value)];
+        if (completedTaskId is { } completed)
         {
-            return;
+            taskIds.Add(completed);
         }
 
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM projects.project_stages WHERE \"Id\" = ANY({sorted}) ORDER BY \"Id\" FOR NO KEY UPDATE", ct);
+        Guid[] stages = [.. stageIds.Distinct().Order()];
+        if (stages.Length > 0)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM projects.project_stages WHERE \"Id\" = ANY({stages}) ORDER BY \"Id\" FOR NO KEY UPDATE", ct);
+        }
+
+        Guid[] tasks = [.. taskIds.Distinct().Order()];
+        if (tasks.Length > 0)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM projects.project_tasks WHERE \"Id\" = ANY({tasks}) ORDER BY \"Id\" FOR NO KEY UPDATE", ct);
+        }
     }
 
     private static async Task<bool> AnyPendingUnlockAsync(ProjectsDbContext db, GateOwnerKind kind, Guid ownerId, CancellationToken ct)

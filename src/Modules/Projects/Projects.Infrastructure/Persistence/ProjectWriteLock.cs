@@ -73,6 +73,35 @@ internal static class ProjectWriteLock
         return found.Count == 1;
     }
 
+    /// <summary>R1-2: the stage of a task in the project (null for a FreeStyle task or a task that isn't there), read
+    /// without a lock so the caller can take the stage row before the task row.</summary>
+    public static Task<Guid?> StageOfTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct) =>
+        db.ProjectTasks.AsNoTracking()
+            .Where(t => t.Id == taskId && t.ProjectId == projectId)
+            .Select(t => t.ProjectStageId)
+            .FirstOrDefaultAsync(ct);
+
+    /// <summary>R1-2: <see cref="LockTaskForWriteAsync"/> for a task transition that will recount (or read) its stage.
+    /// <b>One lock order everywhere: stage rows before task rows, each set by id.</b> A stage delete
+    /// (<c>WorkDeletionGuard</c>) takes the stage then its tasks; a transition that took its task first and its stage
+    /// second (the recount) crossed it and deadlocked. So the task's stage is taken first (<c>FOR NO KEY UPDATE</c>,
+    /// as <see cref="StageCounters"/> takes it), then the task.</summary>
+    public static async Task<bool> LockStageThenTaskForWriteAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
+    {
+        await LockStageRowAsync(db, await StageOfTaskAsync(db, projectId, taskId, ct), ct);
+        return await LockTaskForWriteAsync(db, projectId, taskId, ct);
+    }
+
+    /// <summary>R1-2: takes a stage row <c>FOR NO KEY UPDATE</c> (no-op for null), ahead of any task row.</summary>
+    public static async Task LockStageRowAsync(ProjectsDbContext db, Guid? stageId, CancellationToken ct)
+    {
+        if (stageId is { } id)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM projects.project_stages WHERE \"Id\" = {id} FOR NO KEY UPDATE", ct);
+        }
+    }
+
     /// <summary>The stage form of <see cref="LockTaskForWriteAsync"/>, for a stage gate's creation.</summary>
     public static async Task<bool> LockStageForWriteAsync(ProjectsDbContext db, Guid projectId, Guid stageId, CancellationToken ct)
     {

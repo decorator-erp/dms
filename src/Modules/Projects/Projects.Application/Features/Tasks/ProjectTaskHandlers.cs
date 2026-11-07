@@ -74,8 +74,9 @@ internal sealed class StartProjectTaskCommandHandler(
             return live;
         }
 
-        // FINDING-E-3/E2-1: hold the task row (FOR NO KEY UPDATE) against a racing delete and racing starts.
-        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+        // FINDING-E-3/E2-1: hold the task row (FOR NO KEY UPDATE) against a racing delete and racing starts;
+        // R1-2: its stage row before it (stage before task, everywhere).
+        ProjectTask? task = await ProjectWriteLock.LockStageThenTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)
@@ -121,6 +122,11 @@ internal sealed class CompleteProjectTaskCommandHandler(
             return live;
         }
 
+        // R1-2: stage rows before task rows. Own stage (recounted below) and every stage this completion unlocks, then
+        // this task and every task it unlocks, each set in id order (GateOwnerLocks).
+        Guid? stageId = await ProjectWriteLock.StageOfTaskAsync(db, command.ProjectId, command.TaskId, ct);
+        await GateOwnerLocks.LockCompletionCascadeAsync(db, stageId, command.TaskId, null, ct);
+
         // FINDING-E2-3: hold the task row (FOR NO KEY UPDATE) so a racing delete makes this a 404, not a 500.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
@@ -154,9 +160,6 @@ internal sealed class CompleteProjectTaskCommandHandler(
         {
             return result;
         }
-
-        // Own stage (recounted below) and every stage this completion unlocks, in id order (GateOwnerLocks).
-        await GateOwnerLocks.LockCompletionCascadeAsync(db, task.ProjectStageId, task.Id, null, ct);
 
         db.Outbox().Enqueue(new ProjectTaskCompletedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
@@ -198,8 +201,8 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
         }
 
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
-        // and seen instead of overwritten.
-        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+        // and seen instead of overwritten. R1-2: its stage row before it (stage before task, everywhere).
+        ProjectTask? task = await ProjectWriteLock.LockStageThenTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)
@@ -234,8 +237,8 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
         }
 
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
-        // and seen instead of overwritten.
-        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+        // and seen instead of overwritten. R1-2: its stage row before it (stage before task, everywhere).
+        ProjectTask? task = await ProjectWriteLock.LockStageThenTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)
@@ -270,8 +273,8 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
         }
 
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
-        // and seen instead of overwritten.
-        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+        // and seen instead of overwritten. R1-2: its stage row before it (stage before task, everywhere).
+        ProjectTask? task = await ProjectWriteLock.LockStageThenTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
             : null;
         if (task is null)

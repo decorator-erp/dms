@@ -216,6 +216,8 @@ internal sealed class DeleteProjectTaskCommandHandler(
             return Domain.TaskErrors.NotFound;
         }
 
+        // R1-2: the stage row (recounted below) before the task row.
+        await ProjectWriteLock.LockStageRowAsync(db, task.ProjectStageId, ct);
         var guard = new WorkDeletionGuard(db, documents, crm, finance);
         await guard.LockAsync(null, [task.Id], ct);
         if (!await guard.CanDeleteTaskAsync(task.Id, ct))

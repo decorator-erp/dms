@@ -100,15 +100,16 @@ internal sealed class WorkDeletionGuard(
             && (await finance.TasksInUseAsync(taskIds, ct)).Count == 0;
     }
 
-    /// <summary>P1: takes every stage and task row of the project <c>FOR UPDATE</c> (one statement each) before the
+    /// <summary>P1: takes every stage and then every task row of the project <c>FOR UPDATE</c> (one statement each,
+    /// each in id order: R1-2's stage-before-task order) before the
     /// checks, as <see cref="LockAsync"/> does for one stage, so a racing transition, comment or sub-task completion
     /// either commits first and is seen, or waits and then finds its row gone.</summary>
     public async Task LockProjectWorkAsync(Guid projectId, CancellationToken ct)
     {
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM projects.project_stages WHERE \"ProjectId\" = {projectId} FOR UPDATE", ct);
+            $"SELECT 1 FROM projects.project_stages WHERE \"ProjectId\" = {projectId} ORDER BY \"Id\" FOR UPDATE", ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM projects.project_tasks WHERE \"ProjectId\" = {projectId} FOR UPDATE", ct);
+            $"SELECT 1 FROM projects.project_tasks WHERE \"ProjectId\" = {projectId} ORDER BY \"Id\" FOR UPDATE", ct);
     }
 
     /// <summary>FINDING-E-3: locks the rows about to be deleted (<c>FOR UPDATE</c>) before any check, so a writer
