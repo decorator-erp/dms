@@ -371,4 +371,43 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
 
         Assert.IsType<ValidationError>(result.Error);
     }
+
+    /// <summary>
+    /// <b>S11 / NS4.</b> The rejection notice told the surveyor the survey "has been reopened for
+    /// rework" — it has not; a rejected survey stays Rejected until someone reopens it. And the note was
+    /// read from the ROW when the event was processed, so a reopen in between (which clears
+    /// <c>DecisionNote</c>) delivered a rejection with no reason. The note now travels in the payload.
+    /// </summary>
+    [Fact]
+    public async Task S11_RejectionNotice_IsAccurateAndKeepsTheNoteAfterAReopen()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(
+            siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new DecideSiteCommand(
+            siteId, new DecideSiteRequest(Approved: false, Note: "Kitchen wall missing."),
+            owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        // Reopened BEFORE the outbox delivers the decision -- clears the row's DecisionNote.
+        Assert.True((await SendAsync(new ReopenSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT "Body" FROM notify.notifications
+            WHERE "RecipientUserId" = @user AND "DedupeKey" LIKE @key
+            """, connection);
+        command.Parameters.AddWithValue("user", SiteTestData.OwnerUserId);
+        command.Parameters.AddWithValue("key", $"site-{siteId}-decided%");
+
+        string body = Assert.IsType<string>(await command.ExecuteScalarAsync());
+
+        Assert.Contains("Kitchen wall missing.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("has been reopened", body, StringComparison.Ordinal);
+    }
 }

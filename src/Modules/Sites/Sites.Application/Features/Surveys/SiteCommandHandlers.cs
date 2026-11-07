@@ -231,7 +231,7 @@ internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider t
         // cares that a survey was decided and branches on the outcome.
         db.Outbox().Enqueue(new SiteApprovedIntegrationEvent(
             Guid.CreateVersion7(), site.Id, site.ProjectId,
-            command.Request.Approved, command.DecidedById, now));
+            command.Request.Approved, command.DecidedById, now, site.DecisionNote));
 
         return await SiteWrites.SaveAsync(db, ct);
     }

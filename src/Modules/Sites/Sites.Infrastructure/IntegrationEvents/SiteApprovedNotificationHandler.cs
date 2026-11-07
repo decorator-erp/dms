@@ -18,7 +18,8 @@ namespace Sites.Infrastructure.IntegrationEvents;
 /// <para>P5F-02 made this notification matter more than it looks. Submission now FREEZES a survey's
 /// records, and reopening after a rejection is what unfreezes them — so a surveyor whose site was
 /// rejected and who is not told has a form they cannot edit and no stated reason. The decision note is
-/// carried in the body for exactly that.</para>
+/// carried in the body for exactly that — from the event payload, since a reopen clears the row's copy
+/// (NS4).</para>
 ///
 /// <para><c>SiteSubmittedIntegrationEvent</c> gets no handler, deliberately: Sites models no reviewer
 /// role and no assignment, so there is no one to tell. That is a recorded decision, not an omission —
@@ -34,7 +35,7 @@ internal sealed class SiteApprovedNotificationHandler(
         var site = await db.Sites
             .AsNoTracking()
             .Where(s => s.Id == @event.SiteId)
-            .Select(s => new { s.Code, s.CreatedById, s.DecisionNote })
+            .Select(s => new { s.Code, s.CreatedById })
             .FirstOrDefaultAsync(ct);
 
         if (site is null)
@@ -48,7 +49,9 @@ internal sealed class SiteApprovedNotificationHandler(
             return;
         }
 
-        string note = string.IsNullOrWhiteSpace(site.DecisionNote) ? string.Empty : $" Note: {site.DecisionNote}";
+        // NS4: the note comes from the payload. The row's copy is cleared by a reopen, which can land
+        // before this event is delivered.
+        string note = string.IsNullOrWhiteSpace(@event.DecisionNote) ? string.Empty : $" Note: {@event.DecisionNote}";
 
         await notifications.NotifyAsync(
             submitter.AppUserId,
@@ -56,7 +59,8 @@ internal sealed class SiteApprovedNotificationHandler(
             title: @event.Approved ? $"Site approved — {site.Code}" : $"Site rejected — {site.Code}",
             body: @event.Approved
                 ? $"Your survey '{site.Code}' has been approved.{note}"
-                : $"Your survey '{site.Code}' was rejected and has been reopened for rework.{note}",
+                // S11: a rejection does NOT reopen the survey -- it stays Rejected until it is reopened.
+                : $"Your survey '{site.Code}' was rejected. Reopen it for rework to make changes.{note}",
             entityType: NotificationEntityType.Site,
             entityId: @event.SiteId,
             dedupeKey: $"site-{@event.SiteId}-decided-{@event.EventId}",
