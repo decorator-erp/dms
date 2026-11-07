@@ -114,6 +114,11 @@ internal static class TaskErrors
     public static readonly Error StageClosed = Error.Conflict(
         "projects.tasks.StageClosed", "Tasks cannot be added to a completed or rejected stage.");
 
+    /// <summary>R1-10: a task of a Completed stage is not reopened; the completed stage would regain an open task
+    /// (NP7 completes a stage only when every task is done).</summary>
+    public static readonly Error StageCompleted = Error.Conflict(
+        "projects.tasks.StageCompleted", "The task's stage is completed, so the task cannot be reopened.");
+
     public static readonly Error AssigneeNotFound = Error.NotFound(
         "projects.tasks.AssigneeNotFound", "The assignee was not found or is not active.");
 

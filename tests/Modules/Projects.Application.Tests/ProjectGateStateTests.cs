@@ -354,6 +354,22 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.StageStatus.Completed, await StageStatusAsync(stageId));
     }
 
+    /// <summary>R1-10: a task of a Completed stage is not reopened (409 <c>projects.tasks.StageCompleted</c>), so a
+    /// completed stage can't regain an open task behind NP7's back; the reopen takes the stage row first (R1-2), so a
+    /// stage completing at the same time is waited for and seen.</summary>
+    [Fact]
+    public async Task R1_10_ATaskOfACompletedStage_IsNotReopened()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("r1-10", 1);
+        await ReadyAsync(p, tasks[0]);
+        await ExpectOkAsync(p, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+        await ExpectOkAsync(p, new CompleteProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId));
+
+        AssertError(await RunAsync(p, new ReopenProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId)),
+            "projects.tasks.StageCompleted", 409);
+        Assert.Equal(Domain.ProjectTaskStatus.Completed, await TaskStatusAsync(tasks[0]));
+    }
+
     /// <summary>NP3: an on-hold, completed, cancelled or inactive project refuses every work write with 409
     /// <c>projects.Closed</c> (tasks, sub-tasks, stages, gates, scope, teams), and is marked Completed only once no
     /// stage is open (409 <c>projects.StagesOpen</c>).</summary>

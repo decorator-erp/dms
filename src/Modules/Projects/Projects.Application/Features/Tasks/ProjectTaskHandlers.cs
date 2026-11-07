@@ -282,6 +282,14 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
             return live;
         }
 
+        // R1-10: not behind a Completed stage's back (NP7). The stage row is held (LockStageThenTaskForWriteAsync), so
+        // a stage completing at the same time has either committed and is seen here, or waits for this reopen.
+        if (task.ProjectStageId is { } stageId
+            && await db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == stageId && s.Status == Domain.StageStatus.Completed, ct))
+        {
+            return Domain.TaskErrors.StageCompleted;
+        }
+
         Result result = task.Reopen();
         if (result.IsFailure)
         {
