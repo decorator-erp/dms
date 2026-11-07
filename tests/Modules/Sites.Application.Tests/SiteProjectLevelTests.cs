@@ -85,6 +85,34 @@ public sealed class SiteProjectLevelTests(SitesApplicationFixture fixture)
         Assert.Equal(closed, Outcome(await RunAsync(manager, new DeleteSiteCommand(second, manager))));
     }
 
+    /// <summary>R1-9: approving a survey you created <i>or submitted</i> is self-approval, refused with 403
+    /// <c>sites.SelfApprovalNotAllowed</c> (an actor rule, so 403 like the level, not a 409) unless the decider holds
+    /// <c>project.read_all</c>. Someone else approves it; rejecting stays open to the submitter.</summary>
+    [Fact]
+    public async Task R1_9_TheCreatorOrTheSubmitter_CannotApproveTheSurvey()
+    {
+        await SiteTestData.OwnersAsync(fixture);
+        Guid projectId = await SiteTestData.CreateProjectInStateAsync(fixture, status: 2, isActive: true);
+        (Guid editorId, string editor) = await MemberAsync(projectId, "r19-editor", ProjectMemberAccess.Editor);
+        (Guid submitterId, string submitter) = await MemberAsync(projectId, "r19-submitter", ProjectMemberAccess.Manager);
+        (Guid otherId, string other) = await MemberAsync(projectId, "r19-other", ProjectMemberAccess.Manager);
+
+        string self = $"403 {SiteErrors.SelfApprovalNotAllowed.Code}";
+
+        // Created by the editor, submitted by a manager: that manager may not approve it.
+        Guid siteId = (await CreateAsync(projectId, editorId, editor)).Value;
+        Assert.Equal("ok", Outcome(await RunAsync(submitter, new SubmitSiteCommand(siteId, submitterId, submitter))));
+        Assert.Equal(self, Outcome(await RunAsync(submitter, new DecideSiteCommand(siteId, new DecideSiteRequest(true), submitterId, submitter))));
+        Assert.Equal("ok", Outcome(await RunAsync(other, new DecideSiteCommand(siteId, new DecideSiteRequest(true), otherId, other))));
+
+        // Created by a manager, submitted by the editor: the creator may not approve it either; the submitter's
+        // rejection is not self-approval.
+        Guid second = (await CreateAsync(projectId, otherId, other)).Value;
+        Assert.Equal("ok", Outcome(await RunAsync(editor, new SubmitSiteCommand(second, editorId, editor))));
+        Assert.Equal(self, Outcome(await RunAsync(other, new DecideSiteCommand(second, new DecideSiteRequest(true), otherId, other))));
+        Assert.Equal("ok", Outcome(await RunAsync(submitter, new DecideSiteCommand(second, new DecideSiteRequest(true), submitterId, submitter))));
+    }
+
     private static string Outcome(Result result) => result.IsSuccess ? "ok" : $"{result.Error.Status} {result.Error.Code}";
 
     private async Task<(Guid EmployeeId, string AppUserId)> MemberAsync(Guid projectId, string label, ProjectMemberAccess level)

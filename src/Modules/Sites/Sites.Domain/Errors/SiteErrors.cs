@@ -159,12 +159,13 @@ internal static class SiteErrors
         + "A rejected site must be reopened for rework before it can be edited.");
 
     /// <summary>
-    /// B-S-L1 (C11): the survey's creator may not approve it unless they hold the project-wide override
-    /// (<c>project.read_all</c>, which the full-access admin and manager roles carry).
+    /// B-S-L1 (C11) / R1-9: the survey's creator or submitter may not approve it unless they hold the project-wide
+    /// override (<c>project.read_all</c>, which the full-access admin and manager roles carry). 403: it is about who
+    /// is acting, not about the survey's state.
     /// </summary>
-    public static readonly Error SelfApprovalNotAllowed = Error.Conflict(
+    public static readonly Error SelfApprovalNotAllowed = Error.Forbidden(
         $"{Prefix}.{nameof(SelfApprovalNotAllowed)}",
-        "A survey cannot be approved by the person who created it.");
+        "A survey cannot be approved by the person who created or submitted it.");
 
     public static readonly Error AddressRequiredToSubmit = Error.BadRequest(
         $"{Prefix}.{nameof(AddressRequiredToSubmit)}",

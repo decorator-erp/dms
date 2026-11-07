@@ -191,7 +191,7 @@ internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider t
             return SiteErrors.NotFound;
         }
 
-        Result submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime);
+        Result submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime, command.SubmittedById);
         if (submitted.IsFailure)
         {
             return submitted;
@@ -233,13 +233,14 @@ internal sealed class DecideSiteCommandHandler(
             return SiteErrors.NotFound;
         }
 
-        // B-S-L1 (C11): the creator may not approve their own survey -- that would make the lifecycle
-        // decorative for anyone holding sites.approve. The one override is project.read_all, the same
-        // claim IProjectAccessGuard treats as project-wide authority; the full-access admin and manager
-        // roles carry it. Rejecting one's own survey is not self-approval and stays allowed.
+        // B-S-L1 (C11) / R1-9: neither the creator nor the submitter may approve the survey -- that would make
+        // the lifecycle decorative for anyone holding sites.approve. A rule about the actor, so 403. The one
+        // override is project.read_all, the same claim IProjectAccessGuard treats as project-wide authority; the
+        // full-access admin and manager roles carry it. Rejecting one's own survey is not self-approval and
+        // stays allowed.
         if (command.Request.Approved
             && site.Status == Domain.SiteStatus.Submitted
-            && command.DecidedById == site.CreatedById
+            && (command.DecidedById == site.CreatedById || command.DecidedById == site.SubmittedById)
             && !currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
         {
             return SiteErrors.SelfApprovalNotAllowed;

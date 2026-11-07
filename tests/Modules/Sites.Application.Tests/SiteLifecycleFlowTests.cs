@@ -521,7 +521,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         }
 
         Assert.Equal(SiteErrors.SelfApprovalNotAllowed, refused.Error);
-        Assert.Equal(409, refused.Error.Status);
+        Assert.Equal(403, refused.Error.Status); // R1-9: an actor rule, not a state conflict
         Assert.Equal(2, (await ReadRowAsync(siteId)).Status);
 
         // With the override (SendAsync grants project.read_all), the same approval goes through.
