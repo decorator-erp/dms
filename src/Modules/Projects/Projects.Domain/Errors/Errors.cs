@@ -46,6 +46,11 @@ internal static class ProjectErrors
     public static readonly Error StagesOpen = Error.Conflict(
         "projects.StagesOpen", "Every stage must be completed or rejected before the project can be completed.");
 
+    /// <summary>R1-11: the same rule for a project's stage-less (FreeStyle) work: it is marked Completed only when every
+    /// task that belongs to no stage is Completed or Cancelled.</summary>
+    public static readonly Error TasksOpen = Error.Conflict(
+        "projects.TasksOpen", "Every task must be completed or cancelled before the project can be completed.");
+
     /// <summary>P1: the project has work under way (a started or touched task, a closed stage, a satisfied or
     /// pending-approval gate), or a document, site (soft-deleted included), CRM or Finance row still names it.</summary>
     public static readonly Error NotDeletable = Error.Conflict(

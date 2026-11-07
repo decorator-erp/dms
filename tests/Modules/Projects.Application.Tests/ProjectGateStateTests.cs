@@ -370,6 +370,25 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.ProjectTaskStatus.Completed, await TaskStatusAsync(tasks[0]));
     }
 
+    /// <summary>R1-11: NP3's completion rule for a project's stage-less (FreeStyle) work — a project with an open task
+    /// that belongs to no stage is not marked Completed (409 <c>projects.TasksOpen</c>); once the task is done or
+    /// cancelled it is.</summary>
+    [Fact]
+    public async Task R1_11_AProjectWithAnOpenFreeStyleTask_DoesNotComplete()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "r1-11", WorkflowType.FreeStyle);
+        Result<Guid> task = await RunAsync<CreateProjectTaskCommand, Guid>(p, new CreateProjectTaskCommand(
+            p.ProjectId, p.OfficeUserId, null, "Loose task", null, null, null, TaskPriority.Medium, 1m, null, null));
+        Assert.True(task.IsSuccess, task.IsFailure ? task.Error.ToString() : null);
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
+
+        AssertError(await RunAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.Completed)),
+            "projects.TasksOpen", 409);
+
+        await ExpectOkAsync(p, new CancelProjectTaskCommand(p.ProjectId, task.Value, p.OfficeUserId));
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.Completed));
+    }
+
     /// <summary>NP3: an on-hold, completed, cancelled or inactive project refuses every work write with 409
     /// <c>projects.Closed</c> (tasks, sub-tasks, stages, gates, scope, teams), and is marked Completed only once no
     /// stage is open (409 <c>projects.StagesOpen</c>).</summary>

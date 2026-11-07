@@ -184,12 +184,22 @@ internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db, Ti
             return Domain.ProjectErrors.NotFound;
         }
 
-        // NP3: a project is Completed only once none of its stages is still Active or Locked.
-        if (ProjectsEnumMapping.ToDomain(command.Status) == Domain.ProjectStatus.Completed && project.Status != Domain.ProjectStatus.Completed
-            && await db.ProjectStages.AnyAsync(
-                s => s.ProjectId == project.Id && (s.Status == Domain.StageStatus.Active || s.Status == Domain.StageStatus.Locked), ct))
+        // NP3: a project is Completed only once none of its stages is still Active or Locked, and (R1-11) none of its
+        // stage-less (FreeStyle) tasks is still open.
+        if (ProjectsEnumMapping.ToDomain(command.Status) == Domain.ProjectStatus.Completed && project.Status != Domain.ProjectStatus.Completed)
         {
-            return Domain.ProjectErrors.StagesOpen;
+            if (await db.ProjectStages.AnyAsync(
+                    s => s.ProjectId == project.Id && (s.Status == Domain.StageStatus.Active || s.Status == Domain.StageStatus.Locked), ct))
+            {
+                return Domain.ProjectErrors.StagesOpen;
+            }
+
+            if (await db.ProjectTasks.AnyAsync(
+                    t => t.ProjectId == project.Id && t.ProjectStageId == null
+                        && t.Status != Domain.ProjectTaskStatus.Completed && t.Status != Domain.ProjectTaskStatus.Cancelled, ct))
+            {
+                return Domain.ProjectErrors.TasksOpen;
+            }
         }
 
         Result result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status), timeProvider.GetUtcNow().UtcDateTime);
