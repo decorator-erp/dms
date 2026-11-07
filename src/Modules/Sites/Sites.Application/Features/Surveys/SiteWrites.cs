@@ -21,6 +21,10 @@ internal static class SiteWrites
     private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
     {
         ["ux_site_documents_link"] = SiteErrors.DocumentAlreadyLinked,
+
+        // S9: the record-label and site-code races the pre-checks cannot close.
+        ["ux_site_records_label"] = SiteErrors.LabelTaken,
+        ["ux_sites_code"] = SiteErrors.CodeTaken,
     };
 
     /// <summary>

@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Crm.Contracts;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SharedKernel;
 using Sites.Application.Features.Surveys;
 using Sites.Contracts;
@@ -11,6 +12,15 @@ using Sites.Infrastructure.Persistence;
 
 namespace Sites.Application.Features.Records;
 
+/// <summary>S9: the <c>__</c> prefix is reserved for <see cref="SiteRecord.ParkLabel"/>'s placeholders.</summary>
+internal static class SiteRecordLabelRules
+{
+    public const string ReservedLabelMessage = "A record label may not start with \"__\".";
+
+    public static bool NotReserved(string? label) =>
+        label is null || !label.TrimStart().StartsWith("__", StringComparison.Ordinal);
+}
+
 internal sealed class AddSiteRecordCommandValidator : AbstractValidator<AddSiteRecordCommand>
 {
     public AddSiteRecordCommandValidator()
@@ -18,7 +28,8 @@ internal sealed class AddSiteRecordCommandValidator : AbstractValidator<AddSiteR
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.Request.ModuleId).NotEmpty();
-        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200).Must(SiteRecordLabelRules.NotReserved)
+            .WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
         RuleFor(x => x.Request.SortOrder).GreaterThanOrEqualTo(0);
     }
 }
@@ -91,7 +102,8 @@ internal sealed class UpdateSiteRecordCommandValidator : AbstractValidator<Updat
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.RecordId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
-        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200).Must(SiteRecordLabelRules.NotReserved)
+            .WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
         RuleFor(x => x.Request.SortOrder).GreaterThanOrEqualTo(0);
     }
 }
@@ -229,7 +241,8 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
 
         RuleForEach(x => x.Request.Records).ChildRules(row =>
         {
-            row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200);
+            row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200)
+                .Must(SiteRecordLabelRules.NotReserved).WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
             row.RuleFor(r => r.SortOrder).GreaterThanOrEqualTo(0);
             row.RuleFor(r => r.Values).NotNull();
             row.RuleForEach(r => r.Values).SetValidator(new SiteValueRequestValidator());
@@ -318,13 +331,15 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             return SiteErrors.LabelTaken;
         }
 
-        // No explicit transaction. Every record and every value is staged on the change tracker and
-        // written by ONE SaveChangesAsync, which EF already wraps in a transaction -- so the grid is
-        // all-or-nothing without one. The backend needs an explicit transaction only because its value
-        // pass QUERIES for each record, which cannot see an unsaved insert; that forced a mid-transaction
-        // flush, and its own comment records the bug that made the flush necessary. Working from the
-        // tracked entities removes the flush, the second pass, and the transaction together.
-        var pending = new List<(SiteRecord Record, IReadOnlyList<SiteValueRequest> Values)>(resolved.Count);
+        // Validation pass: nothing below touches the change tracker until every row has passed.
+        //
+        // S9: the stored-label check excludes EVERY record the batch rewrites, not just the row's own --
+        // their labels are about to change, and the in-batch duplicate check above already judges them
+        // against each other. Excluding only the row's own record made a two-row label swap "taken".
+        var batchRecordIds = resolved
+            .Where(r => r.Existing is not null)
+            .Select(r => r.Existing!.Id)
+            .ToList();
 
         foreach (ResolvedRow row in resolved)
         {
@@ -340,13 +355,50 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
                 return catalogItem;
             }
 
-            Result stored = await SiteRecordWrites.EnsureLabelFreeAsync(
-                db, command.SiteId, row.ModuleId, row.Request.Label, row.Existing?.Id, ct);
+            Result stored = await SiteRecordWrites.EnsureLabelFreeOfBatchAsync(
+                db, command.SiteId, row.ModuleId, row.Request.Label, batchRecordIds, ct);
             if (stored.IsFailure)
             {
                 return stored;
             }
+        }
 
+        // S9: ux_site_records_label is checked per statement, so a swap (A->B, B->A) or a label freed by
+        // one row and taken by another cannot land in one UPDATE batch. Every stored record whose label
+        // changes is first parked under a unique placeholder and flushed, then the final labels are
+        // written -- both passes in ONE transaction, so a failure anywhere rolls the parking back too.
+        // That transaction is normally DomainEventDispatchDecorator's, which wraps every command and
+        // rolls back on a failed Result; one is opened here only when none is ambient.
+        var renamed = resolved
+            .Where(r => r.Existing is { } e
+                        && !string.Equals(e.Label, r.Request.Label.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Existing!)
+            .ToList();
+
+        await using IDbContextTransaction? transaction = renamed.Count > 0 && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+
+        if (renamed.Count > 0)
+        {
+            foreach (SiteRecord record in renamed)
+            {
+                record.ParkLabel();
+            }
+
+            Result parked = await SiteWrites.SaveGuardedAsync(db, site, ct);
+            if (parked.IsFailure)
+            {
+                return parked;
+            }
+        }
+
+        // Staging pass. The records are tracked entities, so the value pass works from them directly and
+        // never queries for an unsaved insert.
+        var pending = new List<(SiteRecord Record, IReadOnlyList<SiteValueRequest> Values)>(resolved.Count);
+
+        foreach (ResolvedRow row in resolved)
+        {
             if (row.Existing is { } existing)
             {
                 Result updated = existing.Update(
@@ -387,10 +439,15 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             }
         }
 
-        // Nothing above this line has touched the database as a write. Every early return leaves the
-        // change tracker dirty and the database untouched, and the scoped DbContext is discarded with the
-        // request -- so "all or nothing" holds without an explicit transaction.
-        return await SiteWrites.SaveGuardedAsync(db, site, pending.Select(p => p.Record), ct);
+        // Every early return leaves the database untouched: either nothing was flushed yet, or the
+        // parking pass is rolled back with the transaction.
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, pending.Select(p => p.Record), ct);
+        if (saved.IsSuccess && transaction is not null)
+        {
+            await transaction.CommitAsync(ct);
+        }
+
+        return saved;
     }
 
     private static async Task<Dictionary<Guid, SiteRecord>> LoadExistingAsync(

@@ -976,6 +976,67 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.IsType<ValidationError>(badKind.Error);
     }
 
+    /// <summary>
+    /// <b>S9.</b> Swapping two labels in one grid save was refused: each row's stored-label check
+    /// excluded only its own record, so it saw the other row's OLD label as taken — and had it passed,
+    /// the single UPDATE batch would have hit <c>ux_site_records_label</c> mid-statement as a 500. Now the
+    /// stored check excludes every record in the batch and renames go through temporary labels in one
+    /// transaction. Freeing a label and reusing it for a new row in the same save works the same way.
+    /// </summary>
+    [Fact]
+    public async Task S9_SwappingTwoLabelsInOneBulkSave_Succeeds()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> first = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door A"), SiteTestData.OwnerUserId), true);
+        Result<Guid> second = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door B"), SiteTestData.OwnerUserId), true);
+
+        Result swapped = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(first.Value, moduleId, "Door B", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(second.Value, moduleId, "door a", null, null, 1, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 95m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        Assert.True(swapped.IsSuccess, swapped.Error.Code);
+        Assert.Equal("Door B", await ReadLabelAsync(first.Value));
+        Assert.Equal("door a", await ReadLabelAsync(second.Value));
+
+        Result reused = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(first.Value, moduleId, "Door C", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(null, moduleId, "Door B", null, null, 2, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 80m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        Assert.True(reused.IsSuccess, reused.Error.Code);
+        Assert.Equal("Door C", await ReadLabelAsync(first.Value));
+    }
+
+    /// <summary><b>S9.</b> The temporary swap labels are reserved: a caller cannot name one.</summary>
+    [Fact]
+    public async Task S9_ALabelWithTheReservedPrefix_IsAValidationError()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "__swap_x"), SiteTestData.OwnerUserId), true);
+
+        Assert.IsType<ValidationError>(result.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>

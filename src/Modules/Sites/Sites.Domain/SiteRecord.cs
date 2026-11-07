@@ -99,6 +99,14 @@ internal sealed class SiteRecord : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>
+    /// Parks the record under a placeholder label for the first pass of a grid save that swaps or
+    /// reuses labels (S9) — <c>ux_site_records_label</c> is checked per statement, so the final labels
+    /// can only land once every old one is out of the way. Callers never supply the placeholder:
+    /// validators reserve its <c>__</c> prefix.
+    /// </summary>
+    public void ParkLabel() => Label = $"__swap_{Id:N}";
+
     public void SetSortOrder(int sortOrder) => SortOrder = sortOrder;
 
     public void Deactivate() => SetActive(false);
