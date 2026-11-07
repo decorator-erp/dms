@@ -125,8 +125,11 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(RejectProjectTaskCommand command, CancellationToken ct = default)
     {
-        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
+        // and seen instead of overwritten.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;
@@ -151,8 +154,11 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(CancelProjectTaskCommand command, CancellationToken ct = default)
     {
-        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
+        // and seen instead of overwritten.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;
@@ -177,8 +183,11 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(ReopenProjectTaskCommand command, CancellationToken ct = default)
     {
-        ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(
-            t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
+        // and seen instead of overwritten.
+        ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
+            : null;
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;

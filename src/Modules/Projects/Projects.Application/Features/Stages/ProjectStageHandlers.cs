@@ -22,8 +22,12 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
 {
     public async Task<Result> HandleAsync(CompleteProjectStageCommand command, CancellationToken ct = default)
     {
-        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
-            s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
+        // P11: hold this stage and every stage its completion unlocks, in id order (GateOwnerLocks), before reading
+        // it, so a racing writer is waited for and seen instead of overwritten.
+        await GateOwnerLocks.LockCompletionCascadeAsync(db, command.StageId, null, command.StageId, ct);
+        ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
+            : null;
         if (stage is null)
         {
             return Domain.StageErrors.NotFound;
@@ -48,9 +52,6 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
             return result;
         }
 
-        // This stage and every stage its completion unlocks, in id order (GateOwnerLocks).
-        await GateOwnerLocks.LockCompletionCascadeAsync(db, stage.Id, null, stage.Id, ct);
-
         db.Outbox().Enqueue(new ProjectStageCompletedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
 
@@ -63,8 +64,10 @@ internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : I
 {
     public async Task<Result> HandleAsync(RejectProjectStageCommand command, CancellationToken ct = default)
     {
-        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
-            s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
+        // P11: hold the stage row first, so a racing writer is waited for and seen instead of overwritten.
+        ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
+            : null;
         if (stage is null)
         {
             return Domain.StageErrors.NotFound;

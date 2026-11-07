@@ -221,7 +221,63 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.True(stage.IsSuccess, stage.IsFailure ? stage.Error.ToString() : null);
     }
 
+    /// <summary>P11: task cancel, reject and reopen and stage complete and reject take the row lock before reading, so
+    /// a transition racing another writer of the same row waits and then sees its result (409), instead of reading
+    /// the old state and overwriting the other write.</summary>
+    [Fact]
+    public async Task P11_TransitionsRacingAnotherWriter_WaitAndSeeItsResult()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("p11", 3);
+        int completed = (int)Domain.ProjectTaskStatus.Completed;
+        int open = (int)Domain.ProjectTaskStatus.Open;
+
+        AssertError(await RaceAsync(
+            $"UPDATE projects.project_tasks SET \"Status\" = {completed} WHERE \"Id\" = '{tasks[0]}'",
+            () => RunAsync(p, new CancelProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId))),
+            "tasks.InvalidStatusTransition", 409);
+
+        await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId));
+        AssertError(await RaceAsync(
+            $"UPDATE projects.project_tasks SET \"Status\" = {open} WHERE \"Id\" = '{tasks[1]}'",
+            () => RunAsync(p, new RejectProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId, "No"))),
+            "tasks.InvalidStatusTransition", 409);
+
+        await ExpectOkAsync(p, new CancelProjectTaskCommand(p.ProjectId, tasks[2], p.OfficeUserId));
+        AssertError(await RaceAsync(
+            $"UPDATE projects.project_tasks SET \"Status\" = {open} WHERE \"Id\" = '{tasks[2]}'",
+            () => RunAsync(p, new ReopenProjectTaskCommand(p.ProjectId, tasks[2], p.OfficeUserId))),
+            "tasks.InvalidStatusTransition", 409);
+
+        AssertError(await RaceAsync(
+            $"UPDATE projects.project_stages SET \"Status\" = {(int)Domain.StageStatus.Rejected} WHERE \"Id\" = '{stageId}'",
+            () => RunAsync(p, new RejectProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId, "No"))),
+            "stages.InvalidStatusTransition", 409);
+        AssertError(await RaceAsync(
+            $"UPDATE projects.project_stages SET \"Status\" = {(int)Domain.StageStatus.Completed} WHERE \"Id\" = '{stageId}'",
+            () => RunAsync(p, new CompleteProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId))),
+            "stages.InvalidStatusTransition", 409);
+    }
+
     // ---- helpers ----
+
+    /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts
+    /// <paramref name="transition"/>, lets it run into the row, then commits the update and returns the transition's
+    /// result.</summary>
+    private async Task<Result> RaceAsync(string update, Func<Task<Result>> transition)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using Npgsql.NpgsqlTransaction tx = await connection.BeginTransactionAsync();
+        await using (var command = new Npgsql.NpgsqlCommand(update, connection, tx))
+        {
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+
+        Task<Result> racing = Task.Run(transition);
+        await Task.Delay(700);
+        await tx.CommitAsync();
+        return await racing;
+    }
 
     private async Task PublishAsync<TEvent>(TEvent @event) where TEvent : BuildingBlocks.Events.IIntegrationEvent
     {
