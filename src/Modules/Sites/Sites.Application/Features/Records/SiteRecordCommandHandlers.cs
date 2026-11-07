@@ -216,6 +216,16 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
             .LessThanOrEqualTo(MaxRecordsPerBatch)
             .When(x => x.Request.Records is not null);
 
+        // S4: one row per stored record. Two rows naming the same RecordId would both apply to one
+        // tracked record, the second staging its values over the first's.
+        RuleFor(x => x.Request.Records)
+            .Must(rows => rows
+                .Where(r => r?.RecordId is not null)
+                .GroupBy(r => r.RecordId)
+                .All(g => g.Count() == 1))
+            .WithMessage("RecordIds in a bulk save must be distinct.")
+            .When(x => x.Request.Records is not null);
+
         RuleForEach(x => x.Request.Records).ChildRules(row =>
         {
             row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200);

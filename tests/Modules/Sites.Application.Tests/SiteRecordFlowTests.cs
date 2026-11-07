@@ -886,6 +886,35 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(SiteErrors.ConcurrencyConflict, late.Error);
     }
 
+    /// <summary>
+    /// <b>S4.</b> Two grid rows naming one RecordId were both applied to the same tracked record — the
+    /// second row's values staged on top of the first's — instead of being refused as a malformed grid.
+    /// </summary>
+    [Fact]
+    public async Task S4_BulkSaveNamingOneRecordTwice_IsAValidationError()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 1"), SiteTestData.OwnerUserId), true);
+
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Door A", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(record.Value, moduleId, "Door B", null, null, 1, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 95m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        ValidationError validation = Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains(validation.Errors, e => e.Description.Contains("distinct", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("Door 1", await ReadLabelAsync(record.Value));
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
