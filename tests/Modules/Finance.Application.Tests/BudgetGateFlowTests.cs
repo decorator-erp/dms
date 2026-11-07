@@ -177,12 +177,12 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
     }
 
     /// <summary>
-    /// Rejecting a variation marks its gate Rejected and <b>deliberately leaves the task Locked</b>.
-    /// The backend bypasses the gate service's reject path for exactly this reason: that path would also
-    /// send the owning stage to Rejected, and the work is still blocked either way.
+    /// Rejecting a variation marks its gate Rejected and releases the task once no other pending Unlock
+    /// gate remains (B-P-H4). The owning stage is still never sent to Rejected: the backend bypasses
+    /// the gate service's reject path for exactly that reason.
     /// </summary>
     [Fact]
-    public async Task RejectingAVariation_RejectsTheGateAndLeavesTheOwnerLocked()
+    public async Task RejectingAVariation_RejectsTheGateAndReleasesTheOwner()
     {
         FinanceTestData.Isolated scope = await FinanceTestData.IsolatedProjectAsync(fixture);
         FinanceTestData.Scope owner = await FinanceTestData.ScopeAsync(fixture);
@@ -210,8 +210,9 @@ public sealed class BudgetGateFlowTests(FinanceApplicationFixture fixture)
         (string Status, Guid? VariationId)? gate = await GateAsync(null, scope.TaskId);
         Assert.Equal("Rejected", gate!.Value.Status);
 
-        // Still Locked -- rejection does not free the work, it records that this route to funding failed.
-        Assert.Equal(TaskLocked, await TaskStatusAsync(scope.TaskId));
+        // B-P-H4: a rejected variation releases its owner once no other pending Unlock gate remains.
+        // Leaving it Locked had no recovery path unless someone raised a fresh variation.
+        Assert.Equal(TaskOpen, await TaskStatusAsync(scope.TaskId));
     }
 
     /// <summary>
