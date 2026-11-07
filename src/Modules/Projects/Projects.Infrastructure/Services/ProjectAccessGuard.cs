@@ -66,7 +66,8 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
 
     /// <summary>D-14 (C-F2, owner default) and E1 (D1): the projects the employee owns, those with a stage
     /// team they are on, and those they are a project member of (any access level). The owner always has access — a FreeStyle project with no team no longer hides itself
-    /// (and its client) from the person who created it.</summary>
+    /// (and its client) from the person who created it. P6/NP6: also the projects with a stage team the employee
+    /// heads (a head is not on the team's member list) and those with a task assigned to them.</summary>
     /// <remarks>Shared with <c>GetProjectsQueryHandler</c>, whose paged list can't use the batch method
     /// (it has no candidate ids before filtering) — one rule, one query (FINDING-P1-1).</remarks>
     internal static IQueryable<Guid> AccessibleProjectIds(ProjectsDbContext db, Guid employeeId) =>
@@ -79,7 +80,13 @@ internal sealed class ProjectAccessGuard(ProjectsDbContext db, IHrDirectory hrDi
                 .Join(db.ProjectStages, t => t.ProjectStageId, s => s.Id, (t, s) => s.ProjectId))
             .Union(db.ProjectMembers.AsNoTracking()
                 .Where(m => m.EmployeeId == employeeId)
-                .Select(m => m.ProjectId));
+                .Select(m => m.ProjectId))
+            .Union(db.StageTeams.AsNoTracking()
+                .Where(t => t.HeadId == employeeId)
+                .Join(db.ProjectStages, t => t.ProjectStageId, s => s.Id, (t, s) => s.ProjectId))
+            .Union(db.ProjectTasks.AsNoTracking()
+                .Where(t => t.AssignedToId == employeeId)
+                .Select(t => t.ProjectId));
 
     /// <summary>E8 / C7 <c>mine=true</c>: the projects the employee owns or is a member of (D1). A stage-team
     /// seat alone doesn't make a project "mine"; it still makes it accessible.</summary>
