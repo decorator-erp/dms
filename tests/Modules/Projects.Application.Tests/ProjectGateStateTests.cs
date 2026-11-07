@@ -399,6 +399,41 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
             "projects.subtasks.TaskClosed", 409);
     }
 
+    /// <summary><c>WorkDeletionGuard.LockAsync</c> takes all the task rows in one <c>FOR UPDATE</c> statement, so the
+    /// statement count no longer grows with the stage's task count.</summary>
+    [Fact]
+    public async Task WorkDeletionGuardLock_IsOneStatementForAllTasks()
+    {
+        (_, Guid oneStage, Guid[] one) = await StageProjectWithTasksAsync("lock-one", 1);
+        (_, Guid manyStage, Guid[] many) = await StageProjectWithTasksAsync("lock-many", 6);
+
+        int small = await CountLockStatementsAsync(oneStage, one);
+        int large = await CountLockStatementsAsync(manyStage, many);
+
+        Assert.Equal(small, large);
+        Assert.Equal(2, large);
+    }
+
+    private async Task<int> CountLockStatementsAsync(Guid stageId, Guid[] taskIds)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ProjectsDbContext db = scope.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx = await db.Database.BeginTransactionAsync();
+        var guard = new Features.Stages.WorkDeletionGuard(db, null!, null!, null!);
+        DbCommandCounter.Counts counts = DbCommandCounter.Begin();
+        try
+        {
+            await guard.LockAsync(stageId, taskIds, CancellationToken.None);
+        }
+        finally
+        {
+            DbCommandCounter.End();
+        }
+
+        await tx.RollbackAsync();
+        return counts.Queries;
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts

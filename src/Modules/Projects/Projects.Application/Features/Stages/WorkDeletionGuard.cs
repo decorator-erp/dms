@@ -122,10 +122,13 @@ internal sealed class WorkDeletionGuard(
                 $"SELECT 1 FROM projects.project_stages WHERE \"Id\" = {id} FOR UPDATE", ct);
         }
 
-        foreach (Guid taskId in taskIds)
+        // One statement for all the tasks, in id order, so two deletes over overlapping tasks queue instead of
+        // deadlocking, and the statement count does not grow with the task count.
+        if (taskIds.Count > 0)
         {
+            Guid[] ids = [.. taskIds.Distinct().Order()];
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT 1 FROM projects.project_tasks WHERE \"Id\" = {taskId} FOR UPDATE", ct);
+                $"SELECT 1 FROM projects.project_tasks WHERE \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR UPDATE", ct);
         }
     }
 
