@@ -12,7 +12,12 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 
     public void Configure(EntityTypeBuilder<Project> builder)
     {
-        builder.ToTable("projects");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("projects", t =>
+        {
+            t.HasCheckConstraint("CK_projects_Status", "\"Status\" BETWEEN 1 AND 5");
+            t.HasCheckConstraint("CK_projects_WorkflowType", "\"WorkflowType\" BETWEEN 1 AND 2");
+        });
         builder.ConfigureEntityConventions();
 
         builder.Property(p => p.Code).HasMaxLength(50).IsRequired();

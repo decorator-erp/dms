@@ -14,7 +14,15 @@ namespace Projects.Application.Features.Gates;
 
 internal sealed class CreateStageGateConditionCommandValidator : AbstractValidator<CreateStageGateConditionCommand>
 {
-    public CreateStageGateConditionCommandValidator() => RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+    public CreateStageGateConditionCommandValidator()
+    {
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+
+        // P7: unknown enum values are a 400.
+        RuleFor(x => x.ConditionType).IsInEnum();
+        RuleFor(x => x.Trigger).IsInEnum();
+        RuleFor(x => x.ApprovalType).IsInEnum().When(x => x.ApprovalType is not null);
+    }
 }
 
 /// <summary>
@@ -102,7 +110,15 @@ internal sealed class CreateStageGateConditionCommandHandler(
 
 internal sealed class CreateTaskGateConditionCommandValidator : AbstractValidator<CreateTaskGateConditionCommand>
 {
-    public CreateTaskGateConditionCommandValidator() => RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+    public CreateTaskGateConditionCommandValidator()
+    {
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+
+        // P7: unknown enum values are a 400.
+        RuleFor(x => x.ConditionType).IsInEnum();
+        RuleFor(x => x.Trigger).IsInEnum();
+        RuleFor(x => x.ApprovalType).IsInEnum().When(x => x.ApprovalType is not null);
+    }
 }
 
 internal sealed class CreateTaskGateConditionCommandHandler(

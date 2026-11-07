@@ -11,7 +11,8 @@ internal sealed class ScopeOfWorkConfiguration : IEntityTypeConfiguration<ScopeO
 
     public void Configure(EntityTypeBuilder<ScopeOfWork> builder)
     {
-        builder.ToTable("scopes_of_work");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("scopes_of_work", t => t.HasCheckConstraint("CK_scopes_of_work_Status", "\"Status\" BETWEEN 1 AND 2"));
         builder.ConfigureEntityConventions();
 
         builder.Property(s => s.Status).HasConversion<int>();

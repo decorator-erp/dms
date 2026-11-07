@@ -9,7 +9,8 @@ internal sealed class ProjectStageConfiguration : IEntityTypeConfiguration<Proje
 {
     public void Configure(EntityTypeBuilder<ProjectStage> builder)
     {
-        builder.ToTable("project_stages");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("project_stages", t => t.HasCheckConstraint("CK_project_stages_Status", "\"Status\" BETWEEN 1 AND 4"));
         builder.ConfigureEntityConventions();
 
         builder.Property(s => s.Name).HasMaxLength(200).IsRequired();

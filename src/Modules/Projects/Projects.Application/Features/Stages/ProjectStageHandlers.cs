@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Projects;
@@ -82,6 +83,12 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
+}
+
+/// <summary>P7: the reason is free text with a ceiling.</summary>
+internal sealed class RejectProjectStageCommandValidator : AbstractValidator<RejectProjectStageCommand>
+{
+    public RejectProjectStageCommandValidator() => RuleFor(x => x.Reason).MaximumLength(2000);
 }
 
 internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : ICommandHandler<RejectProjectStageCommand>

@@ -147,6 +147,18 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
     }
 }
 
+/// <summary>P7: the reason is free text with a ceiling.</summary>
+internal sealed class RejectProjectTaskCommandValidator : AbstractValidator<RejectProjectTaskCommand>
+{
+    public RejectProjectTaskCommandValidator() => RuleFor(x => x.Reason).MaximumLength(2000);
+}
+
+/// <summary>P7: an unknown status filter is a 400.</summary>
+internal sealed class GetProjectTasksByProjectQueryValidator : AbstractValidator<GetProjectTasksByProjectQuery>
+{
+    public GetProjectTasksByProjectQueryValidator() => RuleFor(x => x.Status).IsInEnum().When(x => x.Status is not null);
+}
+
 internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : ICommandHandler<RejectProjectTaskCommand>
 {
     public async Task<Result> HandleAsync(RejectProjectTaskCommand command, CancellationToken ct = default)

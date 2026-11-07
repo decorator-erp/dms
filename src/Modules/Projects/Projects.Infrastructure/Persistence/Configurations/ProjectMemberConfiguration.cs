@@ -13,7 +13,8 @@ internal sealed class ProjectMemberConfiguration : IEntityTypeConfiguration<Proj
 
     public void Configure(EntityTypeBuilder<ProjectMember> builder)
     {
-        builder.ToTable("project_members");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("project_members", t => t.HasCheckConstraint("CK_project_members_Access", "\"Access\" BETWEEN 1 AND 3"));
         builder.ConfigureEntityConventions();
 
         builder.Property(m => m.Access).HasConversion<int>();

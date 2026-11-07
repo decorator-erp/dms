@@ -9,7 +9,12 @@ internal sealed class ProjectTaskConfiguration : IEntityTypeConfiguration<Projec
 {
     public void Configure(EntityTypeBuilder<ProjectTask> builder)
     {
-        builder.ToTable("project_tasks");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("project_tasks", t =>
+        {
+            t.HasCheckConstraint("CK_project_tasks_Status", "\"Status\" BETWEEN 1 AND 7");
+            t.HasCheckConstraint("CK_project_tasks_Priority", "\"Priority\" BETWEEN 1 AND 4");
+        });
         builder.ConfigureEntityConventions();
 
         builder.Property(t => t.Name).HasMaxLength(200).IsRequired();

@@ -1,4 +1,5 @@
 using BuildingBlocks.Messaging;
+using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Projects;
@@ -17,6 +18,22 @@ internal static class StageTeamAccess
 {
     internal static Task<bool> BelongsToProjectAsync(ProjectsDbContext db, Guid projectStageId, Guid projectId, CancellationToken ct) =>
         db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == projectStageId && s.ProjectId == projectId, ct);
+}
+
+/// <summary>P7: an unknown role is a 400.</summary>
+internal sealed class AddStageTeamMemberCommandValidator : AbstractValidator<AddStageTeamMemberCommand>
+{
+    public AddStageTeamMemberCommandValidator()
+    {
+        RuleFor(x => x.EmployeeId).NotEmpty();
+        RuleFor(x => x.Role).IsInEnum();
+    }
+}
+
+/// <summary>P7: an unknown role is a 400.</summary>
+internal sealed class ChangeStageTeamMemberRoleCommandValidator : AbstractValidator<ChangeStageTeamMemberRoleCommand>
+{
+    public ChangeStageTeamMemberRoleCommandValidator() => RuleFor(x => x.Role).IsInEnum();
 }
 
 internal sealed class AddStageTeamMemberCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)

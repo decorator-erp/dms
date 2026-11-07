@@ -27,8 +27,31 @@ internal sealed class CreateProjectCommandValidator : AbstractValidator<CreatePr
     {
         RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Address).NotEmpty();
+        RuleFor(x => x.Address).NotEmpty().MaximumLength(500);
+
+        // P7: the column lengths and the enum, so an oversized or unknown value is a 400, not a 500.
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+        RuleFor(x => x.WorkflowType).IsInEnum();
     }
+}
+
+/// <summary>P7: a null field keeps its value; a given one has the same limits as create.</summary>
+internal sealed class UpdateProjectCommandValidator : AbstractValidator<UpdateProjectCommand>
+{
+    public UpdateProjectCommandValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200).When(x => x.Name is not null);
+        RuleFor(x => x.Address).NotEmpty().MaximumLength(500).When(x => x.Address is not null);
+        RuleFor(x => x.Description).MaximumLength(2000);
+        RuleFor(x => x.Notes).MaximumLength(2000);
+    }
+}
+
+/// <summary>P7: an unknown status is a 400.</summary>
+internal sealed class ChangeProjectStatusCommandValidator : AbstractValidator<ChangeProjectStatusCommand>
+{
+    public ChangeProjectStatusCommandValidator() => RuleFor(x => x.Status).IsInEnum();
 }
 
 /// <summary>
@@ -125,6 +148,7 @@ internal sealed class GetProjectsQueryValidator : AbstractValidator<GetProjectsQ
         RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000);
         RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
         RuleFor(x => x.Search).MaximumLength(200);
+        RuleFor(x => x.NameFilter).MaximumLength(200); // P7
     }
 }
 
