@@ -159,6 +159,40 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Features.Gates.GateApprovalIds.For(gate), Features.Gates.GateApprovalIds.For(gate));
     }
 
+    /// <summary>Approver pick: with two teams on a stage the approver is the head of the stage's first team (created
+    /// first, then by id), whatever order Postgres returns the rows in — here the first team's row is rewritten, which
+    /// moves it behind the second in the heap.</summary>
+    [Fact]
+    public async Task ApproverPick_IsTheHeadOfTheStagesFirstTeam_Deterministically()
+    {
+        (ScopeTestProject p, Guid stageId, _) = await StageProjectWithTasksAsync("approver", 1);
+        string firstHeadUser;
+        string secondHeadUser;
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            IServiceProvider sp = scope.ServiceProvider;
+            ProjectsDbContext db = sp.GetRequiredService<ProjectsDbContext>();
+            Domain.StageTeam first = await db.StageTeams.SingleAsync(t => t.ProjectStageId == stageId);
+            (Guid secondHead, secondHeadUser) = await HrTestSeeding.HireEmployeeAsync(sp, $"second-head-{Guid.NewGuid():N}@example.com", lastName: "Second");
+            db.StageTeams.Add(Domain.StageTeam.CreateProjectStandaloneTeam(stageId, secondHead));
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE projects.stage_teams SET \"HeadId\" = \"HeadId\" WHERE \"Id\" = {first.Id}");
+            firstHeadUser = (await sp.GetRequiredService<Hr.Contracts.IHrDirectory>().GetAsync(first.HeadId, CancellationToken.None))!.AppUserId!;
+        }
+
+        Guid gate = await CreateStageGateAsync(p, stageId, ConditionType.Approval, GateTrigger.Complete,
+            approvalType: ApprovalType.ManagerApproval);
+
+        await using AsyncServiceScope read = fixture.CreateScope();
+        Guid approvalId = await ApprovalIdAsync(gate);
+        List<string> approvers = await read.ServiceProvider.GetRequiredService<ProjectsDbContext>().Database
+            .SqlQuery<string>($"SELECT \"ApproverUserId\" AS \"Value\" FROM approvals.approval_approvers WHERE approval_id = {approvalId}")
+            .ToListAsync();
+        Assert.Contains(firstHeadUser, approvers);
+        Assert.DoesNotContain(secondHeadUser, approvers);
+    }
+
     // ---- helpers ----
 
     private async Task PublishAsync<TEvent>(TEvent @event) where TEvent : BuildingBlocks.Events.IIntegrationEvent

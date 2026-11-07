@@ -189,8 +189,11 @@ internal static class GateApprovalRequests
 
         if (projectStageId is { } stageId)
         {
+            // The stage's first team (created first, then by id): a stage has one team per department, and without the
+            // order the approver was whichever row Postgres returned first.
             Guid? headId = await db.StageTeams.AsNoTracking()
                 .Where(t => t.ProjectStageId == stageId)
+                .OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id)
                 .Select(t => (Guid?)t.HeadId)
                 .FirstOrDefaultAsync(ct);
             if (headId is not null)
