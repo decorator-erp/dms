@@ -6,6 +6,8 @@ namespace Projects.UnitTests;
 
 public class ProjectTests
 {
+    private static readonly DateTime Now = new(2030, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
     private static Project CreateProject() =>
         Project.Create("P-001", "Test Project", "123 Main St", WorkflowType.Stage, Guid.NewGuid(), Guid.NewGuid());
 
@@ -28,18 +30,18 @@ public class ProjectTests
             case ProjectStatus.Draft:
                 break;
             case ProjectStatus.InProgress:
-                Assert.True(project.ChangeStatus(ProjectStatus.InProgress).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.InProgress, Now).IsSuccess);
                 break;
             case ProjectStatus.OnHold:
-                Assert.True(project.ChangeStatus(ProjectStatus.InProgress).IsSuccess);
-                Assert.True(project.ChangeStatus(ProjectStatus.OnHold).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.InProgress, Now).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.OnHold, Now).IsSuccess);
                 break;
             case ProjectStatus.Completed:
-                Assert.True(project.ChangeStatus(ProjectStatus.InProgress).IsSuccess);
-                Assert.True(project.ChangeStatus(ProjectStatus.Completed).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.InProgress, Now).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.Completed, Now).IsSuccess);
                 break;
             case ProjectStatus.Cancelled:
-                Assert.True(project.ChangeStatus(ProjectStatus.Cancelled).IsSuccess);
+                Assert.True(project.ChangeStatus(ProjectStatus.Cancelled, Now).IsSuccess);
                 break;
         }
         return project;
@@ -68,7 +70,7 @@ public class ProjectTests
         var to = (ProjectStatus)toValue;
         Project project = CreateProjectAt(from);
 
-        Result result = project.ChangeStatus(to);
+        Result result = project.ChangeStatus(to, Now);
 
         Assert.Equal(allowed, result.IsSuccess);
         if (allowed)
@@ -86,20 +88,20 @@ public class ProjectTests
     {
         Project project = CreateProject();
 
-        project.ChangeStatus(ProjectStatus.InProgress);
+        project.ChangeStatus(ProjectStatus.InProgress, Now);
 
-        Assert.NotNull(project.ActualStartDate);
+        Assert.Equal(Now, project.ActualStartDate);
     }
 
     [Fact]
     public void ChangeStatus_ToCompleted_SetsActualEndDate()
     {
         Project project = CreateProject();
-        project.ChangeStatus(ProjectStatus.InProgress);
+        project.ChangeStatus(ProjectStatus.InProgress, Now);
 
-        project.ChangeStatus(ProjectStatus.Completed);
+        project.ChangeStatus(ProjectStatus.Completed, Now);
 
-        Assert.NotNull(project.ActualEndDate);
+        Assert.Equal(Now, project.ActualEndDate);
     }
 
     [Fact]
@@ -107,7 +109,7 @@ public class ProjectTests
     {
         Project project = CreateProject();
 
-        Result result = project.ChangeStatus(ProjectStatus.Draft);
+        Result result = project.ChangeStatus(ProjectStatus.Draft, Now);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(ProjectStatus.Draft, project.Status);

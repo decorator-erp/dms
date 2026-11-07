@@ -145,7 +145,8 @@ internal sealed class UpdateProjectCommandHandler(ProjectsDbContext db) : IComma
     }
 }
 
-internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db) : ICommandHandler<ChangeProjectStatusCommand>
+internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db, TimeProvider timeProvider)
+    : ICommandHandler<ChangeProjectStatusCommand>
 {
     public Task<Result> HandleAsync(ChangeProjectStatusCommand command, CancellationToken ct = default) =>
         ProjectWriteLock.RunAsync(db, command.ProjectId, () => ChangeAsync(command, ct), ct);
@@ -167,7 +168,7 @@ internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db) : 
             return Domain.ProjectErrors.StagesOpen;
         }
 
-        Result result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status));
+        Result result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status), timeProvider.GetUtcNow().UtcDateTime);
         if (result.IsFailure)
         {
             return result;

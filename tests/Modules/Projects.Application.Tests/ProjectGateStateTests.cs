@@ -342,6 +342,38 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
             .Where(s => s.ProjectTaskId == taskId).Select(s => s.Id).FirstAsync();
     }
 
+    /// <summary>NP8: a status change stamps the project's actual start and end from <see cref="TimeProvider"/>, not
+    /// the wall clock.</summary>
+    [Fact]
+    public async Task NP8_AStatusChange_StampsItsDatesFromTheTimeProvider()
+    {
+        ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "np8", WorkflowType.FreeStyle);
+        var start = new DateTimeOffset(2031, 3, 4, 5, 6, 7, TimeSpan.Zero);
+        var end = new DateTimeOffset(2032, 8, 9, 10, 11, 12, TimeSpan.Zero);
+
+        await ChangeStatusAtAsync(p, ProjectStatus.InProgress, start);
+        await ChangeStatusAtAsync(p, ProjectStatus.Completed, end);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Domain.Project project = await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().Projects.AsNoTracking()
+            .SingleAsync(x => x.Id == p.ProjectId);
+        Assert.Equal((start.UtcDateTime, end.UtcDateTime), (project.ActualStartDate!.Value, project.ActualEndDate!.Value));
+    }
+
+    private async Task ChangeStatusAtAsync(ScopeTestProject p, ProjectStatus status, DateTimeOffset now)
+    {
+        await using AsyncServiceScope scope = GateScope(p);
+        Features.Projects.ChangeProjectStatusCommandHandler handler = ActivatorUtilities.CreateInstance<Features.Projects.ChangeProjectStatusCommandHandler>(
+            scope.ServiceProvider, new FixedTimeProvider(now));
+        Result result = await handler.HandleAsync(new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, status));
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts

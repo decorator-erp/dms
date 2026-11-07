@@ -94,7 +94,9 @@ internal sealed class Project : Entity, IAuditable
         }
     }
 
-    public Result ChangeStatus(ProjectStatus status)
+    /// <summary>NP8: <paramref name="utcNow"/> comes from the caller's <c>TimeProvider</c>, so the stamped actual
+    /// start and end dates are testable and consistent with the rest of the request.</summary>
+    public Result ChangeStatus(ProjectStatus status, DateTime utcNow)
     {
         if (Status == status)
         {
@@ -108,12 +110,12 @@ internal sealed class Project : Entity, IAuditable
 
         if (status == ProjectStatus.InProgress && ActualStartDate is null)
         {
-            ActualStartDate = DateTime.UtcNow;
+            ActualStartDate = utcNow;
         }
 
         if (status is ProjectStatus.Completed or ProjectStatus.Cancelled)
         {
-            ActualEndDate = DateTime.UtcNow;
+            ActualEndDate = utcNow;
         }
 
         Status = status;
