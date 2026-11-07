@@ -1037,6 +1037,34 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.IsType<ValidationError>(result.Error);
     }
 
+    /// <summary>
+    /// <b>S12.</b> A deactivated module still took new records: the single add only checked the module
+    /// EXISTS, and the grid save did not check insert rows' module at all — only its fields, which a
+    /// retired module keeps.
+    /// </summary>
+    [Fact]
+    public async Task S12_NewRecordsInADeactivatedModule_AreModuleNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Assert.True((await SendAsync(new SetSiteModuleActiveCommand(moduleId, IsActive: false))).IsSuccess);
+
+        Result<Guid> single = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.ModuleNotFound, single.Error);
+
+        Result bulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.ModuleNotFound, bulk.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>

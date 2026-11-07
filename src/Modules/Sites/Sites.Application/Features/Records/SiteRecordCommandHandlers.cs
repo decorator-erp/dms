@@ -52,7 +52,8 @@ internal sealed class AddSiteRecordCommandHandler(
             return SiteErrors.SiteLocked;
         }
 
-        if (!await db.SiteModules.AnyAsync(m => m.Id == command.Request.ModuleId, ct))
+        // S12: a retired module takes no new records. It keeps its fields, so nothing downstream notices.
+        if (!await db.SiteModules.AnyAsync(m => m.Id == command.Request.ModuleId && m.IsActive, ct))
         {
             return SiteErrors.ModuleNotFound;
         }
@@ -307,6 +308,25 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
                 }
 
                 resolved.Add(new ResolvedRow(row, null, row.ModuleId));
+            }
+        }
+
+        // S12: insert rows may only name an ACTIVE module -- one query for the whole grid. Update rows keep
+        // their stored record's module, whatever its state.
+        var insertModuleIds = resolved
+            .Where(r => r.Existing is null)
+            .Select(r => r.ModuleId)
+            .Distinct()
+            .ToList();
+
+        if (insertModuleIds.Count > 0)
+        {
+            int active = await db.SiteModules
+                .CountAsync(m => insertModuleIds.Contains(m.Id) && m.IsActive, ct);
+
+            if (active != insertModuleIds.Count)
+            {
+                return SiteErrors.ModuleNotFound;
             }
         }
 
