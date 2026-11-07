@@ -93,10 +93,13 @@ internal sealed class ConfirmScopeOfWorkCommandHandler(
             return Fail(confirmable.Error);
         }
 
-        Domain.Project? project = await db.Projects.FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
-        if (project is null || !project.IsActive)
+        // EnsureEditableProjectAsync found the project (404) live (409), and the scope row just locked holds a foreign
+        // key to it, so it is still there. Its IsActive is not locked (ProjectLiveness is a plain read), so a
+        // deactivation committing in between is the one way this branch is reached: it is NP3's 409, not a 404.
+        Domain.Project project = await db.Projects.FirstAsync(p => p.Id == command.ProjectId, ct);
+        if (!project.IsActive)
         {
-            return Fail(Domain.ProjectErrors.NotFound);
+            return Fail(Domain.ProjectErrors.Closed);
         }
 
         if (await db.ProjectStages.AnyAsync(s => s.ProjectId == project.Id, ct))
