@@ -233,17 +233,41 @@ internal sealed class DeleteGateConditionCommandHandler(ProjectsDbContext db) : 
             : db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == gate.ProjectTaskId && t.ProjectId == projectId, ct);
 }
 
+internal sealed class SatisfyGateConditionCommandValidator : AbstractValidator<SatisfyGateConditionCommand>
+{
+    public SatisfyGateConditionCommandValidator() => RuleFor(x => x.Note).MaximumLength(2000);
+}
+
 /// <summary>Manual satisfaction (the <c>ManualCheckHandler</c> path) — approval-type gates are satisfied
-/// reactively by <c>ApprovalDecidedIntegrationEventHandler</c>, never through this command.</summary>
+/// reactively by <c>ApprovalDecidedIntegrationEventHandler</c>, never through this command.
+///
+/// <para>P3: only a <see cref="Domain.ConditionType.ManualCheck"/> gate that is still Pending (409
+/// <see cref="Domain.GateConditionErrors.NotManuallySatisfiable"/> otherwise), so a rejected approval, document or
+/// budget gate can't be forced through by hand. The owner row is taken first (<c>FOR NO KEY UPDATE</c>), so the
+/// unlock the satisfaction cascades into (<c>GateOwnerLocks</c>) and a racing gate change on the same owner
+/// queue instead of interleaving.</para></summary>
 internal sealed class SatisfyGateConditionCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
     : ICommandHandler<SatisfyGateConditionCommand>
 {
     public async Task<Result> HandleAsync(SatisfyGateConditionCommand command, CancellationToken ct = default)
     {
-        Domain.GateCondition? gate = await db.GateConditions.FindAsync([command.GateConditionId], ct);
-        if (gate is null || !await DeleteGateConditionCommandHandler.BelongsToProjectAsync(db, gate, command.ProjectId, ct))
+        Domain.GateCondition? gate = await db.GateConditions.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null || !await GateOwners.LockForProjectAsync(db, gate, command.ProjectId, ct))
         {
             return Domain.GateConditionErrors.NotFound;
+        }
+
+        // Re-read under the owner lock: a racing satisfy or delete committed while this one waited.
+        gate = await db.GateConditions.FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null)
+        {
+            return Domain.GateConditionErrors.NotFound;
+        }
+
+        if (gate.ConditionType != Domain.ConditionType.ManualCheck || !gate.IsPending)
+        {
+            return Domain.GateConditionErrors.NotManuallySatisfiable;
         }
 
         Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
@@ -261,6 +285,17 @@ internal sealed class SatisfyGateConditionCommandHandler(ProjectsDbContext db, I
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
+}
+
+/// <summary>The gate's owner (a stage or a task), checked against the project and locked.</summary>
+internal static class GateOwners
+{
+    /// <summary>Takes the owner row <c>FOR NO KEY UPDATE</c>; false when the owner is not (or no longer) in the
+    /// project.</summary>
+    public static Task<bool> LockForProjectAsync(ProjectsDbContext db, Domain.GateCondition gate, Guid projectId, CancellationToken ct) =>
+        gate.ProjectStageId is { } stageId
+            ? ProjectWriteLock.LockStageForWriteAsync(db, projectId, stageId, ct)
+            : ProjectWriteLock.LockTaskForWriteAsync(db, projectId, gate.ProjectTaskId!.Value, ct);
 }
 
 internal sealed class GetStageGateConditionsQueryHandler(ProjectsDbContext db)

@@ -235,6 +235,17 @@ internal static class GateConditionErrors
     public static readonly Error UnsupportedConditionType = Error.BadRequest(
         "gate_conditions.UnsupportedConditionType",
         "No handler is registered for this gate condition type.");
+
+    /// <summary>P3: only a Pending <see cref="ConditionType.ManualCheck"/> gate is satisfied by hand. Every other type
+    /// is resolved by its own source (an approval decision, a completion, Finance, CRM, Documents), so forcing it
+    /// would bypass that source.</summary>
+    public static readonly Error NotManuallySatisfiable = Error.Conflict(
+        "gate_conditions.NotManuallySatisfiable", "Only a pending manual-check gate can be satisfied by hand.");
+
+    /// <summary>P4: a satisfied gate is history, and a pending approval gate has an open request in the Approvals
+    /// inbox that deleting the gate would orphan.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "gate_conditions.NotDeletable", "A satisfied gate, or an approval gate still waiting for its decision, cannot be deleted.");
 }
 
 /// <summary>Scope of work (SOW-3). Codes as in the plan's §3.2, plus <see cref="TooManyItems"/>,
