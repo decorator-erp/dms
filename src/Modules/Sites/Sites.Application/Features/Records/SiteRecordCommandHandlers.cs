@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using Crm.Contracts;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SharedKernel;
 using Sites.Application.Features.Surveys;
 using Sites.Contracts;
@@ -11,6 +12,15 @@ using Sites.Infrastructure.Persistence;
 
 namespace Sites.Application.Features.Records;
 
+/// <summary>S9: the <c>__</c> prefix is reserved for <see cref="SiteRecord.ParkLabel"/>'s placeholders.</summary>
+internal static class SiteRecordLabelRules
+{
+    public const string ReservedLabelMessage = "A record label may not start with \"__\".";
+
+    public static bool NotReserved(string? label) =>
+        label is null || !label.TrimStart().StartsWith("__", StringComparison.Ordinal);
+}
+
 internal sealed class AddSiteRecordCommandValidator : AbstractValidator<AddSiteRecordCommand>
 {
     public AddSiteRecordCommandValidator()
@@ -18,12 +28,14 @@ internal sealed class AddSiteRecordCommandValidator : AbstractValidator<AddSiteR
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.Request.ModuleId).NotEmpty();
-        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200).Must(SiteRecordLabelRules.NotReserved)
+            .WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
         RuleFor(x => x.Request.SortOrder).GreaterThanOrEqualTo(0);
     }
 }
 
-internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceReader spaces)
+internal sealed class AddSiteRecordCommandHandler(
+    SitesDbContext db, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<AddSiteRecordCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(
@@ -40,7 +52,8 @@ internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceRe
             return SiteErrors.SiteLocked;
         }
 
-        if (!await db.SiteModules.AnyAsync(m => m.Id == command.Request.ModuleId, ct))
+        // S12: a retired module takes no new records. It keeps its fields, so nothing downstream notices.
+        if (!await db.SiteModules.AnyAsync(m => m.Id == command.Request.ModuleId && m.IsActive, ct))
         {
             return SiteErrors.ModuleNotFound;
         }
@@ -50,6 +63,12 @@ internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceRe
         if (space.IsFailure)
         {
             return space.Error;
+        }
+
+        Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, command.Request.CatalogItemId, ct);
+        if (catalogItem.IsFailure)
+        {
+            return catalogItem.Error;
         }
 
         Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
@@ -70,7 +89,7 @@ internal sealed class AddSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceRe
 
         db.SiteRecords.Add(record.Value!);
 
-        Result saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, ct);
         return saved.IsFailure ? saved.Error : record.Value!.Id;
     }
 }
@@ -84,12 +103,14 @@ internal sealed class UpdateSiteRecordCommandValidator : AbstractValidator<Updat
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.RecordId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
-        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Request.Label).NotEmpty().MaximumLength(200).Must(SiteRecordLabelRules.NotReserved)
+            .WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
         RuleFor(x => x.Request.SortOrder).GreaterThanOrEqualTo(0);
     }
 }
 
-internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpaceReader spaces)
+internal sealed class UpdateSiteRecordCommandHandler(
+    SitesDbContext db, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<UpdateSiteRecordCommand>
 {
     public async Task<Result> HandleAsync(UpdateSiteRecordCommand command, CancellationToken ct = default)
@@ -108,6 +129,12 @@ internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpac
             return space;
         }
 
+        Result catalogItem = await SiteWrites.ValidateCatalogItemAsync(catalog, command.Request.CatalogItemId, ct);
+        if (catalogItem.IsFailure)
+        {
+            return catalogItem;
+        }
+
         Result label = await SiteRecordWrites.EnsureLabelFreeAsync(
             db, command.SiteId, record.ModuleId, command.Request.Label, record.Id, ct);
         if (label.IsFailure)
@@ -124,7 +151,7 @@ internal sealed class UpdateSiteRecordCommandHandler(SitesDbContext db, ICrmSpac
             return updated;
         }
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, site, ct);
     }
 }
 
@@ -142,7 +169,7 @@ internal sealed class DeleteSiteRecordCommandHandler(SitesDbContext db)
         // Soft: the label frees for reuse because ux_site_records_label is partial on IsActive.
         loaded.Value.Record.Deactivate();
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, loaded.Value.Site, ct);
     }
 }
 
@@ -157,6 +184,7 @@ internal sealed class SetSiteRecordValuesCommandValidator : AbstractValidator<Se
         // Defect B8: the backend has no validator here at all, so a null Values collection was a null
         // reference inside the handler and came back as an unexplained 500.
         RuleFor(x => x.Request.Values).NotNull();
+        RuleForEach(x => x.Request.Values).SetValidator(new SiteValueRequestValidator());
     }
 }
 
@@ -183,7 +211,7 @@ internal sealed class SetSiteRecordValuesCommandHandler(SitesDbContext db, ISite
             return validated;
         }
 
-        return await SiteRecordWrites.ReplaceValuesAsync(db, record, command.Request.Values, ct);
+        return await SiteRecordWrites.ReplaceValuesAsync(db, loaded.Value.Site, record, command.Request.Values, ct);
     }
 }
 
@@ -202,11 +230,23 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
             .LessThanOrEqualTo(MaxRecordsPerBatch)
             .When(x => x.Request.Records is not null);
 
+        // S4: one row per stored record. Two rows naming the same RecordId would both apply to one
+        // tracked record, the second staging its values over the first's.
+        RuleFor(x => x.Request.Records)
+            .Must(rows => rows
+                .Where(r => r?.RecordId is not null)
+                .GroupBy(r => r.RecordId)
+                .All(g => g.Count() == 1))
+            .WithMessage("RecordIds in a bulk save must be distinct.")
+            .When(x => x.Request.Records is not null);
+
         RuleForEach(x => x.Request.Records).ChildRules(row =>
         {
-            row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200);
+            row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200)
+                .Must(SiteRecordLabelRules.NotReserved).WithMessage(SiteRecordLabelRules.ReservedLabelMessage);
             row.RuleFor(r => r.SortOrder).GreaterThanOrEqualTo(0);
             row.RuleFor(r => r.Values).NotNull();
+            row.RuleForEach(r => r.Values).SetValidator(new SiteValueRequestValidator());
         });
     }
 }
@@ -216,7 +256,7 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
 /// signal mid-save must not leave half a room measured.
 /// </summary>
 internal sealed class BulkSaveSiteRecordsCommandHandler(
-    SitesDbContext db, ISiteModuleValidator validator, ICrmSpaceReader spaces)
+    SitesDbContext db, ISiteModuleValidator validator, ICrmSpaceReader spaces, ICrmCatalogItemReader catalog)
     : ICommandHandler<BulkSaveSiteRecordsCommand>
 {
     public async Task<Result> HandleAsync(
@@ -271,20 +311,40 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             }
         }
 
-        foreach (ResolvedRow row in resolved)
+        // S12: insert rows may only name an ACTIVE module -- one query for the whole grid. Update rows keep
+        // their stored record's module, whatever its state.
+        var insertModuleIds = resolved
+            .Where(r => r.Existing is null)
+            .Select(r => r.ModuleId)
+            .Distinct()
+            .ToList();
+
+        if (insertModuleIds.Count > 0)
         {
-            Result validated = await validator.ValidateAsync(row.ModuleId, row.Request.Values, ct);
-            if (validated.IsFailure)
+            int active = await db.SiteModules
+                .CountAsync(m => insertModuleIds.Contains(m.Id) && m.IsActive, ct);
+
+            if (active != insertModuleIds.Count)
             {
-                return validated;
+                return SiteErrors.ModuleNotFound;
             }
+        }
+
+        // S7: one validator pass for the whole grid -- a fixed number of queries, never one per row. The
+        // first failing row, in grid order, answers, exactly as the per-row loop did.
+        IReadOnlyList<Result> validations = await validator.ValidateManyAsync(
+            [.. resolved.Select(r => new SiteModuleValueSet(r.ModuleId, r.Request.Values))], ct);
+
+        if (validations.FirstOrDefault(v => v.IsFailure) is { } invalid)
+        {
+            return invalid;
         }
 
         // Two rows of one grid claiming the same label within a module. The stored-label check cannot see
         // it -- neither row is written yet -- so unguarded it reaches the unique index as an unhandled
         // write failure. Keyed on the RESOLVED module, per B3.
         bool duplicate = resolved
-            .GroupBy(r => (r.ModuleId, Label: r.Request.Label.Trim().ToLowerInvariant()))
+            .GroupBy(r => (r.ModuleId, Label: SiteRecordWrites.Normalize(r.Request.Label)))
             .Any(g => g.Count() > 1);
 
         if (duplicate)
@@ -292,29 +352,101 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
             return SiteErrors.LabelTaken;
         }
 
-        // No explicit transaction. Every record and every value is staged on the change tracker and
-        // written by ONE SaveChangesAsync, which EF already wraps in a transaction -- so the grid is
-        // all-or-nothing without one. The backend needs an explicit transaction only because its value
-        // pass QUERIES for each record, which cannot see an unsaved insert; that forced a mid-transaction
-        // flush, and its own comment records the bug that made the flush necessary. Working from the
-        // tracked entities removes the flush, the second pass, and the transaction together.
+        // Validation pass: nothing below touches the change tracker until every row has passed.
+        //
+        // S9: the stored-label check excludes EVERY record the batch rewrites, not just the row's own --
+        // their labels are about to change, and the in-batch duplicate check above already judges them
+        // against each other. Excluding only the row's own record made a two-row label swap "taken".
+        var batchRecordIds = resolved
+            .Where(r => r.Existing is not null)
+            .Select(r => r.Existing!.Id)
+            .ToList();
+
+        // S7: spaces, catalog items and stored labels each read ONCE for the whole grid, then judged row
+        // by row in grid order -- so the first failing row answers with the same error as before.
+        var spaceIds = resolved
+            .Where(r => r.Request.SpaceId.HasValue)
+            .Select(r => r.Request.SpaceId!.Value)
+            .Distinct()
+            .ToList();
+        Dictionary<Guid, CrmSpaceSummary> spacesById = spaceIds.Count == 0
+            ? []
+            : (await spaces.GetManyAsync(spaceIds, ct)).ToDictionary(s => s.Id);
+
+        var catalogItemIds = resolved
+            .Where(r => r.Request.CatalogItemId.HasValue)
+            .Select(r => r.Request.CatalogItemId!.Value)
+            .Distinct()
+            .ToList();
+        Dictionary<Guid, CrmCatalogItemSummary> catalogById = catalogItemIds.Count == 0
+            ? []
+            : (await catalog.GetManyAsync(catalogItemIds, ct)).ToDictionary(c => c.Id);
+
+        HashSet<(Guid ModuleId, string Label)> taken = await SiteRecordWrites.TakenLabelsAsync(
+            db, command.SiteId, [.. resolved.Select(r => (r.ModuleId, r.Request.Label))], batchRecordIds, ct);
+
+        foreach (ResolvedRow row in resolved)
+        {
+            if (row.Request.SpaceId is { } spaceId)
+            {
+                Result space = SiteWrites.CheckSpace(spacesById.GetValueOrDefault(spaceId), site.ProjectId);
+                if (space.IsFailure)
+                {
+                    return space;
+                }
+            }
+
+            if (row.Request.CatalogItemId is { } catalogItemId)
+            {
+                Result catalogItem = SiteWrites.CheckCatalogItem(catalogById.GetValueOrDefault(catalogItemId));
+                if (catalogItem.IsFailure)
+                {
+                    return catalogItem;
+                }
+            }
+
+            if (taken.Contains((row.ModuleId, SiteRecordWrites.Normalize(row.Request.Label))))
+            {
+                return SiteErrors.LabelTaken;
+            }
+        }
+
+        // S9: ux_site_records_label is checked per statement, so a swap (A->B, B->A) or a label freed by
+        // one row and taken by another cannot land in one UPDATE batch. Every stored record whose label
+        // changes is first parked under a unique placeholder and flushed, then the final labels are
+        // written -- both passes in ONE transaction, so a failure anywhere rolls the parking back too.
+        // That transaction is normally DomainEventDispatchDecorator's, which wraps every command and
+        // rolls back on a failed Result; one is opened here only when none is ambient.
+        var renamed = resolved
+            .Where(r => r.Existing is { } e
+                        && !string.Equals(e.Label, r.Request.Label.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Existing!)
+            .ToList();
+
+        await using IDbContextTransaction? transaction = renamed.Count > 0 && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+
+        if (renamed.Count > 0)
+        {
+            foreach (SiteRecord record in renamed)
+            {
+                record.ParkLabel();
+            }
+
+            Result parked = await SiteWrites.SaveGuardedAsync(db, site, ct);
+            if (parked.IsFailure)
+            {
+                return parked;
+            }
+        }
+
+        // Staging pass. The records are tracked entities, so the value pass works from them directly and
+        // never queries for an unsaved insert.
         var pending = new List<(SiteRecord Record, IReadOnlyList<SiteValueRequest> Values)>(resolved.Count);
 
         foreach (ResolvedRow row in resolved)
         {
-            Result space = await SiteWrites.ValidateSpaceAsync(spaces, row.Request.SpaceId, site.ProjectId, ct);
-            if (space.IsFailure)
-            {
-                return space;
-            }
-
-            Result stored = await SiteRecordWrites.EnsureLabelFreeAsync(
-                db, command.SiteId, row.ModuleId, row.Request.Label, row.Existing?.Id, ct);
-            if (stored.IsFailure)
-            {
-                return stored;
-            }
-
             if (row.Existing is { } existing)
             {
                 Result updated = existing.Update(
@@ -346,19 +478,22 @@ internal sealed class BulkSaveSiteRecordsCommandHandler(
 
         // The records are tracked entities, so the value pass works from them directly. Ids are
         // client-generated UUIDv7, so a value can reference a record that has not been written yet.
-        foreach ((SiteRecord? record, IReadOnlyList<SiteValueRequest>? values) in pending)
+        // S7: staged set-based, a fixed number of queries for the whole grid.
+        Result set = await SiteRecordWrites.StageValuesManyAsync(db, pending, ct);
+        if (set.IsFailure)
         {
-            Result set = await SiteRecordWrites.StageValuesAsync(db, record, values, ct);
-            if (set.IsFailure)
-            {
-                return set;
-            }
+            return set;
         }
 
-        // Nothing above this line has touched the database as a write. Every early return leaves the
-        // change tracker dirty and the database untouched, and the scoped DbContext is discarded with the
-        // request -- so "all or nothing" holds without an explicit transaction.
-        return await SiteWrites.SaveAsync(db, ct);
+        // Every early return leaves the database untouched: either nothing was flushed yet, or the
+        // parking pass is rolled back with the transaction.
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, pending.Select(p => p.Record), ct);
+        if (saved.IsSuccess && transaction is not null)
+        {
+            await transaction.CommitAsync(ct);
+        }
+
+        return saved;
     }
 
     private static async Task<Dictionary<Guid, SiteRecord>> LoadExistingAsync(

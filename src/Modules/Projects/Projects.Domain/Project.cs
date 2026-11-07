@@ -28,7 +28,6 @@ internal sealed class Project : Entity, IAuditable
     public WorkflowType WorkflowType { get; private set; }
     public string Address { get; private set; } = string.Empty;
     public string? Notes { get; private set; }
-    public decimal ProgressPercentage { get; private set; }
     public DateTime? EstimatedStartDate { get; private set; }
     public DateTime? EstimatedEndDate { get; private set; }
     public DateTime? ActualStartDate { get; private set; }
@@ -95,7 +94,9 @@ internal sealed class Project : Entity, IAuditable
         }
     }
 
-    public Result ChangeStatus(ProjectStatus status)
+    /// <summary>NP8: <paramref name="utcNow"/> comes from the caller's <c>TimeProvider</c>, so the stamped actual
+    /// start and end dates are testable and consistent with the rest of the request.</summary>
+    public Result ChangeStatus(ProjectStatus status, DateTime utcNow)
     {
         if (Status == status)
         {
@@ -109,19 +110,17 @@ internal sealed class Project : Entity, IAuditable
 
         if (status == ProjectStatus.InProgress && ActualStartDate is null)
         {
-            ActualStartDate = DateTime.UtcNow;
+            ActualStartDate = utcNow;
         }
 
         if (status is ProjectStatus.Completed or ProjectStatus.Cancelled)
         {
-            ActualEndDate = DateTime.UtcNow;
+            ActualEndDate = utcNow;
         }
 
         Status = status;
         return Result.Success();
     }
-
-    public void RecalculateProgress(decimal progressPercentage) => ProgressPercentage = progressPercentage;
 
     /// <summary>Set by a confirmed scope of work from its planned start and duration.</summary>
     public void SetEstimatedDates(DateTime estimatedStartDate, DateTime estimatedEndDate)

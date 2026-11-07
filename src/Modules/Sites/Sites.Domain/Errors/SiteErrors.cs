@@ -98,6 +98,11 @@ internal static class SiteErrors
     public static readonly Error NotFound = Error.NotFound(
         $"{Prefix}.{nameof(NotFound)}", "The requested site was not found.");
 
+    /// <summary>C6: the caller reaches the site's project, but below the level this write needs (Editor to
+    /// capture, Manager to decide, reopen or delete).</summary>
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        $"{Prefix}.{nameof(InsufficientLevel)}", "Your access level on this project does not allow this action.");
+
     public static readonly Error RecordNotFound = Error.NotFound(
         $"{Prefix}.{nameof(RecordNotFound)}", "The requested site record was not found.");
 
@@ -109,6 +114,14 @@ internal static class SiteErrors
     /// </summary>
     public static readonly Error ProjectNotFound = Error.NotFound(
         $"{Prefix}.{nameof(ProjectNotFound)}", "The requested project was not found.");
+
+    /// <summary>
+    /// B-S-M7 / R1-7: a project that is deactivated, on hold, Completed or Cancelled takes no survey
+    /// work. Only deciding an already-submitted survey is still allowed.
+    /// </summary>
+    public static readonly Error ProjectClosed = Error.Conflict(
+        $"{Prefix}.{nameof(ProjectClosed)}",
+        "The project is inactive, on hold or closed; its site surveys cannot be changed.");
 
     public static readonly Error LabelTaken = Error.Conflict(
         $"{Prefix}.{nameof(LabelTaken)}", "Another record in this module already uses that label.");
@@ -125,6 +138,13 @@ internal static class SiteErrors
     public static readonly Error SpaceNotFound = Error.NotFound(
         $"{Prefix}.{nameof(SpaceNotFound)}", "The requested space was not found.");
 
+    /// <summary>
+    /// S2: a record's catalog item must exist and be active in CRM. Read through
+    /// <c>Crm.Contracts.ICrmCatalogItemReader</c>; the foreign key alone turned a bad id into a 500.
+    /// </summary>
+    public static readonly Error CatalogItemNotFound = Error.NotFound(
+        $"{Prefix}.{nameof(CatalogItemNotFound)}", "The requested catalog item was not found.");
+
     public static readonly Error InvalidTransition = Error.Conflict(
         $"{Prefix}.{nameof(InvalidTransition)}",
         "That status change is not allowed from the site's current status.");
@@ -139,6 +159,15 @@ internal static class SiteErrors
         "This site has been submitted for approval; its records can no longer be changed. "
         + "A rejected site must be reopened for rework before it can be edited.");
 
+    /// <summary>
+    /// B-S-L1 (C11) / R1-9: the survey's creator or submitter may not approve it unless they hold the project-wide
+    /// override (<c>project.read_all</c>, which the full-access admin and manager roles carry). 403: it is about who
+    /// is acting, not about the survey's state.
+    /// </summary>
+    public static readonly Error SelfApprovalNotAllowed = Error.Forbidden(
+        $"{Prefix}.{nameof(SelfApprovalNotAllowed)}",
+        "A survey cannot be approved by the person who created or submitted it.");
+
     public static readonly Error AddressRequiredToSubmit = Error.BadRequest(
         $"{Prefix}.{nameof(AddressRequiredToSubmit)}",
         "A site must have an address before it can be submitted.");
@@ -151,6 +180,13 @@ internal static class SiteErrors
 
     public static readonly Error DocumentNotFound = Error.NotFound(
         $"{Prefix}.{nameof(DocumentNotFound)}", "The requested site attachment was not found.");
+
+    /// <summary>
+    /// NS2: the document is already attached to this exact subject (the site, or that record). Backed
+    /// by <c>ux_site_documents_link</c>, partial on <c>IsActive</c>, so unlinking frees the subject.
+    /// </summary>
+    public static readonly Error DocumentAlreadyLinked = Error.Conflict(
+        $"{Prefix}.{nameof(DocumentAlreadyLinked)}", "That document is already attached here.");
 
     public static readonly Error InvalidDocumentSubject = Error.BadRequest(
         $"{Prefix}.{nameof(InvalidDocumentSubject)}",

@@ -106,11 +106,18 @@ internal sealed class SiteEndpoints : IEndpoint
         }).RequirePermission(SitesPermissions.Delete);
 
         site.MapPost("/submit", async (
-            Guid siteId, ICurrentUser currentUser,
+            Guid siteId, ICurrentUser currentUser, IHrDirectory directory,
             ICommandHandler<SubmitSiteCommand> handler, CancellationToken ct) =>
         {
+            // S10: the submitter, resolved here like the approver -- the event carried the creator.
+            Result<Guid> submittedById = await SiteEndpointActors.ResolveEmployeeIdAsync(directory, currentUser, ct);
+            if (submittedById.IsFailure)
+            {
+                return submittedById.ToProblem();
+            }
+
             Result result = await handler.HandleAsync(
-                new SubmitSiteCommand(siteId, currentUser.UserId ?? string.Empty), ct);
+                new SubmitSiteCommand(siteId, submittedById.Value, currentUser.UserId ?? string.Empty), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(SitesPermissions.Submit);

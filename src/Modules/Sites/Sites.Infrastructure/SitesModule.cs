@@ -43,6 +43,7 @@ internal sealed class SitesModule : IModule
         services.AddScoped<ISiteSchemaCache, SiteSchemaCache>();
         services.AddScoped<ISiteModuleValidator, SiteModuleValidator>();
         services.AddScoped<ISiteReadQueries, SiteReadQueries>();
+        services.AddScoped<ISiteProjectUsage, SiteProjectUsage>();
 
         services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(Name, SitesPermissions.All));
 

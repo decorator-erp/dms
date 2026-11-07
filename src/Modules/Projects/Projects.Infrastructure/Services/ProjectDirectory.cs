@@ -92,9 +92,17 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
             return [];
         }
 
+        // P2/NP5: computed on read from the stages' recounted counters plus the unstaged tasks (ProjectProgress).
         var projects = await db.Projects.AsNoTracking()
             .Where(p => projectIds.Contains(p.Id))
-            .Select(p => new { p.Id, p.ProgressPercentage })
+            .Select(p => new
+            {
+                p.Id,
+                Completed = db.ProjectStages.Where(s => s.ProjectId == p.Id).Sum(s => s.CompletedTasks)
+                    + db.ProjectTasks.Count(t => t.ProjectId == p.Id && t.ProjectStageId == null && t.Status == Domain.ProjectTaskStatus.Completed),
+                Total = db.ProjectStages.Where(s => s.ProjectId == p.Id).Sum(s => s.TotalTasks)
+                    + db.ProjectTasks.Count(t => t.ProjectId == p.Id && t.ProjectStageId == null && t.Status != Domain.ProjectTaskStatus.Cancelled),
+            })
             .ToListAsync(ct);
         var active = await db.ProjectStages.AsNoTracking()
             .Where(s => projectIds.Contains(s.ProjectId) && s.Status == Domain.StageStatus.Active)
@@ -105,8 +113,8 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         return
         [
             .. projects.Select(p => firstActive.TryGetValue(p.Id, out var stage)
-                ? new ProjectProgressSummary(p.Id, p.ProgressPercentage, stage.Id, stage.Name)
-                : new ProjectProgressSummary(p.Id, p.ProgressPercentage, null, null)),
+                ? new ProjectProgressSummary(p.Id, ProjectProgress.Percent(p.Completed, p.Total), stage.Id, stage.Name)
+                : new ProjectProgressSummary(p.Id, ProjectProgress.Percent(p.Completed, p.Total), null, null)),
         ];
     }
 

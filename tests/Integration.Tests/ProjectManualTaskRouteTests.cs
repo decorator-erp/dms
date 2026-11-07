@@ -49,10 +49,10 @@ public sealed class ProjectManualTaskRouteTests(ApiFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, noStage.StatusCode);
         Assert.Contains("tasks.StageRequired", await noStage.Content.ReadAsStringAsync());
 
-        // Before confirm: 409.
+        // Before confirm the project has no stage, so any stage id is missing: R1-3 puts that 404 before the 409s.
         (Guid draftProject, _) = await ProjectTestSeeding.CreateDraftStageProjectAsync(owner, $"MTD-{suffix}");
         HttpResponseMessage early = await owner.PostAsJsonAsync($"/api/projects/{draftProject}/tasks", new { ProjectStageId = Guid.NewGuid(), Name = "x" });
-        Assert.Equal(HttpStatusCode.Conflict, early.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, early.StatusCode);
 
         // FreeStyle: a task with no stage is fine; one with a stage is refused.
         Guid freeStyle = await ProjectTestSeeding.CreateFreeStyleProjectAsync(owner, $"MTF-{suffix}");

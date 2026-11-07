@@ -2,6 +2,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts.Teams;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
@@ -35,6 +36,13 @@ internal sealed class CreateStageTeamCommandHandler(ProjectsDbContext db, IHrDir
         if (!await StageTeamAccess.BelongsToProjectAsync(db, command.ProjectStageId, command.ProjectId, ct))
         {
             return Result.Failure<Guid>(Domain.StageErrors.NotFound);
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
         }
 
         Domain.StageTeam team;
@@ -86,6 +94,13 @@ internal sealed class RemoveStageTeamMemberCommandHandler(ProjectsDbContext db) 
         if (member is null)
         {
             return Domain.TeamErrors.MemberNotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         db.StageTeamMembers.Remove(member);

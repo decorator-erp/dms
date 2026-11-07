@@ -16,12 +16,45 @@ internal static class ProjectErrors
     public static readonly Error AccessDenied = Error.Forbidden(
         "projects.AccessDenied", "The current user does not have access to this project.");
 
+    /// <summary>P10: in scope, but the caller's effective level on the project is below what the action needs.</summary>
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        "projects.InsufficientLevel", "Your access level on this project does not allow this action.");
+
     /// <summary>G9-13: closes the Phase 2 deferral — <c>Project.ClientId</c> now must name a real
     /// <c>crm.clients</c> row, checked via <c>Crm.Contracts.IClientDirectory.ExistAsync</c> in
     /// <c>CreateProjectCommandHandler</c> before <c>Project.Create</c> is ever called (validation lives
     /// in the handler, never in the aggregate, per the plan's explicit note).</summary>
     public static readonly Error ClientNotFound = Error.NotFound(
         "projects.ClientNotFound", "The specified client was not found.");
+
+    /// <summary>P8: the project code is unique (<c>IX_projects_Code</c>). Pre-checked in
+    /// <c>CreateProjectCommandHandler</c>; a create racing past the pre-check trips the index, which
+    /// <c>ProjectWrites</c> maps to this same 409.</summary>
+    public static readonly Error CodeTaken = Error.Conflict(
+        "projects.CodeTaken", "Another project already uses this code.");
+
+    /// <summary>P9: the project row's <c>xmin</c> moved between the read and the save.</summary>
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.ConcurrentUpdate", "The project was changed by someone else. Reload and try again.");
+
+    /// <summary>NP3: an inactive, on-hold, completed or cancelled project takes no work writes (tasks, sub-tasks,
+    /// stages, gates, scope of work, stage teams); its work can still be read.</summary>
+    public static readonly Error Closed = Error.Conflict(
+        "projects.Closed", "The project is inactive, on hold, completed or cancelled; its work can't change.");
+
+    /// <summary>NP3: a project is marked Completed only when none of its stages is still Active or Locked.</summary>
+    public static readonly Error StagesOpen = Error.Conflict(
+        "projects.StagesOpen", "Every stage must be completed or rejected before the project can be completed.");
+
+    /// <summary>R1-11: the same rule for a project's stage-less (FreeStyle) work: it is marked Completed only when every
+    /// task that belongs to no stage is Completed or Cancelled.</summary>
+    public static readonly Error TasksOpen = Error.Conflict(
+        "projects.TasksOpen", "Every task must be completed or cancelled before the project can be completed.");
+
+    /// <summary>P1: the project has work under way (a started or touched task, a closed stage, a satisfied or
+    /// pending-approval gate), or a document, site (soft-deleted included), CRM or Finance row still names it.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "projects.NotDeletable", "This project has started or is referenced elsewhere and cannot be deleted.");
 }
 
 internal static class StageErrors
@@ -32,6 +65,10 @@ internal static class StageErrors
         "stages.InvalidStatusTransition", "That stage status transition is not allowed.");
 
     public static readonly Error NegativeCost = Error.BadRequest("stages.NegativeCost", "Cost cannot be negative.");
+
+    /// <summary>NP7 (owner decision): a stage completes only when every one of its tasks is Completed or Cancelled.</summary>
+    public static readonly Error TasksOpen = Error.Conflict(
+        "stages.TasksOpen", "Every task of this stage must be completed or cancelled before the stage can be completed.");
 
     /// <summary>A <see cref="GateTrigger.Complete"/> gate on this stage is still <see cref="GateStatus.Pending"/>
     /// — checked by <c>CompleteProjectStageCommandHandler</c> before <c>ProjectStage.Complete</c> runs at
@@ -82,8 +119,18 @@ internal static class TaskErrors
     public static readonly Error StageClosed = Error.Conflict(
         "projects.tasks.StageClosed", "Tasks cannot be added to a completed or rejected stage.");
 
+    /// <summary>R1-10: a task of a Completed stage is not reopened; the completed stage would regain an open task
+    /// (NP7 completes a stage only when every task is done).</summary>
+    public static readonly Error StageCompleted = Error.Conflict(
+        "projects.tasks.StageCompleted", "The task's stage is completed, so the task cannot be reopened.");
+
     public static readonly Error AssigneeNotFound = Error.NotFound(
         "projects.tasks.AssigneeNotFound", "The assignee was not found or is not active.");
+
+    /// <summary>R1-1: start/complete by someone who is neither the task's assignee, nor a task manager
+    /// (<c>stage_tasks.manage</c>), nor a Manager on the project.</summary>
+    public static readonly Error NotAssignee = Error.Forbidden(
+        "projects.tasks.NotAssignee", "Only the task's assignee, a task manager or a project manager can do this.");
 
     /// <summary>Same as <see cref="StageErrors.GatesNotSatisfied"/>, for a task-owned
     /// <see cref="GateTrigger.Complete"/> gate.</summary>
@@ -166,6 +213,15 @@ internal static class StageTemplateErrors
 
     public static readonly Error StagesNotFound = Error.BadRequest(
         "stage_templates.StagesNotFound", "The stage template has no stages defined.");
+
+    /// <summary>A project stage was made from one of this template's stages (<c>ProjectStage.StageId</c>); the
+    /// template stays so that link keeps meaning something.</summary>
+    public static readonly Error InUse = Error.Conflict(
+        "stage_templates.InUse", "A project was built from this template, so it cannot be deleted.");
+
+    /// <summary>Template names are unique (<c>IX_stage_templates_Name</c>).</summary>
+    public static readonly Error NameTaken = Error.Conflict(
+        "stage_templates.NameTaken", "Another stage template already uses this name.");
 }
 
 /// <summary>Errors for the TEMPLATE <c>Stage</c>/<c>StageTask</c>/<c>StageSubTask</c> entities — distinct
@@ -220,6 +276,23 @@ internal static class GateConditionErrors
     public static readonly Error UnsupportedConditionType = Error.BadRequest(
         "gate_conditions.UnsupportedConditionType",
         "No handler is registered for this gate condition type.");
+
+    /// <summary>P3: only a Pending <see cref="ConditionType.ManualCheck"/> gate is satisfied by hand. Every other type
+    /// is resolved by its own source (an approval decision, a completion, Finance, CRM, Documents), so forcing it
+    /// would bypass that source.</summary>
+    public static readonly Error NotManuallySatisfiable = Error.Conflict(
+        "gate_conditions.NotManuallySatisfiable", "Only a pending manual-check gate can be satisfied by hand.");
+
+    /// <summary>NP2: an Unlock gate locks its owner, so it is added only while the owner is open (a task Open, a stage
+    /// Active) or already Locked — never on started, completed, rejected or cancelled work, which locking would
+    /// overwrite.</summary>
+    public static readonly Error OwnerNotOpen = Error.Conflict(
+        "gate_conditions.OwnerNotOpen", "An unlock gate can only be added to work that has not started yet.");
+
+    /// <summary>P4: a satisfied gate is history, and a pending approval gate has an open request in the Approvals
+    /// inbox that deleting the gate would orphan.</summary>
+    public static readonly Error NotDeletable = Error.Conflict(
+        "gate_conditions.NotDeletable", "A satisfied gate, or an approval gate still waiting for its decision, cannot be deleted.");
 }
 
 /// <summary>Scope of work (SOW-3). Codes as in the plan's §3.2, plus <see cref="TooManyItems"/>,

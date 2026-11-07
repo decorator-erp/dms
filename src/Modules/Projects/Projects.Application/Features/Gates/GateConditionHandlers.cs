@@ -3,6 +3,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Gates;
 using Projects.Infrastructure.Persistence;
@@ -13,12 +14,21 @@ namespace Projects.Application.Features.Gates;
 
 internal sealed class CreateStageGateConditionCommandValidator : AbstractValidator<CreateStageGateConditionCommand>
 {
-    public CreateStageGateConditionCommandValidator() => RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+    public CreateStageGateConditionCommandValidator()
+    {
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+
+        // P7: unknown enum values are a 400.
+        RuleFor(x => x.ConditionType).IsInEnum();
+        RuleFor(x => x.Trigger).IsInEnum();
+        RuleFor(x => x.ApprovalType).IsInEnum().When(x => x.ApprovalType is not null);
+    }
 }
 
 /// <summary>
 /// Resolves the matching <see cref="IGateConditionTypeHandler"/> for create-time validation, then per
-/// the facts table: an <see cref="GateTrigger.Unlock"/>-trigger gate locks its owner immediately, and an
+/// the facts table: an <see cref="GateTrigger.Unlock"/>-trigger gate locks its owner immediately (NP2: only an owner
+/// that is open or already Locked, else 409 <c>gate_conditions.OwnerNotOpen</c>), and an
 /// <see cref="ConditionType.Approval"/> gate requests the approval end-to-end (decision #1: eligible
 /// approvers are the project owner and the owning stage's team head, resolved to their
 /// <c>Employee.AppUserId</c> via <see cref="IHrDirectory"/> — Approvals never sees an Employee id).
@@ -37,6 +47,18 @@ internal sealed class CreateStageGateConditionCommandHandler(
         if (stage is null)
         {
             return Result.Failure<Guid>(Domain.StageErrors.NotFound);
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
+        if (command.Trigger == GateTrigger.Unlock && !stage.IsLockable)
+        {
+            return Result.Failure<Guid>(Domain.GateConditionErrors.OwnerNotOpen);
         }
 
         IGateConditionTypeHandler? typeHandler = typeHandlers.SingleOrDefault(h => h.Type == command.ConditionType);
@@ -88,7 +110,15 @@ internal sealed class CreateStageGateConditionCommandHandler(
 
 internal sealed class CreateTaskGateConditionCommandValidator : AbstractValidator<CreateTaskGateConditionCommand>
 {
-    public CreateTaskGateConditionCommandValidator() => RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+    public CreateTaskGateConditionCommandValidator()
+    {
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(200);
+
+        // P7: unknown enum values are a 400.
+        RuleFor(x => x.ConditionType).IsInEnum();
+        RuleFor(x => x.Trigger).IsInEnum();
+        RuleFor(x => x.ApprovalType).IsInEnum().When(x => x.ApprovalType is not null);
+    }
 }
 
 internal sealed class CreateTaskGateConditionCommandHandler(
@@ -105,6 +135,18 @@ internal sealed class CreateTaskGateConditionCommandHandler(
         if (task is null)
         {
             return Result.Failure<Guid>(Domain.TaskErrors.NotFound);
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
+        if (command.Trigger == GateTrigger.Unlock && !task.IsLockable)
+        {
+            return Result.Failure<Guid>(Domain.GateConditionErrors.OwnerNotOpen);
         }
 
         IGateConditionTypeHandler? typeHandler = typeHandlers.SingleOrDefault(h => h.Type == command.ConditionType);
@@ -178,8 +220,11 @@ internal static class GateApprovalRequests
 
         if (projectStageId is { } stageId)
         {
+            // The stage's first team (created first, then by id): a stage has one team per department, and without the
+            // order the approver was whichever row Postgres returned first.
             Guid? headId = await db.StageTeams.AsNoTracking()
                 .Where(t => t.ProjectStageId == stageId)
+                .OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id)
                 .Select(t => (Guid?)t.HeadId)
                 .FirstOrDefaultAsync(ct);
             if (headId is not null)
@@ -197,53 +242,133 @@ internal static class GateApprovalRequests
         var approvers = summaries.Select(s => new ApproverSpec(ApproverKind.Employee, s.AppUserId)).ToList();
         string requestedByUserId = currentUser.UserId ?? approvers[0].ApproverUserId;
 
+        // B-P-M7: the approval id is derived from the gate id (GateApprovalIds), so a repeated request for this gate
+        // returns the approval already made instead of opening a second one.
         Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
-                Guid.NewGuid(), ApprovalSubjectType.GateCondition, gate.Id, (global::Approvals.Contracts.ApprovalType)approvalType,
-                requestedByUserId, approvers, DueAtUtc: null),
+                GateApprovalIds.For(gate.Id), ApprovalSubjectType.GateCondition, gate.Id,
+                (global::Approvals.Contracts.ApprovalType)approvalType, requestedByUserId, approvers, DueAtUtc: null),
             ct);
         if (requestResult.IsFailure)
         {
             return requestResult.Error;
         }
 
-        gate.LinkApproval(requestResult.Value!.ApprovalId);
+        ApprovalRequestOutcome outcome = requestResult.Value!;
+        gate.LinkApproval(outcome.ApprovalId);
+
+        // A decision made before this gate committed found no gate to bind to and was dropped; apply it here, as
+        // ApprovalDecidedIntegrationEventHandler would have (CRM's CrmApprovalOutcomes pattern).
+        switch (outcome.Decision)
+        {
+            case ApprovalDecision.Approved:
+                gate.MarkSatisfied(null);
+                break;
+            case ApprovalDecision.Rejected:
+                gate.MarkRejected(null);
+                await GateOwnerLocks.ReleaseOnRejectionAsync(db, gate, ct);
+                break;
+        }
+
         return Result.Success();
     }
 }
 
-internal sealed class DeleteGateConditionCommandHandler(ProjectsDbContext db) : ICommandHandler<DeleteGateConditionCommand>
+/// <summary>P4: route claim (either gate permission) → scope (404) → the owner's own gate permission
+/// (<c>stages.manage_gates</c> for a stage gate, <c>stage_tasks.manage_gates</c> for a task gate; 403) → state (409):
+/// a satisfied gate, or an approval gate still waiting for its decision (its request is open in the Approvals inbox),
+/// is <see cref="Domain.GateConditionErrors.NotDeletable"/>. Deleting the owner's last pending Unlock gate releases
+/// the owner (<see cref="GateOwnerLocks"/>) instead of leaving it Locked for good.</summary>
+internal sealed class DeleteGateConditionCommandHandler(ProjectsDbContext db, BuildingBlocks.ICurrentUser currentUser)
+    : ICommandHandler<DeleteGateConditionCommand>
 {
     public async Task<Result> HandleAsync(DeleteGateConditionCommand command, CancellationToken ct = default)
     {
-        Domain.GateCondition? gate = await db.GateConditions.FindAsync([command.GateConditionId], ct);
-        if (gate is null || !await BelongsToProjectAsync(db, gate, command.ProjectId, ct))
+        Domain.GateCondition? gate = await db.GateConditions.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null || !await GateOwners.LockForProjectAsync(db, gate, command.ProjectId, ct))
         {
             return Domain.GateConditionErrors.NotFound;
         }
 
+        if (!GateOwners.MayManage(currentUser, gate))
+        {
+            return Domain.ProjectErrors.AccessDenied;
+        }
+
+        gate = await db.GateConditions.FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null)
+        {
+            return Domain.GateConditionErrors.NotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
+        if (gate.IsSatisfied || gate.ConditionType == Domain.ConditionType.Approval && gate.IsPending)
+        {
+            return Domain.GateConditionErrors.NotDeletable;
+        }
+
         db.GateConditions.Remove(gate);
+        await GateOwnerLocks.ReleaseIfLastAsync(db, gate, ct);
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
+}
 
-    internal static Task<bool> BelongsToProjectAsync(ProjectsDbContext db, Domain.GateCondition gate, Guid projectId, CancellationToken ct) =>
-        gate.ProjectStageId is { } stageId
-            ? db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == stageId && s.ProjectId == projectId, ct)
-            : db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == gate.ProjectTaskId && t.ProjectId == projectId, ct);
+internal sealed class SatisfyGateConditionCommandValidator : AbstractValidator<SatisfyGateConditionCommand>
+{
+    public SatisfyGateConditionCommandValidator() => RuleFor(x => x.Note).MaximumLength(2000);
 }
 
 /// <summary>Manual satisfaction (the <c>ManualCheckHandler</c> path) — approval-type gates are satisfied
-/// reactively by <c>ApprovalDecidedIntegrationEventHandler</c>, never through this command.</summary>
-internal sealed class SatisfyGateConditionCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
+/// reactively by <c>ApprovalDecidedIntegrationEventHandler</c>, never through this command.
+///
+/// <para>P3: only a <see cref="Domain.ConditionType.ManualCheck"/> gate that is still Pending (409
+/// <see cref="Domain.GateConditionErrors.NotManuallySatisfiable"/> otherwise), so a rejected approval, document or
+/// budget gate can't be forced through by hand. The owner row is taken first (<c>FOR NO KEY UPDATE</c>), so the
+/// unlock the satisfaction cascades into (<c>GateOwnerLocks</c>) and a racing gate change on the same owner
+/// queue instead of interleaving.</para></summary>
+internal sealed class SatisfyGateConditionCommandHandler(
+    ProjectsDbContext db, IHrDirectory hrDirectory, BuildingBlocks.ICurrentUser currentUser)
     : ICommandHandler<SatisfyGateConditionCommand>
 {
     public async Task<Result> HandleAsync(SatisfyGateConditionCommand command, CancellationToken ct = default)
     {
-        Domain.GateCondition? gate = await db.GateConditions.FindAsync([command.GateConditionId], ct);
-        if (gate is null || !await DeleteGateConditionCommandHandler.BelongsToProjectAsync(db, gate, command.ProjectId, ct))
+        Domain.GateCondition? gate = await db.GateConditions.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null || !await GateOwners.LockForProjectAsync(db, gate, command.ProjectId, ct))
         {
             return Domain.GateConditionErrors.NotFound;
+        }
+
+        if (!GateOwners.MayManage(currentUser, gate))
+        {
+            return Domain.ProjectErrors.AccessDenied;
+        }
+
+        // Re-read under the owner lock: a racing satisfy or delete committed while this one waited.
+        gate = await db.GateConditions.FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
+        if (gate is null)
+        {
+            return Domain.GateConditionErrors.NotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
+        if (gate.ConditionType != Domain.ConditionType.ManualCheck || !gate.IsPending)
+        {
+            return Domain.GateConditionErrors.NotManuallySatisfiable;
         }
 
         Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(command.UserId, ct);
@@ -261,6 +386,24 @@ internal sealed class SatisfyGateConditionCommandHandler(ProjectsDbContext db, I
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
+}
+
+/// <summary>The gate's owner (a stage or a task), checked against the project and locked.</summary>
+internal static class GateOwners
+{
+    /// <summary>Takes the owner row <c>FOR NO KEY UPDATE</c>; false when the owner is not (or no longer) in the
+    /// project.</summary>
+    public static Task<bool> LockForProjectAsync(ProjectsDbContext db, Domain.GateCondition gate, Guid projectId, CancellationToken ct) =>
+        gate.ProjectStageId is { } stageId
+            ? ProjectWriteLock.LockStageForWriteAsync(db, projectId, stageId, ct)
+            : ProjectWriteLock.LockTaskForWriteAsync(db, projectId, gate.ProjectTaskId!.Value, ct);
+
+    /// <summary>P4: a stage gate is managed under <c>stages.manage_gates</c>, a task gate under
+    /// <c>stage_tasks.manage_gates</c> (decision #9), whichever of the two let the caller onto the shared route.</summary>
+    public static bool MayManage(BuildingBlocks.ICurrentUser currentUser, Domain.GateCondition gate) =>
+        currentUser.HasPermission(gate.ProjectStageId is not null
+            ? ProjectsPermissions.Stages.ManageGates
+            : ProjectsPermissions.StageTasks.ManageGates);
 }
 
 internal sealed class GetStageGateConditionsQueryHandler(ProjectsDbContext db)

@@ -127,10 +127,9 @@ public sealed class ScopeOfWorkConfirmTests(ProjectsApplicationFixture fixture)
         (Guid templateId, _) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Existing", 1m);
         ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "has-stages", stageTemplateId: templateId);
         (_, IReadOnlyList<SeededStage> s) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "Other", 2m);
-        Assert.True((await AddAsync(p, s[0].Id)).IsSuccess);
-        await SetHeaderAsync(p, durationDays: 10);
 
-        Result<ConfirmScopeOfWorkResponse> result = await ConfirmAsync(p);
+        // P5: the first scope write is already refused, so no Draft is left that could never be confirmed.
+        Result<IReadOnlyList<ScopeOfWorkItemResponse>> result = await AddAsync(p, s[0].Id);
 
         Assert.Equal(ScopeOfWorkErrors.ProjectHasStages, result.Error);
         Assert.Equal(409, result.Error.Status);

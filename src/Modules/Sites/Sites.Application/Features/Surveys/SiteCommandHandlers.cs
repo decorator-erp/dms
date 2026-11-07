@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using FluentValidation;
@@ -18,9 +19,7 @@ internal sealed class CreateSiteCommandValidator : AbstractValidator<CreateSiteC
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.CreatedById).NotEmpty();
         RuleFor(x => x.Request.ProjectId).NotEmpty();
-        RuleFor(x => x.Request.Data.Address).MaximumLength(500);
-        RuleFor(x => x.Request.Data.Notes).MaximumLength(4000);
-        RuleFor(x => x.Request.Data.UtilityMetersNote).MaximumLength(4000);
+        RuleFor(x => x.Request.Data).NotNull().SetValidator(new SiteUnitDataRequestValidator());
     }
 }
 
@@ -29,7 +28,7 @@ internal sealed class CreateSiteCommandValidator : AbstractValidator<CreateSiteC
 /// authorizes itself.
 /// </summary>
 internal sealed class CreateSiteCommandHandler(
-    SitesDbContext db, IProjectAccessGuard access, IProjectDirectory projects)
+    SitesDbContext db, IProjectAccessGuard access, IProjectAccessLevelReader levels, IProjectDirectory projects)
     : ICommandHandler<CreateSiteCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(CreateSiteCommand command, CancellationToken ct = default)
@@ -40,14 +39,28 @@ internal sealed class CreateSiteCommandHandler(
             return scope.Error;
         }
 
+        // C6: a new survey is Editor work; checked before any 409 below.
+        ProjectMemberAccess? level = await levels.GetLevelAsync(command.Request.ProjectId, command.AppUserId, ct);
+        if (level is null || level.Value < Infrastructure.Decorators.SiteProjectLevels.Create)
+        {
+            return SiteErrors.InsufficientLevel;
+        }
+
         // Defect B1's fix. The backend's only guard is the access check above -- and a caller holding
         // Projects.ReadAll short-circuits it WITHOUT touching the projects table, so a garbage project id
         // sailed through, Site.Create accepted it (it only rejects Guid.Empty), and the foreign key blew
         // up in SaveChanges as an unexplained 500. SiteErrors.ProjectNotFound existed for exactly this
         // and was referenced nowhere in the backend.
-        if (await projects.GetProjectAsync(command.Request.ProjectId, ct) is null)
+        ProjectSummary? project = await projects.GetProjectAsync(command.Request.ProjectId, ct);
+        if (project is null)
         {
             return SiteErrors.ProjectNotFound;
+        }
+
+        // B-S-M7 / R1-7: a survey is new work; a deactivated, on-hold, Completed or Cancelled project takes none.
+        if (Infrastructure.Decorators.SiteScopeDecorator.IsClosed(project))
+        {
+            return SiteErrors.ProjectClosed;
         }
 
         Result<string> code = await NextCodeAsync(db, ct);
@@ -108,9 +121,7 @@ internal sealed class UpdateSiteCommandValidator : AbstractValidator<UpdateSiteC
     {
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
-        RuleFor(x => x.Request.Data.Address).MaximumLength(500);
-        RuleFor(x => x.Request.Data.Notes).MaximumLength(4000);
-        RuleFor(x => x.Request.Data.UtilityMetersNote).MaximumLength(4000);
+        RuleFor(x => x.Request.Data).NotNull().SetValidator(new SiteUnitDataRequestValidator());
     }
 }
 
@@ -159,6 +170,16 @@ internal sealed class DeleteSiteCommandHandler(SitesDbContext db) : ICommandHand
     }
 }
 
+internal sealed class SubmitSiteCommandValidator : AbstractValidator<SubmitSiteCommand>
+{
+    public SubmitSiteCommandValidator()
+    {
+        RuleFor(x => x.SiteId).NotEmpty();
+        RuleFor(x => x.SubmittedById).NotEmpty();
+        RuleFor(x => x.AppUserId).NotEmpty();
+    }
+}
+
 internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider timeProvider)
     : ICommandHandler<SubmitSiteCommand>
 {
@@ -170,7 +191,7 @@ internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider t
             return SiteErrors.NotFound;
         }
 
-        Result submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime);
+        Result submitted = site.Submit(timeProvider.GetUtcNow().UtcDateTime, command.SubmittedById);
         if (submitted.IsFailure)
         {
             return submitted;
@@ -179,7 +200,7 @@ internal sealed class SubmitSiteCommandHandler(SitesDbContext db, TimeProvider t
         // Enqueued in the SAME SaveChanges as the status change -- the outbox row and the write commit
         // together or not at all.
         db.Outbox().Enqueue(new SiteSubmittedIntegrationEvent(
-            Guid.CreateVersion7(), site.Id, site.ProjectId, site.CreatedById, timeProvider.GetUtcNow()));
+            Guid.CreateVersion7(), site.Id, site.ProjectId, command.SubmittedById, timeProvider.GetUtcNow()));
 
         return await SiteWrites.SaveAsync(db, ct);
     }
@@ -200,7 +221,8 @@ internal sealed class DecideSiteCommandValidator : AbstractValidator<DecideSiteC
     }
 }
 
-internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider timeProvider)
+internal sealed class DecideSiteCommandHandler(
+    SitesDbContext db, TimeProvider timeProvider, ICurrentUser currentUser)
     : ICommandHandler<DecideSiteCommand>
 {
     public async Task<Result> HandleAsync(DecideSiteCommand command, CancellationToken ct = default)
@@ -209,6 +231,19 @@ internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider t
         if (site is null)
         {
             return SiteErrors.NotFound;
+        }
+
+        // B-S-L1 (C11) / R1-9: neither the creator nor the submitter may approve the survey -- that would make
+        // the lifecycle decorative for anyone holding sites.approve. A rule about the actor, so 403. The one
+        // override is project.read_all, the same claim IProjectAccessGuard treats as project-wide authority; the
+        // full-access admin and manager roles carry it. Rejecting one's own survey is not self-approval and
+        // stays allowed.
+        if (command.Request.Approved
+            && site.Status == Domain.SiteStatus.Submitted
+            && (command.DecidedById == site.CreatedById || command.DecidedById == site.SubmittedById)
+            && !currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
+        {
+            return SiteErrors.SelfApprovalNotAllowed;
         }
 
         DateTimeOffset now = timeProvider.GetUtcNow();
@@ -225,7 +260,7 @@ internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider t
         // cares that a survey was decided and branches on the outcome.
         db.Outbox().Enqueue(new SiteApprovedIntegrationEvent(
             Guid.CreateVersion7(), site.Id, site.ProjectId,
-            command.Request.Approved, command.DecidedById, now));
+            command.Request.Approved, command.DecidedById, now, site.DecisionNote));
 
         return await SiteWrites.SaveAsync(db, ct);
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using BuildingBlocks.Messaging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Projects.Contracts;
@@ -10,6 +11,7 @@ using Sites.Contracts.Documents;
 using Sites.Contracts.Records;
 using Sites.Contracts.Surveys;
 using Sites.Domain;
+using Sites.Infrastructure.Persistence;
 using Xunit;
 using SiteDocumentKind = Sites.Contracts.SiteDocumentKind;
 using SiteItemDataType = Sites.Contracts.SiteItemDataType;
@@ -265,7 +267,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
             SiteTestData.OwnerUserId));
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -303,7 +305,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
             new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
             SiteTestData.OwnerUserId));
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result result = await SendAsync(new SetSiteRecordValuesCommand(
             siteId, record.Value,
@@ -323,7 +325,7 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         (Guid moduleId, Guid _) = await CreateFormAsync();
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
             siteId, new CreateSiteRecordRequest(moduleId, "Added after review"),
@@ -586,6 +588,738 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(2, listed.Value!.Count);
         Assert.Contains(listed.Value!, d => d.SiteId == siteId && d.RecordId is null);
         Assert.Contains(listed.Value!, d => d.RecordId == record.Value && d.SiteId is null);
+    }
+
+    // ── Phase 1 fixes ──────────────────────────────────────────────────────────
+
+    private Task<Result<IReadOnlyList<SiteDocumentResponse>>> ListDocumentsAsync(Guid siteId) =>
+        ResolveAsync(sp => sp
+            .GetRequiredService<IQueryHandler<GetSiteDocumentsQuery, IReadOnlyList<SiteDocumentResponse>>>()
+            .HandleAsync(new GetSiteDocumentsQuery(siteId, SiteTestData.OwnerUserId)));
+
+    /// <summary>
+    /// <b>S1.</b> Unlink is a soft delete, but nothing filtered <c>IsActive</c>: the unlinked attachment
+    /// still listed, and unlinking it again "succeeded".
+    /// </summary>
+    [Fact]
+    public async Task S1_UnlinkedDocument_IsNotListedAndASecondUnlinkIsDocumentNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        Result<Guid> link = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Sketch),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(link.IsSuccess);
+
+        Assert.True((await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, link.Value, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<IReadOnlyList<SiteDocumentResponse>> listed = await ListDocumentsAsync(siteId);
+        Assert.True(listed.IsSuccess);
+        Assert.Empty(listed.Value!);
+
+        Result again = await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, link.Value, SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.DocumentNotFound, again.Error);
+    }
+
+    /// <summary>
+    /// <b>NS2.</b> Nothing stopped one document being linked to the same subject twice, so the gallery
+    /// showed it twice. Linking it to the site AND to one of its records is two subjects and stays legal;
+    /// unlinking frees the subject again.
+    /// </summary>
+    [Fact]
+    public async Task NS2_LinkingADocumentTwiceToOneSubject_IsDocumentAlreadyLinked()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
+
+        Result<Guid> toSite = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Result<Guid> toRecord = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, record.Value),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+
+        Assert.True(toSite.IsSuccess);
+        Assert.True(toRecord.IsSuccess);
+
+        Result<Guid> siteAgain = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Sketch),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Result<Guid> recordAgain = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo, record.Value),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+
+        Assert.Equal(SiteErrors.DocumentAlreadyLinked, siteAgain.Error);
+        Assert.Equal(409, siteAgain.Error.Status);
+        Assert.Equal(SiteErrors.DocumentAlreadyLinked, recordAgain.Error);
+
+        Assert.True((await SendAsync(new UnlinkSiteDocumentCommand(
+            siteId, toSite.Value, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<Guid> relinked = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(relinked.IsSuccess);
+
+        Result<IReadOnlyList<SiteDocumentResponse>> listed = await ListDocumentsAsync(siteId);
+        Assert.Equal(2, listed.Value!.Count);
+    }
+
+    private async Task<Guid> CreateCatalogItemAsync()
+    {
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        Guid categoryId = (await SendAsync(new Crm.Contracts.Catalog.CreateCrmCatalogCategoryCommand(
+            null, $"cat{suffix}", "Doors", "أبواب"), true)).Value;
+
+        Result<Guid> item = await SendAsync(new Crm.Contracts.Catalog.CreateCrmCatalogItemCommand(
+            categoryId, $"itm{suffix}", "Flush door", "باب"), true);
+        Assert.True(item.IsSuccess);
+        return item.Value;
+    }
+
+    /// <summary>
+    /// <b>S2.</b> <c>CatalogItemId</c> was never validated: a missing id reached the foreign key as a
+    /// 500, and a retired catalog item was accepted. Checked through <c>ICrmCatalogItemReader</c> on
+    /// add, update and the grid save.
+    /// </summary>
+    [Fact]
+    public async Task S2_RecordWithAMissingOrRetiredCatalogItem_IsCatalogItemNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+        Guid catalogItemId = await CreateCatalogItemAsync();
+
+        Result<Guid> valid = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 1", CatalogItemId: catalogItemId),
+            SiteTestData.OwnerUserId), true);
+        Assert.True(valid.IsSuccess);
+
+        Result<Guid> missingAdd = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 2", CatalogItemId: Guid.NewGuid()),
+            SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingAdd.Error);
+
+        Result missingUpdate = await SendAsync(new UpdateSiteRecordCommand(
+            siteId, valid.Value, new UpdateSiteRecordRequest("Door 1", null, Guid.NewGuid(), 0, null),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingUpdate.Error);
+
+        Result missingBulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door 3", null, Guid.NewGuid(), 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.CatalogItemNotFound, missingBulk.Error);
+
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                $"""UPDATE crm.crm_catalog_items SET "IsActive" = false WHERE "Id" = '{catalogItemId}';""",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        Result<Guid> retired = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 4", CatalogItemId: catalogItemId),
+            SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.CatalogItemNotFound, retired.Error);
+    }
+
+    /// <summary>
+    /// <b>B-S-H2.</b> A value save deleted EVERY stored value of the record before re-inserting the
+    /// incoming set — including values for items detached from the module, which the caller cannot
+    /// send (the validator refuses them). So detach, re-save, reattach silently lost the measurement the
+    /// pivot test above promises survives a detach.
+    /// </summary>
+    [Fact]
+    public async Task BSH2_ValueOfADetachedItem_SurvivesAResaveAndReturnsOnReattach()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid widthId) = await CreateFormAsync();
+
+        Guid heightId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("height"), "Height", "الارتفاع", SiteItemDataType.Number, "cm")),
+            true)).Value;
+        Assert.True((await SendAsync(new AttachSiteItemCommand(
+            moduleId, new AttachSiteItemRequest(heightId)), true)).IsSuccess);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest(
+                [new SiteValueRequest(widthId, ValueNumber: 90m), new SiteValueRequest(heightId, ValueNumber: 210m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.True((await SendAsync(new DetachSiteItemCommand(moduleId, heightId))).IsSuccess);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(widthId, ValueNumber: 95m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.True((await SendAsync(new AttachSiteItemCommand(
+            moduleId, new AttachSiteItemRequest(heightId)), true)).IsSuccess);
+
+        Assert.Equal(95m, await ReadNumberAsync(record.Value, widthId));
+        Assert.Equal(210m, await ReadNumberAsync(record.Value, heightId));
+    }
+
+    /// <summary>
+    /// <b>S3 / NS1 / NS3.</b> Record, value and document writes never touched the site row, so its
+    /// <c>xmin</c> was never checked: a grid save that loaded the survey as Draft could commit AFTER a
+    /// submit had frozen it, and the approver would decide on content that changed under them.
+    /// Deterministic interleave: scope A loads the site, scope B submits and commits, then A's grid
+    /// save runs against its stale copy — exactly one of the two must lose with a 409.
+    /// </summary>
+    [Fact]
+    public async Task S3_BulkSaveRacingASubmit_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+
+        // A: load the site as Draft (tracked), the way the grid save's own load would.
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        Site stale = await db.Sites.SingleAsync(s => s.Id == siteId);
+        Assert.Equal(Sites.Domain.SiteStatus.Draft, stale.Status);
+
+        // B: submit and commit.
+        Result submitted = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
+        Assert.True(submitted.IsSuccess);
+
+        // A: the grid save on its stale copy.
+        Result saved = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<BulkSaveSiteRecordsCommand>>()
+            .HandleAsync(new BulkSaveSiteRecordsCommand(
+                siteId,
+                new BulkSaveSiteRecordsRequest(
+                [
+                    new BulkSiteRecordRequest(null, moduleId, "Late door", null, null, 0, null,
+                        [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                ]),
+                SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, saved.Error);
+        Assert.Equal(409, saved.Error.Status);
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            $"""SELECT count(*) FROM sites.site_records WHERE "SiteId"='{siteId}';""", connection);
+        Assert.Equal(0, Convert.ToInt32(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// <b>NS1.</b> Two value saves on one record from two tablets: the second, staged against a stale
+    /// read, used to overwrite (or collide on the composite key) instead of being told to reload. The
+    /// record's <c>xmin</c> now guards its value set.
+    /// </summary>
+    [Fact]
+    public async Task NS1_ValueSaveOnAStaleRecord_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        _ = await db.SiteRecords.SingleAsync(r => r.Id == record.Value);
+
+        Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result late = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<SetSiteRecordValuesCommand>>()
+            .HandleAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value,
+                new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: 120m)]),
+                SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, late.Error);
+        Assert.Equal(90m, await ReadNumberAsync(record.Value, itemId));
+    }
+
+    /// <summary><b>NS3.</b> A document link staged against a Draft read must not land on a survey
+    /// submitted in between.</summary>
+    [Fact]
+    public async Task NS3_DocumentLinkRacingASubmit_IsAConcurrencyConflict()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid documentId = await SiteTestData.CreateDocumentAsync(fixture);
+
+        await using AsyncServiceScope racer = fixture.CreateScope();
+        racer.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(ProjectsPermissions.Projects.ReadAll);
+        SitesDbContext db = racer.ServiceProvider.GetRequiredService<SitesDbContext>();
+        _ = await db.Sites.SingleAsync(s => s.Id == siteId);
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        Result<Guid> late = await racer.ServiceProvider
+            .GetRequiredService<ICommandHandler<LinkSiteDocumentCommand, Guid>>()
+            .HandleAsync(new LinkSiteDocumentCommand(
+                siteId, new LinkSiteDocumentRequest(documentId, SiteDocumentKind.Photo),
+                owners.EmployeeId, SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ConcurrencyConflict, late.Error);
+    }
+
+    /// <summary>
+    /// <b>S4.</b> Two grid rows naming one RecordId were both applied to the same tracked record — the
+    /// second row's values staged on top of the first's — instead of being refused as a malformed grid.
+    /// </summary>
+    [Fact]
+    public async Task S4_BulkSaveNamingOneRecordTwice_IsAValidationError()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door 1"), SiteTestData.OwnerUserId), true);
+
+        Result result = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Door A", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(record.Value, moduleId, "Door B", null, null, 1, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 95m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        ValidationError validation = Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains(validation.Errors, e => e.Description.Contains("distinct", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("Door 1", await ReadLabelAsync(record.Value));
+    }
+
+    /// <summary>
+    /// <b>S5.</b> Out-of-range input reached the domain or the database instead of a 400: unknown enum
+    /// numbers were cast straight through, an area past <c>numeric(8,2)</c> or a number past
+    /// <c>numeric(18,4)</c> overflowed at commit (500), and text past the 1024-wide value column did
+    /// the same. Each is now a <see cref="ValidationError"/> naming the field.
+    /// </summary>
+    [Fact]
+    public async Task S5_OutOfRangeInput_IsAValidationErrorEverywhere()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        Result<Guid> badEnum = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(UnitType: (Sites.Contracts.UnitType)99)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(badEnum.Error);
+
+        Result<Guid> hugeArea = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: 1_000_000m)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(hugeArea.Error);
+
+        Result<Guid> badType = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("bad"), "Bad", "سيء", (SiteItemDataType)99)), true);
+        Assert.IsType<ValidationError>(badType.Error);
+
+        Result<Guid> hugeBound = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("big"), "Big", "كبير", SiteItemDataType.Number,
+                MaxValue: 1e15m)), true);
+        Assert.IsType<ValidationError>(hugeBound.Error);
+
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("free"), "Free", "حر")), true)).Value;
+        Guid numberId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("n"), "N", "ن", SiteItemDataType.Number)), true)).Value;
+        Guid textId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("t"), "T", "ت", SiteItemDataType.Text)), true)).Value;
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(numberId)), true);
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(textId)), true);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Wall"), SiteTestData.OwnerUserId), true);
+
+        Result hugeNumber = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: 1e15m)]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(hugeNumber.Error);
+
+        Result longText = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(textId, ValueText: new string('x', 1025))]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(longText.Error);
+
+        Result<Guid> badKind = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(await SiteTestData.CreateDocumentAsync(fixture), (SiteDocumentKind)99),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(badKind.Error);
+    }
+
+    /// <summary>
+    /// <b>R1-8.</b> S5's bounds were open at the top only: 999999.995 m² is below 1,000,000 yet Postgres rounds it to
+    /// 1000000.00, past <c>numeric(8,2)</c> (a 500 at commit); the same for a value just under 1e14 with a fifth
+    /// decimal against <c>numeric(18,4)</c>. The bounds are now the columns' own: at most 999999.99 with two decimals,
+    /// and at most 99999999999999.9999 in magnitude with four.
+    /// </summary>
+    [Fact]
+    public async Task R1_8_AValueThatRoundsPastItsColumn_IsAValidationError()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        foreach (decimal area in new[] { 999_999.995m, 1.005m })
+        {
+            Result<Guid> rounded = await SendAsync(new CreateSiteCommand(
+                new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: area)),
+                owners.EmployeeId, SiteTestData.OwnerUserId), true);
+            Assert.IsType<ValidationError>(rounded.Error);
+        }
+
+        Result<Guid> widest = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: 999_999.99m)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.True(widest.IsSuccess, widest.IsFailure ? widest.Error.ToString() : null);
+
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("r18"), "R18", "ر")), true)).Value;
+        Guid numberId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("r18n"), "N", "ن", SiteItemDataType.Number)), true)).Value;
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(numberId)), true);
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Wall"), SiteTestData.OwnerUserId), true);
+
+        foreach (decimal number in new[] { 99_999_999_999_999.99995m, -99_999_999_999_999.99995m, 1.00005m })
+        {
+            Result rounded = await SendAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value, new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: number)]),
+                SiteTestData.OwnerUserId));
+            Assert.IsType<ValidationError>(rounded.Error);
+        }
+
+        Result edge = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value, new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: -99_999_999_999_999.9999m)]),
+            SiteTestData.OwnerUserId));
+        Assert.True(edge.IsSuccess, edge.IsFailure ? edge.Error.ToString() : null);
+    }
+
+    /// <summary>
+    /// <b>S9.</b> Swapping two labels in one grid save was refused: each row's stored-label check
+    /// excluded only its own record, so it saw the other row's OLD label as taken — and had it passed,
+    /// the single UPDATE batch would have hit <c>ux_site_records_label</c> mid-statement as a 500. Now the
+    /// stored check excludes every record in the batch and renames go through temporary labels in one
+    /// transaction. Freeing a label and reusing it for a new row in the same save works the same way.
+    /// </summary>
+    [Fact]
+    public async Task S9_SwappingTwoLabelsInOneBulkSave_Succeeds()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> first = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door A"), SiteTestData.OwnerUserId), true);
+        Result<Guid> second = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door B"), SiteTestData.OwnerUserId), true);
+
+        Result swapped = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(first.Value, moduleId, "Door B", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(second.Value, moduleId, "door a", null, null, 1, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 95m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        Assert.True(swapped.IsSuccess, swapped.Error.Code);
+        Assert.Equal("Door B", await ReadLabelAsync(first.Value));
+        Assert.Equal("door a", await ReadLabelAsync(second.Value));
+
+        Result reused = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(first.Value, moduleId, "Door C", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+                new BulkSiteRecordRequest(null, moduleId, "Door B", null, null, 2, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 80m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+
+        Assert.True(reused.IsSuccess, reused.Error.Code);
+        Assert.Equal("Door C", await ReadLabelAsync(first.Value));
+    }
+
+    /// <summary><b>S9.</b> The temporary swap labels are reserved: a caller cannot name one.</summary>
+    [Fact]
+    public async Task S9_ALabelWithTheReservedPrefix_IsAValidationError()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid _) = await CreateFormAsync();
+
+        Result<Guid> result = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "__swap_x"), SiteTestData.OwnerUserId), true);
+
+        Assert.IsType<ValidationError>(result.Error);
+    }
+
+    /// <summary>
+    /// <b>S12.</b> A deactivated module still took new records: the single add only checked the module
+    /// EXISTS, and the grid save did not check insert rows' module at all — only its fields, which a
+    /// retired module keeps.
+    /// </summary>
+    [Fact]
+    public async Task S12_NewRecordsInADeactivatedModule_AreModuleNotFound()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Assert.True((await SendAsync(new SetSiteModuleActiveCommand(moduleId, IsActive: false))).IsSuccess);
+
+        Result<Guid> single = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Door"), SiteTestData.OwnerUserId), true);
+        Assert.Equal(SiteErrors.ModuleNotFound, single.Error);
+
+        Result bulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 90m)]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.Equal(SiteErrors.ModuleNotFound, bulk.Error);
+    }
+
+    /// <summary>
+    /// <b>B-S-L5.</b> A module with no active fields — new, or every field detached — answered
+    /// <c>ModuleNotFound</c> to an empty value set, so its records could be neither saved from the grid
+    /// nor have their (empty) values set.
+    /// </summary>
+    [Fact]
+    public async Task BSL5_AModuleWithNoActiveFields_AcceptsAnEmptyValueSet()
+    {
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("bare"), "Bare", "فارغ")), true)).Value;
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Room"), SiteTestData.OwnerUserId), true);
+        Assert.True(record.IsSuccess);
+
+        Result single = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value, new SetSiteRecordValuesRequest([]), SiteTestData.OwnerUserId));
+        Assert.True(single.IsSuccess, single.Error.Code);
+
+        Result bulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Room", null, null, 0, null, []),
+                new BulkSiteRecordRequest(null, moduleId, "Hall", null, null, 1, null, []),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.True(bulk.IsSuccess, bulk.Error.Code);
+
+        // A value for a field the module does not have is still refused.
+        Result unknown = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(Guid.NewGuid(), ValueNumber: 1m)]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(unknown.Error);
+    }
+
+    // ── S13: coverage the review found missing ─────────────────────────────────
+
+    /// <summary>
+    /// <b>S13.</b> Replacing a value on the SAME item. The value table's key is (RecordId, ItemId), so a
+    /// replace is a delete and an insert of one key in one save — through both the single-record route
+    /// and the grid. Exactly one row must remain, holding the new value.
+    /// </summary>
+    [Fact]
+    public async Task S13_ReplacingAValueOnTheSameItem_KeepsOneRowWithTheNewValue()
+    {
+        Guid siteId = await CreateSiteAsync();
+        (Guid moduleId, Guid itemId) = await CreateFormAsync();
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Front door"), SiteTestData.OwnerUserId), true);
+
+        foreach (decimal width in new[] { 90m, 95m })
+        {
+            Assert.True((await SendAsync(new SetSiteRecordValuesCommand(
+                siteId, record.Value,
+                new SetSiteRecordValuesRequest([new SiteValueRequest(itemId, ValueNumber: width)]),
+                SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        Assert.Equal(1, await CountValuesAsync(record.Value));
+        Assert.Equal(95m, await ReadNumberAsync(record.Value, itemId));
+
+        Assert.True((await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Front door", null, null, 0, null,
+                    [new SiteValueRequest(itemId, ValueNumber: 120m)]),
+            ]),
+            SiteTestData.OwnerUserId))).IsSuccess);
+
+        Assert.Equal(1, await CountValuesAsync(record.Value));
+        Assert.Equal(120m, await ReadNumberAsync(record.Value, itemId));
+    }
+
+    /// <summary>
+    /// The BOQ reads its measures by the well-known item codes (<c>quantity</c>, <c>width_cm</c>,
+    /// <c>height_cm</c>, <c>length_cm</c>). Item codes are global, so the items are created once per
+    /// fixture and reused.
+    /// </summary>
+    private async Task<Guid> WellKnownNumberItemAsync(string code)
+    {
+        Result<Guid> created = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(code, code, code, SiteItemDataType.Number)), true);
+        if (created.IsSuccess)
+        {
+            return created.Value;
+        }
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            $"""SELECT "Id" FROM sites.site_items WHERE lower("Code") = '{code}';""", connection);
+        return (Guid)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
+    /// <b>S13.</b> The BOQ rollup had no test. One line per (module, kind): occurrences, distinct
+    /// spaces, quantity (a missing quantity counts 1), area in m² from cm × cm and length in m from cm.
+    /// A record with a second Select ("material") is still ONE occurrence of its kind — the first Select
+    /// by the form's field order — and a deleted record is not counted. A total with nothing measured is
+    /// null, not 0.
+    /// </summary>
+    [Fact]
+    public async Task S13_Boq_RollsUpOccurrencesSpacesQuantityAreaAndLengthPerKind()
+    {
+        Guid siteId = await CreateSiteAsync();
+
+        string moduleCode = Unique("boq");
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(moduleCode, "Openings", "الفتحات")), true)).Value;
+
+        Guid kindId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("kind"), "Kind", "النوع", SiteItemDataType.Select)), true)).Value;
+        Guid doorId = (await SendAsync(new AddSiteItemOptionCommand(
+            kindId, new SiteItemOptionRequest("door", "Door", "باب")), true)).Value;
+        Guid windowId = (await SendAsync(new AddSiteItemOptionCommand(
+            kindId, new SiteItemOptionRequest("window", "Window", "نافذة")), true)).Value;
+
+        Guid materialId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("mat"), "Material", "الخامة", SiteItemDataType.Select)), true)).Value;
+        Guid woodId = (await SendAsync(new AddSiteItemOptionCommand(
+            materialId, new SiteItemOptionRequest("aaa_wood", "Wood", "خشب")), true)).Value;
+
+        Guid quantityId = await WellKnownNumberItemAsync("quantity");
+        Guid widthId = await WellKnownNumberItemAsync("width_cm");
+        Guid heightId = await WellKnownNumberItemAsync("height_cm");
+        Guid lengthId = await WellKnownNumberItemAsync("length_cm");
+
+        // Kind first in the form's field order, material second -- material's option code sorts first,
+        // so a tie broken on the option code instead of the field order would pick the wrong kind.
+        int order = 0;
+        foreach (Guid item in new[] { kindId, materialId, quantityId, widthId, heightId, lengthId })
+        {
+            Assert.True((await SendAsync(new AttachSiteItemCommand(
+                moduleId, new AttachSiteItemRequest(item, SortOrder: order++)), true)).IsSuccess);
+        }
+
+        Guid spaceA = await SiteTestData.CreateSpaceInSharedProjectAsync(fixture);
+        Guid spaceB = await SiteTestData.CreateSpaceInSharedProjectAsync(fixture);
+
+        Result saved = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(null, moduleId, "Door 1", spaceA, null, 0, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(materialId, OptionId: woodId),
+                    new SiteValueRequest(quantityId, ValueNumber: 2m),
+                    new SiteValueRequest(widthId, ValueNumber: 100m),
+                    new SiteValueRequest(heightId, ValueNumber: 200m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Door 2", spaceB, null, 1, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(widthId, ValueNumber: 50m),
+                    new SiteValueRequest(heightId, ValueNumber: 100m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Window 1", spaceA, null, 2, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: windowId),
+                    new SiteValueRequest(lengthId, ValueNumber: 300m),
+                ]),
+                new BulkSiteRecordRequest(null, moduleId, "Door deleted", spaceA, null, 3, null,
+                [
+                    new SiteValueRequest(kindId, OptionId: doorId),
+                    new SiteValueRequest(quantityId, ValueNumber: 50m),
+                ]),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.True(saved.IsSuccess);
+
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                $"""SELECT "Id" FROM sites.site_records WHERE "SiteId"='{siteId}' AND "Label"='Door deleted';""",
+                connection);
+            var deletedId = (Guid)(await command.ExecuteScalarAsync())!;
+            Assert.True((await SendAsync(new DeleteSiteRecordCommand(
+                siteId, deletedId, SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        Result<SiteBoqResponse> boq = await ResolveAsync(sp => sp
+            .GetRequiredService<IQueryHandler<GetSiteBoqQuery, SiteBoqResponse>>()
+            .HandleAsync(new GetSiteBoqQuery(siteId, SiteTestData.OwnerUserId)));
+
+        Assert.True(boq.IsSuccess);
+        Assert.Equal(2, boq.Value!.Lines.Count);
+
+        SiteBoqLineResponse door = Assert.Single(boq.Value.Lines, l => l.KindCode == "door");
+        Assert.Equal(moduleCode, door.ModuleCode);
+        Assert.Equal(2, door.Occurrences);
+        Assert.Equal(2, door.Spaces);
+        Assert.Equal(3m, door.TotalQty);
+        Assert.Equal(4.5m, door.TotalAreaSqm);   // (2 x 100 x 200 + 1 x 50 x 100) / 10000
+        Assert.Null(door.TotalLengthM);
+
+        SiteBoqLineResponse window = Assert.Single(boq.Value.Lines, l => l.KindCode == "window");
+        Assert.Equal(1, window.Occurrences);
+        Assert.Equal(1, window.Spaces);
+        Assert.Equal(1m, window.TotalQty);
+        Assert.Null(window.TotalAreaSqm);
+        Assert.Equal(3m, window.TotalLengthM);   // 1 x 300 / 100
     }
 
     // ── Pivot ──────────────────────────────────────────────────────────────────

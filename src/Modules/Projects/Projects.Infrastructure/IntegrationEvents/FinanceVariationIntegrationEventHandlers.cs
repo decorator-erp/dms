@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Finance.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
@@ -22,10 +23,15 @@ namespace Projects.Infrastructure.IntegrationEvents;
 /// (see <c>CreateGateConditionCommandHandler</c>, which does the same on the command path). Re-linking an
 /// existing gate does not: the owner is already locked by it.</para>
 ///
+/// <para><b>NP2: a new gate needs an owner that is open or already Locked.</b> Locking started, completed, rejected
+/// or cancelled work would overwrite its state (and the later unlock would reopen it), so on such an owner no gate
+/// is opened: the event is skipped and logged, not failed, because an event cannot be refused.</para>
+///
 /// <para>Stages the writes only, per <c>InboxDedupeDecorator</c>'s contract — never calls its own
 /// <c>SaveChangesAsync</c>.</para>
 /// </summary>
-internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext db)
+internal sealed partial class VariationRaisedIntegrationEventHandler(
+    ProjectsDbContext db, ILogger<VariationRaisedIntegrationEventHandler> logger)
     : IIntegrationEventHandler<VariationRaisedIntegrationEvent>
 {
     public async Task HandleAsync(VariationRaisedIntegrationEvent @event, CancellationToken ct)
@@ -52,6 +58,18 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
             return;
         }
 
+        ProjectTask? task = @event.ProjectTaskId is Guid taskId
+            ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct)
+            : null;
+        ProjectStage? stage = task is null && @event.ProjectStageId is Guid stageId
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct)
+            : null;
+        if (task is { IsLockable: false } || stage is { IsLockable: false })
+        {
+            LogOwnerNotOpen(logger, @event.VariationId, @event.ProjectTaskId ?? @event.ProjectStageId ?? Guid.Empty);
+            return;
+        }
+
         Result<GateCondition> created = Domain.GateCondition.Create(
             @event.ProjectStageId, @event.ProjectTaskId,
             Domain.ConditionType.Budget, Domain.GateTrigger.Unlock,
@@ -66,17 +84,13 @@ internal sealed class VariationRaisedIntegrationEventHandler(ProjectsDbContext d
         db.GateConditions.Add(created.Value!);
 
         // An Unlock-trigger gate locks its owner the moment it exists.
-        if (@event.ProjectTaskId is Guid taskId)
-        {
-            ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId, ct);
-            task?.Lock();
-        }
-        else if (@event.ProjectStageId is Guid stageId)
-        {
-            ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
-            stage?.Lock();
-        }
+        task?.Lock();
+        stage?.Lock();
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Variation {VariationId} was raised on work {OwnerId} that has already started or closed; no budget gate was opened.")]
+    private static partial void LogOwnerNotOpen(ILogger logger, Guid variationId, Guid ownerId);
 }
 
 /// <summary>
@@ -111,11 +125,10 @@ internal sealed class VariationApprovedIntegrationEventHandler(ProjectsDbContext
 /// <summary>
 /// F1-08. Marks the linked gate Rejected when its variation is rejected or cancelled.
 ///
-/// <para><b>The owner deliberately stays Locked.</b> The backend's <c>MarkLinkedGateRejectedAsync</c>
-/// bypasses the gate service's approval reject path for exactly this reason, and its comment says so:
-/// that path would also send the owning STAGE to Rejected, which is a much larger consequence than "this
-/// budget change will not happen". The work is still blocked and still needs a funded route — a
-/// different variation, or a budget increase — so unlocking would be wrong too.</para>
+/// <para><b>B-P-H4 (owner decision): the owner is released once no Unlock gate of it is still pending</b>, through
+/// <see cref="GateOwnerLocks.ReleaseOnRejectionAsync"/> — the same rule as a gate satisfied or deleted (R1-4: of the
+/// rejected gates, only a Budget one releases). A rejected gate can never be satisfied again, so leaving the owner Locked (the backend's behaviour) blocked it for good with nothing left to unlock it. The stage
+/// is still never sent to Rejected: "this budget change will not happen" is all the rejection means.</para>
 ///
 /// <para>An already-satisfied gate is left alone: the variation was approved, the owner was unlocked,
 /// and a later cancellation of the variation record does not retroactively re-block work that has
@@ -135,6 +148,13 @@ internal sealed class VariationClosedIntegrationEventHandler(ProjectsDbContext d
         foreach (GateCondition? gate in gates)
         {
             gate.MarkRejected(null, note);
+        }
+
+        // Owners in id order, so two handlers releasing overlapping owners take the rows in the same order.
+        foreach (GateCondition gate in gates.Where(g => g.Trigger == Domain.GateTrigger.Unlock)
+                     .DistinctBy(g => g.ProjectStageId ?? g.ProjectTaskId).OrderBy(g => g.ProjectStageId ?? g.ProjectTaskId))
+        {
+            await GateOwnerLocks.ReleaseOnRejectionAsync(db, gate, ct);
         }
     }
 }

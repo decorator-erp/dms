@@ -28,7 +28,8 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// portal client could not read the meeting notifications CRM sends them. v3 (B1.4) gives <c>client</c>
 /// <c>crm.approvals.view_own</c> and <c>crm.approvals.decide_own</c>, so a portal client can list and decide
 /// the approvals CRM sends them; it adds only those two, so a v1/v2 code an admin removed stays removed. v4 (crm-complete F) gives <c>client</c>
-/// <c>requirements.view_own</c> for the portal requirement-items list, and only that.</para>
+/// <c>requirements.view_own</c> for the portal requirement-items list, and only that. v5 (Sites/Projects phase 5) gives
+/// <c>employee</c> project, task-execution and survey-capture codes; see <see cref="BaselineV5"/>.</para>
 /// </summary>
 internal static class BaselineClaimSeeder
 {
@@ -39,6 +40,8 @@ internal static class BaselineClaimSeeder
     public const string V3MarkerKey = "baseline-claims-v3";
 
     public const string V4MarkerKey = "baseline-claims-v4";
+
+    public const string V5MarkerKey = "baseline-claims-v5";
 
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
@@ -69,9 +72,26 @@ internal static class BaselineClaimSeeder
         [DefaultRoles.Client] = ["requirements.view_own"],
     };
 
+    /// <summary>Sites/Projects phase 5 (S6, P10): the employee works the projects they are on. Read the project, its
+    /// stages and scope; read and execute tasks (start, complete, sub-tasks, comments — <c>stage_tasks.complete</c>
+    /// opens the start and comment routes too); capture site surveys (read, create, update, submit — never
+    /// approve or delete). The project level (Editor and up) still decides each write on each project. Literal
+    /// codes, as in v1–v4: Identity does not reference the modules that own them.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV5 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Employee] =
+        [
+            "project.read", "stages.read", "scope.read", "stage_tasks.read", "stage_tasks.complete",
+            "sites.read", "sites.create", "sites.update", "sites.submit",
+        ],
+    };
+
     /// <summary>Applied in order, each behind its own marker.</summary>
     private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
-        [(MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3), (V4MarkerKey, BaselineV4)];
+    [
+        (MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3), (V4MarkerKey, BaselineV4),
+        (V5MarkerKey, BaselineV5),
+    ];
 
     public static async Task SeedAsync(
         RoleManager<ApplicationRole> roleManager,

@@ -43,13 +43,24 @@ internal static class SiteRecordWrites
     /// Case-insensitive label uniqueness within (site, module), among ACTIVE rows — mirroring
     /// <c>ux_site_records_label</c>, so the caller gets a 409 rather than a constraint violation.
     /// </summary>
+    public static Task<Result> EnsureLabelFreeAsync(
+        SitesDbContext db, Guid siteId, Guid moduleId, string label, Guid? excludingRecordId,
+        CancellationToken ct) =>
+        EnsureLabelFreeOfBatchAsync(
+            db, siteId, moduleId, label, excludingRecordId is { } id ? [id] : [], ct);
+
+    /// <summary>
+    /// The grid save's form (S9): excludes EVERY stored record the batch rewrites, not just the row's
+    /// own. Their labels are about to change, and the in-batch duplicate check already judges them
+    /// against each other — so swapping two labels is not "taken".
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
         Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
         Justification = "Same query: translated to SQL lower(), never run in .NET.")]
-    public static async Task<Result> EnsureLabelFreeAsync(
-        SitesDbContext db, Guid siteId, Guid moduleId, string label, Guid? excludingRecordId,
-        CancellationToken ct)
+    public static async Task<Result> EnsureLabelFreeOfBatchAsync(
+        SitesDbContext db, Guid siteId, Guid moduleId, string label,
+        IReadOnlyCollection<Guid> excludingRecordIds, CancellationToken ct)
     {
         string normalized = label.Trim().ToLowerInvariant();
 
@@ -58,15 +69,51 @@ internal static class SiteRecordWrites
                 r => r.SiteId == siteId
                      && r.ModuleId == moduleId
                      && r.Label.ToLower() == normalized
-                     && (excludingRecordId == null || r.Id != excludingRecordId),
+                     && !excludingRecordIds.Contains(r.Id),
                 ct);
 
         return taken ? SiteErrors.LabelTaken : Result.Success();
     }
 
+    /// <summary>
+    /// The grid save's label probe (S7): every row's (module, label) pair judged in ONE query, against
+    /// the site's active records outside the batch. Returns the pairs already taken, each label in its
+    /// trimmed lower-case form — the same comparison <see cref="EnsureLabelFreeOfBatchAsync"/> makes.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1304:Specify CultureInfo",
+        Justification = "The column's ToLower() inside the query runs as SQL lower(); ToLowerInvariant and the culture overloads do not translate.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version",
+        Justification = "Same query: translated to SQL lower(), never run in .NET.")]
+    public static async Task<HashSet<(Guid ModuleId, string Label)>> TakenLabelsAsync(
+        SitesDbContext db, Guid siteId, IReadOnlyCollection<(Guid ModuleId, string Label)> candidates,
+        IReadOnlyCollection<Guid> excludingRecordIds, CancellationToken ct)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var moduleIds = candidates.Select(c => c.ModuleId).Distinct().ToList();
+        var labels = candidates.Select(c => Normalize(c.Label)).Distinct().ToList();
+
+        var stored = await db.SiteRecords
+            .Where(r => r.SiteId == siteId
+                        && moduleIds.Contains(r.ModuleId)
+                        && labels.Contains(r.Label.ToLower())
+                        && !excludingRecordIds.Contains(r.Id))
+            .Select(r => new { r.ModuleId, Label = r.Label.ToLower() })
+            .ToListAsync(ct);
+
+        return stored.Select(r => (r.ModuleId, r.Label)).ToHashSet();
+    }
+
+    /// <summary>The label form every uniqueness check compares: trimmed, lower-case.</summary>
+    public static string Normalize(string label) => label.Trim().ToLowerInvariant();
+
     /// <summary>Stages a record's whole value set, then saves.</summary>
     public static async Task<Result> ReplaceValuesAsync(
-        SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
+        SitesDbContext db, Site site, SiteRecord record, IReadOnlyList<SiteValueRequest> values,
+        CancellationToken ct)
     {
         Result staged = await StageValuesAsync(db, record, values, ct);
         if (staged.IsFailure)
@@ -74,44 +121,77 @@ internal static class SiteRecordWrites
             return staged;
         }
 
-        return await SiteWrites.SaveAsync(db, ct);
+        // NS1: the record's xmin guards its value set, the site's guards the freeze.
+        return await SiteWrites.SaveGuardedAsync(db, site, [record], ct);
     }
 
     /// <summary>
     /// Replaces a record's value set on the change tracker without saving, so the grid save can stage
     /// many records inside one transaction.
     ///
-    /// <para>Delete-all-then-insert, because a value absent from the incoming set is <b>cleared</b>: the
-    /// table has no soft-delete flag, and a cleared measurement is not a measurement.</para>
+    /// <para>Delete-then-insert over the module's CURRENT items, because a value absent from the incoming
+    /// set is <b>cleared</b>: the table has no soft-delete flag, and a cleared measurement is not a
+    /// measurement. Values of items no longer on the form are left alone (B-S-H2).</para>
     ///
     /// <para>Item types and options are loaded in two batched queries, never per value — the N+1 the
     /// backend's own domain service carries a comment about having removed.</para>
     /// </summary>
-    public static async Task<Result> StageValuesAsync(
-        SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct)
+    public static Task<Result> StageValuesAsync(
+        SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values, CancellationToken ct) =>
+        StageValuesManyAsync(db, [(record, values)], ct);
+
+    /// <summary>
+    /// <see cref="StageValuesAsync"/> for a whole grid (S7): three queries whatever the row count — the
+    /// modules' allowed items, the records' stored values, the supplied options — and the rest in memory.
+    /// Stops at the first failing record, in the order given, with the error the single form returns.
+    /// </summary>
+    public static async Task<Result> StageValuesManyAsync(
+        SitesDbContext db, IReadOnlyList<(SiteRecord Record, IReadOnlyList<SiteValueRequest> Values)> pending,
+        CancellationToken ct)
     {
-        List<SiteRecordValue> existing = await db.SiteRecordValues
-            .Where(v => v.RecordId == record.Id)
-            .ToListAsync(ct);
-
-        db.SiteRecordValues.RemoveRange(existing);
-
-        if (values.Count == 0)
+        if (pending.Count == 0)
         {
             return Result.Success();
         }
 
-        // Only items actually linked to this record's module may carry a value. The validator says the
+        var moduleIds = pending.Select(p => p.Record.ModuleId).Distinct().ToList();
+
+        // Only items actually linked to a record's module may carry a value. The validator says the
         // same thing with a nicer message; this is the structural guard, and it is what stops a value
         // being written against a field the module does not have.
-        Dictionary<Guid, SiteItem> allowed = await (
+        var allowedByModule = (await (
             from link in db.SiteModuleItems.AsNoTracking()
             join item in db.SiteItems.AsNoTracking() on link.ItemId equals item.Id
-            where link.ModuleId == record.ModuleId && link.IsActive && item.IsActive
-            select item)
-            .ToDictionaryAsync(i => i.Id, ct);
+            where moduleIds.Contains(link.ModuleId) && link.IsActive && item.IsActive
+            select new { link.ModuleId, Item = item })
+            .ToListAsync(ct))
+            .GroupBy(x => x.ModuleId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.Item.Id, x => x.Item));
 
-        var optionItemIds = values
+        // B-S-H2: clear only the values the caller could have sent -- those of items currently on the
+        // record's form. A value captured against an item since detached (or retired) is outside this
+        // set; the caller cannot resend it, so deleting it here would lose it for good, and it must
+        // survive to reappear when the item is reattached. One query for every record; the per-module
+        // filter is applied below, so a value is removed only if ITS record's module allows the item.
+        var recordIds = pending.Select(p => p.Record.Id).Distinct().ToList();
+        var allowedItemIds = allowedByModule.Values.SelectMany(items => items.Keys).Distinct().ToList();
+
+        List<SiteRecordValue> stored = allowedItemIds.Count == 0
+            ? []
+            : await db.SiteRecordValues
+                .Where(v => recordIds.Contains(v.RecordId) && allowedItemIds.Contains(v.ItemId))
+                .ToListAsync(ct);
+
+        var moduleByRecord = pending
+            .GroupBy(p => p.Record.Id)
+            .ToDictionary(g => g.Key, g => g.First().Record.ModuleId);
+
+        db.SiteRecordValues.RemoveRange(stored.Where(v =>
+            allowedByModule.TryGetValue(moduleByRecord[v.RecordId], out Dictionary<Guid, SiteItem>? items)
+            && items.ContainsKey(v.ItemId)));
+
+        var optionItemIds = pending
+            .SelectMany(p => p.Values)
             .Where(v => v.OptionId.HasValue)
             .Select(v => v.ItemId)
             .Distinct()
@@ -126,6 +206,25 @@ internal static class SiteRecordWrites
                 .GroupBy(o => o.ItemId)
                 .ToDictionary(g => g.Key, g => g.Select(o => o.Id).ToHashSet());
 
+        foreach ((SiteRecord record, IReadOnlyList<SiteValueRequest> values) in pending)
+        {
+            Dictionary<Guid, SiteItem> allowed =
+                allowedByModule.TryGetValue(record.ModuleId, out Dictionary<Guid, SiteItem>? items) ? items : [];
+
+            Result staged = Stage(db, record, values, allowed, optionsByItem);
+            if (staged.IsFailure)
+            {
+                return staged;
+            }
+        }
+
+        return Result.Success();
+    }
+
+    private static Result Stage(
+        SitesDbContext db, SiteRecord record, IReadOnlyList<SiteValueRequest> values,
+        Dictionary<Guid, SiteItem> allowed, Dictionary<Guid, HashSet<Guid>> optionsByItem)
+    {
         foreach (SiteValueRequest value in values)
         {
             if (!allowed.TryGetValue(value.ItemId, out SiteItem? item))

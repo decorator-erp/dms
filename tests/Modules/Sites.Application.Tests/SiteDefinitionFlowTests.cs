@@ -412,4 +412,92 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
         Assert.True(result.IsSuccess);
         return result.Value!;
     }
+
+    /// <summary>
+    /// <b>B-S-M3.</b> Definition writes translated only xmin conflicts; every unique or foreign-key
+    /// violation a race slips past the handlers' pre-checks became <c>SaveFailed</c> (500). Driven here
+    /// straight through <c>SiteDefinitionWrites.SaveAsync</c> with the conflicting change staged by hand —
+    /// exactly what a request that lost the race between its pre-check and its commit would hold.
+    /// </summary>
+    [Fact]
+    public async Task BSM3_DefinitionSaveViolations_MapTo409And404()
+    {
+        string code = Unique("dup");
+        await CreateModuleAsync(code);
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
+
+        // Unique: a second module with the same code (case-insensitive index).
+        Assert.Equal(SiteErrors.CodeTaken, await SaveStagedAsync(db =>
+            db.SiteModules.Add(Sites.Domain.Definition.SiteModule.Create(code.ToUpperInvariant(), "X", "س").Value!)));
+
+        // Unique: the same item linked twice to one module.
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            Result<Guid> attached = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>()
+                .HandleAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)));
+            Assert.True(attached.IsSuccess);
+        }
+        Assert.Equal(SiteErrors.AlreadyLinked, await SaveStagedAsync(db =>
+            db.SiteModuleItems.Add(Sites.Domain.Definition.SiteModuleItem.Create(moduleId, itemId).Value!)));
+
+        // FK, missing parent: a link to an item that does not exist.
+        Assert.Equal(SiteErrors.ItemNotFound, await SaveStagedAsync(db =>
+            db.SiteModuleItems.Add(Sites.Domain.Definition.SiteModuleItem.Create(moduleId, Guid.NewGuid()).Value!)));
+
+        // FK, restrict on delete: removing an item still linked to a module.
+        Assert.Equal(SiteErrors.ItemInUse, await SaveStagedAsync(db =>
+            db.SiteItems.Remove(db.SiteItems.Single(i => i.Id == itemId))));
+    }
+
+    /// <summary>
+    /// <b>R2-2.</b> R1-8's bound for an item's limits: MinValue and MaxValue are <c>numeric(18,4)</c> and Tolerance
+    /// <c>numeric(18,3)</c>, so a value with more decimals than its column (which Postgres would round, past the column
+    /// just under 1e14 — a 500 at commit) is a validation error on create, update and change-shape alike.
+    /// </summary>
+    [Fact]
+    public async Task R2_2_AnItemLimitThatRoundsPastItsColumn_IsAValidationError()
+    {
+        const decimal pastFour = 99_999_999_999_999.99995m;
+        foreach (CreateSiteItemRequest request in new[]
+        {
+            new CreateSiteItemRequest(Unique("r22"), "W", "ع", SiteItemDataType.Number, MinValue: pastFour),
+            new CreateSiteItemRequest(Unique("r22"), "W", "ع", SiteItemDataType.Number, MaxValue: pastFour),
+            new CreateSiteItemRequest(Unique("r22"), "W", "ع", SiteItemDataType.Number, MinValue: 1.00005m),
+            new CreateSiteItemRequest(Unique("r22"), "W", "ع", SiteItemDataType.Number, Tolerance: 1.0005m),
+        })
+        {
+            await using AsyncServiceScope scope = fixture.CreateScope();
+            Result<Guid> created = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<CreateSiteItemCommand, Guid>>()
+                .HandleAsync(new CreateSiteItemCommand(request));
+            Assert.IsType<ValidationError>(created.Error);
+        }
+
+        Guid itemId = await CreateItemAsync();
+        Assert.IsType<ValidationError>((await SendAsync(new UpdateSiteItemCommand(
+            itemId, new UpdateSiteItemRequest("W", "ع", null, pastFour, null, null)))).Error);
+        Assert.IsType<ValidationError>((await SendAsync(new ChangeSiteItemShapeCommand(
+            itemId, new ChangeSiteItemShapeRequest(Unique("r22"), SiteItemDataType.Number, "mm", 1.0005m)))).Error);
+
+        Assert.True((await SendAsync(new UpdateSiteItemCommand(
+            itemId, new UpdateSiteItemRequest("W", "ع", -99_999_999_999_999.9999m, 99_999_999_999_999.9999m, null, null)))).IsSuccess);
+        Assert.True((await SendAsync(new ChangeSiteItemShapeCommand(
+            itemId, new ChangeSiteItemShapeRequest(Unique("r22"), SiteItemDataType.Number, "mm", 99_999_999_999_999.999m)))).IsSuccess);
+    }
+
+    private async Task<Error> SaveStagedAsync(Action<Sites.Infrastructure.Persistence.SitesDbContext> stage)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Sites.Infrastructure.Persistence.SitesDbContext db =
+            scope.ServiceProvider.GetRequiredService<Sites.Infrastructure.Persistence.SitesDbContext>();
+        stage(db);
+
+        Result result = await Sites.Application.Features.Definition.SiteDefinitionWrites.SaveAsync(
+            db, scope.ServiceProvider.GetRequiredService<ISiteSchemaCache>(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        return result.Error;
+    }
 }

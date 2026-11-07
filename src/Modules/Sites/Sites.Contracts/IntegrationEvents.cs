@@ -24,6 +24,10 @@ public sealed record SiteSubmittedIntegrationEvent(
 /// and branches on the outcome, and a subscriber that only wants approvals filtering on one bool is
 /// cheaper than one that must register for two events to learn the same fact.
 ///
+/// <para><see cref="DecisionNote"/> travels in the payload (NS4): read from the row at delivery time it
+/// was already gone if the survey had been reopened in between, since reopening clears it. It is the
+/// approver's own short note (≤ 1000 characters) — a primitive, per rule 5.</para>
+///
 /// <para>Consumed by <c>SiteApprovedNotificationHandler</c> since N1-06. This paragraph read "No
 /// subscriber exists in this repo" until X-02 found it still saying so two phases after the handler
 /// landed — which is why the unconsumed set is now asserted by
@@ -36,4 +40,5 @@ public sealed record SiteApprovedIntegrationEvent(
     Guid ProjectId,
     bool Approved,
     Guid DecidedById,
-    DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+    DateTimeOffset OccurredAtUtc,
+    string? DecisionNote = null) : IIntegrationEvent;

@@ -8,14 +8,14 @@ public sealed record StageTeamMemberResponse(Guid Id, Guid StageTeamId, Guid Emp
 
 public sealed record AddStageTeamMemberCommand(
     Guid ProjectId, Guid StageTeamId, string UserId, Guid EmployeeId, StageTeamMemberRole Role)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 public sealed record ChangeStageTeamMemberRoleCommand(
     Guid ProjectId, Guid StageTeamMemberId, string UserId, StageTeamMemberRole Role)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record ChangeStageTeamHeadCommand(Guid ProjectId, Guid StageTeamId, string UserId, Guid HeadId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record GetStageTeamQuery(Guid ProjectId, Guid StageTeamId, string UserId)
     : IQuery<StageTeamResponse>, IProjectScoped;
@@ -34,7 +34,7 @@ public sealed record GetProjectTeamsQuery(Guid ProjectId, string UserId, Guid? S
 /// <summary>E7: a team made by hand on one of the project's stages — a department's team (headed by the
 /// department head) or a standalone team with the given head. Exactly one of the two.</summary>
 public sealed record CreateStageTeamCommand(Guid ProjectId, string UserId, Guid ProjectStageId, Guid? DepartmentId, Guid? HeadId)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 public sealed record RemoveStageTeamMemberCommand(Guid ProjectId, Guid StageTeamMemberId, string UserId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;

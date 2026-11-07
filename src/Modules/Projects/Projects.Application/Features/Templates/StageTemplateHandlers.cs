@@ -11,7 +11,12 @@ namespace Projects.Application.Features.Templates;
 
 internal sealed class CreateStageTemplateCommandValidator : AbstractValidator<CreateStageTemplateCommand>
 {
-    public CreateStageTemplateCommandValidator() => RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+    public CreateStageTemplateCommandValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Type).IsInEnum();
+        RuleFor(x => x.Description).MaximumLength(2000);
+    }
 }
 
 internal sealed class CreateStageTemplateCommandHandler(ProjectsDbContext db) : ICommandHandler<CreateStageTemplateCommand, Guid>
@@ -21,14 +26,19 @@ internal sealed class CreateStageTemplateCommandHandler(ProjectsDbContext db) : 
         var template = Domain.StageTemplate.Create(
             command.Name, ProjectsEnumMapping.ToDomain(command.Type), command.IsDefault, command.Description);
         db.StageTemplates.Add(template);
-        await db.SaveChangesAsync(ct);
-        return template.Id;
+        Result saved = await StageTemplateWrites.SaveAsync(db, ct);
+        return saved.IsFailure ? Result.Failure<Guid>(saved.Error) : template.Id;
     }
 }
 
 internal sealed class UpdateStageTemplateCommandValidator : AbstractValidator<UpdateStageTemplateCommand>
 {
-    public UpdateStageTemplateCommandValidator() => RuleFor(x => x.StageTemplateId).NotEmpty();
+    public UpdateStageTemplateCommandValidator()
+    {
+        RuleFor(x => x.StageTemplateId).NotEmpty();
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200).When(x => x.Name is not null);
+        RuleFor(x => x.Description).MaximumLength(2000);
+    }
 }
 
 internal sealed class UpdateStageTemplateCommandHandler(ProjectsDbContext db) : ICommandHandler<UpdateStageTemplateCommand>
@@ -42,11 +52,14 @@ internal sealed class UpdateStageTemplateCommandHandler(ProjectsDbContext db) : 
         }
 
         template.Update(command.Name, command.Description, command.IsDefault);
-        await db.SaveChangesAsync(ct);
-        return Result.Success();
+        return await StageTemplateWrites.SaveAsync(db, ct);
     }
 }
 
+/// <summary>409 <see cref="Domain.StageTemplateErrors.InUse"/> while any project stage was made from one of the
+/// template's stages; otherwise the template goes with its stages, their tasks, sub-tasks and departments in the same
+/// save (there is no foreign key from <c>stages</c> to <c>stage_templates</c>, so removing the template row alone left
+/// them orphaned).</summary>
 internal sealed class DeleteStageTemplateCommandHandler(ProjectsDbContext db) : ICommandHandler<DeleteStageTemplateCommand>
 {
     public async Task<Result> HandleAsync(DeleteStageTemplateCommand command, CancellationToken ct = default)
@@ -57,6 +70,20 @@ internal sealed class DeleteStageTemplateCommandHandler(ProjectsDbContext db) : 
             return Domain.StageTemplateErrors.NotFound;
         }
 
+        List<Stage> stages = await db.Stages.Where(s => s.StageTemplateId == template.Id).ToListAsync(ct);
+        List<Guid> stageIds = [.. stages.Select(s => s.Id)];
+        if (stageIds.Count > 0
+            && await db.ProjectStages.AnyAsync(ps => ps.StageId != null && stageIds.Contains(ps.StageId.Value), ct))
+        {
+            return Domain.StageTemplateErrors.InUse;
+        }
+
+        List<StageTask> tasks = await db.StageTasks.Where(t => stageIds.Contains(t.StageId)).ToListAsync(ct);
+        List<Guid> taskIds = [.. tasks.Select(t => t.Id)];
+        db.StageSubTasks.RemoveRange(await db.StageSubTasks.Where(st => taskIds.Contains(st.StageTaskId)).ToListAsync(ct));
+        db.StageTasks.RemoveRange(tasks);
+        db.StageDepartments.RemoveRange(await db.StageDepartments.Where(d => stageIds.Contains(d.StageId)).ToListAsync(ct));
+        db.Stages.RemoveRange(stages);
         db.StageTemplates.Remove(template);
         await db.SaveChangesAsync(ct);
         return Result.Success();

@@ -15,6 +15,8 @@ internal sealed class ProjectStage : Entity, IAuditable
     public string? Description { get; private set; }
     public int Order { get; private set; }
     public StageStatus Status { get; private set; }
+    /// <summary>P2/NP5: <see cref="ProgressPercent"/>, <see cref="CompletedTasks"/> and <see cref="TotalTasks"/> are
+    /// set at creation and afterwards only recounted in SQL (<c>StageCounters</c>, Cancelled tasks excluded).</summary>
     public decimal ProgressPercent { get; private set; }
     public int CompletedTasks { get; private set; }
     public int TotalTasks { get; private set; }
@@ -75,13 +77,6 @@ internal sealed class ProjectStage : Entity, IAuditable
         return Result.Success();
     }
 
-    public void RecalculateProgress(int completedTasks, int totalTasks)
-    {
-        CompletedTasks = completedTasks;
-        TotalTasks = totalTasks;
-        ProgressPercent = totalTasks == 0 ? 0m : Math.Round(100m * completedTasks / totalTasks, 2);
-    }
-
     public Result Complete(Guid completedById)
     {
         if (Status != StageStatus.Active)
@@ -108,6 +103,9 @@ internal sealed class ProjectStage : Entity, IAuditable
         AddDomainEvent(new ProjectStageRejectedDomainEvent(Id, ProjectId, Name));
         return Result.Success();
     }
+
+    /// <summary>NP2: an <c>Unlock</c>-trigger gate may lock this stage only while it is Active or already Locked.</summary>
+    public bool IsLockable => Status is StageStatus.Active or StageStatus.Locked;
 
     /// <summary>Called when an <c>Unlock</c>-trigger gate is created against this stage.</summary>
     public void Lock() => Status = StageStatus.Locked;

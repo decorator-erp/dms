@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts.Scope;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -97,28 +98,45 @@ internal sealed class ReorderScopeOfWorkItemsCommandValidator : AbstractValidato
 /// <summary>Loading and mapping shared by every scope-of-work handler.</summary>
 internal static class ScopeOfWorkStore
 {
-    /// <summary>D-1, D-2: a scope of work is kept only for an active, stage-workflow project. An inactive or
-    /// missing project is <see cref="Domain.ProjectErrors.NotFound"/>, as the confirm already treated it; a
+    /// <summary>D-1, D-2: a scope of work is kept only for a live, stage-workflow project. A missing project is
+    /// <see cref="Domain.ProjectErrors.NotFound"/>; an inactive, on-hold, completed or cancelled one is 409
+    /// <see cref="Domain.ProjectErrors.Closed"/> (NP3, <see cref="ProjectLiveness"/>); a
     /// FreeStyle one is 409 <see cref="ScopeOfWorkErrors.WorkflowNotSupported"/>. Every write and the confirm
     /// check this first.</summary>
     public static async Task<Result> EnsureEditableProjectAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        var project = await db.Projects.AsNoTracking()
-            .Where(p => p.Id == projectId)
-            .Select(p => new { p.IsActive, p.WorkflowType })
-            .FirstOrDefaultAsync(ct);
-        if (project is null || !project.IsActive)
+        Result workflow = await EnsureStageWorkflowAsync(db, projectId, ct);
+        if (workflow.IsFailure)
         {
-            return Domain.ProjectErrors.NotFound;
+            return workflow;
         }
 
-        return project.WorkflowType == WorkflowType.FreeStyle ? ScopeOfWorkErrors.WorkflowNotSupported : Result.Success();
+        // NP3: an inactive, on-hold, completed or cancelled project takes no scope writes (409).
+        return await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+    }
+
+    /// <summary>The project exists (404) and has a stage workflow (409 <see cref="ScopeOfWorkErrors.WorkflowNotSupported"/>:
+    /// a FreeStyle project has no scope, so no item of it can be looked up). An item write checks this, then its item
+    /// (404), then <see cref="ProjectLiveness"/> (R1-3).</summary>
+    public static async Task<Result> EnsureStageWorkflowAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
+    {
+        WorkflowType? workflow = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => (WorkflowType?)p.WorkflowType)
+            .FirstOrDefaultAsync(ct);
+        return workflow switch
+        {
+            null => Domain.ProjectErrors.NotFound,
+            WorkflowType.FreeStyle => ScopeOfWorkErrors.WorkflowNotSupported,
+            _ => Result.Success(),
+        };
     }
 
     public static Task<ScopeOfWork?> FindAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>
         db.ScopesOfWork.Include(s => s.Items).FirstOrDefaultAsync(s => s.ProjectId == projectId, ct);
 
-    /// <summary>The project's scope, or a new Draft staged for insert on the first write. A missing project is
+    /// <summary>The project's scope, or a new Draft staged for insert on the first write — refused with 409
+    /// <see cref="ScopeOfWorkErrors.ProjectHasStages"/> when the project already has stages (P5). A missing project is
     /// <see cref="Domain.ProjectErrors.NotFound"/>: the scope decorator lets a project-wide reader through
     /// without checking the row exists, and the insert would otherwise hit the foreign key (a 500).</summary>
     public static async Task<Result<ScopeOfWork>> FindOrCreateAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
@@ -131,6 +149,13 @@ internal static class ScopeOfWorkStore
         if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
             return Result.Failure<ScopeOfWork>(Domain.ProjectErrors.NotFound);
+        }
+
+        // P5: a project that already has stages (created from a template) can never confirm a scope, so a first
+        // scope write there would leave a Draft that blocks every manual stage and task edit for good.
+        if (await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct))
+        {
+            return Result.Failure<ScopeOfWork>(ScopeOfWorkErrors.ProjectHasStages);
         }
 
         var scope = ScopeOfWork.Create(projectId);
@@ -378,15 +403,23 @@ internal sealed class UpdateScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(UpdateScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
-        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
+        Result workflow = await ScopeOfWorkStore.EnsureStageWorkflowAsync(db, command.ProjectId, ct);
+        if (workflow.IsFailure)
         {
-            return editable;
+            return workflow;
         }
 
-        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
+        // R1-3: the item's 404 before the closed project's 409.
+        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope
+            || scope.Items.All(i => i.Id != command.ItemId))
         {
             return ScopeOfWorkErrors.ItemNotFound;
+        }
+
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result updated = scope.UpdateItem(command.ItemId, command.Name.Trim(), command.Description, command.Fee);
@@ -398,15 +431,23 @@ internal sealed class RemoveScopeOfWorkItemCommandHandler(ProjectsDbContext db) 
 {
     public async Task<Result> HandleAsync(RemoveScopeOfWorkItemCommand command, CancellationToken ct = default)
     {
-        Result editable = await ScopeOfWorkStore.EnsureEditableProjectAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
+        Result workflow = await ScopeOfWorkStore.EnsureStageWorkflowAsync(db, command.ProjectId, ct);
+        if (workflow.IsFailure)
         {
-            return editable;
+            return workflow;
         }
 
-        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope)
+        // R1-3: the item's 404 before the closed project's 409.
+        if (await ScopeOfWorkStore.FindAsync(db, command.ProjectId, ct) is not { } scope
+            || scope.Items.All(i => i.Id != command.ItemId))
         {
             return ScopeOfWorkErrors.ItemNotFound;
+        }
+
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result removed = scope.RemoveItem(command.ItemId);

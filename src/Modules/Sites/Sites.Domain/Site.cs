@@ -103,6 +103,11 @@ internal sealed class Site : Entity, IAuditable
 
     public Guid CreatedById { get; private set; }
     public DateTime? SubmittedAtUtc { get; private set; }
+
+    /// <summary>R1-9: the HR employee who submitted the survey, so neither its creator nor its submitter approves it.
+    /// Null on a draft, and on a survey submitted before the column existed.</summary>
+    public Guid? SubmittedById { get; private set; }
+
     public DateTime? DecidedAtUtc { get; private set; }
     public Guid? DecidedById { get; private set; }
     public string? DecisionNote { get; private set; }
@@ -175,7 +180,7 @@ internal sealed class Site : Entity, IAuditable
     /// Draft → Submitted. The address requirement is enforced here rather than only by the database
     /// check constraint, so the caller gets a 400 naming the field instead of a 500.
     /// </summary>
-    public Result Submit(DateTime submittedAtUtc)
+    public Result Submit(DateTime submittedAtUtc, Guid? submittedById = null)
     {
         if (Status != SiteStatus.Draft)
         {
@@ -189,6 +194,7 @@ internal sealed class Site : Entity, IAuditable
 
         Status = SiteStatus.Submitted;
         SubmittedAtUtc = submittedAtUtc;
+        SubmittedById = submittedById;
         return Result.Success();
     }
 
@@ -226,6 +232,7 @@ internal sealed class Site : Entity, IAuditable
 
         Status = SiteStatus.Draft;
         SubmittedAtUtc = null;
+        SubmittedById = null;
         DecidedAtUtc = null;
         DecidedById = null;
         DecisionNote = null;

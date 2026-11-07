@@ -6,6 +6,7 @@ using Finance.Contracts;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Application.Features.Stages;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
@@ -49,35 +50,17 @@ internal static class ManualTasks
     /// a FreeStyle one only needs to be active.</summary>
     public static async Task<Result<Domain.Project>> EnsureEditableAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Domain.Project>(Domain.ProjectErrors.NotFound);
+            return Result.Failure<Domain.Project>(live.Error);
         }
 
+        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, ct);
         return project.WorkflowType == Domain.WorkflowType.Stage
             ? await ManualStages.EnsureEditableAsync(db, projectId, ct)
             : project;
-    }
-
-    /// <summary>The stage's task counters, recounted from the rows (the new or removed task included).</summary>
-    public static async Task RecountStageAsync(ProjectsDbContext db, Guid? stageId, int delta, CancellationToken ct)
-    {
-        if (stageId is null)
-        {
-            return;
-        }
-
-        Domain.ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == stageId, ct);
-        if (stage is null)
-        {
-            return;
-        }
-
-        int total = await db.ProjectTasks.CountAsync(t => t.ProjectStageId == stageId, ct) + delta;
-        int completed = await db.ProjectTasks.CountAsync(
-            t => t.ProjectStageId == stageId && t.Status == Domain.ProjectTaskStatus.Completed, ct);
-        stage.RecalculateProgress(completed, Math.Max(total, 0));
     }
 }
 
@@ -93,7 +76,7 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
     private async Task<Result<Guid>> CreateAsync(CreateProjectTaskCommand command, CancellationToken ct)
     {
         Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
-        if (project is null || !project.IsActive)
+        if (project is null)
         {
             return Result.Failure<Guid>(Domain.ProjectErrors.NotFound);
         }
@@ -109,24 +92,18 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
             return Result.Failure<Guid>(Domain.TaskErrors.StageNotAllowed);
         }
 
-        Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
-        if (editable.IsFailure)
-        {
-            return Result.Failure<Guid>(editable.Error);
-        }
-
         Domain.ProjectStage? stage = null;
         if (command.ProjectStageId is { } stageId)
         {
-            stage = await db.ProjectStages.AsNoTracking().FirstOrDefaultAsync(s => s.Id == stageId && s.ProjectId == command.ProjectId, ct);
+            // R2-1 (NP7): the stage row before its status is read (project → stage → task, R1-2), so a stage completing
+            // at the same time — which holds the row while it checks for open tasks — is waited for and seen as
+            // Completed (409 StageClosed below) instead of gaining an Open task behind its back.
+            stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, stageId, ct)
+                ? await db.ProjectStages.AsNoTracking().FirstOrDefaultAsync(s => s.Id == stageId && s.ProjectId == command.ProjectId, ct)
+                : null;
             if (stage is null)
             {
                 return Result.Failure<Guid>(Domain.StageErrors.NotFound);
-            }
-
-            if (stage.Status is Domain.StageStatus.Completed or Domain.StageStatus.Rejected)
-            {
-                return Result.Failure<Guid>(Domain.TaskErrors.StageClosed);
             }
         }
 
@@ -137,6 +114,18 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
             {
                 return Result.Failure<Guid>(Domain.TaskErrors.AssigneeNotFound);
             }
+        }
+
+        // NP3 and the settled-structure rule (409), after the 404s (R1-3).
+        Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
+        if (editable.IsFailure)
+        {
+            return Result.Failure<Guid>(editable.Error);
+        }
+
+        if (stage?.Status is Domain.StageStatus.Completed or Domain.StageStatus.Rejected)
+        {
+            return Result.Failure<Guid>(Domain.TaskErrors.StageClosed);
         }
 
         int order = command.Order ?? (await db.ProjectTasks
@@ -171,8 +160,8 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
                 Guid.NewGuid(), task.ProjectId, task.Id, task.Name, assignee, DateTimeOffset.UtcNow));
         }
 
-        await ManualTasks.RecountStageAsync(db, command.ProjectStageId, delta: 1, ct);
         await db.SaveChangesAsync(ct);
+        await StageCounters.RecountAsync(db, command.ProjectStageId, ct);
         return task.Id;
     }
 }
@@ -184,6 +173,12 @@ internal sealed class UpdateProjectTaskCommandHandler(ProjectsDbContext db) : IC
 
     private async Task<Result> UpdateAsync(UpdateProjectTaskCommand command, CancellationToken ct)
     {
+        // R1-3: the task's 404 before the project's 409s.
+        if (!await db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.TaskErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -217,6 +212,12 @@ internal sealed class DeleteProjectTaskCommandHandler(
 
     private async Task<Result> DeleteAsync(DeleteProjectTaskCommand command, CancellationToken ct)
     {
+        // R1-3: the task's 404 before the project's 409s.
+        if (!await db.ProjectTasks.AsNoTracking().AnyAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.TaskErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualTasks.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -230,6 +231,8 @@ internal sealed class DeleteProjectTaskCommandHandler(
             return Domain.TaskErrors.NotFound;
         }
 
+        // R1-2: the stage row (recounted below) before the task row.
+        await ProjectWriteLock.LockStageRowAsync(db, task.ProjectStageId, ct);
         var guard = new WorkDeletionGuard(db, documents, crm, finance);
         await guard.LockAsync(null, [task.Id], ct);
         if (!await guard.CanDeleteTaskAsync(task.Id, ct))
@@ -238,7 +241,6 @@ internal sealed class DeleteProjectTaskCommandHandler(
         }
 
         await guard.RemoveTasksAsync([task.Id], ct);
-        await ManualTasks.RecountStageAsync(db, task.ProjectStageId, delta: -1, ct);
         try
         {
             await db.SaveChangesAsync(ct);
@@ -248,6 +250,7 @@ internal sealed class DeleteProjectTaskCommandHandler(
             return Domain.TaskErrors.NotDeletable;
         }
 
+        await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
         return Result.Success();
     }
 }

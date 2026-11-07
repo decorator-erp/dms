@@ -43,16 +43,19 @@ internal sealed class UpdateProjectStageCommandValidator : AbstractValidator<Upd
 internal static class ManualStages
 {
     /// <summary>D2: a Stage-workflow project whose stage structure is settled — its scope of work is
-    /// confirmed or, with no scope of work at all, it was created from a template (it already has stages).
-    /// An inactive or missing project is 404, as everywhere in this module.</summary>
+    /// confirmed or, with no scope of work at all (or only a Draft, P5), it was created from a template (it already
+    /// has stages).
+    /// A missing project is 404; an inactive, on-hold, completed or cancelled one is 409 (NP3, <see cref="ProjectLiveness"/>).</summary>
     public static async Task<Result<Domain.Project>> EnsureEditableAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Domain.Project>(Domain.ProjectErrors.NotFound);
+            return Result.Failure<Domain.Project>(live.Error);
         }
 
+        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, ct);
         if (project.WorkflowType != Domain.WorkflowType.Stage)
         {
             return Result.Failure<Domain.Project>(Domain.StageErrors.WorkflowNotSupported);
@@ -62,12 +65,10 @@ internal static class ManualStages
             .Where(s => s.ProjectId == projectId)
             .Select(s => (Domain.ScopeOfWorkStatus?)s.Status)
             .FirstOrDefaultAsync(ct);
-        bool settled = scope switch
-        {
-            Domain.ScopeOfWorkStatus.Confirmed => true,
-            null => await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct),
-            _ => false,
-        };
+        // P5: a Draft scope beside existing stages (a template-created project whose scope was touched before
+        // FindOrCreateAsync refused that) can never be confirmed, so it counts as "no scope", not as unsettled.
+        bool settled = scope == Domain.ScopeOfWorkStatus.Confirmed
+            || await db.ProjectStages.AnyAsync(s => s.ProjectId == projectId, ct);
 
         return settled ? project : Result.Failure<Domain.Project>(Domain.StageErrors.ScopeNotConfirmed);
     }
@@ -109,6 +110,12 @@ internal sealed class CreateProjectStageCommandHandler(ProjectsDbContext db, IHr
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the template stage's 404 before the project's 409s.
+        if (command.TemplateStageId is { } pickedStageId && !await db.Stages.AsNoTracking().AnyAsync(s => s.Id == pickedStageId, ct))
+        {
+            return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageNotFound);
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -120,11 +127,6 @@ internal sealed class CreateProjectStageCommandHandler(ProjectsDbContext db, IHr
         Domain.ProjectStage stage;
         if (command.TemplateStageId is { } templateStageId)
         {
-            if (!await db.Stages.AsNoTracking().AnyAsync(s => s.Id == templateStageId, ct))
-            {
-                return Result.Failure<Guid>(Domain.TemplateEntityErrors.StageNotFound);
-            }
-
             Result<IReadOnlyList<Guid>> created = await new StageInstantiator(db, hrDirectory).InstantiateAsync(
                 editable.Value!, [new StagePick(templateStageId, command.Name.Trim(), command.Description, stages.Count + 1, null)], ct);
             if (created.IsFailure)
@@ -159,6 +161,12 @@ internal sealed class UpdateProjectStageCommandHandler(ProjectsDbContext db) : I
 
     private async Task<Result> UpdateAsync(UpdateProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the stage's 404 before the project's 409s.
+        if (!await db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.StageErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -196,6 +204,12 @@ internal sealed class DeleteProjectStageCommandHandler(
 
     private async Task<Result> DeleteAsync(DeleteProjectStageCommand command, CancellationToken ct)
     {
+        // R1-3: the stage's 404 before the project's 409s.
+        if (!await db.ProjectStages.AsNoTracking().AnyAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct))
+        {
+            return Domain.StageErrors.NotFound;
+        }
+
         Result<Domain.Project> editable = await ManualStages.EnsureEditableAsync(db, command.ProjectId, ct);
         if (editable.IsFailure)
         {
@@ -227,6 +241,12 @@ internal sealed class DeleteProjectStageCommandHandler(
         await guard.RemoveTasksAsync(taskIds, ct);
         db.GateConditions.RemoveRange(await db.GateConditions.Where(g => g.ProjectStageId == stage.Id).ToListAsync(ct));
         db.StageTeams.RemoveRange(await db.StageTeams.Where(t => t.ProjectStageId == stage.Id).ToListAsync(ct));
+
+        // P12: the scope item that created this stage forgets it in the same save.
+        Domain.ScopeOfWork? scope = await db.ScopesOfWork.Include(s => s.Items)
+            .FirstOrDefaultAsync(s => s.ProjectId == command.ProjectId, ct);
+        scope?.ForgetCreatedStage(stage.Id);
+
         db.ProjectStages.Remove(stage);
         stages.Remove(stage);
         ManualStages.Renumber(stages);

@@ -12,10 +12,10 @@ public sealed record GetProjectMembersQuery(Guid ProjectId, string UserId)
     : IQuery<IReadOnlyList<ProjectMemberResponse>>, IProjectScoped;
 
 public sealed record AddProjectMemberCommand(Guid ProjectId, string UserId, Guid EmployeeId, ProjectMemberAccess Access)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 public sealed record ChangeProjectMemberAccessCommand(Guid ProjectId, string UserId, Guid MemberId, ProjectMemberAccess Access)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record RemoveProjectMemberCommand(Guid ProjectId, string UserId, Guid MemberId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;

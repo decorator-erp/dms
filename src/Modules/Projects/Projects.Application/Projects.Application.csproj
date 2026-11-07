@@ -29,6 +29,9 @@
          itself (IUserDirectory), after reading the client's AppUserId from IClientDirectory - two depth-1
          reads instead of Projects -> CRM -> Identity. Identity is a sink, so this closes no cycle. -->
     <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
+    <!-- P1: the project delete asks Sites.Contracts.ISiteProjectUsage whether any site (soft-deleted ones
+         included) still names the project. Sites.Contracts references no module, so this closes no cycle. -->
+    <ProjectReference Include="..\..\Sites\Sites.Contracts\Sites.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

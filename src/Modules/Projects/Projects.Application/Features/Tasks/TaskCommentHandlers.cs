@@ -40,6 +40,16 @@ internal sealed class AddTaskCommentCommandHandler(ProjectsDbContext db, IHrDire
     }
 }
 
+/// <summary>P13: GetProjectsQueryValidator's caps.</summary>
+internal sealed class GetTaskCommentsQueryValidator : AbstractValidator<GetTaskCommentsQuery>
+{
+    public GetTaskCommentsQueryValidator()
+    {
+        RuleFor(x => x.PageNumber).InclusiveBetween(1, 1_000_000).When(x => x.PageNumber is not null);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200).When(x => x.PageSize is not null);
+    }
+}
+
 internal sealed class GetTaskCommentsQueryHandler(ProjectsDbContext db)
     : IQueryHandler<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>>
 {
@@ -56,6 +66,8 @@ internal sealed class GetTaskCommentsQueryHandler(ProjectsDbContext db)
         List<TaskCommentResponse> comments = await db.TaskComments.AsNoTracking()
             .Where(c => c.TaskId == query.TaskId)
             .OrderBy(c => c.CreatedAtUtc)
+            .ThenBy(c => c.Id)
+            .PageIfAsked(query.PageNumber, query.PageSize)
             .Select(c => new TaskCommentResponse(c.Id, c.TaskId, c.EmployeeId, c.Content, c.CreatedAtUtc, c.EditedAtUtc))
             .ToListAsync(ct);
 

@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Projects.Contracts;
 using SharedKernel;
@@ -8,6 +9,21 @@ using Sites.Domain;
 using Sites.Infrastructure.Persistence;
 
 namespace Sites.Application.Features.Surveys;
+
+/// <summary>
+/// S8: <c>GetProjectsQueryValidator</c>'s paging bounds. Clamping answered a page the caller did not ask
+/// for, and an unbounded page index overflowed <c>(page - 1) * size</c> into a negative OFFSET (500).
+/// </summary>
+internal sealed class GetSitesQueryValidator : AbstractValidator<GetSitesQuery>
+{
+    public GetSitesQueryValidator()
+    {
+        RuleFor(x => x.ProjectId).NotEmpty();
+        RuleFor(x => x.PageIndex).InclusiveBetween(1, 1_000_000);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 200);
+        RuleFor(x => x.Status).IsInEnum();
+    }
+}
 
 /// <summary>
 /// Not <c>ISiteScoped</c> — it lists sites rather than reading one, so there is no site id to scope by.
@@ -33,10 +49,9 @@ internal sealed class GetSitesQueryHandler(SitesDbContext db, IProjectAccessGuar
 
         int total = await filtered.CountAsync(ct);
 
-        // Clamped rather than trusted: an unbounded page size is a denial-of-service on a large project,
-        // and a zero or negative page is a caller error that should still answer.
-        int page = Math.Max(1, query.PageIndex);
-        int size = Math.Clamp(query.PageSize, 1, 200);
+        // Bounded by GetSitesQueryValidator before this runs (S8), so the offset below cannot overflow.
+        int page = query.PageIndex;
+        int size = query.PageSize;
 
         // Ordered by creation, projected to exactly the columns ix_sites_project_status INCLUDEs -- the
         // covering set is why this is an index-only scan. Adding a field here means revisiting that index.

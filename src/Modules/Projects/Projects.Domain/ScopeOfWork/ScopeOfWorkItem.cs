@@ -40,4 +40,7 @@ internal sealed class ScopeOfWorkItem : Entity
     internal void SetOrder(int order) => Order = order;
 
     internal void SetCreatedStage(Guid projectStageId) => CreatedStageId = projectStageId;
+
+    /// <summary>P12: the stage confirm created from this item was deleted.</summary>
+    internal void ClearCreatedStage() => CreatedStageId = null;
 }

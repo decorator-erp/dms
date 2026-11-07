@@ -21,11 +21,13 @@ internal sealed class TaskEndpoints : IEndpoint
         RouteGroupBuilder group = app.MapGroup("/api/projects/{projectId:guid}/tasks").WithTags("ProjectTasks");
 
         group.MapGet("/", async (
-            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, ICurrentUser currentUser,
+            Guid projectId, Guid? stageId, Guid? assigneeId, ProjectTaskStatus? status, int? pageNumber, int? pageSize,
+            ICurrentUser currentUser,
             IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>> handler, CancellationToken ct) =>
         {
+            // P13/R1-5: opt-in paging; the body stays a plain array (every task when neither parameter is sent).
             Result<IReadOnlyList<ProjectTaskResponse>> result = await handler.HandleAsync(
-                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status), ct);
+                new GetProjectTasksByProjectQuery(projectId, currentUser.UserId!, stageId, assigneeId, status, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -91,7 +93,7 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new StartProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete); // baseline v5: execution
 
         group.MapPost("/{taskId:guid}/complete", async (
             Guid projectId, Guid taskId, ICurrentUser currentUser,
@@ -178,13 +180,15 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new CompleteProjectSubTaskCommand(projectId, subTaskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Complete);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete);
 
         group.MapGet("/{taskId:guid}/comments", async (
-            Guid projectId, Guid taskId, ICurrentUser currentUser,
+            Guid projectId, Guid taskId, int? pageNumber, int? pageSize, ICurrentUser currentUser,
             IQueryHandler<GetTaskCommentsQuery, IReadOnlyList<TaskCommentResponse>> handler, CancellationToken ct) =>
         {
-            Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!), ct);
+            // P13/R1-5: opt-in paging; the body stays a plain array (every comment when neither parameter is sent).
+            Result<IReadOnlyList<TaskCommentResponse>> result = await handler.HandleAsync(
+                new GetTaskCommentsQuery(projectId, taskId, currentUser.UserId!, pageNumber, pageSize), ct);
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(ProjectsPermissions.StageTasks.Read);
 
@@ -195,7 +199,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Result<Guid> result = await handler.HandleAsync(
                 new AddTaskCommentCommand(projectId, taskId, currentUser.UserId!, request.Content ?? string.Empty), ct);
             return result.Match(commentId => Results.Ok(new { CommentId = commentId }), r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete); // baseline v5: execution
 
         // E6: edit and delete a comment. The route needs only stage_tasks.read; the handler allows the author or
         // a stage_tasks.manage holder (403), after the scope decorator (404).

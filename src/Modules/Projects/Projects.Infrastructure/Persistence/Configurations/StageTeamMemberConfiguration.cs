@@ -9,7 +9,8 @@ internal sealed class StageTeamMemberConfiguration : IEntityTypeConfiguration<St
 {
     public void Configure(EntityTypeBuilder<StageTeamMember> builder)
     {
-        builder.ToTable("stage_team_members");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("stage_team_members", t => t.HasCheckConstraint("CK_stage_team_members_Role", "\"Role\" BETWEEN 1 AND 4"));
         builder.ConfigureEntityConventions();
 
         builder.Property(m => m.Role).HasConversion<int>();

@@ -30,15 +30,15 @@ public sealed record CreateProjectCommand(
 public sealed record UpdateProjectCommand(
     Guid ProjectId, string UserId, string? Name = null, string? Description = null, string? Address = null,
     string? Notes = null, DateTime? EstimatedStartDate = null, DateTime? EstimatedEndDate = null)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record ChangeProjectStatusCommand(Guid ProjectId, string UserId, ProjectStatus Status)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record SetProjectActiveCommand(Guid ProjectId, string UserId, bool IsActive)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
-public sealed record DeleteProjectCommand(Guid ProjectId, string UserId) : ICommand, IProjectScoped;
+public sealed record DeleteProjectCommand(Guid ProjectId, string UserId) : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record GetProjectQuery(Guid ProjectId, string UserId) : IQuery<ProjectResponse>, IProjectScoped;
 

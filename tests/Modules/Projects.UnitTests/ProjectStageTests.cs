@@ -101,14 +101,4 @@ public class ProjectStageTests
         Assert.True(result.IsFailure);
         Assert.Equal(StageErrors.NegativeCost, result.Error);
     }
-
-    [Fact]
-    public void RecalculateProgress_ComputesPercent()
-    {
-        ProjectStage stage = CreateStage();
-
-        stage.RecalculateProgress(completedTasks: 1, totalTasks: 4);
-
-        Assert.Equal(25m, stage.ProgressPercent);
-    }
 }

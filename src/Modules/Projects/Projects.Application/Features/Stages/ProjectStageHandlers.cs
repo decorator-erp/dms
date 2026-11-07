@@ -1,7 +1,9 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
+using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Stages;
 using Projects.Domain;
@@ -22,8 +24,12 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
 {
     public async Task<Result> HandleAsync(CompleteProjectStageCommand command, CancellationToken ct = default)
     {
-        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
-            s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
+        // P11: hold this stage and every stage its completion unlocks, in id order (GateOwnerLocks), before reading
+        // it, so a racing writer is waited for and seen instead of overwritten.
+        await GateOwnerLocks.LockCompletionCascadeAsync(db, command.StageId, null, command.StageId, ct);
+        ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
+            : null;
         if (stage is null)
         {
             return Domain.StageErrors.NotFound;
@@ -35,11 +41,34 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
             return Domain.ProjectErrors.AccessDenied;
         }
 
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
+        // The stage's own state first: a stage that is no longer Active is a transition error whatever its gates
+        // and tasks say.
+        if (stage.Status != Domain.StageStatus.Active)
+        {
+            return Domain.StageErrors.InvalidStatusTransition;
+        }
+
         bool hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
             g => g.ProjectStageId == stage.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
         if (hasUnsatisfiedGates)
         {
             return Domain.StageErrors.GatesNotSatisfied;
+        }
+
+        // NP7: no unfinished task left behind a completed stage.
+        bool hasOpenTasks = await db.ProjectTasks.AsNoTracking().AnyAsync(
+            t => t.ProjectStageId == stage.Id
+                && t.Status != Domain.ProjectTaskStatus.Completed && t.Status != Domain.ProjectTaskStatus.Cancelled, ct);
+        if (hasOpenTasks)
+        {
+            return Domain.StageErrors.TasksOpen;
         }
 
         Result result = stage.Complete(employeeId.Value);
@@ -56,15 +85,30 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
     }
 }
 
+/// <summary>P7: the reason is free text with a ceiling.</summary>
+internal sealed class RejectProjectStageCommandValidator : AbstractValidator<RejectProjectStageCommand>
+{
+    public RejectProjectStageCommandValidator() => RuleFor(x => x.Reason).MaximumLength(2000);
+}
+
 internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : ICommandHandler<RejectProjectStageCommand>
 {
     public async Task<Result> HandleAsync(RejectProjectStageCommand command, CancellationToken ct = default)
     {
-        ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(
-            s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct);
+        // P11: hold the stage row first, so a racing writer is waited for and seen instead of overwritten.
+        ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
+            ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
+            : null;
         if (stage is null)
         {
             return Domain.StageErrors.NotFound;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
         }
 
         Result result = stage.Reject(command.Reason);

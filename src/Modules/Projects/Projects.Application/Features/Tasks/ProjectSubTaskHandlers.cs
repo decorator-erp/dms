@@ -1,6 +1,8 @@
 using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
+using Projects.Contracts;
 using Projects.Contracts.Tasks;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -10,13 +12,14 @@ using Domain = Projects.Domain;
 namespace Projects.Application.Features.Tasks;
 
 /// <summary>
-/// Recomputes the parent task's <c>CompletedSubTasks</c>/<c>TotalSubTasks</c> counters from the database
-/// rather than the in-memory <see cref="Domain.ProjectSubTask"/> collection (subtasks aren't loaded as a
-/// navigation on <see cref="Domain.ProjectTask"/> — same "bare reference, no navigation" convention as
-/// every other cross-aggregate link in this module) — the just-completed row is excluded from the DB
-/// count and added back manually since its own <c>IsDone</c> flip hasn't been committed yet.
+/// Route claim (<c>stage_tasks.manage</c> or <c>stage_tasks.complete</c>, 403) → scope (404) → the caller is the
+/// task's assignee or holds <c>stage_tasks.manage</c> (403) → the task is still open (409), as reopen checks.
+/// Recomputes the parent task's <c>CompletedSubTasks</c>/<c>TotalSubTasks</c> counters (required sub-tasks only,
+/// P14) through <see cref="ManualSubTasks.RecountAsync"/>, which merges the database with the tracked rows, so the
+/// just-completed sub-task counts before its own <c>IsDone</c> flip is saved.
 /// </summary>
-internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
+internal sealed class CompleteProjectSubTaskCommandHandler(
+    ProjectsDbContext db, IHrDirectory hrDirectory, BuildingBlocks.ICurrentUser currentUser)
     : ICommandHandler<CompleteProjectSubTaskCommand>
 {
     public async Task<Result> HandleAsync(CompleteProjectSubTaskCommand command, CancellationToken ct = default)
@@ -42,16 +45,32 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
             return Domain.ProjectErrors.AccessDenied;
         }
 
+        // The same rules as reopen (ManualSubTaskHandlers): the task's assignee or a task manager (403), on a task
+        // that is still open (409).
+        if (!currentUser.HasPermission(ProjectsPermissions.StageTasks.Manage) && task.AssignedToId != employeeId)
+        {
+            return Domain.SubTaskErrors.NotAssignee;
+        }
+
+        // NP3, after the 404s and 403s (R1-3): no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
+        if (task.Status is Domain.ProjectTaskStatus.Completed or Domain.ProjectTaskStatus.Cancelled)
+        {
+            return Domain.SubTaskErrors.TaskClosed;
+        }
+
         Result result = subTask.Complete(employeeId.Value);
         if (result.IsFailure)
         {
             return result;
         }
 
-        int totalSubTasks = await db.ProjectSubTasks.CountAsync(st => st.ProjectTaskId == task.Id, ct);
-        int completedOthers = await db.ProjectSubTasks.CountAsync(
-            st => st.ProjectTaskId == task.Id && st.IsDone && st.Id != subTask.Id, ct);
-        task.RecalculateSubTaskProgress(completedOthers + 1, totalSubTasks);
+        await ManualSubTasks.RecountAsync(db, task, ct);
 
         await db.SaveChangesAsync(ct);
         return Result.Success();

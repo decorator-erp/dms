@@ -1,5 +1,6 @@
 using Crm.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SharedKernel;
 using Sites.Domain;
 using Sites.Infrastructure.Persistence;
@@ -12,6 +13,20 @@ namespace Sites.Application.Features.Surveys;
 /// </summary>
 internal static class SiteWrites
 {
+    /// <summary>
+    /// Unique indexes a race can still hit after a handler's pre-check, by constraint name, mapped to
+    /// the same 409 the pre-check answers — <c>CatalogWrites</c>' shape. Anything else stays
+    /// <see cref="SiteErrors.SaveFailed"/>.
+    /// </summary>
+    private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
+    {
+        ["ux_site_documents_link"] = SiteErrors.DocumentAlreadyLinked,
+
+        // S9: the record-label and site-code races the pre-checks cannot close.
+        ["ux_site_records_label"] = SiteErrors.LabelTaken,
+        ["ux_sites_code"] = SiteErrors.CodeTaken,
+    };
+
     /// <summary>
     /// Save, translating an <c>xmin</c> conflict to a 409. Two surveyors editing one survey from two
     /// tablets is the collision the token exists for, and a retry is the whole remedy.
@@ -27,11 +42,56 @@ internal static class SiteWrites
         {
             return SiteErrors.ConcurrencyConflict;
         }
+        catch (DbUpdateException ex) when (MapUniqueViolation(ex) is { } mapped)
+        {
+            return mapped;
+        }
         catch (DbUpdateException)
         {
             return SiteErrors.SaveFailed;
         }
     }
+
+    /// <summary>
+    /// S3 / NS1 / NS3: save a write to a site's CHILD rows — records, values, document links — with the
+    /// parent's <c>xmin</c> checked. Those writes never touch the site row, so on their own they never
+    /// see a concurrent submit: a grid save that read the survey as Draft could commit after it was
+    /// frozen. Marking the site (and each named record, for value writes) Modified makes EF issue an
+    /// <c>UPDATE … WHERE xmin = @read</c>, so a stale read fails as
+    /// <see cref="SiteErrors.ConcurrencyConflict"/> and the whole save rolls back. The
+    /// <c>ScopeWrites</c> shape from Projects.
+    /// </summary>
+    public static Task<Result> SaveGuardedAsync(SitesDbContext db, Site site, CancellationToken ct) =>
+        SaveGuardedAsync(db, site, [], ct);
+
+    /// <inheritdoc cref="SaveGuardedAsync(SitesDbContext, Site, CancellationToken)"/>
+    public static Task<Result> SaveGuardedAsync(
+        SitesDbContext db, Site site, IEnumerable<SiteRecord> records, CancellationToken ct)
+    {
+        MarkModified(db, site);
+
+        foreach (SiteRecord record in records)
+        {
+            MarkModified(db, record);
+        }
+
+        return SaveAsync(db, ct);
+    }
+
+    private static void MarkModified(SitesDbContext db, object entity)
+    {
+        Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry = db.Entry(entity);
+        if (entry.State == EntityState.Unchanged)
+        {
+            entry.State = EntityState.Modified;
+        }
+    }
+
+    private static Error? MapUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: { } name }
+        && UniqueViolations.TryGetValue(name, out Error? error)
+            ? error
+            : null;
 
     /// <summary>
     /// Loads a site TRACKED, for writing.
@@ -82,8 +142,13 @@ internal static class SiteWrites
             return Result.Success();
         }
 
-        CrmSpaceSummary? space = await spaces.GetAsync(id, ct);
+        return CheckSpace(await spaces.GetAsync(id, ct), projectId);
+    }
 
+    /// <summary>The rule of <see cref="ValidateSpaceAsync"/> over a space already read — the grid save
+    /// reads every row's space in one <c>GetManyAsync</c> (S7) and judges each row here.</summary>
+    public static Result CheckSpace(CrmSpaceSummary? space, Guid projectId)
+    {
         if (space is null || !space.IsActive)
         {
             return SiteErrors.SpaceNotFound;
@@ -91,4 +156,25 @@ internal static class SiteWrites
 
         return space.ProjectId == projectId ? Result.Success() : SiteErrors.SpaceNotInProject;
     }
+
+    /// <summary>
+    /// S2: a record's catalog item, when named, must exist and be active in CRM. Read through
+    /// <c>ICrmCatalogItemReader</c>; the cross-schema foreign key alone made a bad id a 500 and let a
+    /// retired item through.
+    /// </summary>
+    public static async Task<Result> ValidateCatalogItemAsync(
+        ICrmCatalogItemReader catalog, Guid? catalogItemId, CancellationToken ct)
+    {
+        if (catalogItemId is not { } id)
+        {
+            return Result.Success();
+        }
+
+        return CheckCatalogItem(await catalog.GetAsync(id, ct));
+    }
+
+    /// <summary>The rule of <see cref="ValidateCatalogItemAsync"/> over an item already read, for the
+    /// grid save's batched read (S7).</summary>
+    public static Result CheckCatalogItem(CrmCatalogItemSummary? item) =>
+        item is { IsActive: true } ? Result.Success() : SiteErrors.CatalogItemNotFound;
 }

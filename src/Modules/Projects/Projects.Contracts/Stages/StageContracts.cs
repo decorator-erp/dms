@@ -22,22 +22,22 @@ public sealed record ProjectStageResponse(
 public sealed record CreateProjectStageCommand(
     Guid ProjectId, string UserId, string Name, int Order, string? Description, string? Notes,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, Guid? TemplateStageId)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>E2. A null <see cref="Order"/> keeps the stage where it is (FINDING-E-5).</summary>
 public sealed record UpdateProjectStageCommand(
     Guid ProjectId, Guid StageId, string UserId, string Name, int? Order, string? Description, string? Notes,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record DeleteProjectStageCommand(Guid ProjectId, Guid StageId, string UserId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record CompleteProjectStageCommand(Guid ProjectId, Guid StageId, string UserId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record RejectProjectStageCommand(Guid ProjectId, Guid StageId, string UserId, string Reason)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record GetProjectStageQuery(Guid ProjectId, Guid StageId, string UserId)
     : IQuery<ProjectStageResponse>, IProjectScoped;

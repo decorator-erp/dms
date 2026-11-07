@@ -13,7 +13,8 @@ using SharedKernel;
 namespace Projects.Infrastructure.Endpoints;
 
 /// <summary>Gate CRUD, governed by <c>stages.manage_gates</c> (stage-owned) /
-/// <c>stage_tasks.manage_gates</c> (task-owned), per decision #9.</summary>
+/// <c>stage_tasks.manage_gates</c> (task-owned), per decision #9. Delete and satisfy share one route for both
+/// owners, so it admits either claim and the handler checks the one the gate's owner needs (P4).</summary>
 internal sealed class GateEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
@@ -62,7 +63,7 @@ internal sealed class GateEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new DeleteGateConditionCommand(projectId, gateConditionId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.Stages.ManageGates);
+        }).RequireAnyPermission(ProjectsPermissions.Stages.ManageGates, ProjectsPermissions.StageTasks.ManageGates);
 
         project.MapPost("/gates/{gateConditionId:guid}/satisfy", async (
             Guid projectId, Guid gateConditionId, SatisfyGateRequest request, ICurrentUser currentUser,
@@ -71,7 +72,7 @@ internal sealed class GateEndpoints : IEndpoint
             Result result = await handler.HandleAsync(
                 new SatisfyGateConditionCommand(projectId, gateConditionId, currentUser.UserId!, request.Note), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.Stages.ManageGates);
+        }).RequireAnyPermission(ProjectsPermissions.Stages.ManageGates, ProjectsPermissions.StageTasks.ManageGates);
     }
 
     private sealed record CreateGateRequest(

@@ -19,7 +19,7 @@ public sealed record CreateStageGateConditionCommand(
     Guid ProjectId, Guid StageId, string UserId, ConditionType ConditionType, GateTrigger Trigger, string Label,
     Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null,
     Guid? ReferencedDocumentId = null)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Same <see cref="ReferencedDocumentId"/> addition as <see cref="CreateStageGateConditionCommand"/>,
 /// for the same reason.</summary>
@@ -27,16 +27,16 @@ public sealed record CreateTaskGateConditionCommand(
     Guid ProjectId, Guid TaskId, string UserId, ConditionType ConditionType, GateTrigger Trigger, string Label,
     Guid? ReferencedTaskId = null, Guid? ReferencedStageId = null, ApprovalType? ApprovalType = null,
     Guid? ReferencedDocumentId = null)
-    : ICommand<Guid>, IProjectScoped;
+    : ICommand<Guid>, IProjectScoped, IRequiresProjectManager;
 
 public sealed record DeleteGateConditionCommand(Guid ProjectId, Guid GateConditionId, string UserId)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Manual satisfaction — the <c>ManualCheckHandler</c> path (G5-03). Approval-type gates are
 /// satisfied reactively by <c>ApprovalDecidedIntegrationEventHandler</c> (G5-08), never through this
 /// command.</summary>
 public sealed record SatisfyGateConditionCommand(Guid ProjectId, Guid GateConditionId, string UserId, string? Note = null)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 public sealed record GetStageGateConditionsQuery(Guid ProjectId, Guid StageId, string UserId)
     : IQuery<IReadOnlyList<GateConditionResponse>>, IProjectScoped;

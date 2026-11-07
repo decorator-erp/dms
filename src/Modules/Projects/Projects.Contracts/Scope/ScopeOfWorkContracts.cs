@@ -26,33 +26,33 @@ public sealed record GetScopeOfWorkQuery(Guid ProjectId, string UserId) : IQuery
 /// <summary>Replaces the whole header; creates the Draft on the project's first save.</summary>
 public sealed record UpdateScopeOfWorkHeaderCommand(
     Guid ProjectId, string UserId, int? DurationDays, DateOnly? PlannedStartDate, decimal AdjustmentAmount,
-    string? AdjustmentNote, string? Notes) : ICommand, IProjectScoped;
+    string? AdjustmentNote, string? Notes) : ICommand, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Appends template stages, in the order given, copying each one's name, description and default
 /// fee (0 when it has none). Returns the added items.</summary>
 public sealed record AddScopeOfWorkItemsCommand(Guid ProjectId, string UserId, IReadOnlyList<Guid> SourceStageIds)
-    : ICommand<IReadOnlyList<ScopeOfWorkItemResponse>>, IProjectScoped;
+    : ICommand<IReadOnlyList<ScopeOfWorkItemResponse>>, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Appends every stage of a template, in template order, skipping stages already picked. Returns the
 /// added items (none when every stage was already picked).</summary>
 public sealed record AddScopeOfWorkTemplateCommand(Guid ProjectId, string UserId, Guid StageTemplateId)
-    : ICommand<IReadOnlyList<ScopeOfWorkItemResponse>>, IProjectScoped;
+    : ICommand<IReadOnlyList<ScopeOfWorkItemResponse>>, IProjectScoped, IRequiresProjectManager;
 
 public sealed record UpdateScopeOfWorkItemCommand(
-    Guid ProjectId, string UserId, Guid ItemId, string Name, string? Description, decimal Fee) : ICommand, IProjectScoped;
+    Guid ProjectId, string UserId, Guid ItemId, string Name, string? Description, decimal Fee) : ICommand, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Removes one item; the rest are renumbered 1..n.</summary>
-public sealed record RemoveScopeOfWorkItemCommand(Guid ProjectId, string UserId, Guid ItemId) : ICommand, IProjectScoped;
+public sealed record RemoveScopeOfWorkItemCommand(Guid ProjectId, string UserId, Guid ItemId) : ICommand, IProjectScoped, IRequiresProjectManager;
 
 /// <summary><see cref="ItemIds"/> is the full new order: exactly the current items, each once.</summary>
 public sealed record ReorderScopeOfWorkItemsCommand(Guid ProjectId, string UserId, IReadOnlyList<Guid> ItemIds)
-    : ICommand, IProjectScoped;
+    : ICommand, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>Creates the picked stages, in item order, with each item's name, description and fee as the
 /// stage cost, plus tasks, subtasks and teams copied from each source stage, then locks the scope. Refused for
 /// a project that already has stages.</summary>
 public sealed record ConfirmScopeOfWorkCommand(Guid ProjectId, string UserId)
-    : ICommand<ConfirmScopeOfWorkResponse>, IProjectScoped;
+    : ICommand<ConfirmScopeOfWorkResponse>, IProjectScoped, IRequiresProjectManager;
 
 /// <summary>The created <c>ProjectStage</c> ids, in item order.</summary>
 public sealed record ConfirmScopeOfWorkResponse(IReadOnlyList<Guid> CreatedStageIds);

@@ -65,8 +65,9 @@ internal sealed class TaskCompletedGateResolutionHandler(ProjectsDbContext db)
 /// <summary>
 /// The single place that reacts to ANY gate becoming satisfied, regardless of which of the three paths
 /// caused it (manual <c>SatisfyGateConditionCommand</c>, the stage/task completion cascade above, or
-/// <c>ApprovalDecidedIntegrationEventHandler</c>): unlocks the owner for an <see cref="Domain.GateTrigger.Unlock"/>
-/// gate, and enqueues <see cref="GateConditionSatisfiedIntegrationEvent"/> either way. Kept as ONE
+/// <c>ApprovalDecidedIntegrationEventHandler</c>): releases the owner of an <see cref="Domain.GateTrigger.Unlock"/>
+/// gate once no other Unlock gate of it is pending (NP1, <see cref="GateOwnerLocks.ReleaseIfLastAsync(ProjectsDbContext, Domain.GateOwnerKind, Guid, CancellationToken)"/>),
+/// and enqueues <see cref="GateConditionSatisfiedIntegrationEvent"/> either way. Kept as ONE
 /// domain-event handler reacting to <see cref="Domain.GateConditionSatisfiedDomainEvent"/> rather than
 /// duplicating "unlock + enqueue" at each of the three call sites — the entity already raises this exact
 /// event for exactly this purpose, and the dispatch loop's own transaction (F1 for the integration-event
@@ -83,24 +84,14 @@ internal sealed class GateConditionSatisfiedDomainEventHandler(ProjectsDbContext
             .Select(g => (Domain.GateTrigger?)g.Trigger)
             .FirstOrDefaultAsync(cancellationToken);
 
-        Guid projectId;
-        if (domainEvent.OwnerKind == Domain.GateOwnerKind.Stage)
+        Guid projectId = domainEvent.OwnerKind == Domain.GateOwnerKind.Stage
+            ? await db.ProjectStages.AsNoTracking().Where(s => s.Id == domainEvent.OwnerId).Select(s => s.ProjectId).FirstOrDefaultAsync(cancellationToken)
+            : await db.ProjectTasks.AsNoTracking().Where(t => t.Id == domainEvent.OwnerId).Select(t => t.ProjectId).FirstOrDefaultAsync(cancellationToken);
+
+        // NP1: the owner opens only when this was its last pending Unlock gate (GateOwnerLocks).
+        if (trigger == Domain.GateTrigger.Unlock)
         {
-            ProjectStage? stage = await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == domainEvent.OwnerId, cancellationToken);
-            projectId = stage?.ProjectId ?? Guid.Empty;
-            if (trigger == Domain.GateTrigger.Unlock)
-            {
-                stage?.Unlock();
-            }
-        }
-        else
-        {
-            ProjectTask? task = await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == domainEvent.OwnerId, cancellationToken);
-            projectId = task?.ProjectId ?? Guid.Empty;
-            if (trigger == Domain.GateTrigger.Unlock)
-            {
-                task?.Unlock();
-            }
+            await GateOwnerLocks.ReleaseIfLastAsync(db, domainEvent.OwnerKind, domainEvent.OwnerId, cancellationToken);
         }
 
         db.Outbox().Enqueue(new GateConditionSatisfiedIntegrationEvent(

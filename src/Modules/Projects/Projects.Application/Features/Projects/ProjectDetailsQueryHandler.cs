@@ -33,7 +33,7 @@ internal sealed class GetProjectDetailsQueryHandler(ProjectsDbContext db, IClien
     {
         ProjectResponse? project = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages))
+            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
         if (project is null)
         {

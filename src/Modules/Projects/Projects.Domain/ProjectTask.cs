@@ -25,6 +25,8 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Guid? AssignedToId { get; private set; }
     public Guid? DepartmentId { get; private set; }
     public decimal? Cost { get; private set; }
+    /// <summary>P14: <see cref="TotalSubTasks"/>/<see cref="CompletedSubTasks"/> count REQUIRED sub-tasks only, so
+    /// an optional sub-task left open never blocks <see cref="Complete"/>.</summary>
     public int TotalSubTasks { get; private set; }
     public int CompletedSubTasks { get; private set; }
 
@@ -170,6 +172,9 @@ internal sealed class ProjectTask : Entity, IAuditable
         AddDomainEvent(new ProjectTaskReopenedDomainEvent(Id, ProjectId, Name, AssignedToId));
         return Result.Success();
     }
+
+    /// <summary>NP2: an <c>Unlock</c>-trigger gate may lock this task only while it is Open or already Locked.</summary>
+    public bool IsLockable => Status is ProjectTaskStatus.Open or ProjectTaskStatus.Locked;
 
     /// <summary>Called when the owning stage locks (cascades — a stage-workflow task can't start work
     /// while its stage is locked) or when an <c>Unlock</c>-trigger gate is created directly against this

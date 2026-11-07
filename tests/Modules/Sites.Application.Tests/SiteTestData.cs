@@ -27,6 +27,10 @@ internal static class SiteTestData
     public static string OwnerUserId => _owners?.AppUserId
         ?? throw new InvalidOperationException("Call OwnersAsync first.");
 
+    /// <summary>The employee id of <see cref="OwnerUserId"/> — the actor the lifecycle commands stamp.</summary>
+    public static Guid OwnerEmployeeId => _owners?.EmployeeId
+        ?? throw new InvalidOperationException("Call OwnersAsync first.");
+
     /// <summary>The shared project and employee, created on first use.</summary>
     public static Task<Owners> OwnersAsync(SitesApplicationFixture fixture) => SharedOwnersAsync(fixture);
 
@@ -149,10 +153,23 @@ internal static class SiteTestData
     public static async Task<Guid> CreateSpaceInAnotherProjectAsync(SitesApplicationFixture fixture)
     {
         await using AsyncServiceScope scope = fixture.CreateScope();
-        IServiceProvider sp = scope.ServiceProvider;
-        string suffix = Guid.NewGuid().ToString("N");
+        Guid otherProjectId = await CreateAnotherProjectAsync(scope.ServiceProvider, Guid.NewGuid().ToString("N"));
 
-        Guid otherProjectId = await CreateAnotherProjectAsync(sp, suffix);
+        return await CreateSpaceAsync(scope.ServiceProvider, otherProjectId);
+    }
+
+    /// <summary>A CRM space on the shared project — a legitimate record space.</summary>
+    public static async Task<Guid> CreateSpaceInSharedProjectAsync(SitesApplicationFixture fixture)
+    {
+        Owners owners = await SharedOwnersAsync(fixture);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+
+        return await CreateSpaceAsync(scope.ServiceProvider, owners.ProjectId);
+    }
+
+    private static async Task<Guid> CreateSpaceAsync(IServiceProvider sp, Guid projectId)
+    {
+        string suffix = Guid.NewGuid().ToString("N");
 
         Guid spaceTypeId = (await sp
             .GetRequiredService<ICommandHandler<CreateCrmSpaceTypeCommand, Guid>>()
@@ -163,7 +180,7 @@ internal static class SiteTestData
         currentUser.UserId ??= OwnerUserId;
         currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
         Guid spaceId = (await sp.GetRequiredService<ICommandHandler<CreateCrmSpaceCommand, Guid>>()
-            .HandleAsync(new CreateCrmSpaceCommand(otherProjectId, spaceTypeId, "Master bedroom", currentUser.UserId))).Value;
+            .HandleAsync(new CreateCrmSpaceCommand(projectId, spaceTypeId, $"Bedroom {suffix[..6]}", currentUser.UserId))).Value;
 
         return spaceId;
     }
@@ -209,6 +226,26 @@ internal static class SiteTestData
             """);
 
         return documentId;
+    }
+
+    /// <summary>A fresh project on the shared owner, then forced into <paramref name="status"/> /
+    /// <paramref name="isActive"/> by raw SQL — the states B-S-M7 refuses.</summary>
+    public static async Task<Guid> CreateProjectInStateAsync(
+        SitesApplicationFixture fixture, int status, bool isActive)
+    {
+        await SharedOwnersAsync(fixture);
+        Guid projectId;
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            projectId = await CreateAnotherProjectAsync(scope.ServiceProvider, Guid.NewGuid().ToString("N"));
+        }
+
+        await ExecuteAsync(fixture, $"""
+            UPDATE projects.projects SET "Status" = {status}, "IsActive" = {(isActive ? "true" : "false")}
+            WHERE "Id" = '{projectId}';
+            """);
+
+        return projectId;
     }
 
     private static async Task<Guid> CreateAnotherProjectAsync(IServiceProvider sp, string suffix)

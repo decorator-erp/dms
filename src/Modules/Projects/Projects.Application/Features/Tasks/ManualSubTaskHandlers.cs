@@ -3,6 +3,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Tasks;
 using Projects.Infrastructure.Persistence;
@@ -31,31 +32,39 @@ internal sealed class UpdateProjectSubTaskCommandValidator : AbstractValidator<U
     }
 }
 
-/// <summary>Shared E5 lookups and the counter recount (all sub-tasks count, as
-/// <c>CompleteProjectSubTaskCommandHandler</c> counts them).</summary>
+/// <summary>Shared E5 lookups and the counter recount (P14: required sub-tasks only), used by every sub-task write
+/// and by task completion.</summary>
 internal static class ManualSubTasks
 {
-    /// <summary>The task, in this project, still open to sub-task changes: 404 if it isn't in the project,
-    /// 409 if it is completed or cancelled.</summary>
-    public static async Task<Result<Domain.ProjectTask>> OpenTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
+    /// <summary>The task in this project, locked for the sub-task write: 404 if it isn't in the project. Its state is
+    /// checked separately (<see cref="EnsureWritableAsync"/>), after any other 404/403, per R1-3.</summary>
+    public static async Task<Result<Domain.ProjectTask>> LockTaskAsync(ProjectsDbContext db, Guid projectId, Guid taskId, CancellationToken ct)
     {
         // FINDING-E3-1: the same task-row lock complete-sub-task takes, so concurrent recounts queue instead of
         // the last writer storing a count that missed another's uncommitted change.
         Domain.ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, projectId, taskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == taskId && t.ProjectId == projectId, ct)
             : null;
-        if (task is null)
+        return task is null ? Result.Failure<Domain.ProjectTask>(Domain.TaskErrors.NotFound) : task;
+    }
+
+    /// <summary>The 409s, after every 404 and 403 (R1-3): the project takes work writes (NP3) and the task is still
+    /// open to sub-task changes (not completed or cancelled).</summary>
+    public static async Task<Result> EnsureWritableAsync(ProjectsDbContext db, Domain.ProjectTask task, CancellationToken ct)
+    {
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, task.ProjectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Domain.ProjectTask>(Domain.TaskErrors.NotFound);
+            return live;
         }
 
         return task.Status is Domain.ProjectTaskStatus.Completed or Domain.ProjectTaskStatus.Cancelled
-            ? Result.Failure<Domain.ProjectTask>(Domain.SubTaskErrors.TaskClosed)
-            : task;
+            ? Domain.SubTaskErrors.TaskClosed
+            : Result.Success();
     }
 
-    /// <summary>Recounts from the tracked rows plus the database, so an added or removed sub-task that is not
-    /// saved yet is counted.</summary>
+    /// <summary>Recounts the task's REQUIRED sub-tasks (P14) from the tracked rows plus the database, so an added,
+    /// changed or removed sub-task that is not saved yet is counted as it is now.</summary>
     public static async Task RecountAsync(ProjectsDbContext db, Domain.ProjectTask task, CancellationToken ct)
     {
         List<Domain.ProjectSubTask> rows = await db.ProjectSubTasks.Where(s => s.ProjectTaskId == task.Id).ToListAsync(ct);
@@ -63,8 +72,9 @@ internal static class ManualSubTasks
             .Concat(db.ProjectSubTasks.Local.Where(s => s.ProjectTaskId == task.Id && db.Entry(s).State == EntityState.Added))
             .Where(s => db.Entry(s).State != EntityState.Deleted)
             .DistinctBy(s => s.Id);
-        List<Domain.ProjectSubTask> all = [.. live];
-        task.RecalculateSubTaskProgress(all.Count(s => s.IsDone), all.Count);
+        // P14: only required sub-tasks count — an optional one left open never blocks completing the task.
+        List<Domain.ProjectSubTask> required = [.. live.Where(s => s.IsRequired)];
+        task.RecalculateSubTaskProgress(required.Count(s => s.IsDone), required.Count);
     }
 }
 
@@ -75,10 +85,16 @@ internal sealed class CreateProjectSubTaskCommandHandler(ProjectsDbContext db) :
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectSubTaskCommand command, CancellationToken ct)
     {
-        Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
+        Result<Domain.ProjectTask> task = await ManualSubTasks.LockTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
             return Result.Failure<Guid>(task.Error);
+        }
+
+        Result writable = await ManualSubTasks.EnsureWritableAsync(db, task.Value!, ct);
+        if (writable.IsFailure)
+        {
+            return Result.Failure<Guid>(writable.Error);
         }
 
         int order = command.Order ?? (await db.ProjectSubTasks.Where(s => s.ProjectTaskId == command.TaskId)
@@ -95,7 +111,7 @@ internal sealed class UpdateProjectSubTaskCommandHandler(ProjectsDbContext db) :
 {
     public async Task<Result> HandleAsync(UpdateProjectSubTaskCommand command, CancellationToken ct = default)
     {
-        Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
+        Result<Domain.ProjectTask> task = await ManualSubTasks.LockTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
             return task.Error;
@@ -108,7 +124,14 @@ internal sealed class UpdateProjectSubTaskCommandHandler(ProjectsDbContext db) :
             return Domain.SubTaskErrors.NotFound;
         }
 
+        Result writable = await ManualSubTasks.EnsureWritableAsync(db, task.Value!, ct);
+        if (writable.IsFailure)
+        {
+            return writable;
+        }
+
         subTask.Update(command.Title.Trim(), command.Description, command.Order ?? subTask.Order, command.IsRequired ?? subTask.IsRequired);
+        await ManualSubTasks.RecountAsync(db, task.Value!, ct); // P14: IsRequired may have changed.
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }
@@ -122,7 +145,7 @@ internal sealed class DeleteProjectSubTaskCommandHandler(ProjectsDbContext db) :
 
     private async Task<Result> DeleteAsync(DeleteProjectSubTaskCommand command, CancellationToken ct)
     {
-        Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
+        Result<Domain.ProjectTask> task = await ManualSubTasks.LockTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
             return task.Error;
@@ -133,6 +156,12 @@ internal sealed class DeleteProjectSubTaskCommandHandler(ProjectsDbContext db) :
         if (subTask is null)
         {
             return Domain.SubTaskErrors.NotFound;
+        }
+
+        Result writable = await ManualSubTasks.EnsureWritableAsync(db, task.Value!, ct);
+        if (writable.IsFailure)
+        {
+            return writable;
         }
 
         if (subTask.IsDone)
@@ -171,7 +200,7 @@ internal sealed class ReopenProjectSubTaskCommandHandler(ProjectsDbContext db, I
             }
         }
 
-        Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
+        Result<Domain.ProjectTask> task = await ManualSubTasks.LockTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
             return task.Error;
@@ -182,6 +211,12 @@ internal sealed class ReopenProjectSubTaskCommandHandler(ProjectsDbContext db, I
         if (subTask is null)
         {
             return Domain.SubTaskErrors.NotFound;
+        }
+
+        Result writable = await ManualSubTasks.EnsureWritableAsync(db, task.Value!, ct);
+        if (writable.IsFailure)
+        {
+            return writable;
         }
 
         Result reopened = subTask.Reopen();

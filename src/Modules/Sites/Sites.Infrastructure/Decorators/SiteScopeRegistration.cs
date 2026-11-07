@@ -23,6 +23,15 @@ internal static class SiteScopeRegistration
 
         foreach (Type? type in scopedTypes)
         {
+            // C6: a site write states the project level it needs; refuse to boot without one.
+            bool isCommand = typeof(ICommand).IsAssignableFrom(type) || type.GetInterfaces()
+                .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
+            if (isCommand && !SiteProjectLevels.Required.ContainsKey(type))
+            {
+                throw new InvalidOperationException(
+                    $"{type.FullName} is an ISiteScoped command with no entry in SiteProjectLevels.");
+            }
+
             if (typeof(ICommand).IsAssignableFrom(type))
             {
                 DecorateIfRegistered(services, typeof(ICommandHandler<>).MakeGenericType(type),

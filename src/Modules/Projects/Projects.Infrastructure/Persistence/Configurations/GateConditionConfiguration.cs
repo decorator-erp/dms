@@ -9,7 +9,14 @@ internal sealed class GateConditionConfiguration : IEntityTypeConfiguration<Gate
 {
     public void Configure(EntityTypeBuilder<GateCondition> builder)
     {
-        builder.ToTable("gate_conditions");
+        // NP4: each enum column refuses a value outside its enum (a NULL passes a CHECK).
+        builder.ToTable("gate_conditions", t =>
+        {
+            t.HasCheckConstraint("CK_gate_conditions_ConditionType", "\"ConditionType\" BETWEEN 1 AND 10");
+            t.HasCheckConstraint("CK_gate_conditions_Trigger", "\"Trigger\" BETWEEN 1 AND 2");
+            t.HasCheckConstraint("CK_gate_conditions_ApprovalType", "\"ApprovalType\" BETWEEN 1 AND 2");
+            t.HasCheckConstraint("CK_gate_conditions_Status", "\"Status\" BETWEEN 1 AND 3");
+        });
         builder.ConfigureEntityConventions();
 
         builder.Property(g => g.ConditionType).HasConversion<int>();

@@ -125,6 +125,8 @@ public sealed class ProjectDetailsTests(ProjectsApplicationFixture fixture)
         IServiceProvider sp = scope.ServiceProvider;
         TestCurrentUser currentUser = sp.GetRequiredService<TestCurrentUser>();
         currentUser.UserId = ownerUserId;
+        // P4: satisfying a task gate checks the task-gate claim, as the shared /satisfy route does.
+        currentUser.Grant(ProjectsPermissions.StageTasks.ManageGates);
         Guid clientId = await CrmTestSeeding.SeedClientAsync(sp);
         Result<Guid> project = await sp.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
             .HandleAsync(new CreateProjectCommand(

@@ -76,9 +76,10 @@ public sealed class ScopeOfWorkFollowupTests(ProjectsApplicationFixture fixture)
         Assert.Null(ready.BlockingReason);
     }
 
-    /// <summary>D-2: an inactive project is 404 on the read and on every write, as it already was on confirm.</summary>
+    /// <summary>D-2: an inactive project is 404 on the read; NP3 makes every write 409 <c>projects.Closed</c> (it was
+    /// 404 before the project's own state gated its work).</summary>
     [Fact]
-    public async Task D2_AnInactiveProject_Is404_OnTheReadAndOnWrites()
+    public async Task D2_AnInactiveProject_Is404OnTheRead_AndClosedOnWrites()
     {
         ScopeTestProject p = await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "d2-inactive");
         (_, IReadOnlyList<SeededStage> s) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "D2", 10m);
@@ -89,10 +90,12 @@ public sealed class ScopeOfWorkFollowupTests(ProjectsApplicationFixture fixture)
             new AddScopeOfWorkItemsCommand(p.ProjectId, p.OfficeUserId, [s[0].Id])));
         Result header = await SendAsync(p, new UpdateScopeOfWorkHeaderCommand(p.ProjectId, p.OfficeUserId, 10, null, 0m, null, null));
 
-        Assert.All(new[] { read, add, header }, r =>
+        Assert.True(read.IsFailure, "Expected 404, got success.");
+        Assert.Equal(404, read.Error.Status);
+        Assert.All(new[] { add, header }, r =>
         {
-            Assert.True(r.IsFailure, "Expected 404, got success.");
-            Assert.Equal(404, r.Error.Status);
+            Assert.True(r.IsFailure, "Expected 409, got success.");
+            Assert.Equal(("projects.Closed", 409), (r.Error.Code, r.Error.Status));
         });
     }
 

@@ -32,9 +32,9 @@ internal sealed class SiteRecord : Entity, IAuditable
     /// "everywhere we ever installed this product", across sites and projects, which no GROUP BY over
     /// one survey can reach.
     ///
-    /// <para>Unlike <see cref="SpaceId"/> this is <b>not</b> validated against CRM — the backend does not
-    /// validate it either, and inventing a check the source never had is not a port. Recorded as an open
-    /// question rather than silently closed; the foreign key still guarantees the row exists.</para>
+    /// <para>Validated against CRM through <c>Crm.Contracts.ICrmCatalogItemReader</c> (S2): the item must
+    /// exist and be active. The backend never checked it, and the foreign key alone turned a bad id into
+    /// a 500 at commit.</para>
     /// </summary>
     public Guid? CatalogItemId { get; private set; }
 
@@ -98,6 +98,14 @@ internal sealed class SiteRecord : Entity, IAuditable
         Note = Normalize(note);
         return Result.Success();
     }
+
+    /// <summary>
+    /// Parks the record under a placeholder label for the first pass of a grid save that swaps or
+    /// reuses labels (S9) — <c>ux_site_records_label</c> is checked per statement, so the final labels
+    /// can only land once every old one is out of the way. Callers never supply the placeholder:
+    /// validators reserve its <c>__</c> prefix.
+    /// </summary>
+    public void ParkLabel() => Label = $"__swap_{Id:N}";
 
     public void SetSortOrder(int sortOrder) => SortOrder = sortOrder;
 

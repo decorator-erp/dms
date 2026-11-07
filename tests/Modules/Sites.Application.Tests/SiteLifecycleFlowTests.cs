@@ -135,7 +135,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     {
         Guid siteId = await CreateSiteAsync();
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         (int Status, string? Address, DateTime? SubmittedAt, bool IsActive) row = await ReadRowAsync(siteId);
         Assert.Equal(2, row.Status);
@@ -147,7 +147,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     {
         Guid siteId = await CreateSiteAsync(address: null);
 
-        Result result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        Result result = await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
 
         Assert.Equal(SiteErrors.AddressRequiredToSubmit, result.Error);
 
@@ -162,7 +162,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true, "Checked."),
             owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
@@ -193,7 +193,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
 
         Result blocked = await SendAsync(new UpdateSiteCommand(
             siteId, new UpdateSiteRequest(new SiteUnitDataRequest(Address: "Changed after review")),
@@ -222,7 +222,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
         Assert.True((await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: false, "Rework the openings."),
             owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
@@ -263,7 +263,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -298,7 +298,7 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Guid siteId = await CreateSiteAsync();
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
 
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
         await SendAsync(new DecideSiteCommand(
             siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
 
@@ -318,11 +318,11 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
     // ── Listing ────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSites_ClampsThePageSizeAndFiltersByStatus()
+    public async Task GetSites_PagesAndFiltersByStatus()
     {
         SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
         Guid siteId = await CreateSiteAsync();
-        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerUserId));
+        await SendAsync(new SubmitSiteCommand(siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId));
 
         await using AsyncServiceScope scope = fixture.CreateScope();
         scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
@@ -332,14 +332,214 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
             .GetRequiredService<IQueryHandler<GetSitesQuery, BuildingBlocks.Pagination.PagedResult<SiteListItemResponse>>>();
 
         Result<PagedResult<SiteListItemResponse>> submitted = await handler.HandleAsync(new GetSitesQuery(
-            owners.ProjectId, SiteStatus.Submitted, SiteTestData.OwnerUserId, PageIndex: 0, PageSize: 9999));
+            owners.ProjectId, SiteStatus.Submitted, SiteTestData.OwnerUserId, PageIndex: 1, PageSize: 200));
 
         Assert.True(submitted.IsSuccess);
 
-        // Clamped, not trusted: an unbounded page size is a denial-of-service on a large project.
+        // Out-of-range paging is a 400 now (S8 -- see S8_OutOfRangePagingOrStatus_IsAValidationError).
         Assert.Equal(1, submitted.Value!.PageNumber);
         Assert.Equal(200, submitted.Value!.PageSize);
         Assert.Contains(submitted.Value!.Items, s => s.Id == siteId);
         Assert.All(submitted.Value!.Items, s => Assert.Equal(SiteStatus.Submitted, s.Status));
     }
+
+    /// <summary>
+    /// <b>S8.</b> Paging was clamped rather than validated, and the page index was not bounded at all:
+    /// <c>(PageIndex - 1) * PageSize</c> overflows <c>int</c> long before <c>int.MaxValue</c>, which
+    /// reached the database as a negative OFFSET (500). Now <c>GetProjectsQueryValidator</c>'s bounds —
+    /// page 1..1,000,000, size 1..200 — and an unknown status number are each a 400.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 25, 1)]
+    [InlineData(1_000_001, 25, 1)]
+    [InlineData(int.MaxValue, 200, 1)]
+    [InlineData(1, 0, 1)]
+    [InlineData(1, 201, 1)]
+    [InlineData(1, 25, 99)]
+    public async Task S8_OutOfRangePagingOrStatus_IsAValidationError(int pageIndex, int pageSize, int status)
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
+            .Grant(ProjectsPermissions.Projects.ReadAll);
+
+        Result<PagedResult<SiteListItemResponse>> result = await scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetSitesQuery, PagedResult<SiteListItemResponse>>>()
+            .HandleAsync(new GetSitesQuery(
+                owners.ProjectId, (SiteStatus)status, SiteTestData.OwnerUserId, pageIndex, pageSize));
+
+        Assert.IsType<ValidationError>(result.Error);
+    }
+
+    /// <summary>
+    /// <b>S11 / NS4.</b> The rejection notice told the surveyor the survey "has been reopened for
+    /// rework" — it has not; a rejected survey stays Rejected until someone reopens it. And the note was
+    /// read from the ROW when the event was processed, so a reopen in between (which clears
+    /// <c>DecisionNote</c>) delivered a rejection with no reason. The note now travels in the payload.
+    /// </summary>
+    [Fact]
+    public async Task S11_RejectionNotice_IsAccurateAndKeepsTheNoteAfterAReopen()
+    {
+        Guid siteId = await CreateSiteAsync();
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        Assert.True((await SendAsync(new SubmitSiteCommand(
+            siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+        Assert.True((await SendAsync(new DecideSiteCommand(
+            siteId, new DecideSiteRequest(Approved: false, Note: "Kitchen wall missing."),
+            owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        // Reopened BEFORE the outbox delivers the decision -- clears the row's DecisionNote.
+        Assert.True((await SendAsync(new ReopenSiteCommand(siteId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT "Body" FROM notify.notifications
+            WHERE "RecipientUserId" = @user AND "DedupeKey" LIKE @key
+            """, connection);
+        command.Parameters.AddWithValue("user", SiteTestData.OwnerUserId);
+        command.Parameters.AddWithValue("key", $"site-{siteId}-decided%");
+
+        string body = Assert.IsType<string>(await command.ExecuteScalarAsync());
+
+        Assert.Contains("Kitchen wall missing.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("has been reopened", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <b>B-S-M7.</b> A survey could be started on a deactivated, Completed or Cancelled project — the
+    /// only check was that the project exists.
+    /// </summary>
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, true)]
+    [InlineData(2, false)]
+    public async Task BSM7_CreatingASiteOnAClosedOrInactiveProject_IsProjectClosed(int status, bool isActive)
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid projectId = await SiteTestData.CreateProjectInStateAsync(fixture, status, isActive);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
+            .Grant(ProjectsPermissions.Projects.ReadAll);
+
+        Result<Guid> result = await scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<CreateSiteCommand, Guid>>()
+            .HandleAsync(new CreateSiteCommand(
+                new CreateSiteRequest(projectId, new SiteUnitDataRequest(Address: "1 Closed St")),
+                owners.EmployeeId, SiteTestData.OwnerUserId));
+
+        Assert.Equal(SiteErrors.ProjectClosed, result.Error);
+        Assert.Equal(409, result.Error.Status);
+    }
+
+    /// <summary>
+    /// <b>B-S-L3.</b> A survey decision was filed as <c>StageCompleted</c> / <c>StageRejected</c>, so a
+    /// client filtering or routing by type sent it to the wrong place. Sites has its own pair now.
+    /// </summary>
+    [Fact]
+    public async Task BSL3_SurveyDecisions_UseTheSitesNotificationTypes()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid approvedSite = await CreateSiteAsync();
+        Guid rejectedSite = await CreateSiteAsync();
+
+        foreach ((Guid siteId, bool approved) in new[] { (approvedSite, true), (rejectedSite, false) })
+        {
+            Assert.True((await SendAsync(new SubmitSiteCommand(
+                siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+            Assert.True((await SendAsync(new DecideSiteCommand(
+                siteId, new DecideSiteRequest(approved), owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.Equal((int)Notifications.Contracts.NotificationType.SiteApproved, await NotificationTypeAsync(approvedSite));
+        Assert.Equal((int)Notifications.Contracts.NotificationType.SiteRejected, await NotificationTypeAsync(rejectedSite));
+    }
+
+    /// <summary><b>B-S-L3.</b> A decision event whose site is gone was dropped without a trace.</summary>
+    [Fact]
+    public async Task BSL3_ADecisionForAMissingSite_IsLoggedNotSilentlyDropped()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        var logger = new CapturingLogger<Sites.Infrastructure.IntegrationEvents.SiteApprovedNotificationHandler>();
+
+        var handler = new Sites.Infrastructure.IntegrationEvents.SiteApprovedNotificationHandler(
+            sp.GetRequiredService<Sites.Infrastructure.Persistence.SitesDbContext>(),
+            sp.GetRequiredService<Hr.Contracts.IHrDirectory>(),
+            sp.GetRequiredService<Notifications.Contracts.INotificationService>(),
+            logger);
+
+        await handler.HandleAsync(
+            new SiteApprovedIntegrationEvent(
+                Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), true, Guid.NewGuid(), DateTimeOffset.UtcNow),
+            CancellationToken.None);
+
+        Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning);
+    }
+
+    private async Task<int> NotificationTypeAsync(Guid siteId)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """SELECT "Type" FROM notify.notifications WHERE "DedupeKey" LIKE @key""", connection);
+        command.Parameters.AddWithValue("key", $"site-{siteId}-decided%");
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// <b>B-S-L1 (C11).</b> Nothing stopped a survey's creator approving it themselves, making the
+    /// Draft → Submitted → Approved lifecycle decorative for anyone holding <c>sites.approve</c>. Refused
+    /// with 409 unless the approver holds the project-wide override <c>project.read_all</c> (which the
+    /// full-access admin/manager roles carry). Rejecting one's own survey stays allowed.
+    /// </summary>
+    [Fact]
+    public async Task BSL1_TheCreatorApprovingTheirOwnSurvey_IsRefusedWithoutTheOverride()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        Assert.True((await SendAsync(new SubmitSiteCommand(
+            siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        // The owner reaches the site as the project's owner -- no project.read_all.
+        Result refused;
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TestCurrentUser>().UserId = SiteTestData.OwnerUserId;
+            refused = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<DecideSiteCommand>>()
+                .HandleAsync(new DecideSiteCommand(
+                    siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
+        }
+
+        Assert.Equal(SiteErrors.SelfApprovalNotAllowed, refused.Error);
+        Assert.Equal(403, refused.Error.Status); // R1-9: an actor rule, not a state conflict
+        Assert.Equal(2, (await ReadRowAsync(siteId)).Status);
+
+        // With the override (SendAsync grants project.read_all), the same approval goes through.
+        Assert.True((await SendAsync(new DecideSiteCommand(
+            siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+    }
+}
+
+internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+        TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }

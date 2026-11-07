@@ -73,6 +73,10 @@ internal enum NotificationType
     CrmPeriodOpened = 515,
     CrmPeriodExtended = 516,
     CrmPeriodClosed = 517,
+
+    // ----- Sites (530-539). B-S-L3: a survey decision is not a stage decision. -----
+    SiteApproved = 530,
+    SiteRejected = 531,
 }
 
 internal enum NotificationEntityType

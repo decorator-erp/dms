@@ -491,6 +491,9 @@ namespace Sites.Infrastructure.Persistence.Migrations.InitialSites
                     b.Property<DateTime?>("SubmittedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("SubmittedById")
+                        .HasColumnType("uuid");
+
                     b.Property<DateOnly?>("SurveyedOn")
                         .HasColumnType("date");
 

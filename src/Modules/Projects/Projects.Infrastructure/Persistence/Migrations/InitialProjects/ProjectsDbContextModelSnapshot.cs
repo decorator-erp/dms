@@ -264,7 +264,16 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasIndex("VariationId");
 
-                    b.ToTable("gate_conditions", "projects");
+                    b.ToTable("gate_conditions", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_gate_conditions_ApprovalType", "\"ApprovalType\" BETWEEN 1 AND 2");
+
+                            t.HasCheckConstraint("CK_gate_conditions_ConditionType", "\"ConditionType\" BETWEEN 1 AND 10");
+
+                            t.HasCheckConstraint("CK_gate_conditions_Status", "\"Status\" BETWEEN 1 AND 3");
+
+                            t.HasCheckConstraint("CK_gate_conditions_Trigger", "\"Trigger\" BETWEEN 1 AND 2");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.Project", b =>
@@ -319,10 +328,6 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("ProgressPercentage")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -332,16 +337,28 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.Property<int>("WorkflowType")
                         .HasColumnType("integer");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClientId");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_projects_Code");
 
                     b.HasIndex("OwnerId");
 
-                    b.ToTable("projects", "projects");
+                    b.ToTable("projects", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_projects_Status", "\"Status\" BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("CK_projects_WorkflowType", "\"WorkflowType\" BETWEEN 1 AND 2");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.ProjectMember", b =>
@@ -389,7 +406,10 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         .IsUnique()
                         .HasDatabaseName("IX_project_members_ProjectId_EmployeeId");
 
-                    b.ToTable("project_members", "projects");
+                    b.ToTable("project_members", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_project_members_Access", "\"Access\" BETWEEN 1 AND 3");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.ProjectStage", b =>
@@ -466,7 +486,10 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasIndex("ProjectId");
 
-                    b.ToTable("project_stages", "projects");
+                    b.ToTable("project_stages", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_project_stages_Status", "\"Status\" BETWEEN 1 AND 4");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.ProjectSubTask", b =>
@@ -601,7 +624,12 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasIndex("ProjectStageId");
 
-                    b.ToTable("project_tasks", "projects");
+                    b.ToTable("project_tasks", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_project_tasks_Priority", "\"Priority\" BETWEEN 1 AND 4");
+
+                            t.HasCheckConstraint("CK_project_tasks_Status", "\"Status\" BETWEEN 1 AND 7");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.ScopeOfWork", b =>
@@ -660,7 +688,10 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         .IsUnique()
                         .HasDatabaseName("IX_scopes_of_work_ProjectId");
 
-                    b.ToTable("scopes_of_work", "projects");
+                    b.ToTable("scopes_of_work", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_scopes_of_work_Status", "\"Status\" BETWEEN 1 AND 2");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.ScopeOfWorkItem", b =>
@@ -889,6 +920,8 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasKey("Id");
 
+                    b.HasIndex("HeadId");
+
                     b.HasIndex("ProjectStageId");
 
                     b.ToTable("stage_teams", "projects");
@@ -923,7 +956,10 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
 
                     b.HasIndex("StageTeamId");
 
-                    b.ToTable("stage_team_members", "projects");
+                    b.ToTable("stage_team_members", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_stage_team_members_Role", "\"Role\" BETWEEN 1 AND 4");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.StageTemplate", b =>
@@ -958,9 +994,13 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_stage_templates_Name");
 
-                    b.ToTable("stage_templates", "projects");
+                    b.ToTable("stage_templates", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_stage_templates_Type", "\"Type\" BETWEEN 1 AND 2");
+                        });
                 });
 
             modelBuilder.Entity("Projects.Domain.TaskComment", b =>
@@ -1006,6 +1046,24 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Projects.Domain.ProjectStage", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Projects.Domain.ProjectTask", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

@@ -41,6 +41,9 @@ internal sealed class CrmModule : IModule
         // be expressed without a CRM read, and reading crm.crm_spaces directly is forbidden.
         services.AddScoped<ICrmSpaceReader, CrmSpaceReader>();
 
+        // S2, for Sites: SiteRecord.CatalogItemId must name an existing, active catalog item.
+        services.AddScoped<ICrmCatalogItemReader, CrmCatalogItemReader>();
+
         // M1-01: this module's first bound options. TimezoneId cannot be checked by a data annotation -
         // a malformed IANA/Windows id only fails when FindSystemTimeZoneById is actually called - so
         // .Validate(...) exercises it at startup, turning a per-request TimeZoneNotFoundException into

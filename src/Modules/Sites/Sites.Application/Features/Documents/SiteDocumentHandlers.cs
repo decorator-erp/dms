@@ -18,6 +18,7 @@ internal sealed class LinkSiteDocumentCommandValidator : AbstractValidator<LinkS
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.AddedById).NotEmpty();
         RuleFor(x => x.Request.DocumentId).NotEmpty();
+        RuleFor(x => x.Request.Kind).IsInEnum();
     }
 }
 
@@ -69,6 +70,19 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
             }
         }
 
+        // NS2: one active link per (document, subject). Pre-checked for the sequential case; the
+        // partial unique index ux_site_documents_link catches the race and SiteWrites maps it to the
+        // same 409. The IsActive query filter is what lets an unlinked subject be linked again.
+        Guid? linkRecordId = command.Request.RecordId;
+        if (await db.SiteDocuments.AnyAsync(
+                d => d.DocumentId == command.Request.DocumentId
+                     && d.SiteId == siteId
+                     && d.RecordId == linkRecordId,
+                ct))
+        {
+            return SiteErrors.DocumentAlreadyLinked;
+        }
+
         Result<SiteDocument> link = SiteDocument.Create(
             command.Request.DocumentId, SiteEnumMapping.ToDomain(command.Request.Kind),
             command.AddedById, siteId, command.Request.RecordId);
@@ -80,7 +94,7 @@ internal sealed class LinkSiteDocumentCommandHandler(SitesDbContext db, IDocumen
 
         db.SiteDocuments.Add(link.Value!);
 
-        Result saved = await SiteWrites.SaveAsync(db, ct);
+        Result saved = await SiteWrites.SaveGuardedAsync(db, site, ct);
         return saved.IsFailure ? saved.Error : link.Value!.Id;
     }
 }
@@ -124,7 +138,7 @@ internal sealed class UnlinkSiteDocumentCommandHandler(SitesDbContext db)
         // Unlinks only. The document and its bytes keep their own lifecycle.
         link.Deactivate();
 
-        return await SiteWrites.SaveAsync(db, ct);
+        return await SiteWrites.SaveGuardedAsync(db, site, ct);
     }
 }
 
