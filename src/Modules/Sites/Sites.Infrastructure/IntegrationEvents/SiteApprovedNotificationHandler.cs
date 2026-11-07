@@ -1,6 +1,7 @@
 using BuildingBlocks.Events;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Notifications.Contracts;
 using Sites.Contracts;
 using Sites.Infrastructure.Persistence;
@@ -25,10 +26,11 @@ namespace Sites.Infrastructure.IntegrationEvents;
 /// role and no assignment, so there is no one to tell. That is a recorded decision, not an omission —
 /// see PROGRESS.md's N1-06 table.</para>
 /// </summary>
-internal sealed class SiteApprovedNotificationHandler(
+internal sealed partial class SiteApprovedNotificationHandler(
     SitesDbContext db,
     IHrDirectory hrDirectory,
-    INotificationService notifications) : IIntegrationEventHandler<SiteApprovedIntegrationEvent>
+    INotificationService notifications,
+    ILogger<SiteApprovedNotificationHandler> logger) : IIntegrationEventHandler<SiteApprovedIntegrationEvent>
 {
     public async Task HandleAsync(SiteApprovedIntegrationEvent @event, CancellationToken ct)
     {
@@ -40,6 +42,9 @@ internal sealed class SiteApprovedNotificationHandler(
 
         if (site is null)
         {
+            // B-S-L3: a decided site that is gone (soft-deleted, or a stray event) is worth a trace --
+            // the submitter is never told, and nothing else would record why.
+            LogSiteMissing(logger, @event.SiteId, @event.EventId);
             return;
         }
 
@@ -55,7 +60,7 @@ internal sealed class SiteApprovedNotificationHandler(
 
         await notifications.NotifyAsync(
             submitter.AppUserId,
-            @event.Approved ? NotificationType.StageCompleted : NotificationType.StageRejected,
+            @event.Approved ? NotificationType.SiteApproved : NotificationType.SiteRejected,
             title: @event.Approved ? $"Site approved — {site.Code}" : $"Site rejected — {site.Code}",
             body: @event.Approved
                 ? $"Your survey '{site.Code}' has been approved.{note}"
@@ -66,4 +71,8 @@ internal sealed class SiteApprovedNotificationHandler(
             dedupeKey: $"site-{@event.SiteId}-decided-{@event.EventId}",
             ct: ct);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Site {SiteId} was not found while delivering decision event {EventId}; no notification sent.")]
+    private static partial void LogSiteMissing(ILogger logger, Guid siteId, Guid eventId);
 }

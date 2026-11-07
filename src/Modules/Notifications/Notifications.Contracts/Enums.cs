@@ -3,7 +3,7 @@ namespace Notifications.Contracts;
 /// <summary>
 /// Notification types, grouped in ranges so modules can grow independently: tasks 100–119,
 /// stages/gates 120–139, teams 140–149, <b>150–179 RESERVED for Finance</b>, docs/project 180–199,
-/// auth 200–209, CRM 500–529.
+/// auth 200–209, CRM 500–529, Sites 530–539.
 ///
 /// <para>Ported from <c>backend/Domain/Enums/NotificationType.cs</c> with the bands and the gaps
 /// intact, minus the Finance members — that module is deferred, and its band is held rather than
@@ -78,6 +78,10 @@ public enum NotificationType
     CrmPeriodOpened = 515,
     CrmPeriodExtended = 516,
     CrmPeriodClosed = 517,
+
+    // ----- Sites (530–539). B-S-L3: a survey decision is not a stage decision. -----
+    SiteApproved = 530,
+    SiteRejected = 531,
 }
 
 /// <summary>

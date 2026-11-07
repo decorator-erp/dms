@@ -437,4 +437,75 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(SiteErrors.ProjectClosed, result.Error);
         Assert.Equal(409, result.Error.Status);
     }
+
+    /// <summary>
+    /// <b>B-S-L3.</b> A survey decision was filed as <c>StageCompleted</c> / <c>StageRejected</c>, so a
+    /// client filtering or routing by type sent it to the wrong place. Sites has its own pair now.
+    /// </summary>
+    [Fact]
+    public async Task BSL3_SurveyDecisions_UseTheSitesNotificationTypes()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid approvedSite = await CreateSiteAsync();
+        Guid rejectedSite = await CreateSiteAsync();
+
+        foreach ((Guid siteId, bool approved) in new[] { (approvedSite, true), (rejectedSite, false) })
+        {
+            Assert.True((await SendAsync(new SubmitSiteCommand(
+                siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+            Assert.True((await SendAsync(new DecideSiteCommand(
+                siteId, new DecideSiteRequest(approved), owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+        }
+
+        await fixture.OutboxProcessor.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.Equal((int)Notifications.Contracts.NotificationType.SiteApproved, await NotificationTypeAsync(approvedSite));
+        Assert.Equal((int)Notifications.Contracts.NotificationType.SiteRejected, await NotificationTypeAsync(rejectedSite));
+    }
+
+    /// <summary><b>B-S-L3.</b> A decision event whose site is gone was dropped without a trace.</summary>
+    [Fact]
+    public async Task BSL3_ADecisionForAMissingSite_IsLoggedNotSilentlyDropped()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        var logger = new CapturingLogger<Sites.Infrastructure.IntegrationEvents.SiteApprovedNotificationHandler>();
+
+        var handler = new Sites.Infrastructure.IntegrationEvents.SiteApprovedNotificationHandler(
+            sp.GetRequiredService<Sites.Infrastructure.Persistence.SitesDbContext>(),
+            sp.GetRequiredService<Hr.Contracts.IHrDirectory>(),
+            sp.GetRequiredService<Notifications.Contracts.INotificationService>(),
+            logger);
+
+        await handler.HandleAsync(
+            new SiteApprovedIntegrationEvent(
+                Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), true, Guid.NewGuid(), DateTimeOffset.UtcNow),
+            CancellationToken.None);
+
+        Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning);
+    }
+
+    private async Task<int> NotificationTypeAsync(Guid siteId)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """SELECT "Type" FROM notify.notifications WHERE "DedupeKey" LIKE @key""", connection);
+        command.Parameters.AddWithValue("key", $"site-{siteId}-decided%");
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+}
+
+internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+        TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }
