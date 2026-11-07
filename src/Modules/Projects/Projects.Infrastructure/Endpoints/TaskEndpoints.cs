@@ -91,7 +91,7 @@ internal sealed class TaskEndpoints : IEndpoint
         {
             Result result = await handler.HandleAsync(new StartProjectTaskCommand(projectId, taskId, currentUser.UserId!), ct);
             return result.Match(Results.NoContent, r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete); // baseline v5: execution
 
         group.MapPost("/{taskId:guid}/complete", async (
             Guid projectId, Guid taskId, ICurrentUser currentUser,
@@ -195,7 +195,7 @@ internal sealed class TaskEndpoints : IEndpoint
             Result<Guid> result = await handler.HandleAsync(
                 new AddTaskCommentCommand(projectId, taskId, currentUser.UserId!, request.Content ?? string.Empty), ct);
             return result.Match(commentId => Results.Ok(new { CommentId = commentId }), r => r.ToProblem());
-        }).RequirePermission(ProjectsPermissions.StageTasks.Manage);
+        }).RequireAnyPermission(ProjectsPermissions.StageTasks.Manage, ProjectsPermissions.StageTasks.Complete); // baseline v5: execution
 
         // E6: edit and delete a comment. The route needs only stage_tasks.read; the handler allows the author or
         // a stage_tasks.manage holder (403), after the scope decorator (404).

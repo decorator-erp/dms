@@ -132,6 +132,62 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         Assert.DoesNotContain("notifications.view_own", await ClaimsOfAsync(cs, DefaultRoles.Client));
     }
 
+    /// <summary>Phase 5 (S6, P10): v5 gives <c>employee</c> what a field employee needs on the projects they are
+    /// on — read the project, its stages and scope, read and execute tasks, and capture site surveys (read,
+    /// create, update, submit; never approve or delete). The role → code matrix after a fresh seed with every
+    /// module's catalog: employee gets v1 + v5 and nothing else, client gets none of the v5 codes.</summary>
+    [Fact]
+    public async Task V5_gives_the_employee_project_task_and_survey_codes_and_the_client_none()
+    {
+        string cs = await NewDatabaseAsync();
+
+        await SeedModuleAsync(cs, withProjectsAndSites: true);
+
+        Assert.Equal(EmployeeAfterV5, Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Employee)));
+        Assert.Equal(
+            ["crm.approvals.decide_own", "crm.approvals.view_own", "crm.briefs.view_own", "crm.meetings.request_own",
+                "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal", "notifications.view_own"],
+            await ClaimsOfAsync(cs, DefaultRoles.Client));
+        Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v5'"""));
+    }
+
+    /// <summary>v5 on a database seeded through v4: the employee gets the v5 codes on the next start; a v1 code an
+    /// admin removed stays removed, and a v5 code removed after v5 ran stays removed too.</summary>
+    [Fact]
+    public async Task A_database_seeded_before_v5_gets_it_once_and_removals_stay_removed()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs, withProjectsAndSites: true);
+
+        await ExecuteAsync(cs, """DELETE FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v5'""");
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'employee'
+              AND (rc."ClaimValue" LIKE 'project.%' OR rc."ClaimValue" LIKE 'stage%' OR rc."ClaimValue" LIKE 'scope.%'
+                   OR rc."ClaimValue" LIKE 'sites.%' OR rc."ClaimValue" = 'employees.view_own')
+            """);
+
+        await SeedModuleAsync(cs, withProjectsAndSites: true);
+        string[] afterReseed = Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Employee));
+        Assert.Equal(EmployeeAfterV5.Where(c => c != "employees.view_own"), afterReseed);
+
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'employee' AND rc."ClaimValue" = 'sites.submit'
+            """);
+        await SeedModuleAsync(cs, withProjectsAndSites: true);
+        Assert.DoesNotContain("sites.submit", await ClaimsOfAsync(cs, DefaultRoles.Employee));
+    }
+
+    /// <summary>The database orders by its collation; the matrix is compared in ordinal order.</summary>
+    private static string[] Ordinal(IEnumerable<string> codes) => [.. codes.Order(StringComparer.Ordinal)];
+
+    private static readonly string[] EmployeeAfterV5 =
+    [
+        "employees.view_own", "notifications.view_own", "project.read", "scope.read", "sites.create", "sites.read",
+        "sites.submit", "sites.update", "stage_tasks.complete", "stage_tasks.read", "stages.read",
+    ];
+
     /// <summary>B7: no reset between the two seeds, the way a real host restarts.</summary>
     [Fact]
     public async Task A_baseline_claim_an_admin_removed_stays_removed_on_the_next_start()
@@ -163,7 +219,7 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(4L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v4 (crm-complete F adds v4)
+        Assert.Equal(5L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v5 (crm-complete F adds v4, Sites/Projects phase 5 adds v5)
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
         Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count); // v4's requirements.view_own is not in this catalog, so it is skipped
     }
@@ -177,9 +233,9 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<IPermissionCatalog>());
     }
 
-    private static async Task SeedModuleAsync(string cs)
+    private static async Task SeedModuleAsync(string cs, bool withProjectsAndSites = false)
     {
-        await using ServiceProvider provider = BuildProvider(cs);
+        await using ServiceProvider provider = BuildProvider(cs, withProjectsAndSites);
         using IServiceScope scope = provider.CreateScope();
         await ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single().SeedAsync(scope.ServiceProvider);
     }
@@ -201,7 +257,7 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         return cs;
     }
 
-    private static ServiceProvider BuildProvider(string cs)
+    private static ServiceProvider BuildProvider(string cs, bool withProjectsAndSites = false)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -232,6 +288,24 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
                 "crm.portal", "crm.briefs.view_own", "crm.meetings.view_own", "crm.meetings.request_own", "crm.meetings.respond_own",
                 "crm.approvals.view_own", "crm.approvals.decide_own",
             ]));
+        if (withProjectsAndSites)
+        {
+            // Every code the two modules register, so the matrix shows what v5 grants and what it leaves out.
+            services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+                "Projects",
+                [
+                    "project.read", "project.read_all", "project.create", "project.update", "project.set_active",
+                    "project.change_status", "project.delete", "project.manage_members", "stages.read", "stages.manage",
+                    "stages.complete", "stages.approve", "stages.reject", "stages.manage_gates", "stage_teams.manage",
+                    "scope.read", "scope.manage", "scope.confirm", "stage_tasks.read", "stage_tasks.manage",
+                    "stage_tasks.assign", "stage_tasks.complete", "stage_tasks.request_approval",
+                    "stage_tasks.decide_approval", "stage_tasks.manage_gates",
+                ]));
+            services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+                "Sites",
+                ["sites.read", "sites.create", "sites.update", "sites.submit", "sites.approve", "sites.delete", "sites.definitions.manage"]));
+        }
+
         return services.BuildServiceProvider();
     }
 
