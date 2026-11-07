@@ -41,9 +41,9 @@ public sealed class ProjectStageCountTests(ProjectsApplicationFixture fixture)
         ProjectsDbContext db = scope.ServiceProvider.GetRequiredService<ProjectsDbContext>();
 
         string single = db.Projects.Where(p => p.Id == Guid.Empty)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks)).ToQueryString();
+            .Select(GetProjectQueryHandler.ToRow(db.ProjectStages, db.ProjectTasks)).ToQueryString();
         string list = db.Projects.OrderBy(p => p.Name).Skip(0).Take(50)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks)).ToQueryString();
+            .Select(GetProjectQueryHandler.ToRow(db.ProjectStages, db.ProjectTasks)).ToQueryString();
 
         foreach (string sql in new[] { single, list })
         {

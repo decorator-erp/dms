@@ -9,6 +9,7 @@ using Finance.Contracts;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Projects.Application.Features.Stages;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
@@ -18,6 +19,7 @@ using Projects.Infrastructure.Services;
 using SharedKernel;
 using Sites.Contracts;
 using Domain = Projects.Domain;
+using ProjectMemberAccess = Projects.Contracts.ProjectMemberAccess;
 
 namespace Projects.Application.Features.Projects;
 
@@ -294,26 +296,36 @@ internal sealed class DeleteProjectCommandHandler(
     }
 }
 
-internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandler<GetProjectQuery, ProjectResponse>
+/// <summary>L1: <see cref="ProjectResponse.MyLevel"/> comes from <see cref="IProjectAccessLevelReader.GetLevelAsync"/> for the
+/// query's own <see cref="GetProjectQuery.UserId"/>, the reader the scope decorator enforces with. No level is 404,
+/// never a default level.</summary>
+internal sealed class GetProjectQueryHandler(ProjectsDbContext db, IProjectAccessLevelReader levels)
+    : IQueryHandler<GetProjectQuery, ProjectResponse>
 {
     public async Task<Result<ProjectResponse>> HandleAsync(GetProjectQuery query, CancellationToken ct = default)
     {
-        ProjectResponse? response = await db.Projects.AsNoTracking()
+        ProjectMemberAccess? level = await levels.GetLevelAsync(query.ProjectId, query.UserId, ct);
+        if (level is null)
+        {
+            return Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound);
+        }
+
+        ProjectRow? row = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
-            .Select(ToResponse(db.ProjectStages, db.ProjectTasks))
+            .Select(ToRow(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
 
-        return response is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : response;
+        return row is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : row.ToResponse(level.Value);
     }
 
-    /// <summary>The response projection. <paramref name="stages"/> and <paramref name="tasks"/> are the context's
+    /// <summary>The row projection. <paramref name="stages"/> and <paramref name="tasks"/> are the context's
     /// <c>ProjectStages</c> and <c>ProjectTasks</c>: the stage count and the progress sums are correlated subqueries
     /// of the same SQL statement (Project has no navigations), so a page of projects is still one query, never one
     /// count per project. P2/NP5: progress is computed here from the stages' counters plus the unstaged tasks
     /// (<see cref="ProjectProgress"/>), never read from a stored column.</summary>
-    internal static Expression<Func<Domain.Project, ProjectResponse>> ToResponse(
+    internal static Expression<Func<Domain.Project, ProjectRow>> ToRow(
         IQueryable<Domain.ProjectStage> stages, IQueryable<Domain.ProjectTask> tasks) => p =>
-        new ProjectResponse(
+        new ProjectRow(
             p.Id, p.Code, p.Name, p.Description, ProjectsEnumMapping.ToContracts(p.Status),
             ProjectsEnumMapping.ToContracts(p.WorkflowType), p.Address, p.Notes,
             ProjectProgress.Percent(
@@ -333,8 +345,15 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db) : IQueryHandl
 /// <see cref="IProjectAccessGuard"/>'s public surface only for one list query — that guard's own
 /// batch method requires a candidate id set up front, which a paged list doesn't have until after
 /// filtering.
+///
+/// <para>L1/L2: each row's <see cref="ProjectResponse.MyLevel"/> comes from one
+/// <see cref="IProjectAccessLevelReader.GetLevelsAsync"/> call for the page's ids, never one call per row. C3: a row
+/// the reader gives no level is dropped, never shown with a default level, and logged as a warning — the filter
+/// above and the reader share their sources, so it should never happen.</para>
 /// </summary>
-internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory hrDirectory, ICurrentUser currentUser)
+internal sealed class GetProjectsQueryHandler(
+    ProjectsDbContext db, IHrDirectory hrDirectory, ICurrentUser currentUser, IProjectAccessLevelReader levelReader,
+    ILogger<GetProjectsQueryHandler> logger)
     : IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>>
 {
     public async Task<Result<PagedResult<ProjectResponse>>> HandleAsync(GetProjectsQuery query, CancellationToken ct = default)
@@ -383,13 +402,28 @@ internal sealed class GetProjectsQueryHandler(ProjectsDbContext db, IHrDirectory
         }
 
         int totalCount = await projects.CountAsync(ct);
-        List<ProjectResponse> items = await projects
+        List<ProjectRow> rows = await projects
             .OrderBy(p => p.Name)
             .ThenBy(p => p.Id) // P13: a total order, so pages neither repeat nor skip a project.
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(GetProjectQueryHandler.ToResponse(db.ProjectStages, db.ProjectTasks))
+            .Select(GetProjectQueryHandler.ToRow(db.ProjectStages, db.ProjectTasks))
             .ToListAsync(ct);
+
+        IReadOnlyDictionary<Guid, ProjectMemberAccess> levels =
+            await levelReader.GetLevelsAsync([.. rows.Select(r => r.Id)], query.UserId, ct);
+        var items = new List<ProjectResponse>(rows.Count);
+        foreach (ProjectRow row in rows)
+        {
+            if (levels.TryGetValue(row.Id, out ProjectMemberAccess level))
+            {
+                items.Add(row.ToResponse(level));
+            }
+            else
+            {
+                logger.LogWarning("Project {ProjectId} was in the list but the level reader gave no level; the row was dropped.", row.Id);
+            }
+        }
 
         return new PagedResult<ProjectResponse>(items, query.PageNumber, query.PageSize, totalCount);
     }
