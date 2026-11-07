@@ -31,8 +31,8 @@ internal sealed class UpdateProjectSubTaskCommandValidator : AbstractValidator<U
     }
 }
 
-/// <summary>Shared E5 lookups and the counter recount (all sub-tasks count, as
-/// <c>CompleteProjectSubTaskCommandHandler</c> counts them).</summary>
+/// <summary>Shared E5 lookups and the counter recount (P14: required sub-tasks only), used by every sub-task write
+/// and by task completion.</summary>
 internal static class ManualSubTasks
 {
     /// <summary>The task, in this project, still open to sub-task changes: 404 if it isn't in the project,
@@ -54,8 +54,8 @@ internal static class ManualSubTasks
             : task;
     }
 
-    /// <summary>Recounts from the tracked rows plus the database, so an added or removed sub-task that is not
-    /// saved yet is counted.</summary>
+    /// <summary>Recounts the task's REQUIRED sub-tasks (P14) from the tracked rows plus the database, so an added,
+    /// changed or removed sub-task that is not saved yet is counted as it is now.</summary>
     public static async Task RecountAsync(ProjectsDbContext db, Domain.ProjectTask task, CancellationToken ct)
     {
         List<Domain.ProjectSubTask> rows = await db.ProjectSubTasks.Where(s => s.ProjectTaskId == task.Id).ToListAsync(ct);
@@ -63,8 +63,9 @@ internal static class ManualSubTasks
             .Concat(db.ProjectSubTasks.Local.Where(s => s.ProjectTaskId == task.Id && db.Entry(s).State == EntityState.Added))
             .Where(s => db.Entry(s).State != EntityState.Deleted)
             .DistinctBy(s => s.Id);
-        List<Domain.ProjectSubTask> all = [.. live];
-        task.RecalculateSubTaskProgress(all.Count(s => s.IsDone), all.Count);
+        // P14: only required sub-tasks count — an optional one left open never blocks completing the task.
+        List<Domain.ProjectSubTask> required = [.. live.Where(s => s.IsRequired)];
+        task.RecalculateSubTaskProgress(required.Count(s => s.IsDone), required.Count);
     }
 }
 
@@ -109,6 +110,7 @@ internal sealed class UpdateProjectSubTaskCommandHandler(ProjectsDbContext db) :
         }
 
         subTask.Update(command.Title.Trim(), command.Description, command.Order ?? subTask.Order, command.IsRequired ?? subTask.IsRequired);
+        await ManualSubTasks.RecountAsync(db, task.Value!, ct); // P14: IsRequired may have changed.
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }

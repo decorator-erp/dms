@@ -10,11 +10,9 @@ using Domain = Projects.Domain;
 namespace Projects.Application.Features.Tasks;
 
 /// <summary>
-/// Recomputes the parent task's <c>CompletedSubTasks</c>/<c>TotalSubTasks</c> counters from the database
-/// rather than the in-memory <see cref="Domain.ProjectSubTask"/> collection (subtasks aren't loaded as a
-/// navigation on <see cref="Domain.ProjectTask"/> — same "bare reference, no navigation" convention as
-/// every other cross-aggregate link in this module) — the just-completed row is excluded from the DB
-/// count and added back manually since its own <c>IsDone</c> flip hasn't been committed yet.
+/// Recomputes the parent task's <c>CompletedSubTasks</c>/<c>TotalSubTasks</c> counters (required sub-tasks only,
+/// P14) through <see cref="ManualSubTasks.RecountAsync"/>, which merges the database with the tracked rows, so the
+/// just-completed sub-task counts before its own <c>IsDone</c> flip is saved.
 /// </summary>
 internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
     : ICommandHandler<CompleteProjectSubTaskCommand>
@@ -48,10 +46,7 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
             return result;
         }
 
-        int totalSubTasks = await db.ProjectSubTasks.CountAsync(st => st.ProjectTaskId == task.Id, ct);
-        int completedOthers = await db.ProjectSubTasks.CountAsync(
-            st => st.ProjectTaskId == task.Id && st.IsDone && st.Id != subTask.Id, ct);
-        task.RecalculateSubTaskProgress(completedOthers + 1, totalSubTasks);
+        await ManualSubTasks.RecountAsync(db, task, ct);
 
         await db.SaveChangesAsync(ct);
         return Result.Success();

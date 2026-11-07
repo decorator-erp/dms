@@ -258,6 +258,23 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
             "stages.InvalidStatusTransition", 409);
     }
 
+    /// <summary>P14: an optional sub-task left open does not block completing its task; a required one does.</summary>
+    [Fact]
+    public async Task P14_OnlyRequiredSubTasks_BlockTaskCompletion()
+    {
+        (ScopeTestProject p, _, Guid[] tasks) = await StageProjectWithTasksAsync("p14", 2);
+
+        Result<Guid> optional = await RunAsync<CreateProjectSubTaskCommand, Guid>(p, new CreateProjectSubTaskCommand(
+            p.ProjectId, tasks[0], p.OfficeUserId, "Nice to have", null, null, IsRequired: false));
+        Assert.True(optional.IsSuccess, optional.IsFailure ? optional.Error.ToString() : null);
+        await ReadyAsync(p, tasks[0], requiredOnly: true);
+        await ExpectOkAsync(p, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+
+        await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId));
+        AssertError(await RunAsync(p, new CompleteProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId)),
+            "tasks.SubTasksIncomplete", 409);
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts
@@ -398,12 +415,12 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
     }
 
     /// <summary>Starts the task and completes its sub-tasks, so it can be completed.</summary>
-    private async Task ReadyAsync(ScopeTestProject p, Guid taskId)
+    private async Task ReadyAsync(ScopeTestProject p, Guid taskId, bool requiredOnly = false)
     {
         await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, taskId, p.OfficeUserId));
         await using AsyncServiceScope scope = fixture.CreateScope();
         List<Guid> subTasks = await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().ProjectSubTasks.AsNoTracking()
-            .Where(s => s.ProjectTaskId == taskId).Select(s => s.Id).ToListAsync();
+            .Where(s => s.ProjectTaskId == taskId && (s.IsRequired || !requiredOnly)).Select(s => s.Id).ToListAsync();
         foreach (Guid subTask in subTasks)
         {
             await ExpectOkAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, subTask, p.OfficeUserId));

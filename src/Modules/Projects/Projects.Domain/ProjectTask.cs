@@ -25,6 +25,8 @@ internal sealed class ProjectTask : Entity, IAuditable
     public Guid? AssignedToId { get; private set; }
     public Guid? DepartmentId { get; private set; }
     public decimal? Cost { get; private set; }
+    /// <summary>P14: <see cref="TotalSubTasks"/>/<see cref="CompletedSubTasks"/> count REQUIRED sub-tasks only, so
+    /// an optional sub-task left open never blocks <see cref="Complete"/>.</summary>
     public int TotalSubTasks { get; private set; }
     public int CompletedSubTasks { get; private set; }
 

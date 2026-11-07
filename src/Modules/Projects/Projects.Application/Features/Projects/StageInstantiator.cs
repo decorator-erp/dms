@@ -67,7 +67,7 @@ internal sealed class StageInstantiator(ProjectsDbContext db, IHrDirectory hrDir
                 Result<ProjectTask> taskResult = Domain.ProjectTask.Create(
                     project.Id, task.Name, task.Order, project.WorkflowType, task.Weight,
                     projectStage.Id, task.Id, Domain.TaskPriority.Medium, Domain.ProjectTaskStatus.Open,
-                    task.Description, subTasksForTask.Count, task.DepartmentId);
+                    task.Description, subTasksForTask.Count(st => st.IsRequired), task.DepartmentId); // P14: required only
                 if (taskResult.IsFailure)
                 {
                     return Result.Failure<IReadOnlyList<Guid>>(taskResult.Error);

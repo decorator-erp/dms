@@ -103,6 +103,10 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
             return Domain.TaskErrors.GatesNotSatisfied;
         }
 
+        // P14: recount the required sub-tasks first, so a row counted under the old all-sub-tasks rule (or before
+        // a sub-task's IsRequired changed) is judged by the current rule.
+        await ManualSubTasks.RecountAsync(db, task, ct);
+
         Result result = task.Complete();
         if (result.IsFailure)
         {
