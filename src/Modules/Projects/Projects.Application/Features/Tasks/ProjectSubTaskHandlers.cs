@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts.Tasks;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -19,6 +20,13 @@ internal sealed class CompleteProjectSubTaskCommandHandler(ProjectsDbContext db,
 {
     public async Task<Result> HandleAsync(CompleteProjectSubTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         ProjectSubTask? subTask = await db.ProjectSubTasks.FindAsync([command.SubTaskId], ct);
         if (subTask is null)
         {

@@ -293,6 +293,55 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         Assert.Equal(Domain.StageStatus.Completed, await StageStatusAsync(stageId));
     }
 
+    /// <summary>NP3: an on-hold, completed, cancelled or inactive project refuses every work write with 409
+    /// <c>projects.Closed</c> (tasks, sub-tasks, stages, gates, scope, teams), and is marked Completed only once no
+    /// stage is open (409 <c>projects.StagesOpen</c>).</summary>
+    [Fact]
+    public async Task NP3_AClosedProject_RefusesWorkWrites_AndCompletesOnlyWithNoOpenStage()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("np3", 1);
+        Guid subTask = await SubTaskOfAsync(tasks[0]);
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
+
+        AssertError(await RunAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.Completed)),
+            "projects.StagesOpen", 409);
+
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.OnHold));
+        await AssertClosedAsync(p, stageId, tasks[0], subTask);
+
+        await ExpectOkAsync(p, new Contracts.Projects.ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
+        await ExpectOkAsync(p, new StartProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+
+        await ExpectOkAsync(p, new Contracts.Projects.SetProjectActiveCommand(p.ProjectId, p.OfficeUserId, false));
+        AssertError(await RunAsync(p, new CancelProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId)), "projects.Closed", 409);
+    }
+
+    private async Task AssertClosedAsync(ScopeTestProject p, Guid stageId, Guid taskId, Guid subTaskId)
+    {
+        const string closed = "projects.Closed";
+        AssertError(await RunAsync(p, new StartProjectTaskCommand(p.ProjectId, taskId, p.OfficeUserId)), closed, 409);
+        AssertError(await RunAsync(p, new CompleteProjectSubTaskCommand(p.ProjectId, subTaskId, p.OfficeUserId)), closed, 409);
+        AssertError(await RunAsync(p, new UpdateProjectSubTaskCommand(p.ProjectId, taskId, subTaskId, p.OfficeUserId, "Renamed", null, null, null)), closed, 409);
+        AssertError(await RunAsync(p, new RejectProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId, "No")), closed, 409);
+        AssertError(await RunAsync<CreateProjectTaskCommand, Guid>(p, new CreateProjectTaskCommand(
+            p.ProjectId, p.OfficeUserId, stageId, "Late task", null, null, null, TaskPriority.Medium, 1m, null, null)), closed, 409);
+        AssertError(await RunAsync<CreateProjectStageCommand, Guid>(p, new CreateProjectStageCommand(
+            p.ProjectId, p.OfficeUserId, "Late stage", 2, null, null, null, null, null)), closed, 409);
+        AssertError(await RunAsync<CreateTaskGateConditionCommand, Guid>(p, new CreateTaskGateConditionCommand(
+            p.ProjectId, taskId, p.OfficeUserId, ConditionType.ManualCheck, GateTrigger.Complete, "Late gate")), closed, 409);
+        AssertError(await RunAsync<Contracts.Teams.CreateStageTeamCommand, Guid>(p, new Contracts.Teams.CreateStageTeamCommand(
+            p.ProjectId, p.OfficeUserId, stageId, null, p.OfficeEmployeeId)), closed, 409);
+        AssertError(await RunAsync(p, new Contracts.Scope.UpdateScopeOfWorkHeaderCommand(
+            p.ProjectId, p.OfficeUserId, 30, null, 0m, null, null)), closed, 409);
+    }
+
+    private async Task<Guid> SubTaskOfAsync(Guid taskId)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ProjectsDbContext>().ProjectSubTasks.AsNoTracking()
+            .Where(s => s.ProjectTaskId == taskId).Select(s => s.Id).FirstAsync();
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts

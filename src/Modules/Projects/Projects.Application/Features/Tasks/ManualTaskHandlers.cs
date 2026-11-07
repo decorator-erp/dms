@@ -6,6 +6,7 @@ using Finance.Contracts;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Application.Features.Stages;
 using Projects.Contracts;
 using Projects.Contracts.Projects;
@@ -49,12 +50,14 @@ internal static class ManualTasks
     /// a FreeStyle one only needs to be active.</summary>
     public static async Task<Result<Domain.Project>> EnsureEditableAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Domain.Project>(Domain.ProjectErrors.NotFound);
+            return Result.Failure<Domain.Project>(live.Error);
         }
 
+        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, ct);
         return project.WorkflowType == Domain.WorkflowType.Stage
             ? await ManualStages.EnsureEditableAsync(db, projectId, ct)
             : project;
@@ -72,11 +75,14 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectTaskCommand command, CancellationToken ct)
     {
-        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == command.ProjectId, ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Guid>(Domain.ProjectErrors.NotFound);
+            return Result.Failure<Guid>(live.Error);
         }
+
+        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == command.ProjectId, ct);
 
         // The workflow rule first (400), so a missing stage on a stage project reads as a bad request.
         if (project.WorkflowType == Domain.WorkflowType.Stage && command.ProjectStageId is null)

@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts.Teams;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -23,6 +24,13 @@ internal sealed class AddStageTeamMemberCommandHandler(ProjectsDbContext db, IHr
 {
     public async Task<Result<Guid>> HandleAsync(AddStageTeamMemberCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
         StageTeam? team = await db.StageTeams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
         {
@@ -50,6 +58,13 @@ internal sealed class ChangeStageTeamMemberRoleCommandHandler(ProjectsDbContext 
 {
     public async Task<Result> HandleAsync(ChangeStageTeamMemberRoleCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         StageTeamMember? member = await db.StageTeamMembers.FindAsync([command.StageTeamMemberId], ct);
         if (member is null)
         {
@@ -73,6 +88,13 @@ internal sealed class ChangeStageTeamHeadCommandHandler(ProjectsDbContext db, IH
 {
     public async Task<Result> HandleAsync(ChangeStageTeamHeadCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         StageTeam? team = await db.StageTeams.FirstOrDefaultAsync(t => t.Id == command.StageTeamId, ct);
         if (team is null || !await StageTeamAccess.BelongsToProjectAsync(db, team.ProjectStageId, command.ProjectId, ct))
         {

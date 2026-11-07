@@ -3,6 +3,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Gates;
 using Projects.Infrastructure.Persistence;
@@ -31,6 +32,13 @@ internal sealed class CreateStageGateConditionCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateStageGateConditionCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
         // FINDING-E2-2: hold the stage row against a racing stage delete (no orphan gate or approval request).
         Domain.ProjectStage? stage = await ProjectWriteLock.LockStageForWriteAsync(db, command.ProjectId, command.StageId, ct)
             ? await db.ProjectStages.FirstOrDefaultAsync(s => s.Id == command.StageId && s.ProjectId == command.ProjectId, ct)
@@ -104,6 +112,13 @@ internal sealed class CreateTaskGateConditionCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateTaskGateConditionCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
         // FINDING-E2-2: hold the task row against a racing task delete (no orphan gate or approval request).
         Domain.ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
@@ -253,6 +268,13 @@ internal sealed class DeleteGateConditionCommandHandler(ProjectsDbContext db, Bu
 {
     public async Task<Result> HandleAsync(DeleteGateConditionCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         Domain.GateCondition? gate = await db.GateConditions.AsNoTracking()
             .FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
         if (gate is null || !await GateOwners.LockForProjectAsync(db, gate, command.ProjectId, ct))
@@ -302,6 +324,13 @@ internal sealed class SatisfyGateConditionCommandHandler(
 {
     public async Task<Result> HandleAsync(SatisfyGateConditionCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         Domain.GateCondition? gate = await db.GateConditions.AsNoTracking()
             .FirstOrDefaultAsync(g => g.Id == command.GateConditionId, ct);
         if (gate is null || !await GateOwners.LockForProjectAsync(db, gate, command.ProjectId, ct))

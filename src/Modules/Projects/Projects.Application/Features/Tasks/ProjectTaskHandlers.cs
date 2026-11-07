@@ -3,6 +3,7 @@ using BuildingBlocks.Outbox;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Tasks;
 using Projects.Domain;
@@ -24,6 +25,13 @@ internal sealed class AssignProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 {
     public async Task<Result> HandleAsync(AssignProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // FINDING-E2-3: hold the task row (FOR NO KEY UPDATE) so a racing delete makes this a 404, not a 500.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
@@ -57,6 +65,13 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
 {
     public async Task<Result> HandleAsync(StartProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // FINDING-E-3/E2-1: hold the task row (FOR NO KEY UPDATE) against a racing delete and racing starts.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
@@ -87,6 +102,13 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
 {
     public async Task<Result> HandleAsync(CompleteProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // FINDING-E2-3: hold the task row (FOR NO KEY UPDATE) so a racing delete makes this a 404, not a 500.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
             ? await db.ProjectTasks.FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct)
@@ -129,6 +151,13 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(RejectProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
         // and seen instead of overwritten.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
@@ -158,6 +187,13 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(CancelProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
         // and seen instead of overwritten.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)
@@ -187,6 +223,13 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
 {
     public async Task<Result> HandleAsync(ReopenProjectTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         // P11: hold the task row (FOR NO KEY UPDATE) first, as start/complete do, so a racing writer is waited for
         // and seen instead of overwritten.
         ProjectTask? task = await ProjectWriteLock.LockTaskForWriteAsync(db, command.ProjectId, command.TaskId, ct)

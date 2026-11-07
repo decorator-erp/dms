@@ -45,15 +45,17 @@ internal static class ManualStages
     /// <summary>D2: a Stage-workflow project whose stage structure is settled — its scope of work is
     /// confirmed or, with no scope of work at all (or only a Draft, P5), it was created from a template (it already
     /// has stages).
-    /// An inactive or missing project is 404, as everywhere in this module.</summary>
+    /// A missing project is 404; an inactive, on-hold, completed or cancelled one is 409 (NP3, <see cref="ProjectLiveness"/>).</summary>
     public static async Task<Result<Domain.Project>> EnsureEditableAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        Domain.Project? project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no work writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+        if (live.IsFailure)
         {
-            return Result.Failure<Domain.Project>(Domain.ProjectErrors.NotFound);
+            return Result.Failure<Domain.Project>(live.Error);
         }
 
+        Domain.Project project = await db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, ct);
         if (project.WorkflowType != Domain.WorkflowType.Stage)
         {
             return Result.Failure<Domain.Project>(Domain.StageErrors.WorkflowNotSupported);

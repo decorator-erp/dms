@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts.Scope;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -97,22 +98,25 @@ internal sealed class ReorderScopeOfWorkItemsCommandValidator : AbstractValidato
 /// <summary>Loading and mapping shared by every scope-of-work handler.</summary>
 internal static class ScopeOfWorkStore
 {
-    /// <summary>D-1, D-2: a scope of work is kept only for an active, stage-workflow project. An inactive or
-    /// missing project is <see cref="Domain.ProjectErrors.NotFound"/>, as the confirm already treated it; a
+    /// <summary>D-1, D-2: a scope of work is kept only for a live, stage-workflow project. A missing project is
+    /// <see cref="Domain.ProjectErrors.NotFound"/>; an inactive, on-hold, completed or cancelled one is 409
+    /// <see cref="Domain.ProjectErrors.Closed"/> (NP3, <see cref="ProjectLiveness"/>); a
     /// FreeStyle one is 409 <see cref="ScopeOfWorkErrors.WorkflowNotSupported"/>. Every write and the confirm
     /// check this first.</summary>
     public static async Task<Result> EnsureEditableProjectAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct)
     {
-        var project = await db.Projects.AsNoTracking()
-            .Where(p => p.Id == projectId)
-            .Select(p => new { p.IsActive, p.WorkflowType })
-            .FirstOrDefaultAsync(ct);
-        if (project is null || !project.IsActive)
+        // NP3: an inactive, on-hold, completed or cancelled project takes no scope writes (409).
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, projectId, ct);
+        if (live.IsFailure)
         {
-            return Domain.ProjectErrors.NotFound;
+            return live;
         }
 
-        return project.WorkflowType == WorkflowType.FreeStyle ? ScopeOfWorkErrors.WorkflowNotSupported : Result.Success();
+        WorkflowType workflow = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.WorkflowType)
+            .FirstAsync(ct);
+        return workflow == WorkflowType.FreeStyle ? ScopeOfWorkErrors.WorkflowNotSupported : Result.Success();
     }
 
     public static Task<ScopeOfWork?> FindAsync(ProjectsDbContext db, Guid projectId, CancellationToken ct) =>

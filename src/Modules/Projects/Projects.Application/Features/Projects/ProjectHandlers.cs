@@ -147,12 +147,24 @@ internal sealed class UpdateProjectCommandHandler(ProjectsDbContext db) : IComma
 
 internal sealed class ChangeProjectStatusCommandHandler(ProjectsDbContext db) : ICommandHandler<ChangeProjectStatusCommand>
 {
-    public async Task<Result> HandleAsync(ChangeProjectStatusCommand command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(ChangeProjectStatusCommand command, CancellationToken ct = default) =>
+        ProjectWriteLock.RunAsync(db, command.ProjectId, () => ChangeAsync(command, ct), ct);
+
+    /// <summary>Under the project lock, so a stage added by hand can't slip in beside the open-stage check.</summary>
+    private async Task<Result> ChangeAsync(ChangeProjectStatusCommand command, CancellationToken ct)
     {
         Project? project = await db.Projects.FindAsync([command.ProjectId], ct);
         if (project is null)
         {
             return Domain.ProjectErrors.NotFound;
+        }
+
+        // NP3: a project is Completed only once none of its stages is still Active or Locked.
+        if (ProjectsEnumMapping.ToDomain(command.Status) == Domain.ProjectStatus.Completed && project.Status != Domain.ProjectStatus.Completed
+            && await db.ProjectStages.AnyAsync(
+                s => s.ProjectId == project.Id && (s.Status == Domain.StageStatus.Active || s.Status == Domain.StageStatus.Locked), ct))
+        {
+            return Domain.ProjectErrors.StagesOpen;
         }
 
         Result result = project.ChangeStatus(ProjectsEnumMapping.ToDomain(command.Status));

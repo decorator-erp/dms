@@ -3,6 +3,7 @@ using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Application.Features.Projects;
 using Projects.Contracts;
 using Projects.Contracts.Tasks;
 using Projects.Infrastructure.Persistence;
@@ -76,6 +77,13 @@ internal sealed class CreateProjectSubTaskCommandHandler(ProjectsDbContext db) :
 
     private async Task<Result<Guid>> CreateAsync(CreateProjectSubTaskCommand command, CancellationToken ct)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return Result.Failure<Guid>(live.Error);
+        }
+
         Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
@@ -96,6 +104,13 @@ internal sealed class UpdateProjectSubTaskCommandHandler(ProjectsDbContext db) :
 {
     public async Task<Result> HandleAsync(UpdateProjectSubTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
@@ -124,6 +139,13 @@ internal sealed class DeleteProjectSubTaskCommandHandler(ProjectsDbContext db) :
 
     private async Task<Result> DeleteAsync(DeleteProjectSubTaskCommand command, CancellationToken ct)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         Result<Domain.ProjectTask> task = await ManualSubTasks.OpenTaskAsync(db, command.ProjectId, command.TaskId, ct);
         if (task.IsFailure)
         {
@@ -157,6 +179,13 @@ internal sealed class ReopenProjectSubTaskCommandHandler(ProjectsDbContext db, I
 {
     public async Task<Result> HandleAsync(ReopenProjectSubTaskCommand command, CancellationToken ct = default)
     {
+        // NP3: no work write on an inactive, on-hold, completed or cancelled project.
+        Result live = await ProjectLiveness.EnsureWritableAsync(db, command.ProjectId, ct);
+        if (live.IsFailure)
+        {
+            return live;
+        }
+
         Domain.ProjectTask? owning = await db.ProjectTasks.AsNoTracking()
             .FirstOrDefaultAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
         if (owning is null)
