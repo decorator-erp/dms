@@ -153,6 +153,14 @@ internal static class SiteErrors
         "This site has been submitted for approval; its records can no longer be changed. "
         + "A rejected site must be reopened for rework before it can be edited.");
 
+    /// <summary>
+    /// B-S-L1 (C11): the survey's creator may not approve it unless they hold the project-wide override
+    /// (<c>project.read_all</c>, which the full-access admin and manager roles carry).
+    /// </summary>
+    public static readonly Error SelfApprovalNotAllowed = Error.Conflict(
+        $"{Prefix}.{nameof(SelfApprovalNotAllowed)}",
+        "A survey cannot be approved by the person who created it.");
+
     public static readonly Error AddressRequiredToSubmit = Error.BadRequest(
         $"{Prefix}.{nameof(AddressRequiredToSubmit)}",
         "A site must have an address before it can be submitted.");

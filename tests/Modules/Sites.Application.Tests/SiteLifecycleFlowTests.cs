@@ -494,6 +494,40 @@ public sealed class SiteLifecycleFlowTests(SitesApplicationFixture fixture)
         command.Parameters.AddWithValue("key", $"site-{siteId}-decided%");
         return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// <b>B-S-L1 (C11).</b> Nothing stopped a survey's creator approving it themselves, making the
+    /// Draft → Submitted → Approved lifecycle decorative for anyone holding <c>sites.approve</c>. Refused
+    /// with 409 unless the approver holds the project-wide override <c>project.read_all</c> (which the
+    /// full-access admin/manager roles carry). Rejecting one's own survey stays allowed.
+    /// </summary>
+    [Fact]
+    public async Task BSL1_TheCreatorApprovingTheirOwnSurvey_IsRefusedWithoutTheOverride()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+        Guid siteId = await CreateSiteAsync();
+        Assert.True((await SendAsync(new SubmitSiteCommand(
+            siteId, SiteTestData.OwnerEmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+
+        // The owner reaches the site as the project's owner -- no project.read_all.
+        Result refused;
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TestCurrentUser>().UserId = SiteTestData.OwnerUserId;
+            refused = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<DecideSiteCommand>>()
+                .HandleAsync(new DecideSiteCommand(
+                    siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId));
+        }
+
+        Assert.Equal(SiteErrors.SelfApprovalNotAllowed, refused.Error);
+        Assert.Equal(409, refused.Error.Status);
+        Assert.Equal(2, (await ReadRowAsync(siteId)).Status);
+
+        // With the override (SendAsync grants project.read_all), the same approval goes through.
+        Assert.True((await SendAsync(new DecideSiteCommand(
+            siteId, new DecideSiteRequest(Approved: true), owners.EmployeeId, SiteTestData.OwnerUserId))).IsSuccess);
+    }
 }
 
 internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>

@@ -1,3 +1,4 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using FluentValidation;
@@ -213,7 +214,8 @@ internal sealed class DecideSiteCommandValidator : AbstractValidator<DecideSiteC
     }
 }
 
-internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider timeProvider)
+internal sealed class DecideSiteCommandHandler(
+    SitesDbContext db, TimeProvider timeProvider, ICurrentUser currentUser)
     : ICommandHandler<DecideSiteCommand>
 {
     public async Task<Result> HandleAsync(DecideSiteCommand command, CancellationToken ct = default)
@@ -222,6 +224,18 @@ internal sealed class DecideSiteCommandHandler(SitesDbContext db, TimeProvider t
         if (site is null)
         {
             return SiteErrors.NotFound;
+        }
+
+        // B-S-L1 (C11): the creator may not approve their own survey -- that would make the lifecycle
+        // decorative for anyone holding sites.approve. The one override is project.read_all, the same
+        // claim IProjectAccessGuard treats as project-wide authority; the full-access admin and manager
+        // roles carry it. Rejecting one's own survey is not self-approval and stays allowed.
+        if (command.Request.Approved
+            && site.Status == Domain.SiteStatus.Submitted
+            && command.DecidedById == site.CreatedById
+            && !currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
+        {
+            return SiteErrors.SelfApprovalNotAllowed;
         }
 
         DateTimeOffset now = timeProvider.GetUtcNow();
