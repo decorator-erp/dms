@@ -412,4 +412,56 @@ public sealed class SiteDefinitionFlowTests(SitesApplicationFixture fixture)
         Assert.True(result.IsSuccess);
         return result.Value!;
     }
+
+    /// <summary>
+    /// <b>B-S-M3.</b> Definition writes translated only xmin conflicts; every unique or foreign-key
+    /// violation a race slips past the handlers' pre-checks became <c>SaveFailed</c> (500). Driven here
+    /// straight through <c>SiteDefinitionWrites.SaveAsync</c> with the conflicting change staged by hand —
+    /// exactly what a request that lost the race between its pre-check and its commit would hold.
+    /// </summary>
+    [Fact]
+    public async Task BSM3_DefinitionSaveViolations_MapTo409And404()
+    {
+        string code = Unique("dup");
+        await CreateModuleAsync(code);
+        Guid moduleId = await CreateModuleAsync();
+        Guid itemId = await CreateItemAsync();
+
+        // Unique: a second module with the same code (case-insensitive index).
+        Assert.Equal(SiteErrors.CodeTaken, await SaveStagedAsync(db =>
+            db.SiteModules.Add(Sites.Domain.Definition.SiteModule.Create(code.ToUpperInvariant(), "X", "س").Value!)));
+
+        // Unique: the same item linked twice to one module.
+        await using (AsyncServiceScope scope = fixture.CreateScope())
+        {
+            Result<Guid> attached = await scope.ServiceProvider
+                .GetRequiredService<ICommandHandler<AttachSiteItemCommand, Guid>>()
+                .HandleAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(itemId)));
+            Assert.True(attached.IsSuccess);
+        }
+        Assert.Equal(SiteErrors.AlreadyLinked, await SaveStagedAsync(db =>
+            db.SiteModuleItems.Add(Sites.Domain.Definition.SiteModuleItem.Create(moduleId, itemId).Value!)));
+
+        // FK, missing parent: a link to an item that does not exist.
+        Assert.Equal(SiteErrors.ItemNotFound, await SaveStagedAsync(db =>
+            db.SiteModuleItems.Add(Sites.Domain.Definition.SiteModuleItem.Create(moduleId, Guid.NewGuid()).Value!)));
+
+        // FK, restrict on delete: removing an item still linked to a module.
+        Assert.Equal(SiteErrors.ItemInUse, await SaveStagedAsync(db =>
+            db.SiteItems.Remove(db.SiteItems.Single(i => i.Id == itemId))));
+    }
+
+    private async Task<Error> SaveStagedAsync(Action<Sites.Infrastructure.Persistence.SitesDbContext> stage)
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        Sites.Infrastructure.Persistence.SitesDbContext db =
+            scope.ServiceProvider.GetRequiredService<Sites.Infrastructure.Persistence.SitesDbContext>();
+        stage(db);
+
+        Result result = await Sites.Application.Features.Definition.SiteDefinitionWrites.SaveAsync(
+            db, scope.ServiceProvider.GetRequiredService<ISiteSchemaCache>(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        return result.Error;
+    }
 }

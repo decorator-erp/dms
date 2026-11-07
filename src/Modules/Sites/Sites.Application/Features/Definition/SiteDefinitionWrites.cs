@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SharedKernel;
 using Sites.Contracts;
 using Sites.Domain;
@@ -23,6 +24,16 @@ namespace Sites.Application.Features.Definition;
 /// </summary>
 internal static class SiteDefinitionWrites
 {
+    /// <summary>B-S-M3: the case-insensitive code indexes and the one-link-per-(module, item) index — the
+    /// races the handlers' pre-checks cannot close — as the same 409s the pre-checks answer.</summary>
+    private static readonly Dictionary<string, Error> UniqueViolations = new(StringComparer.Ordinal)
+    {
+        ["ux_site_modules_code"] = SiteErrors.CodeTaken,
+        ["ux_site_items_code"] = SiteErrors.CodeTaken,
+        ["ux_site_item_options_item_code"] = SiteErrors.CodeTaken,
+        ["ux_site_module_items_module_item"] = SiteErrors.AlreadyLinked,
+    };
+
     public static async Task<Result> SaveAsync(
         SitesDbContext db, ISiteSchemaCache schemaCache, CancellationToken ct)
     {
@@ -34,6 +45,10 @@ internal static class SiteDefinitionWrites
         {
             return SiteErrors.ConcurrencyConflict;
         }
+        catch (DbUpdateException ex) when (MapViolation(ex) is { } mapped)
+        {
+            return mapped;
+        }
         catch (DbUpdateException)
         {
             return SiteErrors.SaveFailed;
@@ -44,5 +59,44 @@ internal static class SiteDefinitionWrites
         // wrong.
         schemaCache.Invalidate();
         return Result.Success();
+    }
+
+    /// <summary>
+    /// B-S-M3: unique violations by index name; foreign-key violations by which side lost. A DELETE
+    /// blocked by a RESTRICT reference means the item/module is in use (409); an INSERT or UPDATE whose
+    /// parent is gone means the named item/module does not exist (404). The principal is read from the
+    /// constraint name — <c>FK_&lt;dependent&gt;_site_items_*</c>, <c>FK_&lt;dependent&gt;_site_modules_*</c>,
+    /// and the composite option key, whose option is cascaded from an item delete.
+    /// </summary>
+    private static Error? MapViolation(DbUpdateException ex)
+    {
+        if (ex.InnerException is not PostgresException { ConstraintName: { } name } pg)
+        {
+            return null;
+        }
+
+        if (pg.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return UniqueViolations.TryGetValue(name, out Error? error) ? error : null;
+        }
+
+        if (pg.SqlState != PostgresErrorCodes.ForeignKeyViolation)
+        {
+            return null;
+        }
+
+        bool onItem = name.Contains("_site_items_", StringComparison.Ordinal)
+                      || name == "fk_site_record_values_option_of_item";
+        bool onModule = name.Contains("_site_modules_", StringComparison.Ordinal);
+        bool deleting = ex.Entries.Any(e => e.State == EntityState.Deleted);
+
+        return (onItem, onModule, deleting) switch
+        {
+            (true, _, true) => SiteErrors.ItemInUse,
+            (_, true, true) => SiteErrors.ModuleInUse,
+            (true, _, false) => SiteErrors.ItemNotFound,
+            (_, true, false) => SiteErrors.ModuleNotFound,
+            _ => null,
+        };
     }
 }
