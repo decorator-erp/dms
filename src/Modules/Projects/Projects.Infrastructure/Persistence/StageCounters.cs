@@ -6,7 +6,7 @@ namespace Projects.Infrastructure.Persistence;
 /// <summary>
 /// P2/NP5 (C1): the ONE place a stage's task counters (<c>TotalTasks</c>, <c>CompletedTasks</c>,
 /// <c>ProgressPercent</c>) are written after the stage exists. They are recounted from the task rows in SQL,
-/// inside the caller's transaction, never read-modify-written from a tracked copy:
+/// inside the caller's transaction (required: it throws without one, R1-13), never read-modify-written from a tracked copy:
 /// <list type="number">
 /// <item>the stage row is taken <c>FOR NO KEY UPDATE</c>, so two transitions in one stage queue here;</item>
 /// <item>the recount is a NEW statement, so under READ COMMITTED it sees every task change committed by the
@@ -24,6 +24,14 @@ internal static class StageCounters
         if (stageId is not { } id)
         {
             return;
+        }
+
+        // R1-13: outside a transaction the row lock below is released as soon as its statement ends, so two recounts
+        // would no longer queue. Every caller runs in the pipeline's (or ProjectWriteLock's) transaction; fail loudly
+        // if one ever doesn't.
+        if (db.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("StageCounters.RecountAsync must run inside the caller's transaction.");
         }
 
         int cancelled = (int)ProjectTaskStatus.Cancelled;

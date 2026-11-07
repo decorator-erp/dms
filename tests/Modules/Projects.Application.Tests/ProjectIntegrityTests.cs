@@ -81,6 +81,22 @@ public sealed class ProjectIntegrityTests(ProjectsApplicationFixture fixture)
         Assert.Equal(409, second.Error.Status);
     }
 
+    /// <summary>R1-13: the recount's stage lock only means something inside a transaction (outside one it is released
+    /// at once and the recount races), so <see cref="StageCounters.RecountAsync"/> refuses to run without one.</summary>
+    [Fact]
+    public async Task R1_13_TheStageRecount_RefusesToRunOutsideATransaction()
+    {
+        (_, Guid stageId, _) = await StageProjectWithTasksAsync("r1-13", 1);
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        ProjectsDbContext db = scope.ServiceProvider.GetRequiredService<ProjectsDbContext>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => StageCounters.RecountAsync(db, stageId, CancellationToken.None));
+
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx = await db.Database.BeginTransactionAsync();
+        await StageCounters.RecountAsync(db, stageId, CancellationToken.None);
+        await tx.CommitAsync();
+    }
+
     /// <summary>P2 (C1): two tasks of one stage completed at the same time both count — the stage's counters are
     /// recounted in SQL inside each completion's transaction, under the stage row lock, never read-modify-written
     /// from a stale copy.</summary>
