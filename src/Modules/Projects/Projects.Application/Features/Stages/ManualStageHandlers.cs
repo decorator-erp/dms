@@ -227,6 +227,12 @@ internal sealed class DeleteProjectStageCommandHandler(
         await guard.RemoveTasksAsync(taskIds, ct);
         db.GateConditions.RemoveRange(await db.GateConditions.Where(g => g.ProjectStageId == stage.Id).ToListAsync(ct));
         db.StageTeams.RemoveRange(await db.StageTeams.Where(t => t.ProjectStageId == stage.Id).ToListAsync(ct));
+
+        // P12: the scope item that created this stage forgets it in the same save.
+        Domain.ScopeOfWork? scope = await db.ScopesOfWork.Include(s => s.Items)
+            .FirstOrDefaultAsync(s => s.ProjectId == command.ProjectId, ct);
+        scope?.ForgetCreatedStage(stage.Id);
+
         db.ProjectStages.Remove(stage);
         stages.Remove(stage);
         ManualStages.Renumber(stages);

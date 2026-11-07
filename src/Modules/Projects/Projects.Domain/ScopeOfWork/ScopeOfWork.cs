@@ -210,6 +210,16 @@ internal sealed class ScopeOfWork : Entity, IAuditable
         return Result.Success();
     }
 
+    /// <summary>P12: a project stage was hard-deleted; the item that created it stops pointing at it. Allowed in any
+    /// status — it is a reference cleanup, not an edit of the scope — and a no-op when no item names the stage.</summary>
+    public void ForgetCreatedStage(Guid projectStageId)
+    {
+        foreach (ScopeOfWorkItem item in _items.Where(i => i.CreatedStageId == projectStageId))
+        {
+            item.ClearCreatedStage();
+        }
+    }
+
     public Result Confirm(Guid confirmedById, DateTime nowUtc)
     {
         Result confirmable = EnsureConfirmable();
