@@ -194,6 +194,15 @@ internal static class StageTemplateErrors
 
     public static readonly Error StagesNotFound = Error.BadRequest(
         "stage_templates.StagesNotFound", "The stage template has no stages defined.");
+
+    /// <summary>A project stage was made from one of this template's stages (<c>ProjectStage.StageId</c>); the
+    /// template stays so that link keeps meaning something.</summary>
+    public static readonly Error InUse = Error.Conflict(
+        "stage_templates.InUse", "A project was built from this template, so it cannot be deleted.");
+
+    /// <summary>Template names are unique (<c>IX_stage_templates_Name</c>).</summary>
+    public static readonly Error NameTaken = Error.Conflict(
+        "stage_templates.NameTaken", "Another stage template already uses this name.");
 }
 
 /// <summary>Errors for the TEMPLATE <c>Stage</c>/<c>StageTask</c>/<c>StageSubTask</c> entities — distinct

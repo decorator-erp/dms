@@ -7,6 +7,9 @@ namespace Projects.Infrastructure.Persistence.Configurations;
 
 internal sealed class StageTemplateConfiguration : IEntityTypeConfiguration<StageTemplate>
 {
+    /// <summary>The unique name index, which <c>StageTemplateWrites</c> maps to a 409.</summary>
+    public const string NameIndex = "IX_stage_templates_Name";
+
     public void Configure(EntityTypeBuilder<StageTemplate> builder)
     {
         builder.ToTable("stage_templates");
@@ -16,6 +19,6 @@ internal sealed class StageTemplateConfiguration : IEntityTypeConfiguration<Stag
         builder.Property(t => t.Description).HasMaxLength(2000);
         builder.Property(t => t.Type).HasConversion<int>();
 
-        builder.HasIndex(t => t.Name).IsUnique();
+        builder.HasIndex(t => t.Name).IsUnique().HasDatabaseName(NameIndex);
     }
 }

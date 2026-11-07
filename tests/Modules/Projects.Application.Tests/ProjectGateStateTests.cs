@@ -434,6 +434,46 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
         return counts.Queries;
     }
 
+    /// <summary>Template delete: 409 <c>stage_templates.InUse</c> while a project stage was made from it; otherwise its
+    /// stages, tasks, sub-tasks and departments go with it. A duplicate name is 409 <c>stage_templates.NameTaken</c>
+    /// on create and update (not a 500 from the unique index), and an update is validated.</summary>
+    [Fact]
+    public async Task TemplateDelete_RefusesAUsedTemplate_RemovesChildren_AndNamesAreUnique()
+    {
+        (Guid used, _) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "tpl-used", (decimal?)null);
+        await ScopeOfWorkSeeding.CreateProjectAsync(fixture, "tpl-used", stageTemplateId: used);
+        (Guid unused, IReadOnlyList<SeededStage> stages) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "tpl-free", (decimal?)null);
+        await ScopeOfWorkSeeding.AddTasksAndDepartmentAsync(fixture, stages[0].Id, 2);
+
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        ICommandHandler<Contracts.Templates.DeleteStageTemplateCommand> delete =
+            sp.GetRequiredService<ICommandHandler<Contracts.Templates.DeleteStageTemplateCommand>>();
+
+        AssertError(await delete.HandleAsync(new Contracts.Templates.DeleteStageTemplateCommand(used)), "stage_templates.InUse", 409);
+
+        Result deleted = await delete.HandleAsync(new Contracts.Templates.DeleteStageTemplateCommand(unused));
+        Assert.True(deleted.IsSuccess, deleted.IsFailure ? deleted.Error.ToString() : null);
+        ProjectsDbContext db = sp.GetRequiredService<ProjectsDbContext>();
+        Assert.False(await db.Stages.AnyAsync(x => x.StageTemplateId == unused));
+        Assert.False(await db.StageTasks.AnyAsync(x => x.StageId == stages[0].Id));
+        Assert.False(await db.StageDepartments.AnyAsync(x => x.StageId == stages[0].Id));
+
+        string name = await db.StageTemplates.Where(t => t.Id == used).Select(t => t.Name).SingleAsync();
+        await using AsyncServiceScope second = fixture.CreateScope();
+        AssertError(await second.ServiceProvider.GetRequiredService<ICommandHandler<Contracts.Templates.CreateStageTemplateCommand, Guid>>()
+            .HandleAsync(new Contracts.Templates.CreateStageTemplateCommand(name, StageTemplateType.Custom)), "stage_templates.NameTaken", 409);
+
+        (Guid other, _) = await ScopeOfWorkSeeding.CreateTemplateAsync(fixture, "tpl-other");
+        await using AsyncServiceScope third = fixture.CreateScope();
+        ICommandHandler<Contracts.Templates.UpdateStageTemplateCommand> update =
+            third.ServiceProvider.GetRequiredService<ICommandHandler<Contracts.Templates.UpdateStageTemplateCommand>>();
+        AssertError(await update.HandleAsync(new Contracts.Templates.UpdateStageTemplateCommand(other, Name: name)), "stage_templates.NameTaken", 409);
+        Result tooLong = await update.HandleAsync(new Contracts.Templates.UpdateStageTemplateCommand(other, Name: new string('t', 201)));
+        Assert.True(tooLong.IsFailure);
+        Assert.Equal(400, tooLong.Error.Status);
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts
