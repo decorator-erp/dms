@@ -19,6 +19,13 @@ internal sealed class CreateSiteItemCommandValidator : AbstractValidator<CreateS
         RuleFor(x => x.Request.NameAr).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Request.Unit).MaximumLength(32);
         RuleFor(x => x.Request.RegexPattern).MaximumLength(256);
+        RuleFor(x => x.Request.DataType).IsInEnum();
+        RuleFor(x => x.Request.MinValue)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
+        RuleFor(x => x.Request.MaxValue)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
+        RuleFor(x => x.Request.Tolerance)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
     }
 }
 
@@ -66,6 +73,10 @@ internal sealed class UpdateSiteItemCommandValidator : AbstractValidator<UpdateS
         RuleFor(x => x.Request.NameEn).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Request.NameAr).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Request.RegexPattern).MaximumLength(256);
+        RuleFor(x => x.Request.MinValue)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
+        RuleFor(x => x.Request.MaxValue)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
     }
 }
 
@@ -101,6 +112,9 @@ internal sealed class ChangeSiteItemShapeCommandValidator : AbstractValidator<Ch
         RuleFor(x => x.ItemId).NotEmpty();
         RuleFor(x => x.Request.Code).NotEmpty().MaximumLength(64);
         RuleFor(x => x.Request.Unit).MaximumLength(32);
+        RuleFor(x => x.Request.DataType).IsInEnum();
+        RuleFor(x => x.Request.Tolerance)
+            .ExclusiveBetween(-SiteInputLimits.MaxMagnitude, SiteInputLimits.MaxMagnitude);
     }
 }
 

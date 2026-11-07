@@ -171,6 +171,7 @@ internal sealed class SetSiteRecordValuesCommandValidator : AbstractValidator<Se
         // Defect B8: the backend has no validator here at all, so a null Values collection was a null
         // reference inside the handler and came back as an unexplained 500.
         RuleFor(x => x.Request.Values).NotNull();
+        RuleForEach(x => x.Request.Values).SetValidator(new SiteValueRequestValidator());
     }
 }
 
@@ -231,6 +232,7 @@ internal sealed class BulkSaveSiteRecordsCommandValidator : AbstractValidator<Bu
             row.RuleFor(r => r.Label).NotEmpty().MaximumLength(200);
             row.RuleFor(r => r.SortOrder).GreaterThanOrEqualTo(0);
             row.RuleFor(r => r.Values).NotNull();
+            row.RuleForEach(r => r.Values).SetValidator(new SiteValueRequestValidator());
         });
     }
 }

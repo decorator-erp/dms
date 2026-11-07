@@ -18,9 +18,7 @@ internal sealed class CreateSiteCommandValidator : AbstractValidator<CreateSiteC
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.CreatedById).NotEmpty();
         RuleFor(x => x.Request.ProjectId).NotEmpty();
-        RuleFor(x => x.Request.Data.Address).MaximumLength(500);
-        RuleFor(x => x.Request.Data.Notes).MaximumLength(4000);
-        RuleFor(x => x.Request.Data.UtilityMetersNote).MaximumLength(4000);
+        RuleFor(x => x.Request.Data).NotNull().SetValidator(new SiteUnitDataRequestValidator());
     }
 }
 
@@ -108,9 +106,7 @@ internal sealed class UpdateSiteCommandValidator : AbstractValidator<UpdateSiteC
     {
         RuleFor(x => x.SiteId).NotEmpty();
         RuleFor(x => x.AppUserId).NotEmpty();
-        RuleFor(x => x.Request.Data.Address).MaximumLength(500);
-        RuleFor(x => x.Request.Data.Notes).MaximumLength(4000);
-        RuleFor(x => x.Request.Data.UtilityMetersNote).MaximumLength(4000);
+        RuleFor(x => x.Request.Data).NotNull().SetValidator(new SiteUnitDataRequestValidator());
     }
 }
 

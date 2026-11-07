@@ -18,6 +18,7 @@ internal sealed class LinkSiteDocumentCommandValidator : AbstractValidator<LinkS
         RuleFor(x => x.AppUserId).NotEmpty();
         RuleFor(x => x.AddedById).NotEmpty();
         RuleFor(x => x.Request.DocumentId).NotEmpty();
+        RuleFor(x => x.Request.Kind).IsInEnum();
     }
 }
 

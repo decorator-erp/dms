@@ -915,6 +915,67 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal("Door 1", await ReadLabelAsync(record.Value));
     }
 
+    /// <summary>
+    /// <b>S5.</b> Out-of-range input reached the domain or the database instead of a 400: unknown enum
+    /// numbers were cast straight through, an area past <c>numeric(8,2)</c> or a number past
+    /// <c>numeric(18,4)</c> overflowed at commit (500), and text past the 1024-wide value column did
+    /// the same. Each is now a <see cref="ValidationError"/> naming the field.
+    /// </summary>
+    [Fact]
+    public async Task S5_OutOfRangeInput_IsAValidationErrorEverywhere()
+    {
+        SiteTestData.Owners owners = await SiteTestData.OwnersAsync(fixture);
+
+        Result<Guid> badEnum = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(UnitType: (Sites.Contracts.UnitType)99)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(badEnum.Error);
+
+        Result<Guid> hugeArea = await SendAsync(new CreateSiteCommand(
+            new CreateSiteRequest(owners.ProjectId, new SiteUnitDataRequest(AreaSqm: 1_000_000m)),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(hugeArea.Error);
+
+        Result<Guid> badType = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("bad"), "Bad", "سيء", (SiteItemDataType)99)), true);
+        Assert.IsType<ValidationError>(badType.Error);
+
+        Result<Guid> hugeBound = await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("big"), "Big", "كبير", SiteItemDataType.Number,
+                MaxValue: 1e15m)), true);
+        Assert.IsType<ValidationError>(hugeBound.Error);
+
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("free"), "Free", "حر")), true)).Value;
+        Guid numberId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("n"), "N", "ن", SiteItemDataType.Number)), true)).Value;
+        Guid textId = (await SendAsync(new CreateSiteItemCommand(
+            new CreateSiteItemRequest(Unique("t"), "T", "ت", SiteItemDataType.Text)), true)).Value;
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(numberId)), true);
+        await SendAsync(new AttachSiteItemCommand(moduleId, new AttachSiteItemRequest(textId)), true);
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Wall"), SiteTestData.OwnerUserId), true);
+
+        Result hugeNumber = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(numberId, ValueNumber: 1e15m)]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(hugeNumber.Error);
+
+        Result longText = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(textId, ValueText: new string('x', 1025))]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(longText.Error);
+
+        Result<Guid> badKind = await SendAsync(new LinkSiteDocumentCommand(
+            siteId, new LinkSiteDocumentRequest(await SiteTestData.CreateDocumentAsync(fixture), (SiteDocumentKind)99),
+            owners.EmployeeId, SiteTestData.OwnerUserId), true);
+        Assert.IsType<ValidationError>(badKind.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
