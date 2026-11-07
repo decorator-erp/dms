@@ -61,7 +61,9 @@ internal sealed class AssignProjectTaskCommandHandler(ProjectsDbContext db, IHrD
     }
 }
 
-internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICommandHandler<StartProjectTaskCommand>
+internal sealed class StartProjectTaskCommandHandler(
+    ProjectsDbContext db, BuildingBlocks.ICurrentUser currentUser, IProjectAccessLevelReader levels, IHrDirectory hrDirectory)
+    : ICommandHandler<StartProjectTaskCommand>
 {
     public async Task<Result> HandleAsync(StartProjectTaskCommand command, CancellationToken ct = default)
     {
@@ -81,6 +83,14 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
             return Domain.TaskErrors.NotFound;
         }
 
+        // R1-1: the assignee, a task manager or a project Manager (403).
+        Result actor = await TaskExecutors.EnsureMayExecuteAsync(
+            currentUser, levels, hrDirectory, command.ProjectId, task.AssignedToId, command.UserId, ct);
+        if (actor.IsFailure)
+        {
+            return actor;
+        }
+
         Result result = task.Start();
         if (result.IsFailure)
         {
@@ -98,7 +108,9 @@ internal sealed class StartProjectTaskCommandHandler(ProjectsDbContext db) : ICo
 /// <summary>Per G5-08's facts table: a <c>GateTrigger.Complete</c> gate blocks the owner's completion
 /// transition until satisfied - checked here, before <see cref="Domain.ProjectTask.Complete"/> even
 /// runs, so an unsatisfied gate never lets the task-level state machine transition at all.</summary>
-internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : ICommandHandler<CompleteProjectTaskCommand>
+internal sealed class CompleteProjectTaskCommandHandler(
+    ProjectsDbContext db, BuildingBlocks.ICurrentUser currentUser, IProjectAccessLevelReader levels, IHrDirectory hrDirectory)
+    : ICommandHandler<CompleteProjectTaskCommand>
 {
     public async Task<Result> HandleAsync(CompleteProjectTaskCommand command, CancellationToken ct = default)
     {
@@ -116,6 +128,14 @@ internal sealed class CompleteProjectTaskCommandHandler(ProjectsDbContext db) : 
         if (task is null)
         {
             return Domain.TaskErrors.NotFound;
+        }
+
+        // R1-1: the assignee, a task manager or a project Manager (403).
+        Result actor = await TaskExecutors.EnsureMayExecuteAsync(
+            currentUser, levels, hrDirectory, command.ProjectId, task.AssignedToId, command.UserId, ct);
+        if (actor.IsFailure)
+        {
+            return actor;
         }
 
         bool hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(

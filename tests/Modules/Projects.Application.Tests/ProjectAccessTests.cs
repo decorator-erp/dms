@@ -101,7 +101,48 @@ public sealed class ProjectAccessTests(ProjectsApplicationFixture fixture)
         await OfficeOkAsync(p, new ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.InProgress));
         await OfficeOkAsync(p, new ChangeProjectStatusCommand(p.ProjectId, p.OfficeUserId, ProjectStatus.OnHold));
         Assert.Equal("403 projects.InsufficientLevel", Outcome(await RunAsAsync(viewerUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], viewerUser))));
-        Assert.Equal("409 projects.Closed", Outcome(await RunAsAsync(editorUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], editorUser))));
+        Assert.Equal("409 projects.Closed", Outcome(await RunAsAsync(assigneeUser, new StartProjectTaskCommand(p.ProjectId, tasks[1], assigneeUser))));
+    }
+
+    /// <summary>R1-1: an Editor starts and completes only the task they are assigned. The assignee of one task is 403
+    /// <c>projects.tasks.NotAssignee</c> on its sibling (and so is a member Editor), while commenting on it stays open;
+    /// a <c>stage_tasks.manage</c> holder or a project Manager acts on any task.</summary>
+    [Fact]
+    public async Task R1_1_StartAndComplete_NeedTheAssigneeATaskManagerOrAProjectManager()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("r1-1", 2);
+        Guid teamId = await TeamOfAsync(stageId);
+        (Guid assigneeId, string assigneeUser) = await HireAsync("r1-1-assignee");
+        (Guid editorId, string editorUser) = await HireAsync("r1-1-editor");
+        (Guid managerId, string managerUser) = await HireAsync("r1-1-manager");
+        (Guid seatId, string seatUser) = await HireAsync("r1-1-seat");
+
+        await OfficeOkAsync<AddProjectMemberCommand, Guid>(p, new AddProjectMemberCommand(p.ProjectId, p.OfficeUserId, editorId, ProjectMemberAccess.Editor));
+        await OfficeOkAsync<AddProjectMemberCommand, Guid>(p, new AddProjectMemberCommand(p.ProjectId, p.OfficeUserId, managerId, ProjectMemberAccess.Manager));
+        await OfficeOkAsync<AddStageTeamMemberCommand, Guid>(p, new AddStageTeamMemberCommand(p.ProjectId, teamId, p.OfficeUserId, seatId, StageTeamMemberRole.Contributor));
+        await OfficeOkAsync(p, new AssignProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId, assigneeId));
+
+        const string notAssignee = "403 projects.tasks.NotAssignee";
+        Assert.Equal(notAssignee, Outcome(await RunAsAsync(assigneeUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], assigneeUser))));
+        Assert.Equal(notAssignee, Outcome(await RunAsAsync(editorUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], editorUser))));
+        Assert.Equal(notAssignee, Outcome(await RunAsAsync(seatUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], seatUser))));
+        await using (AsyncServiceScope scope = As(assigneeUser))
+        {
+            Result<Guid> comment = await scope.ServiceProvider.GetRequiredService<ICommandHandler<AddTaskCommentCommand, Guid>>()
+                .HandleAsync(new AddTaskCommentCommand(p.ProjectId, tasks[0], assigneeUser, "a sibling's task"));
+            Assert.True(comment.IsSuccess, comment.IsFailure ? comment.Error.ToString() : null);
+        }
+
+        // A task manager (the claim) and a project Manager (the level) act on a task they don't hold.
+        Assert.Equal("ok", Outcome(await RunAsAsync(seatUser, new StartProjectTaskCommand(p.ProjectId, tasks[0], seatUser), ProjectsPermissions.StageTasks.Manage)));
+        Assert.Equal(notAssignee, Outcome(await RunAsAsync(assigneeUser, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], assigneeUser))));
+        Assert.Equal(notAssignee, Outcome(await RunAsAsync(editorUser, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], editorUser))));
+        // Past the actor check, the seeded required sub-task is the next (409) rule.
+        Assert.Equal("409 tasks.SubTasksIncomplete", Outcome(await RunAsAsync(managerUser, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], managerUser))));
+
+        // The assignee runs their own task end to end.
+        Assert.Equal("ok", Outcome(await RunAsAsync(assigneeUser, new StartProjectTaskCommand(p.ProjectId, tasks[1], assigneeUser))));
+        Assert.Equal("409 tasks.SubTasksIncomplete", Outcome(await RunAsAsync(assigneeUser, new CompleteProjectTaskCommand(p.ProjectId, tasks[1], assigneeUser))));
     }
 
     private static string Expect(ProjectMemberAccess? level, ProjectMemberAccess needed) =>
@@ -109,9 +150,14 @@ public sealed class ProjectAccessTests(ProjectsApplicationFixture fixture)
 
     private static string Outcome(Result result) => result.IsSuccess ? "ok" : $"{result.Error.Status} {result.Error.Code}";
 
-    private async Task<Result> RunAsAsync<TCommand>(string userId, TCommand command) where TCommand : ICommand
+    private async Task<Result> RunAsAsync<TCommand>(string userId, TCommand command, params string[] grants) where TCommand : ICommand
     {
         await using AsyncServiceScope scope = As(userId);
+        foreach (string grant in grants)
+        {
+            scope.ServiceProvider.GetRequiredService<TestCurrentUser>().Grant(grant);
+        }
+
         return await scope.ServiceProvider.GetRequiredService<ICommandHandler<TCommand>>().HandleAsync(command);
     }
 

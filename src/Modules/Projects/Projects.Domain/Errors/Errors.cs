@@ -117,6 +117,11 @@ internal static class TaskErrors
     public static readonly Error AssigneeNotFound = Error.NotFound(
         "projects.tasks.AssigneeNotFound", "The assignee was not found or is not active.");
 
+    /// <summary>R1-1: start/complete by someone who is neither the task's assignee, nor a task manager
+    /// (<c>stage_tasks.manage</c>), nor a Manager on the project.</summary>
+    public static readonly Error NotAssignee = Error.Forbidden(
+        "projects.tasks.NotAssignee", "Only the task's assignee, a task manager or a project manager can do this.");
+
     /// <summary>Same as <see cref="StageErrors.GatesNotSatisfied"/>, for a task-owned
     /// <see cref="GateTrigger.Complete"/> gate.</summary>
     public static readonly Error GatesNotSatisfied = Error.Conflict(
