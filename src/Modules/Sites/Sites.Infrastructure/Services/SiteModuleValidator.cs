@@ -33,7 +33,10 @@ internal sealed class SiteModuleValidator(SitesDbContext db) : ISiteModuleValida
                 item.RegexPattern,
             }).ToListAsync(ct);
 
-        if (fields.Count == 0)
+        // B-S-L5: no active fields is a legitimate form (a new module, or every field detached), not a
+        // missing module. Only a module that does not exist is ModuleNotFound; otherwise an empty value set
+        // passes and any supplied value is reported as an unknown item below.
+        if (fields.Count == 0 && !await db.SiteModules.AnyAsync(m => m.Id == moduleId, ct))
         {
             return SiteErrors.ModuleNotFound;
         }

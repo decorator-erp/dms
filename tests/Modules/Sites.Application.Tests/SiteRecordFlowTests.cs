@@ -1065,6 +1065,44 @@ public sealed class SiteRecordFlowTests(SitesApplicationFixture fixture)
         Assert.Equal(SiteErrors.ModuleNotFound, bulk.Error);
     }
 
+    /// <summary>
+    /// <b>B-S-L5.</b> A module with no active fields — new, or every field detached — answered
+    /// <c>ModuleNotFound</c> to an empty value set, so its records could be neither saved from the grid
+    /// nor have their (empty) values set.
+    /// </summary>
+    [Fact]
+    public async Task BSL5_AModuleWithNoActiveFields_AcceptsAnEmptyValueSet()
+    {
+        Guid siteId = await CreateSiteAsync();
+        Guid moduleId = (await SendAsync(new CreateSiteModuleCommand(
+            new CreateSiteModuleRequest(Unique("bare"), "Bare", "فارغ")), true)).Value;
+
+        Result<Guid> record = await SendAsync(new AddSiteRecordCommand(
+            siteId, new CreateSiteRecordRequest(moduleId, "Room"), SiteTestData.OwnerUserId), true);
+        Assert.True(record.IsSuccess);
+
+        Result single = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value, new SetSiteRecordValuesRequest([]), SiteTestData.OwnerUserId));
+        Assert.True(single.IsSuccess, single.Error.Code);
+
+        Result bulk = await SendAsync(new BulkSaveSiteRecordsCommand(
+            siteId,
+            new BulkSaveSiteRecordsRequest(
+            [
+                new BulkSiteRecordRequest(record.Value, moduleId, "Room", null, null, 0, null, []),
+                new BulkSiteRecordRequest(null, moduleId, "Hall", null, null, 1, null, []),
+            ]),
+            SiteTestData.OwnerUserId));
+        Assert.True(bulk.IsSuccess, bulk.Error.Code);
+
+        // A value for a field the module does not have is still refused.
+        Result unknown = await SendAsync(new SetSiteRecordValuesCommand(
+            siteId, record.Value,
+            new SetSiteRecordValuesRequest([new SiteValueRequest(Guid.NewGuid(), ValueNumber: 1m)]),
+            SiteTestData.OwnerUserId));
+        Assert.IsType<ValidationError>(unknown.Error);
+    }
+
     // ── Pivot ──────────────────────────────────────────────────────────────────
 
     /// <summary>
