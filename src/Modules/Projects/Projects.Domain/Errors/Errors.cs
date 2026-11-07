@@ -48,6 +48,10 @@ internal static class StageErrors
 
     public static readonly Error NegativeCost = Error.BadRequest("stages.NegativeCost", "Cost cannot be negative.");
 
+    /// <summary>NP7 (owner decision): a stage completes only when every one of its tasks is Completed or Cancelled.</summary>
+    public static readonly Error TasksOpen = Error.Conflict(
+        "stages.TasksOpen", "Every task of this stage must be completed or cancelled before the stage can be completed.");
+
     /// <summary>A <see cref="GateTrigger.Complete"/> gate on this stage is still <see cref="GateStatus.Pending"/>
     /// — checked by <c>CompleteProjectStageCommandHandler</c> before <c>ProjectStage.Complete</c> runs at
     /// all (G5-08's own facts table: "Complete gates block the owner's completion transition until

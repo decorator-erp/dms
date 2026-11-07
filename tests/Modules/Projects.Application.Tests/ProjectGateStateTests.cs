@@ -275,6 +275,24 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
             "tasks.SubTasksIncomplete", 409);
     }
 
+    /// <summary>NP7: a stage completes only when each of its tasks is Completed or Cancelled; otherwise 409
+    /// <c>stages.TasksOpen</c>.</summary>
+    [Fact]
+    public async Task NP7_AStageWithAnUnfinishedTask_DoesNotComplete()
+    {
+        (ScopeTestProject p, Guid stageId, Guid[] tasks) = await StageProjectWithTasksAsync("np7", 2);
+        await ReadyAsync(p, tasks[0]);
+        await ExpectOkAsync(p, new CompleteProjectTaskCommand(p.ProjectId, tasks[0], p.OfficeUserId));
+
+        AssertError(await RunAsync(p, new CompleteProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId)),
+            "stages.TasksOpen", 409);
+        Assert.Equal(Domain.StageStatus.Active, await StageStatusAsync(stageId));
+
+        await ExpectOkAsync(p, new CancelProjectTaskCommand(p.ProjectId, tasks[1], p.OfficeUserId));
+        await ExpectOkAsync(p, new CompleteProjectStageCommand(p.ProjectId, stageId, p.OfficeUserId));
+        Assert.Equal(Domain.StageStatus.Completed, await StageStatusAsync(stageId));
+    }
+
     // ---- helpers ----
 
     /// <summary>Runs <paramref name="update"/> in an open transaction that holds the row, starts

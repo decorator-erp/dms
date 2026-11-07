@@ -39,11 +39,27 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
             return Domain.ProjectErrors.AccessDenied;
         }
 
+        // The stage's own state first: a stage that is no longer Active is a transition error whatever its gates
+        // and tasks say.
+        if (stage.Status != Domain.StageStatus.Active)
+        {
+            return Domain.StageErrors.InvalidStatusTransition;
+        }
+
         bool hasUnsatisfiedGates = await db.GateConditions.AsNoTracking().AnyAsync(
             g => g.ProjectStageId == stage.Id && g.Trigger == Domain.GateTrigger.Complete && g.Status != Domain.GateStatus.Satisfied, ct);
         if (hasUnsatisfiedGates)
         {
             return Domain.StageErrors.GatesNotSatisfied;
+        }
+
+        // NP7: no unfinished task left behind a completed stage.
+        bool hasOpenTasks = await db.ProjectTasks.AsNoTracking().AnyAsync(
+            t => t.ProjectStageId == stage.Id
+                && t.Status != Domain.ProjectTaskStatus.Completed && t.Status != Domain.ProjectTaskStatus.Cancelled, ct);
+        if (hasOpenTasks)
+        {
+            return Domain.StageErrors.TasksOpen;
         }
 
         Result result = stage.Complete(employeeId.Value);
