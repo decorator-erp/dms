@@ -17,6 +17,22 @@ public sealed record DocumentSummary(
     Guid RootDocumentId,
     bool IsLocked);
 
+/// <summary>P2-A: what CRM's client portal needs to list and stream a shared file — the stored file name, its
+/// media type and size, and its place in the revision lineage (<see cref="RootDocumentId"/> + <see cref="Version"/>).
+/// Never the storage path.</summary>
+public sealed record DocumentFileSummary(
+    Guid Id,
+    Guid ProjectId,
+    Guid RootDocumentId,
+    int Version,
+    string FileName,
+    string ContentType,
+    long FileSizeBytes,
+    DateTime UploadedOnUtc);
+
+/// <summary>P2-A: an opened document. The caller owns <see cref="Content"/> and must dispose it.</summary>
+public sealed record DocumentContent(Guid DocumentId, string FileName, string ContentType, Stream Content);
+
 public interface IDocumentQueries
 {
     Task<DocumentSummary?> GetAsync(Guid documentId, CancellationToken ct);
@@ -54,4 +70,25 @@ public interface IDocumentQueries
     /// <paramref name="projectIds"/> that any document row (active or soft-deleted) or folder names, asked before
     /// Projects hard-deletes a project.</summary>
     Task<IReadOnlyList<Guid>> ProjectsReferencedAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct);
+
+    /// <summary>P2-A: file metadata for an active document; null when it is missing or soft-deleted.</summary>
+    Task<DocumentFileSummary?> GetFileAsync(Guid documentId, CancellationToken ct);
+
+    /// <summary>The batch form of <see cref="GetFileAsync"/>; missing and soft-deleted ids are absent.</summary>
+    Task<IReadOnlyList<DocumentFileSummary>> GetFilesAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct);
+
+    /// <summary>P2-A "follow latest version": the highest-version ACTIVE revision in the lineage rooted at
+    /// <paramref name="rootDocumentId"/>; null when every revision is deleted.</summary>
+    Task<DocumentFileSummary?> GetLatestFileAsync(Guid rootDocumentId, CancellationToken ct);
+
+    /// <summary>The batch form of <see cref="GetLatestFileAsync"/>: at most one row per root.</summary>
+    Task<IReadOnlyList<DocumentFileSummary>> GetLatestFilesAsync(IReadOnlyCollection<Guid> rootDocumentIds, CancellationToken ct);
+
+    /// <summary>P2-A: opens an active document's bytes for streaming, without the Documents handlers (which sit
+    /// behind a project-scope decorator that rejects portal clients — the caller does its own access check). Null
+    /// when the row is missing or soft-deleted, or the file is gone from storage.</summary>
+    Task<DocumentContent?> OpenContentAsync(Guid documentId, CancellationToken ct);
+
+    /// <summary>The batch form of <see cref="OpenContentAsync"/>; each returned stream is the caller's to dispose.</summary>
+    Task<IReadOnlyList<DocumentContent>> OpenContentsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct);
 }

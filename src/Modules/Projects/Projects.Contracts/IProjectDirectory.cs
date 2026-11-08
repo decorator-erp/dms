@@ -28,6 +28,18 @@ public sealed record StageSummary(Guid Id, Guid ProjectId, string Name, StageSta
 public sealed record TaskSummary(
     Guid Id, Guid ProjectId, Guid? ProjectStageId, string Name, ProjectTaskStatus Status, Guid? AssignedToId);
 
+/// <summary>P2-A: one stage as a client timeline shows it — order, status, the planned (estimated) and actual dates,
+/// and its own progress from its recounted task counters (cancelled tasks excluded, same rule as the project %).</summary>
+public sealed record StageTimelineSummary(
+    Guid Id, Guid ProjectId, string Name, int Order, StageStatus Status,
+    DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
+    int CompletedTasks, int TotalTasks, decimal ProgressPercentage);
+
+/// <summary>P2-A: a task with the dates a client-facing list needs.</summary>
+public sealed record TaskDetailSummary(
+    Guid Id, Guid ProjectId, Guid? ProjectStageId, string Name, int Order, ProjectTaskStatus Status,
+    DateTime? DueDate, DateTime? StartedAtUtc, DateTime? CompletedAtUtc);
+
 /// <summary>Cross-module read surface for Projects-owned data. Every lookup has a batch sibling — no
 /// exceptions, per <c>docs/adding-a-module.md</c>'s Contracts rule.</summary>
 public interface IProjectDirectory
@@ -56,4 +68,14 @@ public interface IProjectDirectory
 
     Task<TaskSummary?> GetTaskAsync(Guid taskId, CancellationToken ct);
     Task<IReadOnlyList<TaskSummary>> GetTasksAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
+
+    /// <summary>P2-A: the project's stages in order, for the client portal's timeline.</summary>
+    Task<IReadOnlyList<StageTimelineSummary>> GetStageTimelineAsync(Guid projectId, CancellationToken ct);
+
+    /// <summary>The batch form of <see cref="GetStageTimelineAsync"/>: every stage of every listed project, in
+    /// project then stage order.</summary>
+    Task<IReadOnlyList<StageTimelineSummary>> GetStageTimelinesAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct);
+
+    Task<TaskDetailSummary?> GetTaskDetailAsync(Guid taskId, CancellationToken ct);
+    Task<IReadOnlyList<TaskDetailSummary>> GetTaskDetailsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
 }

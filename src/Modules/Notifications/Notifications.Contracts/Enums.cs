@@ -82,6 +82,10 @@ public enum NotificationType
     // ----- Sites (530–539). B-S-L3: a survey decision is not a stage decision. -----
     SiteApproved = 530,
     SiteRejected = 531,
+
+    // ----- CRM client portal (540–549). P2-A: the office shared an item with the client, or published an update. -----
+    CrmPortalItemShared = 540,
+    CrmPortalUpdatePosted = 541,
 }
 
 /// <summary>
