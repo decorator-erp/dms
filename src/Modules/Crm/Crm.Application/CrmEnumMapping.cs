@@ -20,6 +20,9 @@ namespace Crm.Application;
 /// </summary>
 internal static class CrmEnumMapping
 {
+    public static Domain.PortalShareKind ToDomain(Contracts.PortalShareKind value) => (Domain.PortalShareKind)value;
+    public static Contracts.PortalShareKind ToContracts(Domain.PortalShareKind value) => (Contracts.PortalShareKind)value;
+
     public static Domain.ContactRole ToDomain(Contracts.ContactRole value) => (Domain.ContactRole)value;
     public static Contracts.ContactRole ToContracts(Domain.ContactRole value) => (Contracts.ContactRole)value;
 

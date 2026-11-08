@@ -77,3 +77,13 @@ public sealed record CrmPeriodClosedIntegrationEvent(
 public sealed record CrmItemsResolvedIntegrationEvent(
     Guid EventId, Guid? ProjectStageId, Guid? ProjectTaskId, DateTimeOffset OccurredAtUtc)
     : IIntegrationEvent;
+
+/// <summary>P2-A: the office shared an item with the client and ticked "notify client". Raised in the share's own save;
+/// CRM's own handler tells the client once (dedupe key per share), and only if the share is still visible to them.</summary>
+public sealed record CrmPortalItemSharedIntegrationEvent(
+    Guid EventId, Guid ShareId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;
+
+/// <summary>P2-A: the office published a portal update and ticked "notify client". Raised in the publish's own save;
+/// CRM's own handler tells the client once (dedupe key per update), and only if the update is visible to them.</summary>
+public sealed record CrmPortalUpdatePublishedIntegrationEvent(
+    Guid EventId, Guid UpdateId, Guid ProjectId, DateTimeOffset OccurredAtUtc) : IIntegrationEvent;

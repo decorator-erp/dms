@@ -296,3 +296,16 @@ public enum CrmBriefRoundOutcome
     Voided = 4,
     Unknown = 5,
 }
+
+/// <summary>P2-A: what a client-portal share points at. Same values as <c>Crm.Domain.PortalShareKind</c>.
+/// <see cref="Document"/>/<see cref="Image"/>: a project document (an image is <c>image/*</c>), by its document id;
+/// <see cref="SitePhoto"/>: a site-survey attachment link of kind Photo, by its link id; <see cref="Stage"/>,
+/// <see cref="Task"/>: a project stage or task.</summary>
+public enum PortalShareKind
+{
+    Document = 1,
+    Image = 2,
+    SitePhoto = 3,
+    Stage = 4,
+    Task = 5,
+}
