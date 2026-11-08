@@ -48,6 +48,7 @@ internal sealed class GetSiteByIdQueryHandler(SitesDbContext db)
                 s.Notes,
                 s.CreatedById,
                 s.SubmittedAtUtc,
+                s.SubmittedById,
                 s.DecidedAtUtc,
                 s.DecidedById,
                 s.DecisionNote,
@@ -80,6 +81,6 @@ internal sealed class GetSiteByIdQueryHandler(SitesDbContext db)
             SiteEnumMapping.ToContracts(site.Position), SiteEnumMapping.ToContracts(site.ElevatorStatus),
             site.IsLicensed, site.IsRented, site.UtilityMetersNote, site.SurveyedOn, site.Notes,
             site.CreatedById, site.SubmittedAtUtc, site.DecidedAtUtc, site.DecidedById,
-            site.DecisionNote, site.IsActive, site.CreatedAtUtc, recordCounts);
+            site.DecisionNote, site.IsActive, site.CreatedAtUtc, recordCounts, site.SubmittedById);
     }
 }

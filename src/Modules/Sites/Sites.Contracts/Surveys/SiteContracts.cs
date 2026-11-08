@@ -43,6 +43,10 @@ public sealed record SiteListItemResponse(
 /// as provenance but nothing in this system writes it — <c>BackfillSitesFromBriefs</c> is a backend
 /// data-migration utility that is not ported — so surfacing an always-null field on every detail read
 /// would advertise a link that never exists. See the S1-01 entry and the deferred variance route.
+///
+/// <para><see cref="SubmittedById"/> (BF-2): the HR employee id of whoever submitted the current round — the
+/// person the self-approval rule refuses alongside <see cref="CreatedById"/>. Null on a draft and after a rejected
+/// survey is reopened for rework. Appended last, so the JSON change is additive.</para>
 /// </summary>
 public sealed record SiteDetailResponse(
     Guid Id, Guid ProjectId, string Code, SiteStatus Status,
@@ -52,7 +56,8 @@ public sealed record SiteDetailResponse(
     DateOnly? SurveyedOn, string? Notes,
     Guid CreatedById, DateTime? SubmittedAtUtc, DateTime? DecidedAtUtc, Guid? DecidedById,
     string? DecisionNote, bool IsActive, DateTime CreatedAtUtc,
-    IReadOnlyList<SiteModuleRecordCountResponse> RecordCounts);
+    IReadOnlyList<SiteModuleRecordCountResponse> RecordCounts,
+    Guid? SubmittedById);
 
 public sealed record SiteModuleRecordCountResponse(Guid ModuleId, string Code, int RecordCount);
 
