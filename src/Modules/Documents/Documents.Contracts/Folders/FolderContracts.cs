@@ -22,30 +22,30 @@ public sealed record CreateDocumentFolderCommand(
     string Name,
     Guid? ParentFolderId = null,
     Guid? ProjectStageId = null,
-    Guid? ProjectTaskId = null) : ICommand<Guid>;
+    Guid? ProjectTaskId = null) : ICommand<Guid>, IDocumentsProjectScoped;
 
 public sealed record CreateStageFolderCommand(Guid ProjectStageId, string Name, Guid? ParentFolderId = null)
-    : ICommand<Guid>;
+    : ICommand<Guid>, IDocumentsStageScoped;
 
 public sealed record CreateTaskFolderCommand(Guid ProjectTaskId, string Name, Guid? ParentFolderId = null)
-    : ICommand<Guid>;
+    : ICommand<Guid>, IDocumentsTaskScoped;
 
-public sealed record DeleteDocumentFolderCommand(Guid FolderId) : ICommand;
+public sealed record DeleteDocumentFolderCommand(Guid FolderId) : ICommand, IDocumentsFolderScoped;
 
 /// <summary>Rejected on a self-move, a cycle (moving a folder under its own descendant — new work at
 /// G7-02/G7-06, the backend has no such guard), or a same-project-sibling name collision. Scope
 /// (project/stage/task) and <c>IsDefault</c> are NOT re-validated on move — same as the backend, ported
 /// deliberately rather than silently "fixed," since neither gap was in this phase's scope to close.</summary>
-public sealed record MoveDocumentFolderCommand(Guid FolderId, Guid? NewParentFolderId) : ICommand;
+public sealed record MoveDocumentFolderCommand(Guid FolderId, Guid? NewParentFolderId) : ICommand, IDocumentsFolderScoped;
 
-public sealed record RenameDocumentFolderCommand(Guid FolderId, string Name) : ICommand;
+public sealed record RenameDocumentFolderCommand(Guid FolderId, string Name) : ICommand, IDocumentsFolderScoped;
 
-public sealed record GetDocumentFoldersByProjectQuery(Guid ProjectId) : IQuery<IReadOnlyList<DocumentFolderResponse>>;
+public sealed record GetDocumentFoldersByProjectQuery(Guid ProjectId) : IQuery<IReadOnlyList<DocumentFolderResponse>>, IDocumentsProjectScoped;
 
 public sealed record GetDocumentFoldersByStageQuery(Guid ProjectStageId)
-    : IQuery<IReadOnlyList<DocumentFolderResponse>>;
+    : IQuery<IReadOnlyList<DocumentFolderResponse>>, IDocumentsStageScoped;
 
 public sealed record GetDocumentFoldersByTaskQuery(Guid ProjectTaskId)
-    : IQuery<IReadOnlyList<DocumentFolderResponse>>;
+    : IQuery<IReadOnlyList<DocumentFolderResponse>>, IDocumentsTaskScoped;
 
-public sealed record GetDocumentFolderChildrenQuery(Guid FolderId) : IQuery<IReadOnlyList<DocumentFolderResponse>>;
+public sealed record GetDocumentFolderChildrenQuery(Guid FolderId) : IQuery<IReadOnlyList<DocumentFolderResponse>>, IDocumentsFolderScoped;

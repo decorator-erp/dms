@@ -29,7 +29,8 @@ namespace Identity.Infrastructure.Persistence.Seeders;
 /// <c>crm.approvals.view_own</c> and <c>crm.approvals.decide_own</c>, so a portal client can list and decide
 /// the approvals CRM sends them; it adds only those two, so a v1/v2 code an admin removed stays removed. v4 (crm-complete F) gives <c>client</c>
 /// <c>requirements.view_own</c> for the portal requirement-items list, and only that. v5 (Sites/Projects phase 5) gives
-/// <c>employee</c> project, task-execution and survey-capture codes; see <see cref="BaselineV5"/>.</para>
+/// <c>employee</c> project, task-execution and survey-capture codes; see <see cref="BaselineV5"/>. v6 (BF-1) gives
+/// <c>employee</c> the survey lookups — spaces, catalog items and project documents; see <see cref="BaselineV6"/>.</para>
 /// </summary>
 internal static class BaselineClaimSeeder
 {
@@ -42,6 +43,8 @@ internal static class BaselineClaimSeeder
     public const string V4MarkerKey = "baseline-claims-v4";
 
     public const string V5MarkerKey = "baseline-claims-v5";
+
+    public const string V6MarkerKey = "baseline-claims-v6";
 
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
@@ -86,11 +89,26 @@ internal static class BaselineClaimSeeder
         ],
     };
 
+    /// <summary>BF-1: what a surveyor's lookups read, which v5's capture codes assumed. Without these an employee
+    /// (Editor) capturing a survey could not pick a space or a catalog item, nor list or attach the project's files.
+    /// <list type="bullet">
+    /// <item><c>crm.spaces.read</c>: already project-scoped (<c>ICrmProjectScoped</c> → <c>CrmProjectScopeDecorator</c>).</item>
+    /// <item><c>crm.catalog.read</c>: the global item catalog — reference data, no project rows.</item>
+    /// <item><c>documents.read</c>, <c>documents.upload</c>: project-scoped since <c>DocumentsScopeDecorator</c>
+    /// (a project the caller is not on is a 404; a write needs project level Editor or higher).</item>
+    /// </list>
+    /// Deliberately not <c>employees.read</c> (the full HR record; the survey page only wants names and falls back
+    /// to the id), nor <c>documents.update</c>/<c>delete</c> or any manage code.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV6 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Employee] = ["crm.spaces.read", "crm.catalog.read", "documents.read", "documents.upload"],
+    };
+
     /// <summary>Applied in order, each behind its own marker.</summary>
     private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
     [
         (MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3), (V4MarkerKey, BaselineV4),
-        (V5MarkerKey, BaselineV5),
+        (V5MarkerKey, BaselineV5), (V6MarkerKey, BaselineV6),
     ];
 
     public static async Task SeedAsync(

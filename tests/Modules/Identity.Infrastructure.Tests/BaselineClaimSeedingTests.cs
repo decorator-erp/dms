@@ -179,6 +179,56 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         Assert.DoesNotContain("sites.submit", await ClaimsOfAsync(cs, DefaultRoles.Employee));
     }
 
+    /// <summary>BF-1: v6 gives the employee what a surveyor's lookups read — the project's spaces
+    /// (<c>crm.spaces.read</c>, already project-scoped by CRM), the catalog items (<c>crm.catalog.read</c>, global
+    /// reference data) and the project's documents (<c>documents.read</c>/<c>documents.upload</c>, project-scoped by
+    /// <c>DocumentsScopeDecorator</c>, writes Editor and up). Nothing else: not the CRM manage codes, not
+    /// <c>documents.update</c>/<c>delete</c>, not <c>employees.read</c>; and the client gets none of it.</summary>
+    [Fact]
+    public async Task V6_gives_the_employee_the_survey_lookup_codes_and_the_client_none()
+    {
+        string cs = await NewDatabaseAsync();
+
+        await SeedModuleAsync(cs, withProjectsAndSites: true, withSurveyLookups: true);
+
+        Assert.Equal(EmployeeAfterV6, Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Employee)));
+        Assert.Equal(
+            ["crm.approvals.decide_own", "crm.approvals.view_own", "crm.briefs.view_own", "crm.meetings.request_own",
+                "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal", "notifications.view_own"],
+            await ClaimsOfAsync(cs, DefaultRoles.Client));
+        Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v6'"""));
+    }
+
+    /// <summary>v6 on a database seeded through v5: the employee gets exactly the four v6 codes on the next start; a
+    /// v5 code an admin removed stays removed (v6 re-grants only its own codes), and a v6 code removed after v6 ran
+    /// stays removed too.</summary>
+    [Fact]
+    public async Task A_database_seeded_before_v6_gets_it_once_and_removals_stay_removed()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs, withProjectsAndSites: true, withSurveyLookups: true);
+
+        await ExecuteAsync(cs, """DELETE FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v6'""");
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'employee'
+              AND (rc."ClaimValue" LIKE 'crm.%' OR rc."ClaimValue" LIKE 'documents.%' OR rc."ClaimValue" = 'sites.submit')
+            """);
+
+        await SeedModuleAsync(cs, withProjectsAndSites: true, withSurveyLookups: true);
+        Assert.Equal(EmployeeAfterV6.Where(c => c != "sites.submit"), Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Employee)));
+
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'employee' AND rc."ClaimValue" = 'documents.upload'
+            """);
+        await SeedModuleAsync(cs, withProjectsAndSites: true, withSurveyLookups: true);
+        Assert.DoesNotContain("documents.upload", await ClaimsOfAsync(cs, DefaultRoles.Employee));
+    }
+
+    private static string[] EmployeeAfterV6 => Ordinal(
+        [.. EmployeeAfterV5, "crm.catalog.read", "crm.spaces.read", "documents.read", "documents.upload"]);
+
     /// <summary>The database orders by its collation; the matrix is compared in ordinal order.</summary>
     private static string[] Ordinal(IEnumerable<string> codes) => [.. codes.Order(StringComparer.Ordinal)];
 
@@ -219,7 +269,7 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(5L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v5 (crm-complete F adds v4, Sites/Projects phase 5 adds v5)
+        Assert.Equal(6L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v6 (crm-complete F adds v4, Sites/Projects phase 5 adds v5, BF-1 adds v6)
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
         Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count); // v4's requirements.view_own is not in this catalog, so it is skipped
     }
@@ -233,9 +283,9 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<IPermissionCatalog>());
     }
 
-    private static async Task SeedModuleAsync(string cs, bool withProjectsAndSites = false)
+    private static async Task SeedModuleAsync(string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false)
     {
-        await using ServiceProvider provider = BuildProvider(cs, withProjectsAndSites);
+        await using ServiceProvider provider = BuildProvider(cs, withProjectsAndSites, withSurveyLookups);
         using IServiceScope scope = provider.CreateScope();
         await ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single().SeedAsync(scope.ServiceProvider);
     }
@@ -257,7 +307,7 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         return cs;
     }
 
-    private static ServiceProvider BuildProvider(string cs, bool withProjectsAndSites = false)
+    private static ServiceProvider BuildProvider(string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -304,6 +354,19 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
             services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
                 "Sites",
                 ["sites.read", "sites.create", "sites.update", "sites.submit", "sites.approve", "sites.delete", "sites.definitions.manage"]));
+        }
+
+        if (withSurveyLookups)
+        {
+            // BF-1: the CRM lookup and manage codes and every Documents code, so the matrix shows that v6 grants
+            // the two reads and the two document codes and leaves the rest out.
+            services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+                "CrmLookups",
+                ["crm.spaces.read", "crm.spaces.manage", "crm.catalog.read", "crm.catalog.manage"]));
+            services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+                "Documents",
+                ["documents.read", "documents.upload", "documents.update", "documents.delete", "file_templates.read",
+                    "file_templates.manage"]));
         }
 
         return services.BuildServiceProvider();

@@ -6,6 +6,11 @@ internal static class ProjectDocumentErrors
 {
     public static readonly Error NotFound = Error.NotFound("project_documents.NotFound", "Document was not found.");
 
+    /// <summary>BF-1: a Documents write needs project level Editor or higher. A Viewer can see the project, so this
+    /// is a 403 about the caller, not the 404 a caller who cannot reach the project gets.</summary>
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        "project_documents.InsufficientLevel", "Your access level on this project does not allow this action.");
+
     public static readonly Error FileNameRequired = Error.BadRequest(
         "project_documents.FileNameRequired", "A file name is required.");
 
