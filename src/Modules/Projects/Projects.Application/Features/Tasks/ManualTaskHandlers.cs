@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using Crm.Contracts;
@@ -160,6 +161,12 @@ internal sealed class CreateProjectTaskCommandHandler(ProjectsDbContext db, IHrD
                 Guid.NewGuid(), task.ProjectId, task.Id, task.Name, assignee, DateTimeOffset.UtcNow));
         }
 
+        ProjectActivities.Task(db, command.UserId, AuditAction.Create, task, $"Created task '{task.Name}'");
+        if (command.AssignedToId is not null)
+        {
+            ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Assigned task '{task.Name}'");
+        }
+
         await db.SaveChangesAsync(ct);
         await StageCounters.RecountAsync(db, command.ProjectStageId, ct);
         return task.Id;
@@ -196,6 +203,7 @@ internal sealed class UpdateProjectTaskCommandHandler(ProjectsDbContext db) : IC
         task.Update(command.Name.Trim(), command.Description, command.Notes,
             command.Priority is { } priority ? ProjectsEnumMapping.ToDomain(priority) : task.Priority,
             command.Weight ?? task.Weight, command.Order ?? task.Order, ProjectDates.ToUtc(command.DueDate));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Updated task '{task.Name}'");
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }

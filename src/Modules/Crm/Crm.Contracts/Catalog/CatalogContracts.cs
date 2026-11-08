@@ -4,11 +4,19 @@ namespace Crm.Contracts.Catalog;
 
 public sealed record CrmCatalogCategoryResponse(
     Guid Id, Guid? ParentId, string Code, string NameEn, string NameAr,
-    CatalogSelectionMode SelectionMode, bool IsRequired, int SortOrder, string Path, int Depth, bool IsActive);
+    CatalogSelectionMode SelectionMode, bool IsRequired, int SortOrder, string Path, int Depth, bool IsActive,
+    string? DescriptionEn, string? DescriptionAr, string? ImageUri);
 
 public sealed record CrmCatalogItemResponse(
     Guid Id, Guid CategoryId, string Code, string NameEn, string NameAr, bool IsPurchasable,
-    int SortOrder, bool IsActive);
+    int SortOrder, bool IsActive, string? DescriptionEn, string? DescriptionAr, string? ImageUri);
+
+/// <summary>S10: one catalog item with its attribute values (replace-all through the existing
+/// <c>PUT /api/crm/catalog/items/{itemId}/attribute-values</c>).</summary>
+public sealed record CrmCatalogItemDetailResponse(
+    Guid Id, Guid CategoryId, string Code, string NameEn, string NameAr, bool IsPurchasable,
+    int SortOrder, bool IsActive, string? DescriptionEn, string? DescriptionAr, string? ImageUri,
+    IReadOnlyList<CatalogAttributeValueData> AttributeValues);
 
 public sealed record CrmCatalogAttributeResponse(
     Guid Id, Guid CategoryId, string Code, string NameEn, string NameAr, CatalogAttributeType DataType,
@@ -83,6 +91,9 @@ public sealed record UnmapCrmCatalogCategoryFromSpaceTypeCommand(Guid CategoryId
 
 public sealed record GetCrmCatalogItemsByCategoryQuery(Guid CategoryId)
     : IQuery<IReadOnlyList<CrmCatalogItemResponse>>;
+
+/// <summary>S10: 404 <c>crm.catalog.ItemNotFound</c> when the item does not exist.</summary>
+public sealed record GetCrmCatalogItemQuery(Guid ItemId) : IQuery<CrmCatalogItemDetailResponse>;
 
 public sealed record GetCrmCatalogAttributesByCategoryQuery(Guid CategoryId)
     : IQuery<IReadOnlyList<CrmCatalogAttributeResponse>>;

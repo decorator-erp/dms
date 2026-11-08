@@ -141,6 +141,19 @@ internal sealed class Variation : Entity, IAuditable
         return variation;
     }
 
+    /// <summary>The description is the one field editable after raising, and only while the variation is a Draft;
+    /// a submitted record is what the approver (or the client) saw, so it is frozen from then on.</summary>
+    public Result UpdateDescription(string? description)
+    {
+        if (Status != VariationStatus.Draft)
+        {
+            return VariationErrors.DescriptionNotEditable;
+        }
+
+        Description = string.IsNullOrWhiteSpace(description) ? null : description;
+        return Result.Success();
+    }
+
     public Result Submit()
     {
         if (Status != VariationStatus.Draft)

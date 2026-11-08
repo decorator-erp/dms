@@ -83,7 +83,8 @@ internal sealed class GetClientsQueryHandler(CrmDbContext db, CrmClientScope sco
         {
             UserSummary? login = logins.GetValueOrDefault(r.AppUserId);
             return new ClientListItemResponse(
-                r.Id, login?.DisplayName, login?.Email, r.Address, r.JobTitle, r.RepresentativeName, r.IsActive, r.CreatedAtUtc);
+                r.Id, login?.DisplayName, login?.Email, r.Address, r.JobTitle, r.RepresentativeName, r.IsActive, r.CreatedAtUtc,
+                login?.PhoneNumber);
         })];
 
         return new PagedResult<ClientListItemResponse>(items, query.PageNumber, query.PageSize, totalCount);

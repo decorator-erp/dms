@@ -41,7 +41,8 @@ public sealed record BudgetLineResponse(
     decimal ActualAmount,
     decimal AvailableAmount,
     DateTime CreatedAtUtc,
-    DateTime? UpdatedAtUtc);
+    DateTime? UpdatedAtUtc,
+    string? CostCategoryName);
 
 public sealed record BudgetLineListItemResponse(
     Guid Id,
@@ -56,7 +57,8 @@ public sealed record BudgetLineListItemResponse(
     decimal EffectiveAllocation,
     decimal CommittedAmount,
     decimal ActualAmount,
-    decimal AvailableAmount);
+    decimal AvailableAmount,
+    string? CostCategoryName);
 
 // ── Commands ───────────────────────────────────────────────────────────────────
 

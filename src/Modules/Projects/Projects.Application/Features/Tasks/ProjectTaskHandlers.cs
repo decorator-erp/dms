@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using FluentValidation;
@@ -55,6 +56,7 @@ internal sealed class AssignProjectTaskCommandHandler(ProjectsDbContext db, IHrD
 
         db.Outbox().Enqueue(new ProjectTaskAssignedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, command.EmployeeId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Assigned task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -100,6 +102,7 @@ internal sealed class StartProjectTaskCommandHandler(
 
         db.Outbox().Enqueue(new ProjectTaskStartedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Started task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -163,6 +166,7 @@ internal sealed class CompleteProjectTaskCommandHandler(
 
         db.Outbox().Enqueue(new ProjectTaskCompletedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Completed task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
@@ -218,6 +222,7 @@ internal sealed class RejectProjectTaskCommandHandler(ProjectsDbContext db) : IC
 
         db.Outbox().Enqueue(new ProjectTaskRejectedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Rejected task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
@@ -254,6 +259,7 @@ internal sealed class CancelProjectTaskCommandHandler(ProjectsDbContext db) : IC
 
         db.Outbox().Enqueue(new ProjectTaskCancelledIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Cancelled task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
@@ -298,6 +304,7 @@ internal sealed class ReopenProjectTaskCommandHandler(ProjectsDbContext db) : IC
 
         db.Outbox().Enqueue(new ProjectTaskReopenedIntegrationEvent(
             Guid.NewGuid(), task.ProjectId, task.Id, task.Name, task.AssignedToId, DateTimeOffset.UtcNow));
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Reopened task '{task.Name}'");
 
         await db.SaveChangesAsync(ct);
         await StageCounters.RecountAsync(db, task.ProjectStageId, ct);
@@ -321,7 +328,7 @@ internal sealed class GetProjectTaskQueryHandler(ProjectsDbContext db) : IQueryH
         new ProjectTaskResponse(
             t.Id, t.ProjectId, t.ProjectStageId, t.Name, t.Description, t.Order,
             ProjectsEnumMapping.ToContracts(t.Status), ProjectsEnumMapping.ToContracts(t.Priority), t.Weight,
-            t.AssignedToId, t.DepartmentId, t.DueDate, t.Cost);
+            t.AssignedToId, t.DepartmentId, t.DueDate, t.Cost, t.Notes);
 }
 
 /// <summary>P1-A: a caller whose access is only a stage-limited grant sees only the granted stages' tasks

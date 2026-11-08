@@ -33,6 +33,9 @@ internal sealed class ApprovalConfiguration : IEntityTypeConfiguration<Approval>
         // hot path for both.
         builder.HasIndex(a => new { a.SubjectType, a.SubjectId });
 
+        // S3: a bare cross-module id, no FK (the subject's project, as the requesting module stated it).
+        builder.Property(a => a.ProjectId);
+
         // Approvers has no FK of its own - each entry's ApproverUserId is an unvalidated identity user id
         // (same "bare cross-module reference, no constraint" pattern as Project.ClientId elsewhere in
         // this plan) - only RequestedByUserId gets a real FK. Owned collection table, same shape as

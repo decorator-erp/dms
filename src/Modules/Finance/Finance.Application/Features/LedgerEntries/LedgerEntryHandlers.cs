@@ -435,7 +435,8 @@ internal sealed class GetLedgerEntriesByProjectQueryHandler(FinanceDbContext db)
             .Select(e => new LedgerEntryListItemResponse(
                 e.Id, e.ProjectId, e.ProjectStageId, e.ProjectTaskId,
                 e.Direction.ToString(), e.Type.ToString(), e.Amount, e.OccurredOn,
-                e.ClientId, e.VendorName, e.Reference))
+                e.ClientId, e.VendorName, e.Reference,
+                db.LedgerEntries.Any(r => r.ReversalOfId == e.Id), e.Note))
             .ToListAsync(ct);
 
         return new PagedResult<LedgerEntryListItemResponse>(

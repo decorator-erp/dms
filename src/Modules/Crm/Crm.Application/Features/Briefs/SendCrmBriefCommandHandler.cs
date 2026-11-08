@@ -159,7 +159,7 @@ internal sealed class SendCrmBriefCommandHandler(
                     approvalId, ApprovalSubjectType.DesignBrief, brief.Id, ApprovalType.ClientReview,
                     RequestedByUserId: command.SentByUserId,
                     [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                    DueAtUtc: null),
+                    DueAtUtc: null, ProjectId: brief.ProjectId),
                 ct);
             if (requestResult.IsFailure)
             {

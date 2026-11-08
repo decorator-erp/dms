@@ -17,9 +17,11 @@ public sealed record ApprovalTrailItemResponse(
     ApprovalDecision? Decision, string? Comment, int Round, DateTimeOffset? DueAtUtc,
     DateTimeOffset? DecidedAtUtc);
 
+/// <summary><see cref="ProjectId"/>: the subject's project as the requesting module stated it; null when unknown
+/// (rows made before it was stored).</summary>
 public sealed record PendingApprovalResponse(
     Guid Id, ApprovalSubjectType SubjectType, Guid SubjectId, ApprovalType Type, int Round,
-    DateTimeOffset? DueAtUtc);
+    DateTimeOffset? DueAtUtc, Guid? ProjectId);
 
 /// <summary>
 /// <c>Comment</c> is required by the handler when <c>Decision</c> is <see cref="ApprovalDecision.Rejected"/>

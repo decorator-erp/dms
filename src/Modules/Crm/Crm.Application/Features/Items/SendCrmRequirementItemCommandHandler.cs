@@ -145,7 +145,7 @@ internal sealed class SendCrmRequirementItemCommandHandler(
                     approvalId, ApprovalSubjectType.RequirementItem, item.Id, ApprovalType.ClientReview,
                     RequestedByUserId: command.SentByUserId,
                     [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                    DueAtUtc: null),
+                    DueAtUtc: null, ProjectId: item.ProjectId),
                 ct);
             if (requestResult.IsFailure)
             {

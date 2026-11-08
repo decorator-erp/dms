@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Messaging;
 using Crm.Contracts;
 using Documents.Contracts;
@@ -149,6 +150,7 @@ internal sealed class CreateProjectStageCommandHandler(ProjectsDbContext db, IHr
 
         stages.Add(stage);
         ManualStages.Reorder(stages, stage, command.Order);
+        ProjectActivities.Stage(db, command.UserId, AuditAction.Create, stage, $"Created stage '{stage.Name}'");
         await db.SaveChangesAsync(ct);
         return stage.Id;
     }
@@ -187,6 +189,7 @@ internal sealed class UpdateProjectStageCommandHandler(ProjectsDbContext db) : I
             ManualStages.Reorder(stages, stage, order);
         }
 
+        ProjectActivities.Stage(db, command.UserId, AuditAction.Update, stage, $"Updated stage '{stage.Name}'");
         await db.SaveChangesAsync(ct);
         return Result.Success();
     }

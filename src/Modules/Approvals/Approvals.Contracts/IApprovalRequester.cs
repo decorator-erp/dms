@@ -18,10 +18,12 @@ public sealed record ApproverSpec(ApproverKind Kind, string ApproverUserId);
 /// <see cref="IApprovalRequester.RequestAsync"/> idempotent per id: a caller whose own commit failed after
 /// the approval committed can retry with the same id and get the same approval back, instead of an
 /// orphan that blocks every later request as <c>OpenApprovalExists</c>. Callers with no retry story pass
-/// <see cref="Guid.NewGuid"/>.</summary>
+/// <see cref="Guid.NewGuid"/>. <see cref="ProjectId"/> is the subject's project when the caller knows it — stored as a
+/// bare id and echoed on the approver's inbox row, never validated here.</summary>
 public sealed record ApprovalRequest(
     Guid ApprovalId, ApprovalSubjectType SubjectType, Guid SubjectId, ApprovalType Type,
-    string RequestedByUserId, IReadOnlyList<ApproverSpec> Approvers, DateTimeOffset? DueAtUtc);
+    string RequestedByUserId, IReadOnlyList<ApproverSpec> Approvers, DateTimeOffset? DueAtUtc,
+    Guid? ProjectId = null);
 
 /// <summary>What <see cref="IApprovalRequester.RequestAsync"/> found or created. <see cref="Decision"/> is
 /// non-null only when the id already existed for the same subject AND was already decided — the caller

@@ -135,7 +135,7 @@ internal sealed class SendCrmBriefSpaceCommandHandler(
                     approvalId, ApprovalSubjectType.BriefSpace, entry.Id, ApprovalType.ClientReview,
                     RequestedByUserId: command.SentByUserId,
                     [new ApproverSpec(ApproverKind.Client, client.AppUserId)],
-                    DueAtUtc: null),
+                    DueAtUtc: null, ProjectId: brief.ProjectId),
                 ct);
             if (requestResult.IsFailure)
             {

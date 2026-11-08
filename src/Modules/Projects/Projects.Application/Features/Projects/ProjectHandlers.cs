@@ -8,6 +8,7 @@ using Documents.Contracts;
 using Finance.Contracts;
 using FluentValidation;
 using Hr.Contracts;
+using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Projects.Application.Features.Stages;
@@ -301,7 +302,9 @@ internal sealed class DeleteProjectCommandHandler(
 /// query's own <see cref="GetProjectQuery.UserId"/>, the reader the scope decorator enforces with. No level is 404,
 /// never a default level. P1-A: the level and <see cref="ProjectResponse.MyAccess"/> come from
 /// <see cref="ProjectAccessContext.GetAccessAsync"/>, which also counts an active grant (membership wins over it).</summary>
-internal sealed class GetProjectQueryHandler(ProjectsDbContext db, ProjectAccessContext access)
+internal sealed class GetProjectQueryHandler(
+    ProjectsDbContext db, ProjectAccessContext access, IClientDirectory clientDirectory, IUserDirectory userDirectory,
+    IHrDirectory hrDirectory)
     : IQueryHandler<GetProjectQuery, ProjectResponse>
 {
     public async Task<Result<ProjectResponse>> HandleAsync(GetProjectQuery query, CancellationToken ct = default)
@@ -317,7 +320,13 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db, ProjectAccess
             .Select(ToRow(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
 
-        return row is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : row.ToResponse(myAccess);
+        if (row is null)
+        {
+            return Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound);
+        }
+
+        ProjectRowNames names = await ProjectRowNames.ResolveAsync([row], clientDirectory, userDirectory, hrDirectory, ct);
+        return row.ToResponse(myAccess, names);
     }
 
     /// <summary>The row projection. <paramref name="stages"/> and <paramref name="tasks"/> are the context's
@@ -358,7 +367,8 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db, ProjectAccess
 /// makes a project "mine".</para>
 /// </summary>
 internal sealed class GetProjectsQueryHandler(
-    ProjectsDbContext db, IHrDirectory hrDirectory, ProjectAccessContext access, ILogger<GetProjectsQueryHandler> logger)
+    ProjectsDbContext db, IHrDirectory hrDirectory, ProjectAccessContext access, IClientDirectory clientDirectory,
+    IUserDirectory userDirectory, ILogger<GetProjectsQueryHandler> logger)
     : IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>>
 {
     public async Task<Result<PagedResult<ProjectResponse>>> HandleAsync(GetProjectsQuery query, CancellationToken ct = default)
@@ -417,12 +427,13 @@ internal sealed class GetProjectsQueryHandler(
 
         IReadOnlyDictionary<Guid, ProjectAccessResponse> accesses =
             await access.GetAccessAsync([.. rows.Select(r => r.Id)], query.UserId, ct);
+        ProjectRowNames names = await ProjectRowNames.ResolveAsync(rows, clientDirectory, userDirectory, hrDirectory, ct);
         var items = new List<ProjectResponse>(rows.Count);
         foreach (ProjectRow row in rows)
         {
             if (accesses.TryGetValue(row.Id, out ProjectAccessResponse? myAccess))
             {
-                items.Add(row.ToResponse(myAccess));
+                items.Add(row.ToResponse(myAccess, names));
             }
             else
             {

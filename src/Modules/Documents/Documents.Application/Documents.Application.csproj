@@ -23,6 +23,9 @@
          Approvals.Contracts.IApprovalRequester (G7-07) - the same shape Projects' own
          GateApprovalRequests already uses for its own gate approvals. -->
     <ProjectReference Include="..\..\Approvals\Approvals.Contracts\Approvals.Contracts.csproj" />
+    <!-- S11: an upload onto a project, stage or task stages Notifications.Contracts'
+         ActivityRecordedIntegrationEvent on this module's own outbox (the project timeline). -->
+    <ProjectReference Include="..\..\Notifications\Notifications.Contracts\Notifications.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

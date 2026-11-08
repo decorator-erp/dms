@@ -77,7 +77,7 @@ internal sealed class RequestDocumentReviewCommandHandler(
             new ApprovalRequest(
                 Guid.NewGuid(), ApprovalSubjectType.ProjectDocument, latest.Id, ApprovalType.ClientReview,
                 command.RequestedByUserId, [new ApproverSpec(ApproverKind.Employee, approver.AppUserId)],
-                DueAtUtc: null),
+                DueAtUtc: null, ProjectId: latest.ProjectId),
             ct);
 
         return requestResult.IsFailure ? requestResult.Error : requestResult.Value!.ApprovalId;
