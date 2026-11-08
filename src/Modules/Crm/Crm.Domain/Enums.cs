@@ -227,3 +227,28 @@ internal enum TaskPriority
     High = 3,
     Urgent = 4,
 }
+
+/// <summary>P2-A: what a portal share points at. <see cref="Document"/> and <see cref="Image"/> name a
+/// <c>documents.project_documents</c> row (an image is one whose content type is <c>image/*</c>);
+/// <see cref="SitePhoto"/> a <c>sites.site_documents</c> link of kind Photo; <see cref="Stage"/> and
+/// <see cref="Task"/> a project stage or task.</summary>
+internal enum PortalShareKind
+{
+    Document = 1,
+    Image = 2,
+    SitePhoto = 3,
+    Stage = 4,
+    Task = 5,
+}
+
+/// <summary>P2-A: the portal sections the office switches per project, all off until switched on. Brief,
+/// requirements, meetings and approvals are not here: they keep working as they always have.</summary>
+internal enum PortalSection
+{
+    Progress = 1,
+    Tasks = 2,
+    Documents = 3,
+    Gallery = 4,
+    SiteSurveys = 5,
+    Updates = 6,
+}
