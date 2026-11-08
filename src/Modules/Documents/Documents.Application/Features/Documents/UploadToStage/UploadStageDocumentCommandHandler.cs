@@ -74,7 +74,8 @@ internal sealed class UploadStageDocumentCommandHandler(
         }
 
         ProjectDocument document = documentResult.Value!;
-        await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, document, ct);
+        await DocumentUploadCommit.CommitAsync(
+            db, fileStorage, storagePath, document, ct, UploadActivity.For(command.UploadedByUserId, document, stage.Name));
 
         return document.Id;
     }

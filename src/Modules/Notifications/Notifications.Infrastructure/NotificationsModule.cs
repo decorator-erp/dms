@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Notifications.Contracts;
+using Notifications.Infrastructure.Activities;
 using Notifications.Infrastructure.Notifications;
 using Notifications.Infrastructure.Persistence;
 
@@ -49,6 +50,10 @@ internal sealed class NotificationsModule : IModule
         // framework. No backplane - see NotificationsHub for what that costs on a second instance.
         services.AddSignalR();
         services.AddScoped<INotificationService, NotificationService>();
+
+        // S11: the activity writer. Its cross-module callers reach it only through
+        // ActivityRecordedIntegrationEvent on their own outbox (see IActivityRecorder).
+        services.AddScoped<IActivityRecorder, ActivityRecorder>();
 
         // N1-06. Without this, the handlers in IntegrationEvents/ are registered NOWHERE and every
         // event they handle is marked processed with zero handlers - silently, which is the failure

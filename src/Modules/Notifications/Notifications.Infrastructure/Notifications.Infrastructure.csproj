@@ -25,6 +25,7 @@
       the ones the placement rule keeps here.
     -->
     <ProjectReference Include="..\..\Hr\Hr.Contracts\Hr.Contracts.csproj" />
+    <ProjectReference Include="..\..\Identity\Identity.Contracts\Identity.Contracts.csproj" />
     <ProjectReference Include="..\..\Crm\Crm.Contracts\Crm.Contracts.csproj" />
     <ProjectReference Include="..\..\Projects\Projects.Contracts\Projects.Contracts.csproj" />
   </ItemGroup>

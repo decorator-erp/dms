@@ -6,6 +6,7 @@ using Documents.Infrastructure.Persistence;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Documents.Application.Features.Documents.Upload;
@@ -24,7 +25,7 @@ internal sealed class UploadProjectDocumentCommandValidator : AbstractValidator<
 /// <summary>Project-wide upload: no stage/task scope. An explicit <c>FolderId</c> must belong to the
 /// same project.</summary>
 internal sealed class UploadProjectDocumentCommandHandler(
-    DocumentsDbContext db, IFileStorageService fileStorage, IHrDirectory hrDirectory)
+    DocumentsDbContext db, IFileStorageService fileStorage, IHrDirectory hrDirectory, IProjectDirectory projectDirectory)
     : ICommandHandler<UploadProjectDocumentCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(UploadProjectDocumentCommand command, CancellationToken ct = default)
@@ -58,7 +59,9 @@ internal sealed class UploadProjectDocumentCommandHandler(
         }
 
         ProjectDocument document = documentResult.Value!;
-        await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, document, ct);
+        ProjectSummary? project = await projectDirectory.GetProjectAsync(document.ProjectId, ct);
+        await DocumentUploadCommit.CommitAsync(
+            db, fileStorage, storagePath, document, ct, UploadActivity.For(command.UploadedByUserId, document, project?.Name));
 
         return document.Id;
     }

@@ -1,4 +1,5 @@
 using BuildingBlocks;
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Messaging;
 using FluentValidation;
 using Hr.Contracts;
@@ -35,6 +36,10 @@ internal sealed class AddTaskCommentCommandHandler(ProjectsDbContext db, IHrDire
 
         var comment = Domain.TaskComment.Create(command.Content, command.TaskId, employeeId.Value);
         db.TaskComments.Add(comment);
+
+        Domain.ProjectTask task = await db.ProjectTasks.AsNoTracking()
+            .FirstAsync(t => t.Id == command.TaskId && t.ProjectId == command.ProjectId, ct);
+        ProjectActivities.Task(db, command.UserId, AuditAction.Update, task, $"Commented on task '{task.Name}'");
         await db.SaveChangesAsync(ct);
         return comment.Id;
     }

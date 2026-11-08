@@ -39,6 +39,11 @@ internal sealed class Activity : Entity
         // EF materialization.
     }
 
+    private Activity(Guid id)
+        : base(id)
+    {
+    }
+
     public static Activity Create(
         ActivityAction action,
         string entityName,
@@ -48,7 +53,22 @@ internal sealed class Activity : Entity
         string? actorUserId = null,
         string? actorName = null,
         Guid? projectId = null,
-        string? entityDisplayName = null) => new()
+        string? entityDisplayName = null) =>
+        Create(Guid.CreateVersion7(), action, entityName, entityId, message, occurredAtUtc, actorUserId, actorName, projectId, entityDisplayName);
+
+    /// <summary>S11: the caller-supplied-id overload behind <c>IActivityRecorder</c> — the id is the writer's idempotency
+    /// key, so a redelivered record finds its row instead of adding a second one.</summary>
+    public static Activity Create(
+        Guid id,
+        ActivityAction action,
+        string entityName,
+        string? entityId,
+        string message,
+        DateTime occurredAtUtc,
+        string? actorUserId = null,
+        string? actorName = null,
+        Guid? projectId = null,
+        string? entityDisplayName = null) => new(id)
         {
             Action = action,
             EntityName = entityName,

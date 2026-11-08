@@ -1,3 +1,4 @@
+using BuildingBlocks.Auditing;
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Outbox;
 using FluentValidation;
@@ -79,6 +80,7 @@ internal sealed class CompleteProjectStageCommandHandler(ProjectsDbContext db, I
 
         db.Outbox().Enqueue(new ProjectStageCompletedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
+        ProjectActivities.Stage(db, command.UserId, AuditAction.Update, stage, $"Completed stage '{stage.Name}'");
 
         await db.SaveChangesAsync(ct);
         return Result.Success();
@@ -119,6 +121,7 @@ internal sealed class RejectProjectStageCommandHandler(ProjectsDbContext db) : I
 
         db.Outbox().Enqueue(new ProjectStageRejectedIntegrationEvent(
             Guid.NewGuid(), stage.ProjectId, stage.Id, stage.Name, DateTimeOffset.UtcNow));
+        ProjectActivities.Stage(db, command.UserId, AuditAction.Update, stage, $"Rejected stage '{stage.Name}'");
 
         await db.SaveChangesAsync(ct);
         return Result.Success();

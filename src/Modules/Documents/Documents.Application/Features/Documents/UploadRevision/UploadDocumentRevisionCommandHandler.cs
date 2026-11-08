@@ -6,6 +6,7 @@ using Documents.Infrastructure.Persistence;
 using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Documents.Application.Features.Documents.UploadRevision;
@@ -25,7 +26,7 @@ internal sealed class UploadDocumentRevisionCommandValidator : AbstractValidator
 /// resolves the true latest version by <c>RootDocumentId</c> before creating a new one, matching the
 /// backend's own "revision always applies to the current tip" semantics.</summary>
 internal sealed class UploadDocumentRevisionCommandHandler(
-    DocumentsDbContext db, IFileStorageService fileStorage, IHrDirectory hrDirectory)
+    DocumentsDbContext db, IFileStorageService fileStorage, IHrDirectory hrDirectory, IProjectDirectory projectDirectory)
     : ICommandHandler<UploadDocumentRevisionCommand, Guid>
 {
     public async Task<Result<Guid>> HandleAsync(UploadDocumentRevisionCommand command, CancellationToken ct = default)
@@ -61,7 +62,11 @@ internal sealed class UploadDocumentRevisionCommandHandler(
         }
 
         ProjectDocument revision = revisionResult.Value!;
-        await DocumentUploadCommit.CommitAsync(db, fileStorage, storagePath, revision, ct);
+        string? displayName = revision.ProjectTaskId is { } taskId ? (await projectDirectory.GetTaskAsync(taskId, ct))?.Name
+            : revision.ProjectStageId is { } stageId ? (await projectDirectory.GetStageAsync(stageId, ct))?.Name
+            : (await projectDirectory.GetProjectAsync(revision.ProjectId, ct))?.Name;
+        await DocumentUploadCommit.CommitAsync(
+            db, fileStorage, storagePath, revision, ct, UploadActivity.For(command.UploadedByUserId, revision, displayName));
 
         return revision.Id;
     }
