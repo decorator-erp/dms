@@ -55,7 +55,7 @@ public sealed record UploadProjectDocumentCommand(
     long FileSizeBytes,
     string UploadedByUserId,
     Guid? FolderId = null,
-    string? Description = null) : ICommand<Guid>;
+    string? Description = null) : ICommand<Guid>, IDocumentsProjectScoped;
 
 /// <summary>No explicit <c>FolderId</c> resolves via <c>DefaultFolderResolver.EnsureForStageAsync</c>
 /// (G7-06) — an explicit one must match the stage's own scope or the handler rejects it
@@ -68,7 +68,7 @@ public sealed record UploadStageDocumentCommand(
     long FileSizeBytes,
     string UploadedByUserId,
     Guid? FolderId = null,
-    string? Description = null) : ICommand<Guid>;
+    string? Description = null) : ICommand<Guid>, IDocumentsStageScoped;
 
 /// <summary>Same default-folder/scope-match rule as <see cref="UploadStageDocumentCommand"/>, resolved
 /// via <c>DefaultFolderResolver.EnsureForTaskAsync</c>.</summary>
@@ -80,7 +80,7 @@ public sealed record UploadTaskDocumentCommand(
     long FileSizeBytes,
     string UploadedByUserId,
     Guid? FolderId = null,
-    string? Description = null) : ICommand<Guid>;
+    string? Description = null) : ICommand<Guid>, IDocumentsTaskScoped;
 
 /// <summary>Creates a new lineage row via <c>ProjectDocument.CreateRevision</c> — same
 /// <c>RootDocumentId</c>, <c>Version + 1</c>, same folder/stage/task scope as
@@ -93,42 +93,42 @@ public sealed record UploadDocumentRevisionCommand(
     string ContentType,
     long FileSizeBytes,
     string UploadedByUserId,
-    string? Description = null) : ICommand<Guid>;
+    string? Description = null) : ICommand<Guid>, IDocumentsDocumentScoped;
 
 /// <summary>Copies a <c>FileTemplate</c>'s stored bytes into a new document attached to
 /// <paramref name="ProjectTaskId"/>, always resolving/creating the task's default folder (unlike the
 /// plain task upload, which only does so when no explicit folder is given).</summary>
 public sealed record ApplyFileTemplateToTaskCommand(
-    Guid ProjectTaskId, Guid FileTemplateId, string UploadedByUserId) : ICommand<Guid>;
+    Guid ProjectTaskId, Guid FileTemplateId, string UploadedByUserId) : ICommand<Guid>, IDocumentsTaskScoped;
 
-public sealed record MoveProjectDocumentCommand(Guid DocumentId, Guid? FolderId) : ICommand;
+public sealed record MoveProjectDocumentCommand(Guid DocumentId, Guid? FolderId) : ICommand, IDocumentsDocumentScoped;
 
 /// <summary>Soft delete only (<c>Entity.IsActive = false</c>) — the row is recoverable, but per G7-02's
 /// correction 4 the underlying blob is deliberately KEPT (not passed to
 /// <see cref="IFileStorageService.DeleteAsync"/>), unlike the backend's own hard-delete-the-blob
 /// behavior: a soft-deleted row whose bytes are destroyed is not soft-deleted, it is a tombstone that
 /// lies.</summary>
-public sealed record DeleteProjectDocumentCommand(Guid DocumentId) : ICommand;
+public sealed record DeleteProjectDocumentCommand(Guid DocumentId) : ICommand, IDocumentsDocumentScoped;
 
-public sealed record GetProjectDocumentByIdQuery(Guid DocumentId) : IQuery<ProjectDocumentResponse>;
+public sealed record GetProjectDocumentByIdQuery(Guid DocumentId) : IQuery<ProjectDocumentResponse>, IDocumentsDocumentScoped;
 
 public sealed record GetProjectDocumentsByProjectQuery(Guid ProjectId)
-    : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
+    : IQuery<IReadOnlyList<ProjectDocumentResponse>>, IDocumentsProjectScoped;
 
 public sealed record GetProjectDocumentsByFolderQuery(Guid FolderId)
-    : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
+    : IQuery<IReadOnlyList<ProjectDocumentResponse>>, IDocumentsFolderScoped;
 
 /// <summary>Every document visible at this stage — directly stage-scoped ones AND those uploaded to a
 /// task under it (G7-02's correction 8, closed at E1-01). See <c>IDocumentQueries.ForStageAsync</c>'s own
 /// remarks: the reach-through is free at read time because a task upload denormalizes its owning stage
 /// onto the row.</summary>
 public sealed record GetProjectDocumentsByStageQuery(Guid ProjectStageId)
-    : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
+    : IQuery<IReadOnlyList<ProjectDocumentResponse>>, IDocumentsStageScoped;
 
 public sealed record GetProjectDocumentsByTaskQuery(Guid ProjectTaskId)
-    : IQuery<IReadOnlyList<ProjectDocumentResponse>>;
+    : IQuery<IReadOnlyList<ProjectDocumentResponse>>, IDocumentsTaskScoped;
 
-public sealed record GetProjectDocumentDownloadQuery(Guid DocumentId) : IQuery<ProjectDocumentDownloadResponse>;
+public sealed record GetProjectDocumentDownloadQuery(Guid DocumentId) : IQuery<ProjectDocumentDownloadResponse>, IDocumentsDocumentScoped;
 
 /// <summary>
 /// Not one of G7-01's original 31 — added at G7-07 because making
@@ -142,4 +142,4 @@ public sealed record GetProjectDocumentDownloadQuery(Guid DocumentId) : IQuery<P
 /// defined at G7-02 for exactly this.
 /// </summary>
 public sealed record RequestDocumentReviewCommand(
-    Guid DocumentId, Guid ApproverEmployeeId, string RequestedByUserId) : ICommand<Guid>;
+    Guid DocumentId, Guid ApproverEmployeeId, string RequestedByUserId) : ICommand<Guid>, IDocumentsDocumentScoped;

@@ -3,6 +3,7 @@ using BuildingBlocks;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Documents.Contracts;
+using Documents.Infrastructure.Decorators;
 using Documents.Infrastructure.Persistence;
 using Documents.Infrastructure.Services;
 using Microsoft.AspNetCore.Http.Features;
@@ -57,6 +58,10 @@ internal sealed class DocumentsModule : IModule
 
         var applicationAssembly = Assembly.Load("Documents.Application");
         services.AddModuleCqrs<DocumentsDbContext>(applicationAssembly);
+
+        // BF-1: the project scope. Must run AFTER AddModuleCqrs so it ends up outermost; scanned against the
+        // CONTRACTS assembly, where the IDocumentsScoped messages live (see DocumentsScopeRegistration).
+        services.AddDocumentsScopeDecorator(typeof(IDocumentsScoped).Assembly);
 
         // AttachmentHandler/DocumentApprovedHandler live in Documents.Application as `internal` classes
         // (Documents.Infrastructure has no InternalsVisibleTo grant from Documents.Application - only

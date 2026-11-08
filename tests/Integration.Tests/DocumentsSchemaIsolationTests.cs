@@ -12,8 +12,14 @@ namespace Integration.Tests;
 /// G7-08's schema-isolation assertion — same shape <c>ProjectsSchemaIsolationTests</c> established at
 /// G5-10, one module wider: a Documents-owned read issues no SQL touching <c>identity.</c>/<c>hr.</c>/
 /// <c>approvals.</c>/<c>projects.</c> — <c>GetProjectDocumentByIdQueryHandler</c> is a single
-/// <c>DocumentsDbContext</c> projection with no cross-module lookup at all, so this is a stronger claim
-/// than Projects' own version (which only reaches its ReadAll bypass under a specific permission).
+/// <c>DocumentsDbContext</c> projection with no cross-module lookup at all.
+///
+/// <para><b>BF-1: the caller carries <c>project.read_all</c>, as Projects' own version does.</b> Documents is
+/// project-scoped now, so a read first asks <c>IProjectAccessGuard</c> — a Projects contract, which reads
+/// Projects' (and, for the caller's employee id, HR's) tables on Projects' side of the boundary, legitimately.
+/// <c>read_all</c> is the guard's bypass and is read off the caller without SQL, which leaves exactly what this
+/// test is about: Documents' own read touches no other schema. The member path through the guard is covered by
+/// <c>DocumentsScopeRouteTests</c>.</para>
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class DocumentsSchemaIsolationTests(ApiFixture fixture)
@@ -28,7 +34,8 @@ public sealed class DocumentsSchemaIsolationTests(ApiFixture fixture)
             fixture, $"doc-schema-{suffix}@example.com");
 
         string token = fixture.IssueTestToken(
-            appUserId, "employees.create", "stages.manage", "project.create", "documents.upload", "documents.read");
+            appUserId, "employees.create", "stages.manage", "project.create", "documents.upload", "documents.read",
+            "project.read_all");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // project_documents.project_id carries a real cross-schema FK to projects.projects (G7-04) - a
