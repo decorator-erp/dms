@@ -16,7 +16,8 @@ internal sealed class GetCrmCatalogItemsByCategoryQueryHandler(CrmDbContext db)
             .Where(i => i.CategoryId == query.CategoryId)
             .OrderBy(i => i.SortOrder)
             .Select(i => new CrmCatalogItemResponse(
-                i.Id, i.CategoryId, i.Code, i.NameEn, i.NameAr, i.IsPurchasable, i.SortOrder, i.IsActive))
+                i.Id, i.CategoryId, i.Code, i.NameEn, i.NameAr, i.IsPurchasable, i.SortOrder, i.IsActive,
+                i.DescriptionEn, i.DescriptionAr, i.ImageUri))
             .ToListAsync(ct);
 
         return items;

@@ -136,6 +136,13 @@ internal sealed class CrmCatalogEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Catalog.Read);
 
+        catalog.MapGet("/items/{itemId:guid}", async (
+            Guid itemId, IQueryHandler<GetCrmCatalogItemQuery, CrmCatalogItemDetailResponse> handler, CancellationToken ct) =>
+        {
+            Result<CrmCatalogItemDetailResponse> result = await handler.HandleAsync(new GetCrmCatalogItemQuery(itemId), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Catalog.Read);
+
         catalog.MapGet("/categories/{categoryId:guid}/attributes", async (
             Guid categoryId, IQueryHandler<GetCrmCatalogAttributesByCategoryQuery, IReadOnlyList<CrmCatalogAttributeResponse>> handler,
             CancellationToken ct) =>

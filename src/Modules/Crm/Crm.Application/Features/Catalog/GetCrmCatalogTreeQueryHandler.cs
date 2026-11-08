@@ -30,7 +30,7 @@ internal sealed class GetCrmCatalogTreeQueryHandler(CrmDbContext db)
                 .OrderBy(c => c.Depth).ThenBy(c => c.SortOrder)
                 .Select(c => new CrmCatalogCategoryResponse(
                     c.Id, c.ParentId, c.Code, c.NameEn, c.NameAr, CrmEnumMapping.ToContracts(c.SelectionMode),
-                    c.IsRequired, c.SortOrder, c.Path, c.Depth, c.IsActive))];
+                    c.IsRequired, c.SortOrder, c.Path, c.Depth, c.IsActive, c.DescriptionEn, c.DescriptionAr, c.ImageUri))];
             return picker;
         }
 
@@ -38,7 +38,7 @@ internal sealed class GetCrmCatalogTreeQueryHandler(CrmDbContext db)
             .OrderBy(c => c.Depth).ThenBy(c => c.SortOrder)
             .Select(c => new CrmCatalogCategoryResponse(
                 c.Id, c.ParentId, c.Code, c.NameEn, c.NameAr, CrmEnumMapping.ToContracts(c.SelectionMode),
-                c.IsRequired, c.SortOrder, c.Path, c.Depth, c.IsActive))
+                c.IsRequired, c.SortOrder, c.Path, c.Depth, c.IsActive, c.DescriptionEn, c.DescriptionAr, c.ImageUri))
             .ToListAsync(ct);
 
         return categories;
