@@ -140,6 +140,38 @@ internal sealed class SubmitVariationCommandHandler(FinanceDbContext db)
     }
 }
 
+internal sealed class UpdateVariationDescriptionCommandValidator : AbstractValidator<UpdateVariationDescriptionCommand>
+{
+    public UpdateVariationDescriptionCommandValidator()
+    {
+        RuleFor(x => x.Id).NotEmpty();
+        RuleFor(x => x.Description).MaximumLength(512);
+    }
+}
+
+/// <summary>Draft only (<see cref="Variation.UpdateDescription"/>); any other status is a 409.</summary>
+internal sealed class UpdateVariationDescriptionCommandHandler(FinanceDbContext db)
+    : ICommandHandler<UpdateVariationDescriptionCommand>
+{
+    public async Task<Result> HandleAsync(UpdateVariationDescriptionCommand command, CancellationToken ct = default)
+    {
+        Variation? variation = await db.Variations.FirstOrDefaultAsync(v => v.Id == command.Id && v.IsActive, ct);
+        if (variation is null)
+        {
+            return VariationErrors.NotFound;
+        }
+
+        Result updated = variation.UpdateDescription(command.Description);
+        if (updated.IsFailure)
+        {
+            return updated.Error;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return Result.Success();
+    }
+}
+
 internal sealed class ApproveVariationCommandValidator : AbstractValidator<ApproveVariationCommand>
 {
     public ApproveVariationCommandValidator()

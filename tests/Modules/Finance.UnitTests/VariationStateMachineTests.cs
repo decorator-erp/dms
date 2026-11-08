@@ -329,6 +329,34 @@ public class VariationStateMachineTests
         }
     }
 
+    // ── S4: the description is editable in Draft only ─────────────────────────
+
+    [Fact]
+    public void UpdateDescription_InDraft_ReplacesIt_AndBlankClearsIt()
+    {
+        Variation variation = InternalChange();
+
+        Assert.True(variation.UpdateDescription("Revised scope").IsSuccess);
+        Assert.Equal("Revised scope", variation.Description);
+
+        Assert.True(variation.UpdateDescription("   ").IsSuccess);
+        Assert.Null(variation.Description);
+    }
+
+    [Fact]
+    public void UpdateDescription_AfterSubmit_FailsWithDescriptionNotEditable_AndKeepsIt()
+    {
+        Variation variation = InternalChange();
+        variation.UpdateDescription("Before submit");
+        variation.Submit();
+
+        Result result = variation.UpdateDescription("After submit");
+
+        Assert.Equal(VariationErrors.DescriptionNotEditable, result.Error);
+        Assert.Equal(409, result.Error.Status);
+        Assert.Equal("Before submit", variation.Description);
+    }
+
     private static IEnumerable<Func<Variation>> TerminalFactories()
     {
         yield return () =>

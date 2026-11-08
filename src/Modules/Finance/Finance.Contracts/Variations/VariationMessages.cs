@@ -32,6 +32,9 @@ public sealed record RejectVariationRequest(string? Note = null);
 
 public sealed record CancelVariationRequest(string? Note = null);
 
+/// <summary>Draft only. An empty or whitespace description clears it.</summary>
+public sealed record UpdateVariationDescriptionRequest(string? Description);
+
 // ── Responses ──────────────────────────────────────────────────────────────────
 
 public sealed record VariationResponse(
@@ -101,6 +104,8 @@ public sealed record ApplyVariationCommand(Guid Id, Guid RecordedById) : IComman
 public sealed record RejectVariationCommand(Guid Id, Guid RejectedById, string? Note = null) : ICommand;
 
 public sealed record CancelVariationCommand(Guid Id, string? Note = null) : ICommand;
+
+public sealed record UpdateVariationDescriptionCommand(Guid Id, string? Description) : ICommand;
 
 // ── Queries ────────────────────────────────────────────────────────────────────
 

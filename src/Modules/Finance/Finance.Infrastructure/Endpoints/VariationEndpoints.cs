@@ -15,7 +15,7 @@ using SharedKernel;
 namespace Finance.Infrastructure.Endpoints;
 
 /// <summary>
-/// Variations — eleven routes, and the only surface in the module using four different permissions.
+/// Variations — twelve routes, and the only surface in the module using four different permissions.
 ///
 /// <para><b>The split is the point.</b> <c>finance.manage_variation</c> is the AUTHORING bucket: raise,
 /// submit, reject, cancel. <c>finance.variations.approve</c>, <c>.sign</c> and <c>.apply</c> are three
@@ -56,6 +56,15 @@ internal sealed class VariationEndpoints : IEndpoint
             Guid id, ICommandHandler<SubmitVariationCommand> handler, CancellationToken ct) =>
         {
             Result result = await handler.HandleAsync(new SubmitVariationCommand(id), ct);
+
+            return result.Match(Results.NoContent, r => r.ToProblem());
+        }).RequirePermission(FinancePermissions.ManageVariation);
+
+        group.MapPut("/{id:guid}/description", async (
+            Guid id, UpdateVariationDescriptionRequest request,
+            ICommandHandler<UpdateVariationDescriptionCommand> handler, CancellationToken ct) =>
+        {
+            Result result = await handler.HandleAsync(new UpdateVariationDescriptionCommand(id, request.Description), ct);
 
             return result.Match(Results.NoContent, r => r.ToProblem());
         }).RequirePermission(FinancePermissions.ManageVariation);

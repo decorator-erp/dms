@@ -174,6 +174,11 @@ internal static class VariationErrors
     public static readonly Error InvalidStatusTransition = Error.BadRequest(
         $"{Code}.InvalidStatusTransition", "The variation status does not allow this operation.");
 
+    /// <summary>S4: the same code as <see cref="InvalidStatusTransition"/>, as a 409 — the description edit is new, so it
+    /// follows the house order (state is a 409) without moving the older transitions' 400.</summary>
+    public static readonly Error DescriptionNotEditable = Error.Conflict(
+        $"{Code}.InvalidStatusTransition", "Only a draft variation's description can be edited.");
+
     public static readonly Error NotApproved = Error.BadRequest(
         $"{Code}.NotApproved", "Only approved variations can be applied.");
 
