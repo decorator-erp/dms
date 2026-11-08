@@ -46,6 +46,8 @@ internal static class BaselineClaimSeeder
 
     public const string V6MarkerKey = "baseline-claims-v6";
 
+    public const string V7MarkerKey = "baseline-claims-v7";
+
     public static readonly IReadOnlyDictionary<string, string[]> Baseline = new Dictionary<string, string[]>
     {
         [DefaultRoles.Employee] = ["employees.view_own", "notifications.view_own"],
@@ -104,11 +106,26 @@ internal static class BaselineClaimSeeder
         [DefaultRoles.Employee] = ["crm.spaces.read", "crm.catalog.read", "documents.read", "documents.upload"],
     };
 
+    /// <summary>P2-A: the client reads what the office shares with it in the portal.
+    /// <list type="bullet">
+    /// <item><c>crm.portal.files.view_own</c>: the shared documents, the gallery (images and site photos) and the
+    /// file stream.</item>
+    /// <item><c>crm.portal.progress.view_own</c>: the overview (progress %, stage timeline, counts), the shared
+    /// tasks and the published updates.</item>
+    /// </list>
+    /// Both are reads of the caller's OWN projects only (the handlers check <c>project.ClientId</c>, else 404), and
+    /// both open nothing by themselves: every section starts switched off and nothing is shared until the office
+    /// shares it. Never the office's <c>crm.portal.manage</c>. Literal codes, as in v1–v6.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> BaselineV7 = new Dictionary<string, string[]>
+    {
+        [DefaultRoles.Client] = ["crm.portal.files.view_own", "crm.portal.progress.view_own"],
+    };
+
     /// <summary>Applied in order, each behind its own marker.</summary>
     private static readonly (string MarkerKey, IReadOnlyDictionary<string, string[]> Claims)[] Steps =
     [
         (MarkerKey, Baseline), (V2MarkerKey, BaselineV2), (V3MarkerKey, BaselineV3), (V4MarkerKey, BaselineV4),
-        (V5MarkerKey, BaselineV5), (V6MarkerKey, BaselineV6),
+        (V5MarkerKey, BaselineV5), (V6MarkerKey, BaselineV6), (V7MarkerKey, BaselineV7),
     ];
 
     public static async Task SeedAsync(

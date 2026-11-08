@@ -31,7 +31,7 @@ public class CrmDbContextConfigurationTests
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Count(p => p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>));
 
-        Assert.Equal(26, dbSetPropertyCount); // 24 + crm-complete F6 CrmSpaceSelection, CrmSpaceSelectionOption
+        Assert.Equal(30, dbSetPropertyCount); // 24 + crm-complete F6 CrmSpaceSelection, CrmSpaceSelectionOption + P2-A portal settings, shares, updates, update shares
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class CrmDbContextConfigurationTests
             .Count(t => t.GetInterfaces().Any(i =>
                 i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEntityTypeConfiguration<>)));
 
-        Assert.Equal(26, configurationCount); // 24 + crm-complete F6 storefront configurations
+        Assert.Equal(30, configurationCount); // 24 + crm-complete F6 storefront configurations + P2-A four portal configurations
     }
 
     [Fact]

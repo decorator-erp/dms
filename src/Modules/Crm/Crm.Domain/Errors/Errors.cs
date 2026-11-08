@@ -502,3 +502,53 @@ internal static class CrmProjectAccessErrors
     public static readonly Error InsufficientLevel = Error.Forbidden(
         "crm.project.InsufficientLevel", "Your access to this project's CRM is read-only.");
 }
+
+/// <summary>P2-A: the office's portal management (settings, shares, updates).</summary>
+internal static class CrmPortalShareErrors
+{
+    public static readonly Error ShareNotFound = Error.NotFound("crm.portal.ShareNotFound", "Portal share was not found.");
+
+    public static readonly Error UpdateNotFound = Error.NotFound("crm.portal.UpdateNotFound", "Portal update was not found.");
+
+    /// <summary>The item does not exist (or is deleted) in its owning module, or belongs to another project.</summary>
+    public static readonly Error ItemNotFound = Error.NotFound(
+        "crm.portal.ItemNotFound", "The item to share was not found on this project.");
+
+    public static readonly Error InvalidItem = Error.BadRequest("crm.portal.InvalidItem", "The item to share is not valid.");
+
+    public static readonly Error NotAnImage = Error.BadRequest(
+        "crm.portal.NotAnImage", "Only a document whose content type is image/* can be shared as an image.");
+
+    public static readonly Error NotAPhoto = Error.BadRequest(
+        "crm.portal.NotAPhoto", "Only a site attachment of kind Photo can be shared as a site photo.");
+
+    public static readonly Error AlreadyShared = Error.Conflict(
+        "crm.portal.AlreadyShared", "This item is already shared with the client.");
+
+    public static readonly Error TitleTooLong = Error.BadRequest(
+        "crm.portal.TitleTooLong", "The title is at most 200 characters.");
+
+    public static readonly Error NoteTooLong = Error.BadRequest(
+        "crm.portal.NoteTooLong", "The note is at most 2000 characters.");
+
+    public static readonly Error BodyTooLong = Error.BadRequest(
+        "crm.portal.BodyTooLong", "The update body is at most 10000 characters.");
+
+    public static readonly Error UpdateTitleRequired = Error.BadRequest(
+        "crm.portal.UpdateTitleRequired", "An update needs a title.");
+
+    /// <summary>Two first saves of the same project's settings raced; the loser retries.</summary>
+    public static readonly Error SettingsChanged = Error.Conflict(
+        "crm.portal.SettingsChanged", "The portal settings were changed at the same time. Try again.");
+
+    public static readonly Error AlreadyPublished = Error.Conflict(
+        "crm.portal.AlreadyPublished", "This update is already published.");
+
+    /// <summary>The order lists a share that is not an active share of the project, or one share twice.</summary>
+    public static readonly Error InvalidOrder = Error.BadRequest(
+        "crm.portal.InvalidOrder", "The order must list active shares of this project, each once.");
+
+    /// <summary>An update attaches only active Document, Image or SitePhoto shares of its own project.</summary>
+    public static readonly Error InvalidAttachment = Error.BadRequest(
+        "crm.portal.InvalidAttachment", "An update can attach only shared documents, images or site photos of this project.");
+}

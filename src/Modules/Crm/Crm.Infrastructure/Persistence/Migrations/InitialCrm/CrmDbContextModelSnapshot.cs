@@ -1366,6 +1366,185 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                     b.ToTable("crm_meeting_slots", "crm");
                 });
 
+            modelBuilder.Entity("Crm.Domain.CrmPortalSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ShowDocuments")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowGallery")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowProgress")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowSiteSurveys")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowTasks")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowUpdates")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_portal_settings_project");
+
+                    b.ToTable("crm_portal_settings", "crm");
+                });
+
+            modelBuilder.Entity("Crm.Domain.CrmPortalShare", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("ClientTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("FollowLatest")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ItemKind")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RootDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SharedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SharedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SharedById");
+
+                    b.HasIndex("ProjectId", "IsActive", "SortOrder");
+
+                    b.HasIndex("ProjectId", "ItemKind", "ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_crm_portal_shares_active_item")
+                        .HasFilter("\"IsActive\"");
+
+                    b.ToTable("crm_portal_shares", "crm");
+                });
+
+            modelBuilder.Entity("Crm.Domain.CrmPortalUpdate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(10000)
+                        .HasColumnType("character varying(10000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("PublishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorId");
+
+                    b.HasIndex("ProjectId", "IsActive");
+
+                    b.ToTable("crm_portal_updates", "crm");
+                });
+
+            modelBuilder.Entity("Crm.Domain.CrmPortalUpdateShare", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ShareId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UpdateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShareId");
+
+                    b.HasIndex("UpdateId", "ShareId")
+                        .IsUnique();
+
+                    b.ToTable("crm_portal_update_shares", "crm");
+                });
+
             modelBuilder.Entity("Crm.Domain.CrmRequirementItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2018,6 +2197,21 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Crm.Domain.CrmPortalUpdateShare", b =>
+                {
+                    b.HasOne("Crm.Domain.CrmPortalShare", null)
+                        .WithMany()
+                        .HasForeignKey("ShareId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Crm.Domain.CrmPortalUpdate", null)
+                        .WithMany("Attachments")
+                        .HasForeignKey("UpdateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Crm.Domain.CrmRequirementItem", b =>
                 {
                     b.HasOne("Crm.Domain.CrmContact", null)
@@ -2129,6 +2323,11 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .HasForeignKey("SelectionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Crm.Domain.CrmPortalUpdate", b =>
+                {
+                    b.Navigation("Attachments");
                 });
 
             modelBuilder.Entity("Crm.Domain.CrmSpaceSelection", b =>

@@ -130,6 +130,7 @@ internal sealed class CrmProjectScope(
             "Crm.Contracts.Items" => CrmItemErrors.NotFound,
             "Crm.Contracts.Spaces" => CrmSpaceErrors.SpaceNotFound,
             "Crm.Contracts.Meetings" => CrmMeetingErrors.NotFound,
+            "Crm.Contracts.Portal" => CrmPortalErrors.NotFound, // P2-A: the office's portal management
             _ => CrmBriefErrors.NotFound,
         },
     };

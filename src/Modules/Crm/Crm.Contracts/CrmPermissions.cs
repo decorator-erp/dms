@@ -159,6 +159,20 @@ public static class CrmPermissions
         public const string SubmitOwn = "requirements.submit_own";
     }
 
+    /// <summary>P2-A: client portal visibility. <see cref="Manage"/> is the office's (section switches, shares,
+    /// updates, preview — every route project-scoped through <c>CrmProjectScopeDecorator</c>); the two <c>_own</c>
+    /// codes are the client's (baseline v7), and still open only what the switches and the shares allow.</summary>
+    public static class PortalVisibility
+    {
+        public const string Manage = "crm.portal.manage";
+
+        /// <summary>Client-side: shared documents, the gallery and the file stream.</summary>
+        public const string FilesViewOwn = "crm.portal.files.view_own";
+
+        /// <summary>Client-side: the overview (progress, stage timeline, counts), shared tasks and published updates.</summary>
+        public const string ProgressViewOwn = "crm.portal.progress.view_own";
+    }
+
     /// <summary>Every string above, in declaration order. The one list <c>CrmModule</c> registers as
     /// its <c>IModulePermissions</c> set — never re-typed at the registration site.</summary>
     public static readonly IReadOnlyList<string> All =
@@ -197,5 +211,7 @@ public static class CrmPermissions
         Approvals.ViewOwn, Approvals.DecideOwn,
 
         Requirements.ViewOwn, Requirements.SubmitOwn,
+
+        PortalVisibility.Manage, PortalVisibility.FilesViewOwn, PortalVisibility.ProgressViewOwn,
     ];
 }

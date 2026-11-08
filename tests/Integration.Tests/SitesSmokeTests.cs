@@ -62,10 +62,18 @@ public sealed class SitesSmokeTests(ApiFixture fixture)
     /// <summary>P1-A: <c>project.manage_access</c> (project access grants).</summary>
     private static readonly string[] ProjectsAddedByAccessGrants = [ProjectsPermissions.Projects.ManageAccess];
 
+    /// <summary>P2-A client portal visibility: the office's manage code and the client's two <c>_own</c> reads.</summary>
+    private static readonly string[] CrmAddedByPortalVisibility =
+    [
+        CrmPermissions.PortalVisibility.Manage, CrmPermissions.PortalVisibility.FilesViewOwn,
+        CrmPermissions.PortalVisibility.ProgressViewOwn,
+    ];
+
     private static int TotalPermissionsAcrossAllModules =>
         PermissionsThroughPhase5 + NotificationsPermissions.All.Count + FinancePermissions.All.Count
         + ProjectsPermissions.Scope.All.Count + CrmAddedByBackendCompletion.Length + ProjectsAddedByCrmComplete.Length
-        + ProjectsAddedByAccessGrants.Length;
+        + ProjectsAddedByAccessGrants.Length
+        + CrmAddedByPortalVisibility.Length;
 
     [Fact]
     public async Task GetPermissions_ContainsAllSevenSitesPermissionStrings()
