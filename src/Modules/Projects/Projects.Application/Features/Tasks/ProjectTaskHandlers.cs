@@ -321,7 +321,7 @@ internal sealed class GetProjectTaskQueryHandler(ProjectsDbContext db) : IQueryH
         new ProjectTaskResponse(
             t.Id, t.ProjectId, t.ProjectStageId, t.Name, t.Description, t.Order,
             ProjectsEnumMapping.ToContracts(t.Status), ProjectsEnumMapping.ToContracts(t.Priority), t.Weight,
-            t.AssignedToId, t.DepartmentId, t.DueDate, t.Cost);
+            t.AssignedToId, t.DepartmentId, t.DueDate, t.Cost, t.Notes);
 }
 
 /// <summary>P1-A: a caller whose access is only a stage-limited grant sees only the granted stages' tasks

@@ -247,7 +247,8 @@ internal static class GateApprovalRequests
         Result<ApprovalRequestOutcome> requestResult = await approvalRequester.RequestAsync(
             new ApprovalRequest(
                 GateApprovalIds.For(gate.Id), ApprovalSubjectType.GateCondition, gate.Id,
-                (global::Approvals.Contracts.ApprovalType)approvalType, requestedByUserId, approvers, DueAtUtc: null),
+                (global::Approvals.Contracts.ApprovalType)approvalType, requestedByUserId, approvers, DueAtUtc: null,
+                ProjectId: projectId),
             ct);
         if (requestResult.IsFailure)
         {
@@ -432,7 +433,8 @@ internal sealed class GetStageGateConditionsQueryHandler(ProjectsDbContext db)
             g.Id, g.ProjectStageId, g.ProjectTaskId, ProjectsEnumMapping.ToContracts(g.ConditionType),
             ProjectsEnumMapping.ToContracts(g.Trigger), g.Label, g.ReferencedTaskId, g.ReferencedStageId,
             g.ApprovalType == null ? null : ProjectsEnumMapping.ToContracts(g.ApprovalType.Value),
-            ProjectsEnumMapping.ToContracts(g.Status), g.ApprovalId);
+            ProjectsEnumMapping.ToContracts(g.Status), g.ApprovalId,
+            g.ReferencedDocumentId, g.ResolvedById, g.ResolvedAt, g.ResolutionNote);
 }
 
 internal sealed class GetTaskGateConditionsQueryHandler(ProjectsDbContext db)

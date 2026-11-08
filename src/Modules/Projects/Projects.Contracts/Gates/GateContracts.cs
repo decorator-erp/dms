@@ -8,7 +8,8 @@ namespace Projects.Contracts.Gates;
 public sealed record GateConditionResponse(
     Guid Id, Guid? ProjectStageId, Guid? ProjectTaskId, ConditionType ConditionType, GateTrigger Trigger,
     string Label, Guid? ReferencedTaskId, Guid? ReferencedStageId, ApprovalType? ApprovalType,
-    GateStatus Status, Guid? ApprovalId);
+    GateStatus Status, Guid? ApprovalId,
+    Guid? ReferencedDocumentId, Guid? ResolvedById, DateTime? ResolvedAt, string? ResolutionNote);
 
 /// <summary><see cref="ReferencedDocumentId"/> added at G7-07 — a trailing optional positional parameter,
 /// additive and source-compatible, mirroring <c>GateConditionContext</c>'s own G7-02 extension. Without

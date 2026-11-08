@@ -53,7 +53,7 @@ internal sealed class GetMyPendingApprovalsQueryHandler(ApprovalsDbContext db, I
 
         var items = approvals.Select(a => new PendingApprovalResponse(
             a.Id, ApprovalEnumMapping.ToContracts(a.SubjectType), a.SubjectId,
-            ApprovalEnumMapping.ToContracts(a.Type), a.Round, a.DueAtUtc)).ToList();
+            ApprovalEnumMapping.ToContracts(a.Type), a.Round, a.DueAtUtc, a.ProjectId)).ToList();
 
         return new PagedResult<PendingApprovalResponse>(items, query.PageNumber, query.PageSize, totalCount);
     }

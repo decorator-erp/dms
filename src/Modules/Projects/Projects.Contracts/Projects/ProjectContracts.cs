@@ -23,13 +23,16 @@ namespace Projects.Contracts.Projects;
 /// <para>P1-A: <see cref="MyAccess"/> says where that level comes from (membership, a grant or
 /// <c>project.read_all</c>) and, for a grant, which areas and stages it covers and when it ends. <see cref="MyLevel"/>
 /// equals <c>MyAccess.Level</c>.</para>
+///
+/// <para>S6: <see cref="ClientName"/> (the client login's display name) and <see cref="OwnerName"/> (the owner
+/// employee's full name) are read in batches for the whole page; null when either cannot be resolved.</para>
 /// </summary>
 public sealed record ProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,
     string Address, string? Notes, decimal ProgressPercentage,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
     Guid ClientId, Guid OwnerId, bool IsActive, int StageCount, ProjectMemberAccess MyLevel,
-    ProjectAccessResponse MyAccess);
+    ProjectAccessResponse MyAccess, string? ClientName, string? OwnerName);
 
 public sealed record CreateProjectCommand(
     string Code, string Name, string Address, WorkflowType WorkflowType, Guid ClientId,

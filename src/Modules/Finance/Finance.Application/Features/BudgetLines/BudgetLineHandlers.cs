@@ -206,7 +206,8 @@ internal sealed class GetBudgetLineByIdQueryHandler(FinanceDbContext db)
                 b.ActualAmount,
                 b.AllocatedAmount + b.AdjustmentAllocation - b.CommittedAmount - b.ActualAmount,
                 b.CreatedAtUtc,
-                b.UpdatedAtUtc))
+                b.UpdatedAtUtc,
+                db.CostCategories.Where(c => c.Id == b.CostCategoryId).Select(c => c.Name).FirstOrDefault()))
             .FirstOrDefaultAsync(ct);
 
         return response is null ? BudgetLineErrors.NotFound : response;
@@ -258,7 +259,8 @@ internal sealed class GetBudgetLinesByProjectQueryHandler(FinanceDbContext db)
                 b.AllocatedAmount + b.AdjustmentAllocation,
                 b.CommittedAmount,
                 b.ActualAmount,
-                b.AllocatedAmount + b.AdjustmentAllocation - b.CommittedAmount - b.ActualAmount))
+                b.AllocatedAmount + b.AdjustmentAllocation - b.CommittedAmount - b.ActualAmount,
+                db.CostCategories.Where(c => c.Id == b.CostCategoryId).Select(c => c.Name).FirstOrDefault()))
             .ToListAsync(ct);
 
         return items;

@@ -54,7 +54,8 @@ internal sealed class ApprovalRequester(ApprovalsDbContext db) : IApprovalReques
             ToDomain(request.Type),
             request.RequestedByUserId,
             [.. request.Approvers.Select(a => new Domain.ApproverEntry(ToDomain(a.Kind), a.ApproverUserId))],
-            request.DueAtUtc);
+            request.DueAtUtc,
+            request.ProjectId);
 
         db.Approvals.Add(approval);
         db.Outbox().Enqueue(new ApprovalRequestedIntegrationEvent(

@@ -33,7 +33,8 @@ internal sealed class UserDirectory(UserManager<ApplicationUser> userManager) : 
                 u.Id,
                 u.Email!,
                 u.FirstName + " " + u.LastName,
-                u.IsActive))
+                u.IsActive,
+                u.PhoneNumber))
             .FirstOrDefaultAsync(ct);
 
     public async Task<IReadOnlyList<UserSummary>> GetManyAsync(IReadOnlyCollection<string> ids, CancellationToken ct)
@@ -46,7 +47,7 @@ internal sealed class UserDirectory(UserManager<ApplicationUser> userManager) : 
         return await userManager.Users
             .AsNoTracking()
             .Where(u => ids.Contains(u.Id))
-            .Select(u => new UserSummary(u.Id, u.Email!, u.FirstName + " " + u.LastName, u.IsActive))
+            .Select(u => new UserSummary(u.Id, u.Email!, u.FirstName + " " + u.LastName, u.IsActive, u.PhoneNumber))
             .ToListAsync(ct);
     }
 }

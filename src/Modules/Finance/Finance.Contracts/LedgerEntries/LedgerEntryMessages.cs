@@ -48,6 +48,8 @@ public sealed record LedgerEntryResponse(
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc);
 
+/// <summary><see cref="IsReversed"/>: a reversal of this entry exists (the entry has been reversed, not "is a
+/// reversal").</summary>
 public sealed record LedgerEntryListItemResponse(
     Guid Id,
     Guid ProjectId,
@@ -59,7 +61,9 @@ public sealed record LedgerEntryListItemResponse(
     DateOnly OccurredOn,
     Guid? ClientId,
     string? VendorName,
-    string? Reference);
+    string? Reference,
+    bool IsReversed,
+    string? Note);
 
 /// <summary><see cref="UnallocatedAmount"/> is <see cref="Amount"/> less the sum of this entry's
 /// allocations — the ceiling any further allocation is bounded by.</summary>

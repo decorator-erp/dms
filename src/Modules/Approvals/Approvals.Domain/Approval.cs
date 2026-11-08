@@ -31,6 +31,11 @@ internal sealed class Approval : Entity, IAuditable
     public DateTimeOffset? DueAtUtc { get; private set; }
     public DateTimeOffset? DecidedAtUtc { get; private set; }
 
+    /// <summary>The project the subject belongs to, when the requesting module knows it; null for rows made before
+    /// the column existed. A bare id (Approvals never reads another module), denormalised so the inbox can link a
+    /// row to its project without resolving the subject.</summary>
+    public Guid? ProjectId { get; private set; }
+
     /// <summary>
     /// Computed, not stored: the backend's <c>ApprovalState</c> is a CRM-artifact confirmation state and
     /// never a property of <c>Approval</c> itself; repurposed here as this entity's own lifecycle.
@@ -69,8 +74,9 @@ internal sealed class Approval : Entity, IAuditable
         ApprovalType type,
         string requestedByUserId,
         IReadOnlyCollection<ApproverEntry> approvers,
-        DateTimeOffset? dueAtUtc = null) =>
-        Create(Guid.CreateVersion7(), subjectType, subjectId, type, requestedByUserId, approvers, dueAtUtc);
+        DateTimeOffset? dueAtUtc = null,
+        Guid? projectId = null) =>
+        Create(Guid.CreateVersion7(), subjectType, subjectId, type, requestedByUserId, approvers, dueAtUtc, projectId);
 
     /// <summary>The caller-supplied-id overload behind <c>ApprovalRequest.ApprovalId</c>: a caller that
     /// must request and then commit its own row in a separate transaction names the approval up front, so
@@ -83,7 +89,8 @@ internal sealed class Approval : Entity, IAuditable
         ApprovalType type,
         string requestedByUserId,
         IReadOnlyCollection<ApproverEntry> approvers,
-        DateTimeOffset? dueAtUtc = null)
+        DateTimeOffset? dueAtUtc = null,
+        Guid? projectId = null)
     {
         var approval = new Approval(id)
         {
@@ -92,6 +99,7 @@ internal sealed class Approval : Entity, IAuditable
             Type = type,
             RequestedByUserId = requestedByUserId,
             DueAtUtc = dueAtUtc,
+            ProjectId = projectId,
             Round = 1,
         };
         approval._approvers.AddRange(approvers);

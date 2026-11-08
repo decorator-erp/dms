@@ -6,7 +6,7 @@ namespace Projects.Contracts.Tasks;
 public sealed record ProjectTaskResponse(
     Guid Id, Guid ProjectId, Guid? ProjectStageId, string Name, string? Description, int Order,
     ProjectTaskStatus Status, TaskPriority Priority, decimal Weight, Guid? AssignedToId, Guid? DepartmentId,
-    DateTime? DueDate, decimal? Cost);
+    DateTime? DueDate, decimal? Cost, string? Notes);
 
 /// <summary><paramref name="EmployeeId"/> is validated via <c>Hr.Contracts.IHrDirectory.GetAsync</c> in
 /// the handler (G5-07) — an unknown/inactive employee id is rejected, never silently stored.</summary>

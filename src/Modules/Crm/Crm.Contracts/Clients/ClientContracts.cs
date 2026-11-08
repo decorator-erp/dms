@@ -81,10 +81,11 @@ public sealed record GetClientByIdQuery(Guid ClientId, string UserId) : IQuery<C
 
 /// <summary>C-3 (LC-M3): one row of the client list — the CRM columns plus the portal login's display
 /// name and email, read in one bulk <c>IUserDirectory</c> call. No <c>AppUserId</c>, notes, marital
-/// status or children: those are on <see cref="GetClientByIdQuery"/>.</summary>
+/// status or children: those are on <see cref="GetClientByIdQuery"/>. <see cref="PhoneNumber"/> is the portal
+/// login's phone, from the same bulk call.</summary>
 public sealed record ClientListItemResponse(
     Guid Id, string? DisplayName, string? Email, string Address, string? JobTitle, string? RepresentativeName,
-    bool IsActive, DateTime CreatedAtUtc);
+    bool IsActive, DateTime CreatedAtUtc, string? PhoneNumber);
 
 /// <summary>C-3 (LC-M3): paged, newest first — <see cref="PageNumber"/> from 1, <see cref="PageSize"/>
 /// 1..200. <see cref="Search"/> matches the address and the representative's name. Without
