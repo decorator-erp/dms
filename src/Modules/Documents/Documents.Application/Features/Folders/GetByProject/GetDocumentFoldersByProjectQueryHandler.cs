@@ -1,13 +1,17 @@
+using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using Documents.Contracts.Folders;
 using Documents.Domain;
 using Documents.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Projects.Contracts;
 using SharedKernel;
 
 namespace Documents.Application.Features.Folders.GetByProject;
 
-internal sealed class GetDocumentFoldersByProjectQueryHandler(DocumentsDbContext db)
+/// <summary>P1-A: folders outside a stage-limited grant's stages are dropped (<see cref="DocumentStageFilter"/>).</summary>
+internal sealed class GetDocumentFoldersByProjectQueryHandler(
+    DocumentsDbContext db, IProjectAccessGuard guard, IProjectDirectory projects, ICurrentUser currentUser)
     : IQueryHandler<GetDocumentFoldersByProjectQuery, IReadOnlyList<DocumentFolderResponse>>
 {
     public async Task<Result<IReadOnlyList<DocumentFolderResponse>>> HandleAsync(
@@ -19,7 +23,8 @@ internal sealed class GetDocumentFoldersByProjectQueryHandler(DocumentsDbContext
             .Select(ToResponse())
             .ToListAsync(ct);
 
-        return folders;
+        return await DocumentStageFilter.ApplyAsync(
+                guard, projects, currentUser, query.ProjectId, folders, f => f.ProjectStageId, f => f.ProjectTaskId, ct);
     }
 
     internal static System.Linq.Expressions.Expression<Func<DocumentFolder, DocumentFolderResponse>> ToResponse() => f =>

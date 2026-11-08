@@ -62,8 +62,13 @@ internal static class CrmProjectScopeDecorator
     }
 }
 
-/// <summary>The resolve-then-guard step <see cref="CrmProjectScopeDecorator"/> runs.</summary>
-internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory projects, IProjectAccessGuard guard)
+/// <summary>The resolve-then-guard step <see cref="CrmProjectScopeDecorator"/> runs.
+/// <para>P1-A: it names the <see cref="ProjectAccessArea.Crm"/> area, with the stage when the target is a stage or a
+/// task (anything else is project-level, which a stage-limited grant does not cover). Reads ask the guard. Writes keep
+/// the guard-only rule for members and <c>read_all</c> (unchanged), and need Editor when the caller's only access is a
+/// grant (403 <see cref="CrmProjectAccessErrors.InsufficientLevel"/>).</para></summary>
+internal sealed class CrmProjectScope(
+    CrmDbContext db, IProjectDirectory projects, IProjectAccessGuard guard, IProjectAccessLevelReader levels)
 {
     public async Task<Result> EnsureAsync(ICrmProjectScoped message, CancellationToken ct)
     {
@@ -74,9 +79,37 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
             return notFound;
         }
 
-        Result access = await guard.EnsureProjectAccessAsync(projectId.Value, message.UserId, ct);
-        return access.IsFailure ? notFound : Result.Success();
+        Guid? stageId = message.ScopeTarget.Kind switch
+        {
+            CrmScopeTargetKind.Stage => message.ScopeTarget.Id,
+            CrmScopeTargetKind.ProjectTask => (await projects.GetTaskAsync(message.ScopeTarget.Id, ct))?.ProjectStageId,
+            _ => null,
+        };
+
+        if (!IsWrite(message))
+        {
+            Result access = await guard.EnsureProjectAccessAsync(projectId.Value, message.UserId, ProjectAccessArea.Crm, stageId, ct);
+            return access.IsFailure ? notFound : Result.Success();
+        }
+
+        // Membership (any level) or read_all: the guard-only rule this decorator always had.
+        if (await levels.GetLevelAsync(projectId.Value, message.UserId, ct) is not null)
+        {
+            return Result.Success();
+        }
+
+        ProjectMemberAccess? level = await levels.GetLevelAsync(projectId.Value, message.UserId, ProjectAccessArea.Crm, stageId, ct);
+        if (level is null)
+        {
+            return notFound;
+        }
+
+        return level.Value < ProjectMemberAccess.Editor ? CrmProjectAccessErrors.InsufficientLevel : Result.Success();
     }
+
+    private static bool IsWrite(object message) =>
+        message is ICommand || message.GetType().GetInterfaces()
+            .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
 
     /// <summary>A-1: the 404 names the area the caller asked about — an item route never answers "brief
     /// not found". D-16 / A-F7: chosen by the target's kind (an item created in an unknown period is
@@ -97,6 +130,7 @@ internal sealed class CrmProjectScope(CrmDbContext db, IProjectDirectory project
             "Crm.Contracts.Items" => CrmItemErrors.NotFound,
             "Crm.Contracts.Spaces" => CrmSpaceErrors.SpaceNotFound,
             "Crm.Contracts.Meetings" => CrmMeetingErrors.NotFound,
+            "Crm.Contracts.Portal" => CrmPortalErrors.NotFound, // P2-A: the office's portal management
             _ => CrmBriefErrors.NotFound,
         },
     };

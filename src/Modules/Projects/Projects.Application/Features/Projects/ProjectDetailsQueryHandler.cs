@@ -4,9 +4,11 @@ using Identity.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Tasks;
 using Projects.Contracts;
+using Projects.Contracts.Grants;
 using Projects.Contracts.Projects;
 using Projects.Contracts.Tasks;
 using Projects.Infrastructure.Persistence;
+using Projects.Infrastructure.Services;
 using SharedKernel;
 using Domain = Projects.Domain;
 
@@ -28,18 +30,24 @@ namespace Projects.Application.Features.Projects;
 ///
 /// <para>L1: <see cref="ProjectDetailsResponse.MyLevel"/> comes from <see cref="IProjectAccessLevelReader.GetLevelAsync"/>
 /// for the query's own user, as on <see cref="GetProjectQueryHandler"/>; no level is 404.</para>
+///
+/// <para>P1-A: <c>MyLevel</c> and <c>MyAccess</c> come from <see cref="ProjectAccessContext.GetAccessAsync"/>. A caller
+/// whose access is only a stage-limited grant sees only the granted stages, their tasks and their gates (no unstaged
+/// tasks); the task counts and gate summary are over what they see.</para>
 /// </summary>
 internal sealed class GetProjectDetailsQueryHandler(
-    ProjectsDbContext db, IClientDirectory clientDirectory, IUserDirectory userDirectory, IProjectAccessLevelReader levels)
+    ProjectsDbContext db, IClientDirectory clientDirectory, IUserDirectory userDirectory, ProjectAccessContext access)
     : IQueryHandler<GetProjectDetailsQuery, ProjectDetailsResponse>
 {
     public async Task<Result<ProjectDetailsResponse>> HandleAsync(GetProjectDetailsQuery query, CancellationToken ct = default)
     {
-        ProjectMemberAccess? level = await levels.GetLevelAsync(query.ProjectId, query.UserId, ct);
-        if (level is null)
+        IReadOnlyDictionary<Guid, ProjectAccessResponse> accesses = await access.GetAccessAsync([query.ProjectId], query.UserId, ct);
+        if (!accesses.TryGetValue(query.ProjectId, out ProjectAccessResponse? myAccess))
         {
             return Result.Failure<ProjectDetailsResponse>(Domain.ProjectErrors.NotFound);
         }
+
+        HashSet<Guid>? visibleStages = myAccess.StageIds.Count == 0 ? null : [.. myAccess.StageIds];
 
         ProjectRow? project = await db.Projects.AsNoTracking()
             .Where(p => p.Id == query.ProjectId)
@@ -80,6 +88,12 @@ internal sealed class GetProjectDetailsQueryHandler(
             .Select(GetProjectTaskQueryHandler.ToResponse())
             .ToListAsync(ct);
 
+        if (visibleStages is not null)
+        {
+            stages = [.. stages.Where(s => visibleStages.Contains(s.Id))];
+            tasks = [.. tasks.Where(t => t.ProjectStageId is { } stage && visibleStages.Contains(stage))];
+        }
+
         IQueryable<Guid> stageIds = db.ProjectStages.Where(s => s.ProjectId == query.ProjectId).Select(s => s.Id);
         IQueryable<Guid> taskIds = db.ProjectTasks.Where(t => t.ProjectId == query.ProjectId).Select(t => t.Id);
         var gates = await db.GateConditions.AsNoTracking()
@@ -87,6 +101,11 @@ internal sealed class GetProjectDetailsQueryHandler(
                 || g.ProjectTaskId != null && taskIds.Contains(g.ProjectTaskId.Value))
             .Select(g => new { g.ProjectStageId, g.ProjectTaskId, g.Status })
             .ToListAsync(ct);
+        if (visibleStages is not null)
+        {
+            HashSet<Guid> visibleTasks = [.. tasks.Select(t => t.Id)];
+            gates = [.. gates.Where(g => g.ProjectStageId is { } gs ? visibleStages.Contains(gs) : visibleTasks.Contains(g.ProjectTaskId!.Value))];
+        }
 
         ClientSummary? client = await clientDirectory.GetAsync(project.ClientId, ct);
         UserSummary? clientLogin = client is null ? null : await userDirectory.GetAsync(client.AppUserId, ct);
@@ -120,7 +139,8 @@ internal sealed class GetProjectDetailsQueryHandler(
             [.. tasks.Where(t => t.ProjectStageId is null)],
             CountByStatus(tasks),
             Summarize(gates.Select(g => g.Status)),
-            level.Value);
+            myAccess.Level,
+            myAccess);
     }
 
     private static List<TaskStatusCount> CountByStatus(IEnumerable<ProjectTaskResponse> tasks) =>

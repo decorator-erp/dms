@@ -39,6 +39,7 @@ public class EnumMappingParityTests
         yield return [typeof(Crm.Contracts.RequirementPeriodStatus), typeof(Domain.RequirementPeriodStatus)];
         yield return [typeof(Crm.Contracts.RequirementSource), typeof(Domain.RequirementSource)];
         yield return [typeof(Crm.Contracts.CrmProvisionStatus), typeof(Domain.CrmProvisionStatus)];
+        yield return [typeof(Crm.Contracts.PortalShareKind), typeof(Domain.PortalShareKind)];
     }
 
     public static IEnumerable<object[]> ValueOnlyMatchPairs()

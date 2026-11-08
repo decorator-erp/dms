@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Projects.Contracts;
 using Projects.Infrastructure.Decorators;
 using Projects.Infrastructure.Persistence;
@@ -22,8 +23,17 @@ internal sealed class ProjectsModule : IModule
     {
         services.AddModuleDbContext<ProjectsDbContext>(cfg);
 
+        // P1-A: the access sources (membership, read_all, grants) are read through one scoped context, on the
+        // host's clock. ImpliedPermissions is the per-request cache the route permission handlers fall back to;
+        // TryAdd, because it is a host-level service another module or the host may register first.
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<ImpliedPermissions>();
+        services.AddScoped<ProjectAccessContext>();
         services.AddScoped<IProjectAccessGuard, ProjectAccessGuard>();
         services.AddScoped<IProjectAccessLevelReader, ProjectAccessLevelReader>();
+        services.AddScoped<ProjectGrantPermissions>();
+        services.AddScoped<IProjectGrantPermissions>(sp => sp.GetRequiredService<ProjectGrantPermissions>());
+        services.AddScoped<IImpliedPermissionSource>(sp => sp.GetRequiredService<ProjectGrantPermissions>());
         services.AddScoped<IProjectDirectory, ProjectDirectory>();
 
         var applicationAssembly = Assembly.Load("Projects.Application");
@@ -73,6 +83,7 @@ internal sealed class ProjectsModule : IModule
                 ProjectsPermissions.Projects.ChangeStatus,
                 ProjectsPermissions.Projects.Delete,
                 ProjectsPermissions.Projects.ManageMembers,
+                ProjectsPermissions.Projects.ManageAccess,
                 ProjectsPermissions.Stages.Read,
                 ProjectsPermissions.Stages.Manage,
                 ProjectsPermissions.Stages.Complete,

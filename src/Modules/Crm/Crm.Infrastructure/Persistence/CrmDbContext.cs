@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Crm.Infrastructure.Persistence;
 
 /// <summary>
-/// 24 <see cref="DbSet{TEntity}"/> properties — one per entity with its own EF configuration.
+/// 24 <see cref="DbSet{TEntity}"/> properties at G9 (30 now: crm-complete F6 adds two, P2-A the four portal tables) — one per entity with its own EF configuration.
 /// <see cref="ClientChild"/> and <see cref="CatalogAttributeValueRules"/> deliberately have no
 /// `DbSet` — the former is JSON-owned inside <see cref="Client"/> (see
 /// <c>Configurations.ClientConfiguration</c>), the latter is a static rule class, not an entity. This
@@ -42,6 +42,10 @@ internal sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbC
     public DbSet<CrmRequirementItem> CrmRequirementItems => Set<CrmRequirementItem>();
     public DbSet<CrmClientNote> CrmClientNotes => Set<CrmClientNote>();
     public DbSet<CrmArtifactDocument> CrmArtifactDocuments => Set<CrmArtifactDocument>();
+    public DbSet<CrmPortalSettings> CrmPortalSettings => Set<CrmPortalSettings>();
+    public DbSet<CrmPortalShare> CrmPortalShares => Set<CrmPortalShare>();
+    public DbSet<CrmPortalUpdate> CrmPortalUpdates => Set<CrmPortalUpdate>();
+    public DbSet<CrmPortalUpdateShare> CrmPortalUpdateShares => Set<CrmPortalUpdateShare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

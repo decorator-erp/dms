@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Projects.Application.Features.Stages;
 using Projects.Contracts;
+using Projects.Contracts.Grants;
 using Projects.Contracts.Projects;
 using Projects.Domain;
 using Projects.Infrastructure.Persistence;
@@ -298,14 +299,15 @@ internal sealed class DeleteProjectCommandHandler(
 
 /// <summary>L1: <see cref="ProjectResponse.MyLevel"/> comes from <see cref="IProjectAccessLevelReader.GetLevelAsync"/> for the
 /// query's own <see cref="GetProjectQuery.UserId"/>, the reader the scope decorator enforces with. No level is 404,
-/// never a default level.</summary>
-internal sealed class GetProjectQueryHandler(ProjectsDbContext db, IProjectAccessLevelReader levels)
+/// never a default level. P1-A: the level and <see cref="ProjectResponse.MyAccess"/> come from
+/// <see cref="ProjectAccessContext.GetAccessAsync"/>, which also counts an active grant (membership wins over it).</summary>
+internal sealed class GetProjectQueryHandler(ProjectsDbContext db, ProjectAccessContext access)
     : IQueryHandler<GetProjectQuery, ProjectResponse>
 {
     public async Task<Result<ProjectResponse>> HandleAsync(GetProjectQuery query, CancellationToken ct = default)
     {
-        ProjectMemberAccess? level = await levels.GetLevelAsync(query.ProjectId, query.UserId, ct);
-        if (level is null)
+        IReadOnlyDictionary<Guid, ProjectAccessResponse> accesses = await access.GetAccessAsync([query.ProjectId], query.UserId, ct);
+        if (!accesses.TryGetValue(query.ProjectId, out ProjectAccessResponse? myAccess))
         {
             return Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound);
         }
@@ -315,7 +317,7 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db, IProjectAcces
             .Select(ToRow(db.ProjectStages, db.ProjectTasks))
             .FirstOrDefaultAsync(ct);
 
-        return row is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : row.ToResponse(level.Value);
+        return row is null ? Result.Failure<ProjectResponse>(Domain.ProjectErrors.NotFound) : row.ToResponse(myAccess);
     }
 
     /// <summary>The row projection. <paramref name="stages"/> and <paramref name="tasks"/> are the context's
@@ -350,17 +352,20 @@ internal sealed class GetProjectQueryHandler(ProjectsDbContext db, IProjectAcces
 /// <see cref="IProjectAccessLevelReader.GetLevelsAsync"/> call for the page's ids, never one call per row. C3: a row
 /// the reader gives no level is dropped, never shown with a default level, and logged as a warning — the filter
 /// above and the reader share their sources, so it should never happen.</para>
+///
+/// <para>P1-A: the filter and the levels come from <see cref="ProjectAccessContext"/>, so a project the caller has an
+/// active grant on (any area) is listed, with <c>MyAccess.Source</c> "Grant" and the grant's level. A grant never
+/// makes a project "mine".</para>
 /// </summary>
 internal sealed class GetProjectsQueryHandler(
-    ProjectsDbContext db, IHrDirectory hrDirectory, ICurrentUser currentUser, IProjectAccessLevelReader levelReader,
-    ILogger<GetProjectsQueryHandler> logger)
+    ProjectsDbContext db, IHrDirectory hrDirectory, ProjectAccessContext access, ILogger<GetProjectsQueryHandler> logger)
     : IQueryHandler<GetProjectsQuery, PagedResult<ProjectResponse>>
 {
     public async Task<Result<PagedResult<ProjectResponse>>> HandleAsync(GetProjectsQuery query, CancellationToken ct = default)
     {
         IQueryable<Project> projects = db.Projects.AsNoTracking().AsQueryable();
 
-        if (!currentUser.HasPermission(ProjectsPermissions.Projects.ReadAll))
+        if (!access.ReadAll)
         {
             Guid? employeeId = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct);
             if (employeeId is null)
@@ -368,7 +373,7 @@ internal sealed class GetProjectsQueryHandler(
                 return PagedResult<ProjectResponse>.Empty(query.PageNumber, query.PageSize);
             }
 
-            IQueryable<Guid> accessibleProjectIds = ProjectAccessGuard.AccessibleProjectIds(db, employeeId.Value);
+            IQueryable<Guid> accessibleProjectIds = ProjectAccessGuard.AccessibleProjectIds(access, employeeId.Value);
 
             projects = projects.Where(p => accessibleProjectIds.Contains(p.Id));
         }
@@ -410,14 +415,14 @@ internal sealed class GetProjectsQueryHandler(
             .Select(GetProjectQueryHandler.ToRow(db.ProjectStages, db.ProjectTasks))
             .ToListAsync(ct);
 
-        IReadOnlyDictionary<Guid, ProjectMemberAccess> levels =
-            await levelReader.GetLevelsAsync([.. rows.Select(r => r.Id)], query.UserId, ct);
+        IReadOnlyDictionary<Guid, ProjectAccessResponse> accesses =
+            await access.GetAccessAsync([.. rows.Select(r => r.Id)], query.UserId, ct);
         var items = new List<ProjectResponse>(rows.Count);
         foreach (ProjectRow row in rows)
         {
-            if (levels.TryGetValue(row.Id, out ProjectMemberAccess level))
+            if (accesses.TryGetValue(row.Id, out ProjectAccessResponse? myAccess))
             {
-                items.Add(row.ToResponse(level));
+                items.Add(row.ToResponse(myAccess));
             }
             else
             {

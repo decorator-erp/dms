@@ -85,7 +85,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         Guid projectId = await SeedProjectAsync(ownerId);
 
         await using ProjectsDbContext db = CreateContext(_ => { });
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
+        ProjectAccessGuard guard = Guard(db, employeeId, hasReadAll: false);
 
         Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
@@ -100,7 +100,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         Guid projectId = await SeedProjectAsync(employeeId);
 
         await using ProjectsDbContext db = CreateContext(_ => { });
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: true));
+        ProjectAccessGuard guard = Guard(db, employeeId, hasReadAll: true);
 
         Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
@@ -115,7 +115,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         await SeedStageTeamMembershipAsync(projectId, employeeId);
 
         await using ProjectsDbContext db = CreateContext(_ => { });
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
+        ProjectAccessGuard guard = Guard(db, employeeId, hasReadAll: false);
 
         Result result = await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None);
 
@@ -131,7 +131,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
         Guid projectId = await SeedProjectAsync(employeeId);
 
         await using ProjectsDbContext db = CreateContext(_ => { });
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
+        ProjectAccessGuard guard = Guard(db, employeeId, hasReadAll: false);
 
         Assert.True((await guard.EnsureProjectAccessAsync(projectId, appUserId, CancellationToken.None)).IsSuccess);
         Assert.Equal([projectId], await guard.FilterAccessibleProjectsAsync([projectId], appUserId, CancellationToken.None));
@@ -155,7 +155,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
         int commandCount = 0;
         await using ProjectsDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll: false));
+        ProjectAccessGuard guard = Guard(db, employeeId, hasReadAll: false);
 
         var allIds = new List<Guid>(accessibleIds) { inaccessibleId };
         IReadOnlyList<Guid> result = await guard.FilterAccessibleProjectsAsync(allIds, appUserId, CancellationToken.None);
@@ -170,7 +170,7 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
     {
         int commandCount = 0;
         await using ProjectsDbContext db = CreateContext(_ => Interlocked.Increment(ref commandCount));
-        var guard = new ProjectAccessGuard(db, new StubHrDirectory(Guid.NewGuid()), new StubCurrentUser(hasReadAll: false));
+        ProjectAccessGuard guard = Guard(db, Guid.NewGuid(), hasReadAll: false);
 
         IReadOnlyList<Guid> result = await guard.FilterAccessibleProjectsAsync([], "some-user", CancellationToken.None);
 
@@ -299,6 +299,12 @@ public sealed class ProjectAccessGuardTests : IAsyncLifetime
 
         return new ProjectsDbContext(builder.Options);
     }
+
+    /// <summary>P1-A: the guard reads its sources through <see cref="ProjectAccessContext"/>, on the system clock, with
+    /// no implied permissions (so never a grant-only request).</summary>
+    private static ProjectAccessGuard Guard(ProjectsDbContext db, Guid employeeId, bool hasReadAll) =>
+        new(new ProjectAccessContext(
+            db, new StubHrDirectory(employeeId), new StubCurrentUser(hasReadAll), TimeProvider.System, new ImpliedPermissions([])));
 
     private sealed class StubHrDirectory(Guid employeeId) : IHrDirectory
     {

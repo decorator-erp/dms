@@ -145,14 +145,19 @@ internal sealed class GetProjectStageQueryHandler(ProjectsDbContext db)
             s.StageId, s.Notes, s.EstimatedStartDate, s.EstimatedEndDate, s.ActualStartDate, s.ActualEndDate);
 }
 
-internal sealed class GetProjectStagesByProjectQueryHandler(ProjectsDbContext db)
+/// <summary>P1-A: a caller whose access is only a stage-limited grant sees only the granted stages
+/// (<see cref="IProjectAccessGuard.GetStageFilterAsync"/>).</summary>
+internal sealed class GetProjectStagesByProjectQueryHandler(ProjectsDbContext db, IProjectAccessGuard guard)
     : IQueryHandler<GetProjectStagesByProjectQuery, IReadOnlyList<ProjectStageResponse>>
 {
     public async Task<Result<IReadOnlyList<ProjectStageResponse>>> HandleAsync(
         GetProjectStagesByProjectQuery query, CancellationToken ct = default)
     {
+        Guid[]? visible = (await guard.GetStageFilterAsync(
+            query.ProjectId, query.UserId, Contracts.ProjectAccessArea.StagesAndTasks, ct))?.ToArray();
         List<ProjectStageResponse> stages = await db.ProjectStages.AsNoTracking()
             .Where(s => s.ProjectId == query.ProjectId)
+            .Where(s => visible == null || visible.Contains(s.Id))
             .OrderBy(s => s.Order)
             .Select(GetProjectStageQueryHandler.ToResponse())
             .ToListAsync(ct);

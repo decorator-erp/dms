@@ -118,6 +118,62 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
         ];
     }
 
+    public Task<IReadOnlyList<StageTimelineSummary>> GetStageTimelineAsync(Guid projectId, CancellationToken ct) =>
+        GetStageTimelinesAsync([projectId], ct);
+
+    public async Task<IReadOnlyList<StageTimelineSummary>> GetStageTimelinesAsync(IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        var stages = await db.ProjectStages.AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId))
+            .OrderBy(s => s.ProjectId).ThenBy(s => s.Order).ThenBy(s => s.Id)
+            .Select(s => new
+            {
+                s.Id,
+                s.ProjectId,
+                s.Name,
+                s.Order,
+                s.Status,
+                s.EstimatedStartDate,
+                s.EstimatedEndDate,
+                s.ActualStartDate,
+                s.ActualEndDate,
+                s.CompletedTasks,
+                s.TotalTasks,
+            })
+            .ToListAsync(ct);
+
+        return
+        [
+            .. stages.Select(s => new StageTimelineSummary(
+                s.Id, s.ProjectId, s.Name, s.Order, ProjectsEnumMappingShim.ToContractsStageStatus(s.Status),
+                s.EstimatedStartDate, s.EstimatedEndDate, s.ActualStartDate, s.ActualEndDate, s.CompletedTasks, s.TotalTasks,
+                ProjectProgress.Percent(s.CompletedTasks, s.TotalTasks))),
+        ];
+    }
+
+    public async Task<TaskDetailSummary?> GetTaskDetailAsync(Guid taskId, CancellationToken ct) =>
+        await GetTaskDetailsAsync([taskId], ct) is [var first, ..] ? first : null;
+
+    public async Task<IReadOnlyList<TaskDetailSummary>> GetTaskDetailsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        return await db.ProjectTasks.AsNoTracking()
+            .Where(t => ids.Contains(t.Id))
+            .Select(t => new TaskDetailSummary(
+                t.Id, t.ProjectId, t.ProjectStageId, t.Name, t.Order, ProjectsEnumMappingShim.ToContractsTaskStatus(t.Status),
+                t.DueDate, t.StartedAtUtc, t.CompletedAtUtc))
+            .ToListAsync(ct);
+    }
+
     private static System.Linq.Expressions.Expression<Func<Domain.Project, ProjectSummary>> ToProjectSummary() => p =>
         new ProjectSummary(p.Id, p.Code, p.Name, ProjectsEnumMappingShim.ToContractsStatus(p.Status), p.ClientId, p.OwnerId, p.IsActive);
 

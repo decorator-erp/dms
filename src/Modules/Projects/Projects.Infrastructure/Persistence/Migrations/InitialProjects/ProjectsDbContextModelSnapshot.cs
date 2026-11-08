@@ -361,6 +361,89 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                         });
                 });
 
+            modelBuilder.Entity("Projects.Domain.ProjectAccessGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Areas")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("GrantedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("GrantedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RevokeReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RevokedById")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<Guid[]>("StageIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<DateTime>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GrantedById");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("RevokedById");
+
+                    b.HasIndex("EmployeeId", "ProjectId");
+
+                    b.ToTable("project_access_grants", "projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_project_access_grants_Areas", "\"Areas\" BETWEEN 1 AND 63");
+
+                            t.HasCheckConstraint("CK_project_access_grants_Level", "\"Level\" BETWEEN 1 AND 3");
+
+                            t.HasCheckConstraint("CK_project_access_grants_Window", "\"ExpiresAtUtc\" IS NULL OR \"ExpiresAtUtc\" > \"StartsAtUtc\"");
+                        });
+                });
+
             modelBuilder.Entity("Projects.Domain.ProjectMember", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1038,6 +1121,15 @@ namespace Projects.Infrastructure.Persistence.Migrations.InitialProjects
                     b.HasIndex("TaskId");
 
                     b.ToTable("task_comments", "projects");
+                });
+
+            modelBuilder.Entity("Projects.Domain.ProjectAccessGrant", b =>
+                {
+                    b.HasOne("Projects.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Projects.Domain.ProjectMember", b =>

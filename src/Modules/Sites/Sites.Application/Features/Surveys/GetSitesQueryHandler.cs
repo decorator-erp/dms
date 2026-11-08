@@ -35,7 +35,7 @@ internal sealed class GetSitesQueryHandler(SitesDbContext db, IProjectAccessGuar
     public async Task<Result<PagedResult<SiteListItemResponse>>> HandleAsync(
         GetSitesQuery query, CancellationToken ct = default)
     {
-        Result scope = await access.EnsureProjectAccessAsync(query.ProjectId, query.AppUserId, ct);
+        Result scope = await access.EnsureProjectAccessAsync(query.ProjectId, query.AppUserId, ProjectAccessArea.Sites, null, ct);
         if (scope.IsFailure)
         {
             return scope.Error;

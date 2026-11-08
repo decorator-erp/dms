@@ -226,6 +226,55 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         Assert.DoesNotContain("documents.upload", await ClaimsOfAsync(cs, DefaultRoles.Employee));
     }
 
+    /// <summary>P2-A: v7 gives the client the two portal-visibility read codes — the files (documents, gallery,
+    /// streams) and the progress (overview, timeline, tasks, updates). The section switches and the shares still
+    /// decide what each route returns. Never the office's <c>crm.portal.manage</c>, and the employee gets none of it.</summary>
+    [Fact]
+    public async Task V7_gives_the_client_the_portal_visibility_codes_and_the_employee_none()
+    {
+        string cs = await NewDatabaseAsync();
+
+        await SeedModuleAsync(cs, withPortalVisibility: true);
+
+        Assert.Equal(ClientAfterV7, Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Client)));
+        Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
+        Assert.Equal(1L, await ScalarAsync(cs, """SELECT count(*) FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v7'"""));
+    }
+
+    /// <summary>v7 on a database seeded through v6: the client gets exactly the two v7 codes on the next start; a
+    /// v1 code an admin removed stays removed (v7 re-grants only its own codes), and a v7 code removed after v7 ran
+    /// stays removed too.</summary>
+    [Fact]
+    public async Task A_database_seeded_before_v7_gets_it_once_and_removals_stay_removed()
+    {
+        string cs = await NewDatabaseAsync();
+        await SeedModuleAsync(cs, withPortalVisibility: true);
+
+        await ExecuteAsync(cs, """DELETE FROM identity.seed_markers WHERE "Key" = 'baseline-claims-v7'""");
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client'
+              AND (rc."ClaimValue" LIKE 'crm.portal.%' OR rc."ClaimValue" = 'crm.briefs.view_own')
+            """);
+
+        await SeedModuleAsync(cs, withPortalVisibility: true);
+        Assert.Equal(ClientAfterV7.Where(c => c != "crm.briefs.view_own"), Ordinal(await ClaimsOfAsync(cs, DefaultRoles.Client)));
+
+        await ExecuteAsync(cs, """
+            DELETE FROM identity.role_claims rc USING identity.roles r
+            WHERE rc."RoleId" = r."Id" AND r."Name" = 'client' AND rc."ClaimValue" = 'crm.portal.files.view_own'
+            """);
+        await SeedModuleAsync(cs, withPortalVisibility: true);
+        Assert.DoesNotContain("crm.portal.files.view_own", await ClaimsOfAsync(cs, DefaultRoles.Client));
+    }
+
+    private static string[] ClientAfterV7 => Ordinal(
+    [
+        "crm.approvals.decide_own", "crm.approvals.view_own", "crm.briefs.view_own", "crm.meetings.request_own",
+        "crm.meetings.respond_own", "crm.meetings.view_own", "crm.portal", "notifications.view_own",
+        "crm.portal.files.view_own", "crm.portal.progress.view_own",
+    ]);
+
     private static string[] EmployeeAfterV6 => Ordinal(
         [.. EmployeeAfterV5, "crm.catalog.read", "crm.spaces.read", "documents.read", "documents.upload"]);
 
@@ -269,7 +318,7 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
 
         await Task.WhenAll(SeedBaselineAsync(provider), SeedBaselineAsync(provider));
 
-        Assert.Equal(6L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v6 (crm-complete F adds v4, Sites/Projects phase 5 adds v5, BF-1 adds v6)
+        Assert.Equal(7L, await ScalarAsync(cs, "SELECT count(*) FROM identity.seed_markers")); // v1-v7 (crm-complete F adds v4, Sites/Projects phase 5 adds v5, BF-1 adds v6, P2-A adds v7)
         Assert.Equal(["employees.view_own", "notifications.view_own"], await ClaimsOfAsync(cs, DefaultRoles.Employee));
         Assert.Equal(8, (await ClaimsOfAsync(cs, DefaultRoles.Client)).Count); // v4's requirements.view_own is not in this catalog, so it is skipped
     }
@@ -283,9 +332,10 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<IPermissionCatalog>());
     }
 
-    private static async Task SeedModuleAsync(string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false)
+    private static async Task SeedModuleAsync(
+        string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false, bool withPortalVisibility = false)
     {
-        await using ServiceProvider provider = BuildProvider(cs, withProjectsAndSites, withSurveyLookups);
+        await using ServiceProvider provider = BuildProvider(cs, withProjectsAndSites, withSurveyLookups, withPortalVisibility);
         using IServiceScope scope = provider.CreateScope();
         await ModuleDiscovery.DiscoverModules(typeof(IdentityModule).Assembly).Single().SeedAsync(scope.ServiceProvider);
     }
@@ -307,7 +357,8 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
         return cs;
     }
 
-    private static ServiceProvider BuildProvider(string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false)
+    private static ServiceProvider BuildProvider(
+        string cs, bool withProjectsAndSites = false, bool withSurveyLookups = false, bool withPortalVisibility = false)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -367,6 +418,14 @@ public sealed class BaselineClaimSeedingTests : IAsyncLifetime
                 "Documents",
                 ["documents.read", "documents.upload", "documents.update", "documents.delete", "file_templates.read",
                     "file_templates.manage"]));
+        }
+
+        if (withPortalVisibility)
+        {
+            // P2-A: the two client codes v7 grants and the office manage code it must leave out.
+            services.AddSingleton<IModulePermissions>(new ModulePermissionsSet(
+                "CrmPortalVisibility",
+                ["crm.portal.manage", "crm.portal.files.view_own", "crm.portal.progress.view_own"]));
         }
 
         return services.BuildServiceProvider();

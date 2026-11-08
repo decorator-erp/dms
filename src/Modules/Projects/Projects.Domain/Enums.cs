@@ -109,3 +109,25 @@ internal enum ApprovalType
     ManagerApproval = 1,
     ClientReview = 2,
 }
+
+/// <summary>P1-A: mirrors <c>Projects.Contracts.ProjectAccessArea</c> (EnumMappingParityTests).</summary>
+[Flags]
+internal enum ProjectAccessArea
+{
+    None = 0,
+    Overview = 1,
+    StagesAndTasks = 2,
+    Documents = 4,
+    Sites = 8,
+    Crm = 16,
+    Team = 32,
+}
+
+/// <summary>P1-A: mirrors <c>Projects.Contracts.ProjectAccessGrantStatus</c> (EnumMappingParityTests).</summary>
+internal enum ProjectAccessGrantStatus
+{
+    Upcoming = 1,
+    Active = 2,
+    Expired = 3,
+    Revoked = 4,
+}

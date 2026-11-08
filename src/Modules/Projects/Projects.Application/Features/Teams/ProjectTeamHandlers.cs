@@ -3,6 +3,7 @@ using FluentValidation;
 using Hr.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Projects.Application.Features.Projects;
+using Projects.Contracts;
 using Projects.Contracts.Teams;
 using Projects.Infrastructure.Persistence;
 using SharedKernel;
@@ -120,12 +121,18 @@ internal sealed class RemoveStageTeamMemberCommandHandler(ProjectsDbContext db) 
 
 /// <summary>E7: two statements whatever the team count — the teams with stage name and member count in one
 /// query, then one batched HR read for the heads' names.</summary>
-internal sealed class GetProjectTeamsQueryHandler(ProjectsDbContext db, IHrDirectory hrDirectory)
+/// <summary>P1-A: a caller whose Team access is only a stage-limited grant sees only the granted stages' teams.</summary>
+internal sealed class GetProjectTeamsQueryHandler(ProjectsDbContext db, IHrDirectory hrDirectory, IProjectAccessGuard guard)
     : IQueryHandler<GetProjectTeamsQuery, IReadOnlyList<ProjectTeamListItemResponse>>
 {
     public async Task<Result<IReadOnlyList<ProjectTeamListItemResponse>>> HandleAsync(GetProjectTeamsQuery query, CancellationToken ct = default)
     {
         IQueryable<Domain.ProjectStage> stages = db.ProjectStages.AsNoTracking().Where(s => s.ProjectId == query.ProjectId);
+        Guid[]? visible = (await guard.GetStageFilterAsync(query.ProjectId, query.UserId, ProjectAccessArea.Team, ct))?.ToArray();
+        if (visible is not null)
+        {
+            stages = stages.Where(s => visible.Contains(s.Id));
+        }
         if (query.StageId is { } stageId)
         {
             stages = stages.Where(s => s.Id == stageId);

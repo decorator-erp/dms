@@ -30,6 +30,9 @@ namespace Sites.Infrastructure.Decorators;
 /// <para>The query runs through <see cref="SitesDbContext.Sites"/>, which carries the
 /// <c>IsActive</c> filter — so a soft-deleted survey resolves to nothing and takes the 404 branch
 /// without a special case.</para>
+///
+/// <para>P1-A: both checks name the <see cref="ProjectAccessArea.Sites"/> area. A survey has no stage, so a project
+/// access grant reaches it only when it covers the whole project (stage null); writes need the grant's level.</para>
 /// </summary>
 internal static class SiteScopeDecorator
 {
@@ -47,7 +50,7 @@ internal static class SiteScopeDecorator
             return SiteErrors.NotFound;
         }
 
-        Result access = await guard.EnsureProjectAccessAsync(project, scoped.AppUserId, ct);
+        Result access = await guard.EnsureProjectAccessAsync(project, scoped.AppUserId, ProjectAccessArea.Sites, null, ct);
         return access.IsFailure ? SiteErrors.NotFound : Result.Success();
     }
 
@@ -72,7 +75,7 @@ internal static class SiteScopeDecorator
             return SiteErrors.NotFound;
         }
 
-        ProjectMemberAccess? level = await levels.GetLevelAsync(project, scoped.AppUserId, ct);
+        ProjectMemberAccess? level = await levels.GetLevelAsync(project, scoped.AppUserId, ProjectAccessArea.Sites, null, ct);
         if (level is null)
         {
             return SiteErrors.NotFound;

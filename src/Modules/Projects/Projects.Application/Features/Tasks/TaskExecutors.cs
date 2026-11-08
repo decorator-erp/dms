@@ -12,12 +12,16 @@ namespace Projects.Application.Features.Tasks;
 /// Manager level on the project. Anyone else is 403 <see cref="Domain.TaskErrors.NotAssignee"/> — the sub-task
 /// rule (<see cref="Domain.SubTaskErrors.NotAssignee"/>) widened by the project level. Comments stay open to any
 /// Editor.
+///
+/// <para>P1-A: the Manager level counts a project access grant on Stages &amp; tasks that covers the task's stage.
+/// <c>stage_tasks.manage</c> is read from the token only (<see cref="ICurrentUser.HasPermission"/>): a grant's
+/// implied codes open routes, never this user-wide override, which would reach other projects' tasks.</para>
 /// </summary>
 internal static class TaskExecutors
 {
     public static async Task<Result> EnsureMayExecuteAsync(
         ICurrentUser currentUser, IProjectAccessLevelReader levels, IHrDirectory hrDirectory,
-        Guid projectId, Guid? assignedToId, string userId, CancellationToken ct)
+        Guid projectId, Guid? stageId, Guid? assignedToId, string userId, CancellationToken ct)
     {
         if (currentUser.HasPermission(ProjectsPermissions.StageTasks.Manage))
         {
@@ -29,7 +33,7 @@ internal static class TaskExecutors
             return Result.Success();
         }
 
-        return await levels.GetLevelAsync(projectId, userId, ct) == ProjectMemberAccess.Manager
+        return await levels.GetLevelAsync(projectId, userId, ProjectAccessArea.StagesAndTasks, stageId, ct) == ProjectMemberAccess.Manager
             ? Result.Success()
             : Domain.TaskErrors.NotAssignee;
     }

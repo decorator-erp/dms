@@ -32,6 +32,10 @@
          Documents.Contracts.IDocumentQueries.GetAsync (G9-12) - the replacement for the FK structural
          item 1 drops. -->
     <ProjectReference Include="..\..\Documents\Documents.Contracts\Documents.Contracts.csproj" />
+    <!-- Cross-module read (P2-A): the client portal resolves a shared site photo to its document and project via
+         Sites.Contracts.ISiteDocumentReader. Sites.Application already reads Crm.Contracts; contracts-only both
+         ways, so no cycle. -->
+    <ProjectReference Include="..\..\Sites\Sites.Contracts\Sites.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

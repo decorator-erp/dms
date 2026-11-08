@@ -347,3 +347,52 @@ internal static class ScopeOfWorkErrors
     public static readonly Error NegativeFee = Error.BadRequest(
         "projects.scope.NegativeFee", "A fee cannot be negative.");
 }
+
+/// <summary>P1-A: project access grants. Order as everywhere: 404 (project, grant, employee) → 403 (who may manage
+/// grants) → 409 (state).</summary>
+internal static class ProjectAccessGrantErrors
+{
+    public static readonly Error NotFound = Error.NotFound(
+        "projects.access_grants.NotFound", "Project access grant was not found.");
+
+    public static readonly Error EmployeeNotFound = Error.NotFound(
+        "projects.access_grants.EmployeeNotFound", "The employee was not found or is not active.");
+
+    /// <summary>Neither <c>project.manage_access</c> nor a Manager on the project by membership.</summary>
+    public static readonly Error NotAllowed = Error.Forbidden(
+        "projects.access_grants.NotAllowed", "You may not manage access grants on this project.");
+
+    /// <summary>A project Manager grants at most their own level.</summary>
+    public static readonly Error AboveOwnLevel = Error.Forbidden(
+        "projects.access_grants.AboveOwnLevel", "You cannot grant a level above your own.");
+
+    public static readonly Error SelfGrant = Error.BadRequest(
+        "projects.access_grants.SelfGrant", "You cannot grant access to yourself.");
+
+    public static readonly Error StageNotInProject = Error.BadRequest(
+        "projects.access_grants.StageNotInProject", "Every stage must belong to the project.");
+
+    public static readonly Error InvalidWindow = Error.BadRequest(
+        "projects.access_grants.InvalidWindow", "The end must be later than the start and than now.");
+
+    public static readonly Error NoAreas = Error.BadRequest(
+        "projects.access_grants.NoAreas", "Choose at least one area.");
+
+    /// <summary>The grantee already reaches the project through membership (owner, stage team, member row or task
+    /// assignee); a grant adds nothing.</summary>
+    public static readonly Error AlreadyMember = Error.Conflict(
+        "projects.access_grants.AlreadyMember", "This employee is already on the project.");
+
+    /// <summary>At most one current or upcoming grant per (project, employee): edit that one instead.</summary>
+    public static readonly Error AlreadyGranted = Error.Conflict(
+        "projects.access_grants.AlreadyGranted", "This employee already has a current or upcoming grant on the project.");
+
+    public static readonly Error NotEditable = Error.Conflict(
+        "projects.access_grants.NotEditable", "A revoked or expired grant cannot change; create a new one.");
+
+    public static readonly Error AlreadyRevoked = Error.Conflict(
+        "projects.access_grants.AlreadyRevoked", "This grant is already revoked.");
+
+    public static readonly Error ConcurrentUpdate = Error.Conflict(
+        "projects.access_grants.ConcurrentUpdate", "The grant was changed by someone else. Reload and try again.");
+}

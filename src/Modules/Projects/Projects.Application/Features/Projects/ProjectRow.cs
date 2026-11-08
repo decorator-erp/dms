@@ -1,4 +1,5 @@
 using Projects.Contracts;
+using Projects.Contracts.Grants;
 using Projects.Contracts.Projects;
 
 namespace Projects.Application.Features.Projects;
@@ -12,8 +13,9 @@ internal sealed record ProjectRow(
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
     Guid ClientId, Guid OwnerId, bool IsActive, int StageCount)
 {
-    public ProjectResponse ToResponse(ProjectMemberAccess myLevel) =>
+    /// <summary>P1-A: <c>MyLevel</c> is <paramref name="myAccess"/>'s level.</summary>
+    public ProjectResponse ToResponse(ProjectAccessResponse myAccess) =>
         new(Id, Code, Name, Description, Status, WorkflowType, Address, Notes, ProgressPercentage,
             EstimatedStartDate, EstimatedEndDate, ActualStartDate, ActualEndDate,
-            ClientId, OwnerId, IsActive, StageCount, myLevel);
+            ClientId, OwnerId, IsActive, StageCount, myAccess.Level, myAccess);
 }

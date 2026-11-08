@@ -79,7 +79,7 @@ internal sealed class StartProjectTaskCommandHandler(
 
         // R1-1: the assignee, a task manager or a project Manager (403).
         Result actor = await TaskExecutors.EnsureMayExecuteAsync(
-            currentUser, levels, hrDirectory, command.ProjectId, task.AssignedToId, command.UserId, ct);
+            currentUser, levels, hrDirectory, command.ProjectId, task.ProjectStageId, task.AssignedToId, command.UserId, ct);
         if (actor.IsFailure)
         {
             return actor;
@@ -131,7 +131,7 @@ internal sealed class CompleteProjectTaskCommandHandler(
 
         // R1-1: the assignee, a task manager or a project Manager (403).
         Result actor = await TaskExecutors.EnsureMayExecuteAsync(
-            currentUser, levels, hrDirectory, command.ProjectId, task.AssignedToId, command.UserId, ct);
+            currentUser, levels, hrDirectory, command.ProjectId, task.ProjectStageId, task.AssignedToId, command.UserId, ct);
         if (actor.IsFailure)
         {
             return actor;
@@ -324,13 +324,21 @@ internal sealed class GetProjectTaskQueryHandler(ProjectsDbContext db) : IQueryH
             t.AssignedToId, t.DepartmentId, t.DueDate, t.Cost);
 }
 
-internal sealed class GetProjectTasksByProjectQueryHandler(ProjectsDbContext db)
+/// <summary>P1-A: a caller whose access is only a stage-limited grant sees only the granted stages' tasks
+/// (<see cref="IProjectAccessGuard.GetStageFilterAsync"/>), filtered before paging.</summary>
+internal sealed class GetProjectTasksByProjectQueryHandler(ProjectsDbContext db, IProjectAccessGuard guard)
     : IQueryHandler<GetProjectTasksByProjectQuery, IReadOnlyList<ProjectTaskResponse>>
 {
     public async Task<Result<IReadOnlyList<ProjectTaskResponse>>> HandleAsync(
         GetProjectTasksByProjectQuery query, CancellationToken ct = default)
     {
         IQueryable<ProjectTask> tasksQuery = db.ProjectTasks.AsNoTracking().Where(t => t.ProjectId == query.ProjectId);
+        Guid[]? visible = (await guard.GetStageFilterAsync(
+            query.ProjectId, query.UserId, Contracts.ProjectAccessArea.StagesAndTasks, ct))?.ToArray();
+        if (visible is not null)
+        {
+            tasksQuery = tasksQuery.Where(t => t.ProjectStageId != null && visible.Contains(t.ProjectStageId.Value));
+        }
         if (query.StageId is { } stageId)
         {
             tasksQuery = tasksQuery.Where(t => t.ProjectStageId == stageId);
