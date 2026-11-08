@@ -84,4 +84,24 @@ public class NotificationTests
         Assert.True(notification.IsRead);
         Assert.Equal(first, notification.ReadAtUtc);
     }
+
+    /// <summary>A-2: the parent project rides on the row so a nested route can be built from it.</summary>
+    [Fact]
+    public void Create_StoresTheParentProject_WhenGivenOne()
+    {
+        var projectId = Guid.NewGuid();
+        var notification = Notification.Create(
+            Alice, NotificationType.TaskAssigned, "Task assigned",
+            entityType: NotificationEntityType.ProjectTask, entityId: Guid.NewGuid(), projectId: projectId);
+
+        Assert.Equal(projectId, notification.ProjectId);
+    }
+
+    [Fact]
+    public void Create_WithNoProject_LeavesItNull()
+    {
+        var notification = Notification.Create(Alice, NotificationType.TaskDueSoon, "Task due");
+
+        Assert.Null(notification.ProjectId);
+    }
 }

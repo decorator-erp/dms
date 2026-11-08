@@ -41,6 +41,7 @@ internal sealed class ProjectTaskAssignedNotificationHandler(
             entityType: NotificationEntityType.ProjectTask,
             entityId: @event.TaskId,
             dedupeKey: $"task-{@event.TaskId}-assigned-{@event.EventId}",
+            projectId: @event.ProjectId,
             ct: ct);
     }
 }
@@ -51,7 +52,7 @@ internal sealed class ProjectTaskCompletedNotificationHandler(
 {
     public Task HandleAsync(ProjectTaskCompletedIntegrationEvent @event, CancellationToken ct) =>
         TaskNotifier.NotifyAssigneeAsync(
-            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.TaskId, NotificationType.TaskCompleted,
+            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.ProjectId, @event.TaskId, NotificationType.TaskCompleted,
             $"Task completed — {@event.TaskName}", $"'{@event.TaskName}' has been marked complete.",
             $"task-{@event.TaskId}-completed-{@event.EventId}", ct);
 }
@@ -62,7 +63,7 @@ internal sealed class ProjectTaskRejectedNotificationHandler(
 {
     public Task HandleAsync(ProjectTaskRejectedIntegrationEvent @event, CancellationToken ct) =>
         TaskNotifier.NotifyAssigneeAsync(
-            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.TaskId, NotificationType.TaskRejected,
+            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.ProjectId, @event.TaskId, NotificationType.TaskRejected,
             $"Task rejected — {@event.TaskName}", $"'{@event.TaskName}' was rejected and needs rework.",
             $"task-{@event.TaskId}-rejected-{@event.EventId}", ct);
 }
@@ -73,7 +74,7 @@ internal sealed class ProjectTaskReopenedNotificationHandler(
 {
     public Task HandleAsync(ProjectTaskReopenedIntegrationEvent @event, CancellationToken ct) =>
         TaskNotifier.NotifyAssigneeAsync(
-            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.TaskId, NotificationType.TaskReopened,
+            hrDirectory, notifications, @event.AssigneeEmployeeId, @event.ProjectId, @event.TaskId, NotificationType.TaskReopened,
             $"Task reopened — {@event.TaskName}", $"'{@event.TaskName}' has been reopened.",
             $"task-{@event.TaskId}-reopened-{@event.EventId}", ct);
 }
@@ -87,6 +88,7 @@ internal static class TaskNotifier
         IHrDirectory hrDirectory,
         INotificationService notifications,
         Guid? assigneeEmployeeId,
+        Guid projectId,
         Guid taskId,
         NotificationType type,
         string title,
@@ -107,6 +109,6 @@ internal static class TaskNotifier
 
         await notifications.NotifyAsync(
             assignee.AppUserId, type, title, body,
-            NotificationEntityType.ProjectTask, taskId, dedupeKey, ct);
+            NotificationEntityType.ProjectTask, taskId, dedupeKey, projectId, ct);
     }
 }

@@ -49,7 +49,8 @@ internal sealed class GetMyNotificationsQueryHandler(NotificationsDbContext db)
                 n.EntityId,
                 n.ReadAtUtc != null,
                 n.ReadAtUtc,
-                n.CreatedAtUtc))
+                n.CreatedAtUtc,
+                n.ProjectId))
             .ToListAsync(ct);
 
         return new PagedResult<NotificationResponse>(items, pageNumber, pageSize, total);

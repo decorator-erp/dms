@@ -43,7 +43,7 @@ internal sealed class StageDeadlineJob(
                         && s.EstimatedEndDate >= windowStart && s.EstimatedEndDate <= windowEnd
                         && DeadlineProjects.Live(db).Contains(s.ProjectId))
             .Join(db.Projects.AsNoTracking(), s => s.ProjectId, p => p.Id,
-                (s, p) => new { s.Id, s.Name, Due = s.EstimatedEndDate!.Value, p.OwnerId })
+                (s, p) => new { s.Id, s.ProjectId, s.Name, Due = s.EstimatedEndDate!.Value, p.OwnerId })
             .ToListAsync(ct))
             .Select(s => new { Stage = s, Tier = DeadlineTiers.MostRelevant(now, s.Due, Tiers) })
             .Where(x => x.Tier is not null)
@@ -82,6 +82,7 @@ internal sealed class StageDeadlineJob(
                 entityType: NotificationEntityType.ProjectStage,
                 entityId: stage.Id,
                 dedupeKey: $"stage-{stage.Id}-due-{stage.Due:yyyyMMdd}-{tier}d",
+                projectId: stage.ProjectId,
                 ct: ct);
         }
     }

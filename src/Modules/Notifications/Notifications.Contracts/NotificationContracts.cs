@@ -20,7 +20,8 @@ public sealed record NotificationResponse(
     Guid? EntityId,
     bool IsRead,
     DateTime? ReadAtUtc,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    Guid? ProjectId);
 
 public sealed record GetMyNotificationsQuery(string RecipientUserId, bool UnreadOnly, int PageNumber, int PageSize)
     : IQuery<PagedResult<NotificationResponse>>;

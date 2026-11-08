@@ -677,7 +677,7 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
 
         public Task NotifyAsync(string recipientUserId, Notifications.Contracts.NotificationType type, string title, string? body = null,
             Notifications.Contracts.NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null,
-            CancellationToken ct = default)
+            Guid? projectId = null, CancellationToken ct = default)
         {
             Sent.Add(new Notified(entityId, dedupeKey));
             return Task.CompletedTask;
@@ -685,7 +685,7 @@ public sealed class ProjectGateStateTests(ProjectsApplicationFixture fixture)
 
         public Task NotifyManyAsync(IReadOnlyCollection<string> recipientUserIds, Notifications.Contracts.NotificationType type, string title,
             string? body = null, Notifications.Contracts.NotificationEntityType? entityType = null, Guid? entityId = null,
-            string? dedupeKey = null, CancellationToken ct = default)
+            string? dedupeKey = null, Guid? projectId = null, CancellationToken ct = default)
         {
             Sent.Add(new Notified(entityId, dedupeKey));
             return Task.CompletedTask;

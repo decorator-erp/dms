@@ -95,19 +95,19 @@ public sealed partial class ItemsPeriodsTests
         public int CountFor(Guid entityId) => _sent.Count(id => id == entityId);
 
         public async Task NotifyAsync(string recipientUserId, NotificationType type, string title, string? body = null,
-            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, CancellationToken ct = default)
+            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, Guid? projectId = null, CancellationToken ct = default)
         {
             if (entityId is not null && entityId == throwFor)
             {
                 throw new InvalidOperationException("Simulated notification failure.");
             }
 
-            await inner.NotifyAsync(recipientUserId, type, title, body, entityType, entityId, dedupeKey, ct);
+            await inner.NotifyAsync(recipientUserId, type, title, body, entityType, entityId, dedupeKey, projectId, ct);
             _sent.Add(entityId);
         }
 
         public Task NotifyManyAsync(IReadOnlyCollection<string> recipientUserIds, NotificationType type, string title, string? body = null,
-            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, CancellationToken ct = default) =>
-            inner.NotifyManyAsync(recipientUserIds, type, title, body, entityType, entityId, dedupeKey, ct);
+            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, Guid? projectId = null, CancellationToken ct = default) =>
+            inner.NotifyManyAsync(recipientUserIds, type, title, body, entityType, entityId, dedupeKey, projectId, ct);
     }
 }
