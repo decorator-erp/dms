@@ -133,8 +133,17 @@ internal sealed class ProjectDirectory(ProjectsDbContext db) : IProjectDirectory
             .OrderBy(s => s.ProjectId).ThenBy(s => s.Order).ThenBy(s => s.Id)
             .Select(s => new
             {
-                s.Id, s.ProjectId, s.Name, s.Order, s.Status, s.EstimatedStartDate, s.EstimatedEndDate,
-                s.ActualStartDate, s.ActualEndDate, s.CompletedTasks, s.TotalTasks,
+                s.Id,
+                s.ProjectId,
+                s.Name,
+                s.Order,
+                s.Status,
+                s.EstimatedStartDate,
+                s.EstimatedEndDate,
+                s.ActualStartDate,
+                s.ActualEndDate,
+                s.CompletedTasks,
+                s.TotalTasks,
             })
             .ToListAsync(ct);
 
