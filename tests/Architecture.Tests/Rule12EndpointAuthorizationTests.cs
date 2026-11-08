@@ -79,6 +79,9 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
         // PF-D1: a user's effective permissions, for themselves or for a permissions.manage holder. Same
         // shape as the line above: GetUserEffectivePermissionsQueryHandler decides, answering 404 to anyone else.
         "/api/permissions/users/{userId}/effective",
+        // P1-A: "Shared with me", the caller's own project access grants; the employee comes from the token. A
+        // grantee may hold no project code in their token at all, so no permission fits.
+        "/api/me/access-grants",
     ];
 
     /// <summary>Entries that name a route a later phase adds; exempt from the "still exists" check.

@@ -77,7 +77,8 @@ internal sealed class CrmClientScope(
         return await CanSeeAsync(clientId.Value, message.UserId, ct) ? Result.Success() : notFound;
     }
 
-    /// <summary>The C-1 rule for one client; <see cref="VisibleAsync"/> is the same rule for a list.</summary>
+    /// <summary>The C-1 rule for one client; <see cref="VisibleAsync"/> is the same rule for a list. P1-A: a project
+    /// access grant makes its project's client visible only when it covers the whole project's CRM area.</summary>
     public async Task<bool> CanSeeAsync(Guid clientId, string userId, CancellationToken ct)
     {
         if (currentUser.HasPermission(CrmPermissions.Clients.ReadAll))
@@ -91,7 +92,8 @@ internal sealed class CrmClientScope(
             return true;
         }
 
-        IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync([.. owned.Select(p => p.Id)], userId, ct);
+        IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync(
+            [.. owned.Select(p => p.Id)], userId, ProjectAccessArea.Crm, ct);
         return reachable.Count > 0;
     }
 
@@ -105,7 +107,8 @@ internal sealed class CrmClientScope(
         }
 
         List<ProjectSummary> owned = Counted(await projects.GetProjectsByClientsAsync(clientIds, ct));
-        IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync([.. owned.Select(p => p.Id)], userId, ct);
+        IReadOnlyList<Guid> reachable = await guard.FilterAccessibleProjectsAsync(
+            [.. owned.Select(p => p.Id)], userId, ProjectAccessArea.Crm, ct);
         var reachableSet = reachable.ToHashSet();
         var withProjects = owned.Select(p => p.ClientId).ToHashSet();
         var reachableClients = owned.Where(p => reachableSet.Contains(p.Id)).Select(p => p.ClientId).ToHashSet();

@@ -494,3 +494,11 @@ internal static class CrmProjectErrors
     public static readonly Error Inactive = Error.Conflict(
         "crm.projects.Inactive", "This project is inactive and takes no new CRM work.");
 }
+
+/// <summary>P1-A: a project access grant covers CRM below Editor, so it reads but does not write. Members keep the
+/// guard-only rule they always had (any member level writes; see <c>CrmProjectScopeDecorator</c>).</summary>
+internal static class CrmProjectAccessErrors
+{
+    public static readonly Error InsufficientLevel = Error.Forbidden(
+        "crm.project.InsufficientLevel", "Your access to this project's CRM is read-only.");
+}

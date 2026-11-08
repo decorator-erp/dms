@@ -28,6 +28,11 @@ public static class ProjectsPermissions
         /// <summary>E1 (D1): add, re-level and remove project members. Reading the member list needs only
         /// <see cref="Read"/>.</summary>
         public const string ManageMembers = "project.manage_members";
+
+        /// <summary>P1-A: create, change and revoke project access grants on any project the holder can reach. A
+        /// project Manager by membership may do the same on their own project without it. Never implied by a
+        /// grant (see <see cref="GrantAreaPermissions"/>).</summary>
+        public const string ManageAccess = "project.manage_access";
     }
 
     public static class Stages

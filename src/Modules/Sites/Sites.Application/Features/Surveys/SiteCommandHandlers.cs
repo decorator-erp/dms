@@ -33,14 +33,16 @@ internal sealed class CreateSiteCommandHandler(
 {
     public async Task<Result<Guid>> HandleAsync(CreateSiteCommand command, CancellationToken ct = default)
     {
-        Result scope = await access.EnsureProjectAccessAsync(command.Request.ProjectId, command.AppUserId, ct);
+        Result scope = await access.EnsureProjectAccessAsync(
+            command.Request.ProjectId, command.AppUserId, ProjectAccessArea.Sites, null, ct);
         if (scope.IsFailure)
         {
             return scope.Error;
         }
 
         // C6: a new survey is Editor work; checked before any 409 below.
-        ProjectMemberAccess? level = await levels.GetLevelAsync(command.Request.ProjectId, command.AppUserId, ct);
+        ProjectMemberAccess? level = await levels.GetLevelAsync(
+            command.Request.ProjectId, command.AppUserId, ProjectAccessArea.Sites, null, ct);
         if (level is null || level.Value < Infrastructure.Decorators.SiteProjectLevels.Create)
         {
             return SiteErrors.InsufficientLevel;

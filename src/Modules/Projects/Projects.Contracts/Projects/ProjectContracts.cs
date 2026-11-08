@@ -1,5 +1,6 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
+using Projects.Contracts.Grants;
 using Projects.Contracts.Tasks;
 
 namespace Projects.Contracts.Projects;
@@ -18,12 +19,17 @@ namespace Projects.Contracts.Projects;
 /// <para><see cref="MyLevel"/> is the caller's own level on the project (1 Viewer, 2 Editor, 3 Manager), read from
 /// <see cref="IProjectAccessLevelReader"/>, the same source the scope decorator enforces with — so a command the
 /// level does not reach is the 403 <c>projects.InsufficientLevel</c> the UI can predict.</para>
+///
+/// <para>P1-A: <see cref="MyAccess"/> says where that level comes from (membership, a grant or
+/// <c>project.read_all</c>) and, for a grant, which areas and stages it covers and when it ends. <see cref="MyLevel"/>
+/// equals <c>MyAccess.Level</c>.</para>
 /// </summary>
 public sealed record ProjectResponse(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status, WorkflowType WorkflowType,
     string Address, string? Notes, decimal ProgressPercentage,
     DateTime? EstimatedStartDate, DateTime? EstimatedEndDate, DateTime? ActualStartDate, DateTime? ActualEndDate,
-    Guid ClientId, Guid OwnerId, bool IsActive, int StageCount, ProjectMemberAccess MyLevel);
+    Guid ClientId, Guid OwnerId, bool IsActive, int StageCount, ProjectMemberAccess MyLevel,
+    ProjectAccessResponse MyAccess);
 
 public sealed record CreateProjectCommand(
     string Code, string Name, string Address, WorkflowType WorkflowType, Guid ClientId,
@@ -70,7 +76,8 @@ public sealed record ProjectDetailsResponse(
     IReadOnlyList<ProjectTaskResponse> UnstagedTasks,
     IReadOnlyList<TaskStatusCount> TaskCounts,
     GateSummary Gates,
-    ProjectMemberAccess MyLevel);
+    ProjectMemberAccess MyLevel,
+    ProjectAccessResponse MyAccess);
 
 /// <summary><see cref="ProjectResponse"/>'s fields (except <c>MyLevel</c>, which sits on
 /// <see cref="ProjectDetailsResponse"/> itself) plus <see cref="ClientName"/>, the client's display name read

@@ -142,3 +142,37 @@ public enum ScopeOfWorkStatus
     Draft = 1,
     Confirmed = 2,
 }
+
+/// <summary>
+/// P1-A: the parts of a project a <see cref="Grants.ProjectAccessGrantResponse"/> opens, combinable. Membership (owner,
+/// stage team, member row, task assignee) and <c>project.read_all</c> cover every area; a grant covers only its own.
+/// <list type="bullet">
+/// <item><see cref="Overview"/>: the project page, its stages' progress and the scope of work (read only).</item>
+/// <item><see cref="StagesAndTasks"/>: stages, tasks, sub-tasks, comments and gates.</item>
+/// <item><see cref="Documents"/>: project, stage and task documents and folders.</item>
+/// <item><see cref="Sites"/>: site surveys. Surveys have no stage, so only a whole-project grant covers them.</item>
+/// <item><see cref="Crm"/>: the project's brief, spaces, requirement periods and items, artifacts and meetings.</item>
+/// <item><see cref="Team"/>: the member and team lists, read only at every level.</item>
+/// </list>
+/// </summary>
+[Flags]
+public enum ProjectAccessArea
+{
+    None = 0,
+    Overview = 1,
+    StagesAndTasks = 2,
+    Documents = 4,
+    Sites = 8,
+    Crm = 16,
+    Team = 32,
+}
+
+/// <summary>P1-A: a grant's state at a moment. Computed on read from the grant's window and revocation, never
+/// stored, so expiry needs no job.</summary>
+public enum ProjectAccessGrantStatus
+{
+    Upcoming = 1,
+    Active = 2,
+    Expired = 3,
+    Revoked = 4,
+}

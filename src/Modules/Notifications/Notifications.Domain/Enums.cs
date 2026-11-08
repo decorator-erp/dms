@@ -53,6 +53,10 @@ internal enum NotificationType
     ProjectOverdue = 182,
     ProjectCompleted = 183,
 
+    // P1-A: project access grants (mirrors Notifications.Contracts).
+    ProjectAccessGranted = 184,
+    ProjectAccessRevoked = 185,
+
     // ----- Auth (200-209) -----
     UserWelcome = 200,
     PasswordResetRequested = 201,

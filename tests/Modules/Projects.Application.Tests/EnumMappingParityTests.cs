@@ -27,6 +27,10 @@ public class EnumMappingParityTests
         yield return [typeof(Projects.Contracts.GateTrigger), typeof(Domain.GateTrigger)];
         yield return [typeof(Projects.Contracts.ApprovalType), typeof(Domain.ApprovalType)];
         yield return [typeof(Projects.Contracts.ScopeOfWorkStatus), typeof(Domain.ScopeOfWorkStatus)];
+        // P1-A: grants cast Level, Areas and Status between the two sides.
+        yield return [typeof(Projects.Contracts.ProjectMemberAccess), typeof(Domain.ProjectMemberAccess)];
+        yield return [typeof(Projects.Contracts.ProjectAccessArea), typeof(Domain.ProjectAccessArea)];
+        yield return [typeof(Projects.Contracts.ProjectAccessGrantStatus), typeof(Domain.ProjectAccessGrantStatus)];
     }
 
     [Theory]

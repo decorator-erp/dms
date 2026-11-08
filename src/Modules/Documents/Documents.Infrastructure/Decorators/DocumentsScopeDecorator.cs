@@ -1,6 +1,7 @@
 using BuildingBlocks;
 using BuildingBlocks.Messaging;
 using Documents.Contracts;
+using Documents.Contracts.Folders;
 using Documents.Domain;
 using Documents.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -37,28 +38,43 @@ namespace Documents.Infrastructure.Decorators;
 ///
 /// <para>The caller comes from <see cref="ICurrentUser"/>: several of these messages carry no user id, and
 /// nothing outside the HTTP endpoints sends them. No user is a 404.</para>
+///
+/// <para><b>P1-A: project access grants.</b> Every check names the <see cref="ProjectAccessArea.Documents"/> area and
+/// the stage the thing belongs to (its own stage, or its task's). A grant limited to some stages reaches only those
+/// stages' documents and folders; a stage-less document or folder needs a whole-project grant, except that a
+/// project-level folder can be opened as a list, which the handler filters. Writes need a grant of Editor or more
+/// on that stage. The list handlers keep only the rows <see cref="IProjectAccessGuard.GetStageFilterAsync"/>
+/// allows (<c>DocumentStageFilter</c>).</para>
 /// </summary>
 internal static class DocumentsScopeDecorator
 {
+    /// <summary>P1-A: the project a message resolves to, the stage it is about (its own, or its task's), and whether
+    /// it reads a list the handler filters by stage (the project's documents and folders, and a folder that belongs to
+    /// no stage).</summary>
+    private readonly record struct Target(Guid ProjectId, Guid? StageId, bool IsList);
+
     private static async Task<Result> CheckAsync(
         IDocumentsScoped scoped, bool isWrite, DocumentsDbContext db, IProjectDirectory projects,
         IProjectAccessGuard guard, IProjectAccessLevelReader levels, ICurrentUser currentUser, CancellationToken ct)
     {
         Error notFound = scoped is IDocumentsFolderScoped ? DocumentFolderErrors.NotFound : ProjectDocumentErrors.NotFound;
 
-        Guid? projectId = await ResolveProjectAsync(scoped, db, projects, ct);
-        if (projectId is not { } project || string.IsNullOrEmpty(currentUser.UserId))
+        Target? target = await ResolveAsync(scoped, isWrite, db, projects, ct);
+        if (target is not { } t || string.IsNullOrEmpty(currentUser.UserId))
         {
             return notFound;
         }
 
         if (!isWrite)
         {
-            Result access = await guard.EnsureProjectAccessAsync(project, currentUser.UserId, ct);
-            return access.IsFailure ? notFound : Result.Success();
+            bool canRead = t.IsList
+                ? await guard.GetStageFilterAsync(t.ProjectId, currentUser.UserId, ProjectAccessArea.Documents, ct) is not { Count: 0 }
+                : (await guard.EnsureProjectAccessAsync(t.ProjectId, currentUser.UserId, ProjectAccessArea.Documents, t.StageId, ct)).IsSuccess;
+            return canRead ? Result.Success() : notFound;
         }
 
-        ProjectMemberAccess? level = await levels.GetLevelAsync(project, currentUser.UserId, ct);
+        ProjectMemberAccess? level = await levels.GetLevelAsync(
+            t.ProjectId, currentUser.UserId, ProjectAccessArea.Documents, t.StageId, ct);
         if (level is null)
         {
             return notFound;
@@ -67,22 +83,57 @@ internal static class DocumentsScopeDecorator
         return level.Value < ProjectMemberAccess.Editor ? ProjectDocumentErrors.InsufficientLevel : Result.Success();
     }
 
-    private static async Task<Guid?> ResolveProjectAsync(
-        IDocumentsScoped scoped, DocumentsDbContext db, IProjectDirectory projects, CancellationToken ct) => scoped switch
+    private static async Task<Target?> ResolveAsync(
+        IDocumentsScoped scoped, bool isWrite, DocumentsDbContext db, IProjectDirectory projects, CancellationToken ct)
+    {
+        switch (scoped)
         {
-            IDocumentsProjectScoped p => p.ProjectId,
-            IDocumentsStageScoped s => (await projects.GetStageAsync(s.ProjectStageId, ct))?.ProjectId,
-            IDocumentsTaskScoped t => (await projects.GetTaskAsync(t.ProjectTaskId, ct))?.ProjectId,
-            IDocumentsFolderScoped f => await db.DocumentFolders.AsNoTracking()
-                .Where(x => x.Id == f.FolderId)
-                .Select(x => (Guid?)x.ProjectId)
-                .FirstOrDefaultAsync(ct),
-            IDocumentsDocumentScoped d => await db.ProjectDocuments.AsNoTracking()
-                .Where(x => x.Id == d.DocumentId)
-                .Select(x => (Guid?)x.ProjectId)
-                .FirstOrDefaultAsync(ct),
-            _ => null,
-        };
+            case CreateDocumentFolderCommand folder:
+                return new Target(folder.ProjectId, folder.ProjectStageId ?? await StageOfTaskAsync(folder.ProjectTaskId, projects, ct), false);
+            case IDocumentsProjectScoped p:
+                return new Target(p.ProjectId, null, !isWrite);
+            case IDocumentsStageScoped s:
+                return await projects.GetStageAsync(s.ProjectStageId, ct) is { } stage
+                    ? new Target(stage.ProjectId, stage.Id, false)
+                    : null;
+            case IDocumentsTaskScoped tk:
+                return await projects.GetTaskAsync(tk.ProjectTaskId, ct) is { } task
+                    ? new Target(task.ProjectId, task.ProjectStageId, false)
+                    : null;
+            case IDocumentsFolderScoped f:
+                {
+                    var folder = await db.DocumentFolders.AsNoTracking()
+                        .Where(x => x.Id == f.FolderId)
+                        .Select(x => new { x.ProjectId, x.ProjectStageId, x.ProjectTaskId })
+                        .FirstOrDefaultAsync(ct);
+                    if (folder is null)
+                    {
+                        return null;
+                    }
+
+                    Guid? folderStage = folder.ProjectStageId ?? await StageOfTaskAsync(folder.ProjectTaskId, projects, ct);
+                    return new Target(folder.ProjectId, folderStage, !isWrite && folderStage is null);
+                }
+
+            case IDocumentsDocumentScoped d:
+                {
+                    var document = await db.ProjectDocuments.AsNoTracking()
+                        .Where(x => x.Id == d.DocumentId)
+                        .Select(x => new { x.ProjectId, x.ProjectStageId, x.ProjectTaskId })
+                        .FirstOrDefaultAsync(ct);
+                    return document is null
+                        ? null
+                        : new Target(
+                            document.ProjectId, document.ProjectStageId ?? await StageOfTaskAsync(document.ProjectTaskId, projects, ct), false);
+                }
+
+            default:
+                return null;
+        }
+    }
+
+    private static async Task<Guid?> StageOfTaskAsync(Guid? taskId, IProjectDirectory projects, CancellationToken ct) =>
+        taskId is { } id ? (await projects.GetTaskAsync(id, ct))?.ProjectStageId : null;
 
     internal sealed class CommandHandler<TCommand>(
         ICommandHandler<TCommand> innerHandler, DocumentsDbContext db, IProjectDirectory projects,
