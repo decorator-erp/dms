@@ -46,8 +46,9 @@ internal sealed class NotificationService(
         ContractsEntityType? entityType = null,
         Guid? entityId = null,
         string? dedupeKey = null,
+        Guid? projectId = null,
         CancellationToken ct = default)
-        => NotifyManyAsync([recipientUserId], type, title, body, entityType, entityId, dedupeKey, ct);
+        => NotifyManyAsync([recipientUserId], type, title, body, entityType, entityId, dedupeKey, projectId, ct);
 
     public async Task NotifyManyAsync(
         IReadOnlyCollection<string> recipientUserIds,
@@ -57,6 +58,7 @@ internal sealed class NotificationService(
         ContractsEntityType? entityType = null,
         Guid? entityId = null,
         string? dedupeKey = null,
+        Guid? projectId = null,
         CancellationToken ct = default)
     {
         foreach (string? recipientUserId in recipientUserIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal))
@@ -71,7 +73,7 @@ internal sealed class NotificationService(
             }
 
             var notification = Notification.Create(
-                recipientUserId, MapType(type), title, body, MapEntityType(entityType), entityId, dedupeKey);
+                recipientUserId, MapType(type), title, body, MapEntityType(entityType), entityId, dedupeKey, projectId);
 
             dbContext.Notifications.Add(notification);
 
@@ -113,6 +115,7 @@ internal sealed class NotificationService(
                     body = notification.Body,
                     entityType = notification.EntityType,
                     entityId = notification.EntityId,
+                    projectId = notification.ProjectId,
                     createdAtUtc = notification.CreatedAtUtc,
                     unreadCount,
                 }, ct);

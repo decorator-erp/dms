@@ -39,7 +39,7 @@ internal sealed class TaskDeadlineJob(
                         && ActiveStatuses.Contains(t.Status)
                         && t.DueDate >= windowStart && t.DueDate <= windowEnd
                         && DeadlineProjects.Live(db).Contains(t.ProjectId))
-            .Select(t => new { t.Id, t.Name, Due = t.DueDate!.Value, t.ProjectStageId, t.AssignedToId })
+            .Select(t => new { t.Id, t.ProjectId, t.Name, Due = t.DueDate!.Value, t.ProjectStageId, t.AssignedToId })
             .ToListAsync(ct))
             .Select(t => new { Task = t, Tier = DeadlineTiers.MostRelevant(now, t.Due, Tiers) })
             .Where(x => x.Tier is not null)
@@ -83,6 +83,7 @@ internal sealed class TaskDeadlineJob(
                 entityType: NotificationEntityType.ProjectTask,
                 entityId: task.Id,
                 dedupeKey: $"task-{task.Id}-due-{task.Due:yyyyMMdd}-{tier}d",
+                projectId: task.ProjectId,
                 ct: ct);
         }
     }

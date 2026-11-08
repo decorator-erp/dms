@@ -67,13 +67,13 @@ public sealed partial class MeetingFixTests
     private sealed class FailingFor(Guid meetingId, INotificationService inner) : INotificationService
     {
         public Task NotifyAsync(string recipientUserId, NotificationType type, string title, string? body = null,
-            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, CancellationToken ct = default) =>
-            NotifyManyAsync([recipientUserId], type, title, body, entityType, entityId, dedupeKey, ct);
+            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, Guid? projectId = null, CancellationToken ct = default) =>
+            NotifyManyAsync([recipientUserId], type, title, body, entityType, entityId, dedupeKey, projectId, ct);
 
         public Task NotifyManyAsync(IReadOnlyCollection<string> recipientUserIds, NotificationType type, string title, string? body = null,
-            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, CancellationToken ct = default) =>
+            NotificationEntityType? entityType = null, Guid? entityId = null, string? dedupeKey = null, Guid? projectId = null, CancellationToken ct = default) =>
             entityId == meetingId
                 ? throw new InvalidOperationException("Simulated notification failure.")
-                : inner.NotifyManyAsync(recipientUserIds, type, title, body, entityType, entityId, dedupeKey, ct);
+                : inner.NotifyManyAsync(recipientUserIds, type, title, body, entityType, entityId, dedupeKey, projectId, ct);
     }
 }

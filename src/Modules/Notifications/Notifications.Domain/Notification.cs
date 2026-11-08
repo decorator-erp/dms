@@ -26,6 +26,13 @@ internal sealed class Notification : Entity
     public NotificationEntityType? EntityType { get; private set; }
     public Guid? EntityId { get; private set; }
 
+    /// <summary>The parent project, for entities whose screen is nested under one (a task at
+    /// <c>/projects/{projectId}/tasks/{taskId}</c>, a stage at <c>…/stages/{stageId}</c>). A deep-link
+    /// hint only: never part of dedupe, never filtered on. Null when the entity is not project-scoped,
+    /// when the sender does not pass it, or when the row predates the column (no backfill: that would
+    /// read Projects' tables from this module's migration).</summary>
+    public Guid? ProjectId { get; private set; }
+
     /// <summary>Null means unread.</summary>
     public DateTime? ReadAtUtc { get; private set; }
 
@@ -65,7 +72,8 @@ internal sealed class Notification : Entity
         string? body = null,
         NotificationEntityType? entityType = null,
         Guid? entityId = null,
-        string? dedupeKey = null) => new()
+        string? dedupeKey = null,
+        Guid? projectId = null) => new()
         {
             RecipientUserId = recipientUserId,
             Type = type,
@@ -73,6 +81,7 @@ internal sealed class Notification : Entity
             Body = body,
             EntityType = entityType,
             EntityId = entityId,
+            ProjectId = projectId,
             DedupeKey = ScopeDedupeKey(dedupeKey, recipientUserId),
         };
 

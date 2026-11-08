@@ -278,6 +278,9 @@ namespace Notifications.Infrastructure.Persistence.Migrations.InitialNotificatio
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ReadAtUtc")
                         .HasColumnType("timestamp with time zone");
 

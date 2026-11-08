@@ -28,6 +28,11 @@ public interface INotificationService
     /// re-run, and therefore what lets a job be re-executed after a restart, a retry or an overlapping
     /// tick without duplicating a reminder. A null key means "always deliver".</para>
     /// </param>
+    /// <param name="projectId">
+    /// The entity's parent project, for entities whose screen is nested under one (ProjectTask,
+    /// ProjectStage). Returned on the read and the real-time push so the client can build the route
+    /// without a lookup. Optional and not part of dedupe.
+    /// </param>
     Task NotifyAsync(
         string recipientUserId,
         NotificationType type,
@@ -36,6 +41,7 @@ public interface INotificationService
         NotificationEntityType? entityType = null,
         Guid? entityId = null,
         string? dedupeKey = null,
+        Guid? projectId = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -51,5 +57,6 @@ public interface INotificationService
         NotificationEntityType? entityType = null,
         Guid? entityId = null,
         string? dedupeKey = null,
+        Guid? projectId = null,
         CancellationToken ct = default);
 }

@@ -55,6 +55,7 @@ internal sealed class ProjectStageCompletedNotificationHandler(
             entityType: NotificationEntityType.ProjectStage,
             entityId: @event.StageId,
             dedupeKey: $"stage-{@event.StageId}-completed-{@event.EventId}",
+            projectId: @event.ProjectId,
             ct: ct);
     }
 }
@@ -110,6 +111,7 @@ internal sealed class ProjectStageRejectedNotificationHandler(
             entityType: NotificationEntityType.ProjectStage,
             entityId: @event.StageId,
             dedupeKey: $"stage-{@event.StageId}-rejected-{@event.EventId}",
+            projectId: @event.ProjectId,
             ct: ct);
     }
 }

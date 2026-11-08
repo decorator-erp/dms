@@ -24,6 +24,7 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
 
         builder.Property(x => x.EntityType).HasConversion<int>();
         builder.Property(x => x.EntityId);
+        builder.Property(x => x.ProjectId); // deep-link hint; no FK (Projects' table) and no index (never filtered on)
         builder.Property(x => x.ReadAtUtc);
 
         builder.Property(x => x.DedupeKey).HasMaxLength(200);
