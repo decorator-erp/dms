@@ -105,14 +105,9 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
             return CrmLeadErrors.AlreadyConverted;
         }
 
-        var data = new DomainIntakeData(
-            command.Data.JobTitle, command.Data.ClientAddress,
-            command.Data.Sector is { } sector ? CrmEnumMapping.ToDomain(sector) : null,
-            command.Data.UnitAddress, command.Data.AreaSqm, command.Data.UsedDesignerBefore,
-            command.Data.DesignerExperience is { } experience ? CrmEnumMapping.ToDomain(experience) : null,
-            command.Data.DesignerExperienceReason);
+        DomainIntakeData data = LeadIntakeMapping.ToDomain(command.Data);
 
-        ResidentialIntakeData? residentialData = ToDomain(command.Data.Residential);
+        ResidentialIntakeData? residentialData = LeadIntakeMapping.ToDomain(command.Data.Residential);
         if (residentialData is not null && data.Sector != ProjectSector.Residential)
         {
             return CrmLeadErrors.ResidentialWithoutSector;
@@ -176,12 +171,4 @@ internal sealed class SaveCrmLeadIntakeCommandHandler(CrmDbContext db) : IComman
 
         return await LeadWrites.SaveAsync(db, ct);
     }
-
-    private static ResidentialIntakeData? ToDomain(CrmLeadIntakeResidentialData? r) => r is null
-        ? null
-        : new ResidentialIntakeData(
-            r.UnitType is { } unitType ? CrmEnumMapping.ToDomain(unitType) : null,
-            r.UnitCondition is { } unitCondition ? CrmEnumMapping.ToDomain(unitCondition) : null,
-            r.IsLicensed, r.IsRented,
-            r.FinishingPurpose is { } purpose ? CrmEnumMapping.ToDomain(purpose) : null);
 }

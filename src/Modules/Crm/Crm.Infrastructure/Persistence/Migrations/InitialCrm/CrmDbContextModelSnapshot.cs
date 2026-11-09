@@ -1108,7 +1108,7 @@ namespace Crm.Infrastructure.Persistence.Migrations.InitialCrm
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
-                    b.Property<Guid>("OwnerId")
+                    b.Property<Guid?>("OwnerId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Phone")

@@ -205,18 +205,12 @@ public static class DI
         // the caller is anonymous), for CRM's public lead-intake endpoint. Five submissions per minute
         // per IP is deliberately tight: a real prospect submits once, a script hammering the endpoint
         // does not get a second window before being throttled. QueueLimit 0 - a caller over the limit
-        // is rejected immediately (429), never made to wait.
+        // is rejected immediately (429), never made to wait. Configurable like the auth policies below
+        // (RateLimiting:CrmPublicLeads:*), so the integration suite can raise it and one test can assert the 429.
         services.AddRateLimiter(options =>
         {
-            options.AddPolicy(RateLimitPolicies.CrmPublicLeads, httpContext =>
-                RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                    factory: _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 5,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                    }));
+            Dictionary<string, int> windowSeconds = new(StringComparer.Ordinal);
+            AddFixedWindow(options, cfg, windowSeconds, RateLimitPolicies.CrmPublicLeads, "CrmPublicLeads", 5, ClientIp);
 
             // The auth routes, three policies since PF-D2 (Phase 1B had one, shared by all five routes and
             // keyed by IP, so everyone behind one NAT shared one bucket). Each is a fixed window, rejected
@@ -225,7 +219,6 @@ public static class DI
             //
             // AuthLogin, /login only, per IP: ten a minute is several honest retries and far too few for
             // guessing.
-            Dictionary<string, int> windowSeconds = new(StringComparer.Ordinal) { [RateLimitPolicies.CrmPublicLeads] = 60 };
             AddFixedWindow(options, cfg, windowSeconds, RateLimitPolicies.AuthLogin, "AuthLogin", 10, ClientIp);
 
             // AuthRefresh, /refresh and /revoke, per IP: a flood limit, not a guessing defence (refresh

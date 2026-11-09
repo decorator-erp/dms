@@ -123,19 +123,19 @@ public sealed class CrmSmokeTests(ApiFixture fixture)
     ///
     /// <para>The anonymous surface's own reachability proof - no bearer token, yet the FIRST response is
     /// NEVER 401/403 (the shape every other CRM route returns for the same missing-auth case) - the
-    /// request reaches the handler itself, which then succeeds (202) or fails closed on its own terms
-    /// (503 if <c>Crm:PublicLeadIntakeOwnerId</c> were ever unset - see <c>ApiFixture.PublicLeadIntakeOwnerId</c>,
-    /// which this fixture always configures, so 202 is the actual expected outcome here).</para>
+    /// request reaches the handler itself, which stores the lead and answers 202. Since LI-1 no intake owner
+    /// is configured or needed: a website lead is stored unassigned.</para>
     ///
     /// <para>A burst past the limit trips 429 on the SIXTH request - proving the limiter is actually
-    /// wired, not just declared. All requests share one <see cref="HttpClient"/> (and therefore one
-    /// client-side connection), but the limiter partitions by <c>HttpContext.Connection.RemoteIpAddress</c>
-    /// server-side, which is what actually matters here.</para>
+    /// wired, not just declared. The limiter partitions by <c>HttpContext.Connection.RemoteIpAddress</c>
+    /// server-side; <see cref="ApiFixture.CreatePublicClient"/> gives this test an address of its own.</para>
     /// </summary>
     [Fact]
     public async Task SubmitPublicLead_FirstOfSixIsReachable_SixthTripsTheRateLimit()
     {
-        HttpClient client = fixture.CreateClient();
+        // The real limit, five a minute per IP, from a client IP of this test's own (LI-1), so no other
+        // public-form test shares the window.
+        HttpClient client = fixture.CreatePublicClient();
         string suffix = Guid.NewGuid().ToString("N");
 
         HttpResponseMessage first = await client.PostAsJsonAsync("/api/crm/public/leads", new
