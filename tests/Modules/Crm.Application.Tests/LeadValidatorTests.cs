@@ -92,6 +92,57 @@ public sealed class LeadValidatorTests
                 Sector: ProjectSector.Residential, Residential: new CrmLeadIntakeResidentialData(UnitType.Villa)))).IsValid);
     }
 
+    // LI-1: a lead may be unassigned. No owner is a valid lead; an empty Guid is not "no owner".
+
+    [Fact]
+    public void A_lead_with_no_owner_is_accepted_on_create_and_update()
+    {
+        Assert.True(new CreateCrmLeadCommandValidator().Validate(Create() with { OwnerId = null }).IsValid);
+        Assert.True(new UpdateCrmLeadCommandValidator().Validate(Update() with { OwnerId = null }).IsValid);
+    }
+
+    [Fact]
+    public void An_empty_owner_id_is_rejected_on_create_and_update()
+    {
+        AssertInvalid(new CreateCrmLeadCommandValidator(), Create() with { OwnerId = Guid.Empty }, "OwnerId");
+        AssertInvalid(new UpdateCrmLeadCommandValidator(), Update() with { OwnerId = Guid.Empty }, "OwnerId");
+    }
+
+    // LI-1: the public form's submission - the lead's own rules plus the intake's.
+
+    private static SubmitPublicLeadCommand Submit(
+        string first = "A", string last = "B", string? email = null, string? phone = null, string? notes = null,
+        CrmLeadIntakeData? intake = null) =>
+        new(first, last, email, phone, notes, intake);
+
+    public static TheoryData<string, SubmitPublicLeadCommand> InvalidSubmissions => new()
+    {
+        { "FirstName", Submit(first: "") },
+        { "LastName", Submit(last: Long129) },
+        { "Email", Submit(email: "not-an-email") },
+        { "Phone", Submit(phone: new string('1', 33)) },
+        { "Notes", Submit(notes: new string('a', 2001)) },
+        { "Intake.JobTitle", Submit(intake: new CrmLeadIntakeData(JobTitle: Long129)) },
+        { "Intake.AreaSqm", Submit(intake: new CrmLeadIntakeData(AreaSqm: 0m)) },
+        { "Intake.Sector", Submit(intake: new CrmLeadIntakeData(Sector: (ProjectSector)99)) },
+        { "Intake.Residential.UnitType", Submit(intake: new CrmLeadIntakeData(
+            Sector: ProjectSector.Residential, Residential: new CrmLeadIntakeResidentialData(UnitType: (UnitType)99))) },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidSubmissions))]
+    public void Public_submission_rejects(string property, SubmitPublicLeadCommand command) =>
+        AssertInvalid(new SubmitPublicLeadCommandValidator(), command, property);
+
+    [Fact]
+    public void A_public_submission_with_or_without_an_intake_is_accepted()
+    {
+        Assert.True(new SubmitPublicLeadCommandValidator().Validate(Submit(email: " ")).IsValid);
+        Assert.True(new SubmitPublicLeadCommandValidator().Validate(Submit(intake: new CrmLeadIntakeData(
+            JobTitle: "Doctor", Sector: ProjectSector.Residential, AreaSqm: 120m,
+            Residential: new CrmLeadIntakeResidentialData(UnitType.Villa)))).IsValid);
+    }
+
     // F1: a blank email is "none", not an invalid address.
 
     [Theory]

@@ -5,7 +5,7 @@ namespace Crm.Contracts.Leads;
 
 public sealed record CrmLeadResponse(
     Guid Id, string FirstName, string LastName, string? Email, string? Phone, LeadSource Source,
-    LeadStatus Status, Guid OwnerId, string? Notes, Guid? ConvertedClientId, DateTime? ConvertedAtUtc);
+    LeadStatus Status, Guid? OwnerId, string? Notes, Guid? ConvertedClientId, DateTime? ConvertedAtUtc);
 
 public sealed record CrmLeadIntakeResidentialData(
     UnitType? UnitType = null, UnitCondition? UnitCondition = null, bool? IsLicensed = null,
@@ -24,13 +24,21 @@ public sealed record CrmLeadIntakeData(
 
 public sealed record CrmLeadIntakeResponse(Guid LeadId, CrmLeadIntakeData Data);
 
+/// <summary>LI-1: <see cref="OwnerId"/> is optional - null leaves the lead unassigned.</summary>
 public sealed record CreateCrmLeadCommand(
-    string FirstName, string LastName, LeadSource Source, Guid OwnerId,
+    string FirstName, string LastName, LeadSource Source, Guid? OwnerId,
     string? Email = null, string? Phone = null, string? Notes = null) : ICommand<Guid>;
 
 public sealed record UpdateCrmLeadCommand(
-    Guid LeadId, string FirstName, string LastName, LeadSource Source, Guid OwnerId,
+    Guid LeadId, string FirstName, string LastName, LeadSource Source, Guid? OwnerId,
     string? Email, string? Phone, string? Notes) : ICommand;
+
+/// <summary>LI-1: the anonymous public intake form's submission. Stored as a <see cref="LeadSource.Website"/>
+/// lead with no owner, plus the client's own project answers (<see cref="Intake"/>, optional) as the lead's
+/// intake, in one transaction - a submission with an invalid intake saves nothing.</summary>
+public sealed record SubmitPublicLeadCommand(
+    string FirstName, string LastName, string? Email = null, string? Phone = null, string? Notes = null,
+    CrmLeadIntakeData? Intake = null) : ICommand<Guid>;
 
 public sealed record ChangeCrmLeadStatusCommand(Guid LeadId, LeadStatus Status) : ICommand;
 

@@ -101,7 +101,7 @@ internal sealed class CrmLeadEndpoints : IEndpoint
     }
 
     private sealed record UpdateLeadRequest(
-        string FirstName, string LastName, LeadSource Source, Guid OwnerId,
+        string FirstName, string LastName, LeadSource Source, Guid? OwnerId,
         string? Email, string? Phone, string? Notes);
 
     private sealed record ChangeStatusRequest(LeadStatus Status);

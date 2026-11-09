@@ -19,6 +19,20 @@ public class CrmLeadTests
         Assert.Null(result.Value.ConvertedClientId);
     }
 
+    /// <summary>LI-1: a website lead arrives with no owner; the office assigns one later.</summary>
+    [Fact]
+    public void Create_WithNoOwner_IsAnUnassignedLead_ThatCanBeAssignedLater()
+    {
+        Result<CrmLead> result = CrmLead.Create("Jane", "Doe", (LeadSource)1, ownerId: null);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.OwnerId);
+
+        var owner = Guid.NewGuid();
+        Assert.True(result.Value.Update("Jane", "Doe", (LeadSource)1, owner, null, null, null).IsSuccess);
+        Assert.Equal(owner, result.Value.OwnerId);
+    }
+
     [Theory]
     [InlineData("", "Doe")]
     [InlineData("Jane", "")]

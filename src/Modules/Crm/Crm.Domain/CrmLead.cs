@@ -15,6 +15,10 @@ namespace Crm.Domain;
 /// <c>ConvertCrmLeadCommandHandler</c> (G9-09), which has database access this Domain project
 /// deliberately does not. Recorded as a deliberate divergence in this task's PROGRESS.md entry, not
 /// silently "fixed."</para>
+///
+/// <para>LI-1: <see cref="OwnerId"/> is optional. A lead from the public intake form arrives unassigned;
+/// whoever works it assigns an owner later. When set, it names an active employee (checked in
+/// <c>Crm.Application</c>, which can read HR).</para>
 /// </summary>
 internal sealed class CrmLead : Entity, IAuditable
 {
@@ -24,7 +28,7 @@ internal sealed class CrmLead : Entity, IAuditable
     public string? Phone { get; private set; }
     public LeadSource Source { get; private set; }
     public LeadStatus Status { get; private set; }
-    public Guid OwnerId { get; private set; }
+    public Guid? OwnerId { get; private set; }
     public string? Notes { get; private set; }
     public Guid? ConvertedClientId { get; private set; }
     public DateTime? ConvertedAtUtc { get; private set; }
@@ -35,7 +39,7 @@ internal sealed class CrmLead : Entity, IAuditable
         string firstName,
         string lastName,
         LeadSource source,
-        Guid ownerId,
+        Guid? ownerId,
         string? email = null,
         string? phone = null,
         string? notes = null)
@@ -59,7 +63,7 @@ internal sealed class CrmLead : Entity, IAuditable
     }
 
     public Result Update(
-        string firstName, string lastName, LeadSource source, Guid ownerId,
+        string firstName, string lastName, LeadSource source, Guid? ownerId,
         string? email, string? phone, string? notes)
     {
         if (Status == LeadStatus.Converted)

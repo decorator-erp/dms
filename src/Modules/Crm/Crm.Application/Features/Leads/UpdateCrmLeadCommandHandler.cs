@@ -19,13 +19,14 @@ internal sealed class UpdateCrmLeadCommandValidator : AbstractValidator<UpdateCr
         RuleFor(x => x.Phone).MaximumLength(CrmLeadValidationRules.PhoneMaxLength);
         RuleFor(x => x.Notes).MaximumLength(CrmLeadValidationRules.NotesMaxLength);
         RuleFor(x => x.Source).IsInEnum();
-        RuleFor(x => x.OwnerId).NotEmpty();
+        RuleFor(x => x.OwnerId).NotEqual(Guid.Empty);
     }
 }
 
 /// <summary>A new <see cref="UpdateCrmLeadCommand.OwnerId"/> must name an active employee, same check as
 /// create. An unchanged owner is not re-checked: a lead whose owner has since left stays editable (its
-/// reassignment is then the edit that must name someone active).</summary>
+/// reassignment is then the edit that must name someone active). LI-1: null leaves or makes the lead
+/// unassigned.</summary>
 internal sealed class UpdateCrmLeadCommandHandler(CrmDbContext db, IHrDirectory hrDirectory) : ICommandHandler<UpdateCrmLeadCommand>
 {
     public async Task<Result> HandleAsync(UpdateCrmLeadCommand command, CancellationToken ct = default)
@@ -36,7 +37,7 @@ internal sealed class UpdateCrmLeadCommandHandler(CrmDbContext db, IHrDirectory 
             return CrmLeadErrors.NotFound;
         }
 
-        if (command.OwnerId != lead.OwnerId && await hrDirectory.GetAsync(command.OwnerId, ct) is null)
+        if (command.OwnerId is { } ownerId && ownerId != lead.OwnerId && await hrDirectory.GetAsync(ownerId, ct) is null)
         {
             return CrmLeadErrors.OwnerNotFound;
         }

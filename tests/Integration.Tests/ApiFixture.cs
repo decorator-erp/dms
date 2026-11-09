@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -35,15 +37,13 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public const string JwtIssuer = "DMS.Modular.Api.Tests";
     public const string JwtAudience = "DMS.Modular.Client.Tests";
 
-    /// <summary>G9-14: <c>Crm:PublicLeadIntakeOwnerId</c> — the anonymous public lead endpoint's
-    /// configured intake owner (see <c>CrmPublicEndpoints</c>'s own remarks for why this is
-    /// configuration rather than a resolved actor). Fixed and seeded once in <see cref="InitializeAsync"/>
-    /// rather than created per-test through the normal register+employee HTTP flow, because
-    /// <see cref="ConfigureWebHost"/>'s <c>UseSetting</c> calls run once at host build time — no test can
-    /// change it afterward. <see cref="ResetAsync"/> is never actually called anywhere in this test
+    /// <summary>One real, active employee, seeded once in <see cref="InitializeAsync"/> for tests that need
+    /// a valid owner id (assigning a lead). It used to be the public lead endpoint's configured intake owner
+    /// (<c>Crm:PublicLeadIntakeOwnerId</c>); since LI-1 website leads are stored unassigned and the host
+    /// reads no such setting. <see cref="ResetAsync"/> is never actually called anywhere in this test
     /// collection today, so this row persists for the fixture's whole lifetime; if that ever changes,
     /// re-seed it there too.</summary>
-    public static readonly Guid PublicLeadIntakeOwnerId = Guid.Parse("00000000-0000-0000-0000-00000000c12e");
+    public static readonly Guid SeededEmployeeId = Guid.Parse("00000000-0000-0000-0000-00000000c12e");
 
     private Testcontainers.PostgreSql.PostgreSqlContainer _container = null!;
     private Respawner _respawner = null!;
@@ -85,7 +85,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// <para><b>Since N2 the host also checks every token's session:</b> its <c>sstamp</c> must equal
     /// the user's stored security stamp, and the user must exist and be active. So this carries the
     /// user's current stamp. An id nobody provisioned gets a bare, active login row first (raw SQL, like
-    /// <see cref="SeedPublicLeadIntakeOwnerAsync"/>), so the many tests that only need "some caller with
+    /// <see cref="SeedEmployeeAsync"/>), so the many tests that only need "some caller with
     /// these permissions" keep working. A token issued before a change to its user (deactivation, a role
     /// change) is stale afterwards, exactly as in production.</para>
     /// </summary>
@@ -118,7 +118,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await StartAndMigrateAsync();
 
-        await SeedPublicLeadIntakeOwnerAsync();
+        await SeedEmployeeAsync();
 
         // The string-connection overload of CreateAsync only supports SQL Server (it constructs a
         // SqlConnection internally) - Postgres needs the DbConnection overload with an explicit
@@ -243,14 +243,15 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("JwtSettings:Audience", JwtAudience);
         builder.UseSetting("DMS_SEED_ADMIN_PASSWORD", AdminPassword);
         builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
-        builder.UseSetting("Crm:PublicLeadIntakeOwnerId", PublicLeadIntakeOwnerId.ToString());
         // Small on purpose (default is 50 MB) - keeps DocumentsSmokeTests' oversized-upload test's payload
         // small and fast rather than needing a genuinely 50+ MB request; every other test's upload content
         // is a handful of bytes, well under this cap.
         builder.UseSetting("FileStorage:MaxUploadBytes", "5242880");
         // Phase 1B, three policies since PF-D2. Every test request comes from one IP, and the suite logs in
         // hundreds of times (TestUsers), so the auth rate limits are raised far out of reach here. The 429s
-        // are asserted by AuthRateLimitTests on derived hosts, each setting every limit it relies on.
+        // are asserted by AuthRateLimitTests on derived hosts, each setting every limit it relies on. The public
+        // lead form keeps its real limit (five a minute per IP): its tests each send from their own client IP
+        // instead (CreatePublicClient), so they never share a window.
         builder.UseSetting("RateLimiting:AuthLogin:PermitLimit", "100000");
         builder.UseSetting("RateLimiting:AuthRefresh:PermitLimit", "100000");
         builder.UseSetting("RateLimiting:AuthSession:PermitLimit", "100000");
@@ -267,6 +268,49 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // BuildingBlocks.BackgroundLoops.
         builder.UseSetting(BuildingBlocks.BackgroundLoops.EnabledKey, "false");
         builder.ConfigureLogging(logging => logging.AddProvider(new SqlCapturingLoggerProvider(_capturedSql)));
+        builder.ConfigureServices(services => services.AddSingleton<IStartupFilter>(new TestClientIpStartupFilter()));
+    }
+
+    /// <summary>The test-only request header <see cref="TestClientIpStartupFilter"/> reads.</summary>
+    public const string TestClientIpHeader = "X-Test-Client-Ip";
+
+    /// <summary>
+    /// LI-1: an anonymous client whose requests come from their own client IP, so the public lead form's
+    /// per-IP rate limit (five a minute) gives each test its own window. Every other request in the suite
+    /// shares TestServer's one (null) remote address.
+    ///
+    /// <para>Not a derived host on purpose: a derived host that runs a module's first EF query leaves its own
+    /// logger factory - disposed with that host - in EF Core's static internal-service-provider cache, and
+    /// <see cref="CapturedSql"/> then sees nothing from that module for the rest of the run.</para>
+    /// </summary>
+    public HttpClient CreatePublicClient()
+    {
+        HttpClient client = CreateClient();
+        byte[] ip = Guid.NewGuid().ToByteArray()[..4];
+        ip[0] = 198; // 198.18.0.0/15, the benchmarking range: never a real client, never a configured proxy.
+        ip[1] = (byte)(18 + (ip[1] & 1));
+        client.DefaultRequestHeaders.Add(TestClientIpHeader, new System.Net.IPAddress(ip).ToString());
+        return client;
+    }
+
+    /// <summary>Sets the connection's remote address from <see cref="TestClientIpHeader"/> when a test sends
+    /// it; otherwise does nothing. First in the pipeline, so the rate limiter partitions on it.</summary>
+    private sealed class TestClientIpStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((HttpContext context, RequestDelegate nextMiddleware) =>
+            {
+                if (context.Request.Headers.TryGetValue(TestClientIpHeader, out Microsoft.Extensions.Primitives.StringValues value)
+                    && System.Net.IPAddress.TryParse(value.ToString(), out System.Net.IPAddress? address))
+                {
+                    context.Connection.RemoteIpAddress = address;
+                }
+
+                return nextMiddleware(context);
+            });
+            next(app);
+        };
     }
 
     /// <summary>Captures every message logged under EF Core's "Executed DbCommand" event — the SQL text
@@ -299,10 +343,10 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     }
 
     /// <summary>Raw SQL, before the host (and its <c>hr</c>/<c>identity</c> FKs) is even built — a real
-    /// row for <see cref="PublicLeadIntakeOwnerId"/> to satisfy, matching
+    /// row for <see cref="SeededEmployeeId"/> to satisfy, matching
     /// <c>ProjectAccessGuardTests.SeedEmployeeAsync</c>'s own precedent for seeding a cross-module
     /// dependency outside any module's own command surface.</summary>
-    private async Task SeedPublicLeadIntakeOwnerAsync()
+    private async Task SeedEmployeeAsync()
     {
         const string appUserId = "public-lead-intake-owner";
 
@@ -327,7 +371,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
                     ("Id", "JobTitle", "HireDate", "ContractType", "AppUserId", "IsActive", "CreatedAtUtc")
                 VALUES (@id, 'Sales', CURRENT_DATE, 1, @appUserId, true, now());
                 """;
-        employeeCommand.Parameters.AddWithValue("id", PublicLeadIntakeOwnerId);
+        employeeCommand.Parameters.AddWithValue("id", SeededEmployeeId);
         employeeCommand.Parameters.AddWithValue("appUserId", appUserId);
         await employeeCommand.ExecuteNonQueryAsync();
     }

@@ -18,11 +18,11 @@ internal sealed class CreateCrmLeadCommandValidator : AbstractValidator<CreateCr
         RuleFor(x => x.Phone).MaximumLength(CrmLeadValidationRules.PhoneMaxLength);
         RuleFor(x => x.Notes).MaximumLength(CrmLeadValidationRules.NotesMaxLength);
         RuleFor(x => x.Source).IsInEnum();
-        RuleFor(x => x.OwnerId).NotEmpty();
+        RuleFor(x => x.OwnerId).NotEqual(Guid.Empty);
     }
 }
 
-/// <summary><see cref="CreateCrmLeadCommand.OwnerId"/> must name an active employee —
+/// <summary>When given (LI-1: it is optional), <see cref="CreateCrmLeadCommand.OwnerId"/> must name an active employee —
 /// <see cref="IHrDirectory.GetAsync"/> sees active employees only, so one lookup answers both "unknown" (which
 /// used to surface as the <c>fk_crm_leads_owner</c> violation, a 500) and "has left".</summary>
 internal sealed class CreateCrmLeadCommandHandler(CrmDbContext db, IHrDirectory hrDirectory)
@@ -30,7 +30,7 @@ internal sealed class CreateCrmLeadCommandHandler(CrmDbContext db, IHrDirectory 
 {
     public async Task<Result<Guid>> HandleAsync(CreateCrmLeadCommand command, CancellationToken ct = default)
     {
-        if (await hrDirectory.GetAsync(command.OwnerId, ct) is null)
+        if (command.OwnerId is { } ownerId && await hrDirectory.GetAsync(ownerId, ct) is null)
         {
             return Result.Failure<Guid>(CrmLeadErrors.OwnerNotFound);
         }

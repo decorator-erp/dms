@@ -233,7 +233,6 @@ public sealed class Rule12EndpointAuthorizationTests : IAsyncLifetime
             builder.UseSetting("JwtSettings:Issuer", "rule12");
             builder.UseSetting("JwtSettings:Audience", "rule12");
             builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
-            builder.UseSetting("Crm:PublicLeadIntakeOwnerId", Guid.Empty.ToString());
             builder.UseSetting(BuildingBlocks.BackgroundLoops.EnabledKey, "false");
         }
     }
