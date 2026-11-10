@@ -7,7 +7,8 @@
 #
 # It changes nothing outside these three things:
 #   - /srv/pera (compose file, scripts, a .env of freshly generated secrets) and the `pera` project;
-#   - /srv/edge/conf/pera.caddy, followed by a validated `caddy reload` of the edge (never a restart);
+#   - /srv/edge/conf/pera.caddy (plus an `import pera.caddy` line in the edge Caddyfile when it lists
+#     sites one by one), followed by a validated `caddy reload` of the edge (never a restart);
 #   - one crontab line for the nightly backup.
 # No firewall, swap or Docker changes. Safe to run again: it keeps an existing .env.
 set -euo pipefail
@@ -29,18 +30,28 @@ edge_cid=$(docker ps -q --filter label=com.docker.compose.project=edge --filter 
 caddyfile=$(grep -E '^CADDYFILE=' "$EDGE_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
 caddyfile=${caddyfile:-Caddyfile}
 [ -f "$EDGE_DIR/conf/$caddyfile" ] || fail "$EDGE_DIR/conf/$caddyfile not found."
-# Where the edge imports its per-site files from: an `import <dir>/*.caddy` line, relative to /etc/caddy.
-glob=$(grep -Eo '^[[:space:]]*import[[:space:]]+[^[:space:]]*\*[^[:space:]]*' "$EDGE_DIR/conf/$caddyfile" | awk '{print $2}' | head -1 || true)
-[ -n "$glob" ] || fail "$EDGE_DIR/conf/$caddyfile has no 'import <dir>/*.caddy' line. Add one, e.g. 'import *.caddy', then rerun."
-case "$glob" in
-  /etc/caddy/*) rel="${glob#/etc/caddy/}" ;;
-  /*) fail "The edge imports '$glob', outside /etc/caddy; add pera.caddy by hand." ;;
-  *) rel="$glob" ;;
-esac
-site_dir="$EDGE_DIR/conf"; [ "$(dirname "$rel")" = "." ] || site_dir="$site_dir/$(dirname "$rel")"
-site_name="$(basename "$rel")"; site_name="pera${site_name#\*}"
-[ -d "$site_dir" ] || fail "$site_dir (from '$glob') not found."
-echo "   edge Caddy $edge_cid, config $caddyfile, PERA route -> $site_dir/$site_name"
+# How the edge pulls in per-site files: either a wildcard (`import <dir>/*.caddy`) or one explicit
+# line per site (`import ta3lom.caddy`, as on the PERA VPS). With explicit lines, PERA's own
+# `import pera.caddy` is appended in step 5 (validated, and undone if the edge rejects it).
+cfg="$EDGE_DIR/conf/$caddyfile"
+add_import=""
+glob=$(grep -Eo '^[[:space:]]*import[[:space:]]+[^[:space:]]*\*[^[:space:]]*' "$cfg" | awk '{print $2}' | head -1 || true)
+if [ -n "$glob" ]; then
+  case "$glob" in
+    /etc/caddy/*) rel="${glob#/etc/caddy/}" ;;
+    /*) fail "The edge imports '$glob', outside /etc/caddy; add pera.caddy by hand." ;;
+    *) rel="$glob" ;;
+  esac
+  site_dir="$EDGE_DIR/conf"; [ "$(dirname "$rel")" = "." ] || site_dir="$site_dir/$(dirname "$rel")"
+  site_name="$(basename "$rel")"; site_name="pera${site_name#\*}"
+  [ -d "$site_dir" ] || fail "$site_dir (from '$glob') not found."
+elif grep -Eq '^[[:space:]]*import[[:space:]]+[^[:space:]/*]+\.caddy[[:space:]]*$' "$cfg"; then
+  site_dir="$EDGE_DIR/conf"; site_name="pera.caddy"
+  grep -Eq '^[[:space:]]*import[[:space:]]+pera\.caddy[[:space:]]*$' "$cfg" || add_import=1
+else
+  fail "$cfg imports no per-site files ('import <site>.caddy' or 'import *.caddy'); add pera.caddy by hand."
+fi
+echo "   edge Caddy $edge_cid, config $caddyfile, PERA route -> $site_dir/$site_name${add_import:+ (+ 'import $site_name' in $caddyfile)}"
 
 echo "== 2/6 $DIR"
 mkdir -p "$DIR"
@@ -90,24 +101,32 @@ echo "== 5/6 Route on the edge"
 target="$site_dir/$site_name"
 address="${PERA_ADDRESS:-http://$ip}"
 sed "s|^PERA_ADDRESS {|$address {|" pera.caddy > pera.caddy.rendered
-if [ -f "$target" ] && cmp -s pera.caddy.rendered "$target"; then
+if [ -f "$target" ] && cmp -s pera.caddy.rendered "$target" && [ -z "$add_import" ]; then
   rm -f pera.caddy.rendered
   echo "   $target is up to date (edge not touched)"
 else
-  # The previous route is kept in $DIR, not in the edge's conf folder.
-  backup=""
-  if [ -f "$target" ]; then backup="$DIR/edge-route.bak.$(date +%Y%m%d%H%M%S)"; cp "$target" "$backup"; fi
-  mv pera.caddy.rendered "$target"
+  # Previous copies are kept in $DIR, not in the edge's conf folder.
+  stamp=$(date +%Y%m%d%H%M%S)
+  backup=""; cfg_backup=""
+  if [ -f "$target" ]; then backup="$DIR/edge-route.bak.$stamp"; cp "$target" "$backup"; fi
+  # cat > keeps the file's owner and mode (the edge files belong to the deploy user).
+  cat pera.caddy.rendered > "$target"; rm -f pera.caddy.rendered
+  if [ -n "$add_import" ]; then
+    cfg_backup="$DIR/edge-$caddyfile.bak.$stamp"; cp -p "$cfg" "$cfg_backup"
+    [ -z "$(tail -c1 "$cfg")" ] || echo >> "$cfg"
+    echo "import $site_name" >> "$cfg"
+  fi
   restore() {
     echo "$2" | tail -5 >&2
-    if [ -n "$backup" ]; then cp "$backup" "$target"; else rm -f "$target"; fi
-    fail "$1 — the PERA route was put back as it was; the edge keeps serving the other sites unchanged."
+    if [ -n "$backup" ]; then cat "$backup" > "$target"; else rm -f "$target"; fi
+    if [ -n "$cfg_backup" ]; then cat "$cfg_backup" > "$cfg"; fi
+    fail "$1 — the edge config was put back as it was; the edge keeps serving the other sites unchanged."
   }
   out=$(docker exec "$edge_cid" caddy validate --config "/etc/caddy/$caddyfile" --adapter caddyfile 2>&1) \
     || restore "the edge config does not validate with the PERA route" "$out"
   out=$(docker exec "$edge_cid" caddy reload --config "/etc/caddy/$caddyfile" --adapter caddyfile 2>&1) \
     || restore "caddy reload failed" "$out"
-  echo "   $target -> $address (edge validated and reloaded)"
+  echo "   $target -> $address${add_import:+, 'import $site_name' added to $caddyfile} (edge validated and reloaded)"
 fi
 
 echo "== 6/6 Check + nightly backup"
