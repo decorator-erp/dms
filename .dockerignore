@@ -28,3 +28,7 @@ README.md
 !.git/config
 !.git/packed-refs
 !.git/refs/heads/**
+# DEP-1: not needed to build the API image (src/Api/Dockerfile).
+.github/
+tests/
+**/uploads/
