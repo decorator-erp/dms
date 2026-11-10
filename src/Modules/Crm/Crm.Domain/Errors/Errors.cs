@@ -16,6 +16,15 @@ internal static class ClientErrors
     public static readonly Error AddressRequired = Error.BadRequest(
         "crm.clients.AddressRequired", "An address is required.");
 
+    /// <summary>
+    /// LC-2: the portal login's password does not meet Identity's rule. Checked before provisioning so
+    /// the caller gets this, not the deliberately vague <c>users.CreateFailed</c> (the same check HR's
+    /// employee create has made since N9).
+    /// </summary>
+    public static readonly Error WeakPassword = Error.BadRequest(
+        "crm.clients.WeakPassword",
+        "The password needs at least 8 characters, with a digit, a lower-case letter, an upper-case letter and a symbol.");
+
     public static readonly Error ChildNotFound = Error.NotFound(
         "crm.clients.ChildNotFound", "The specified child was not found on this client.");
 
