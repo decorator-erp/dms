@@ -3,7 +3,7 @@
 # - On a pull request touching the image's inputs: build only (proves the Dockerfile and every
 #   migration bundle still build). Nothing is pushed.
 # - On a push to master (a merged PR): build, push ghcr.io/<owner>/pera-api:{latest,<sha>}, then SSH to
-#   the VPS and run /opt/pera/deploy.sh — which runs the migrations, then restarts the API.
+#   the VPS and run /srv/pera/deploy.sh — which runs the migrations, then restarts the API.
 #
 # The deploy job runs only when the repository has the VPS_HOST secret, so the workflow is harmless
 # until the server is set up (see the runbook: dms-docs/backend/dms-modular/hosting/deploy-hostinger.md).
@@ -86,4 +86,4 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script: /opt/pera/deploy.sh
+          script: /srv/pera/deploy.sh
