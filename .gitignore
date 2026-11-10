@@ -492,3 +492,6 @@ $RECYCLE.BIN/
 # its permission entries carry machine-absolute paths). Plan and review documents are
 # tracked at the repo root instead, per the H1-04 precedent.
 .claude/
+
+# DEP-1: the VPS secrets file never belongs in git.
+deploy/.env

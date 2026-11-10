@@ -1,0 +1,12 @@
+# DEP-1: PERA's route on the shared edge Caddy. bootstrap-vps.sh copies it to /srv/edge/conf/pera.caddy,
+# replacing PERA_ADDRESS with the site address, then validates and reloads the edge (never restarts it).
+#
+# Now: http://<VPS IP> (plain HTTP; Caddy matches the Host header, so the other sites' blocks are untouched).
+# With a domain: change the address to the domain (e.g. pera.example.com, no http://), point its DNS
+# at the VPS, set PUBLIC_ORIGIN=https://pera.example.com in /srv/pera/.env, then reload the edge.
+PERA_ADDRESS {
+	request_body {
+		max_size 55MB
+	}
+	reverse_proxy pera-web:80
+}

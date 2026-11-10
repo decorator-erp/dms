@@ -1,0 +1,97 @@
+# DEP-1: PERA on the shared VPS. Copied to /srv/pera on the server (bootstrap-vps.sh) next to its .env.
+#   edge Caddy (/srv/edge, the only container on :80/:443) ──► pera-web (Caddy: the Angular app,
+#   proxies /api, /hubs, /health) ──► api:8080 ──► postgres
+# This project publishes NO port. web joins the external `edge` network under the alias `pera-web`;
+# /srv/edge/conf/pera.caddy routes to it. postgres, migrate and api stay on the private `pera` network.
+# migrate runs the EF bundles once per deploy; api starts only after it succeeds.
+name: pera
+
+# Docker rotates every container's log (10 MB x 5), so logs never fill the disk.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-api-image: &api-image ${API_IMAGE:-ghcr.io/decorator-erp/pera-api}:${API_TAG:-latest}
+# Gss Encryption Mode=Disable: no Kerberos here; without it Npgsql probes for libgssapi_krb5 on every
+# connection and logs that the library is missing.
+x-db-connection: &db-connection "Host=postgres;Port=5432;Database=dms_modular;Username=pera;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Maximum Pool Size=20;Gss Encryption Mode=Disable"
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: dms_modular
+      POSTGRES_USER: pera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pera -d dms_modular"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: ${POSTGRES_MEM_LIMIT:-768m}
+    networks: [pera]
+    # Not published: only the api reaches it, over the private network.
+
+  migrate:
+    image: *api-image
+    entrypoint: ["/app/migrate.sh"]
+    logging: *logging
+    environment:
+      ConnectionStrings__DefaultConnection: *db-connection
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [pera]
+
+  api:
+    image: *api-image
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: *db-connection
+      JwtSettings__Key: ${JWT_KEY:?set JWT_KEY in .env}
+      DMS_SEED_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      Cors__AllowedOrigins__0: ${PUBLIC_ORIGIN:-http://localhost}
+      # Trust X-Forwarded-For/-Proto from the private ranges Docker networks use (Api DI.cs, PF-D2).
+      # The api publishes no port and sits only on the private `pera` network, so the only private
+      # sender it can see is pera-web, which itself trusts only the edge.
+      ForwardedHeaders__KnownNetworks__0: 10.0.0.0/8
+      ForwardedHeaders__KnownNetworks__1: 172.16.0.0/12
+      ForwardedHeaders__KnownNetworks__2: 192.168.0.0/16
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: ${API_MEM_LIMIT:-768m}
+    networks: [pera]
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/decorator-erp/pera-web}:${WEB_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    # No ports: the edge Caddy reaches it over the `edge` network and terminates HTTPS when a domain
+    # is added (deploy/pera.caddy).
+    depends_on:
+      - api
+    mem_limit: 128m
+    networks:
+      pera: {}
+      edge:
+        aliases: [pera-web]
+
+networks:
+  pera: {}
+  # Owned by /srv/edge (shared with the other sites on the VPS).
+  edge:
+    external: true
+
+volumes:
+  pgdata:
+  uploads:
