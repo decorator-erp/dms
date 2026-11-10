@@ -70,7 +70,11 @@ services:
       migrate:
         condition: service_completed_successfully
     mem_limit: ${API_MEM_LIMIT:-768m}
-    networks: [pera]
+    networks:
+      pera:
+        # pera-web proxies to "pera-api". It also sits on the shared edge network, where other sites'
+        # API containers answer to plain "api", so the name must be unique to PERA.
+        aliases: [pera-api]
 
   web:
     image: ${WEB_IMAGE:-ghcr.io/decorator-erp/pera-web}:${WEB_TAG:-latest}

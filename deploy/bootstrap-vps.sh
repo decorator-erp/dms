@@ -133,13 +133,24 @@ echo "== 6/6 Check + nightly backup"
 host="${address#http://}"; host="${host#https://}"
 ok=""; status=0
 for _ in $(seq 1 30); do
-  if curl -fsS --max-time 5 -H "Host: $host" "http://127.0.0.1/health" >/dev/null 2>&1; then ok=1; break; fi
+  # The body must be PERA's own "Healthy": a 2xx from some other upstream does not count.
+  if [ "$(curl -fsS --max-time 5 -H "Host: $host" "http://127.0.0.1/health" 2>/dev/null)" = "Healthy" ]; then ok=1; break; fi
   sleep 2
 done
 if [ -n "$ok" ]; then
   echo "   $address/health is healthy"
+  # And /api must reach PERA's API: an unauthenticated call answers PERA's 401.
+  api_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H "Host: $host" "http://127.0.0.1/api/employees/me")
+  if [ "$api_code" = "401" ]; then
+    echo "   $address/api answers from PERA (401 without sign-in)"
+  else
+    echo "!! $address/api/employees/me answered $api_code, not PERA's 401: /api may be reaching another upstream."
+    status=1
+  fi
 else
-  echo "!! $address/health did not answer within a minute. Check: cd $DIR && docker compose -f docker-compose.prod.yml logs --tail 50"
+  echo "!! $address/health did not answer 'Healthy' within a minute. It answered:"
+  curl -s --max-time 5 -H "Host: $host" "http://127.0.0.1/health" | head -c 300; echo
+  echo "   Check: cd $DIR && docker compose -f docker-compose.prod.yml logs --tail 50"
   status=1
 fi
 if [ -z "${PERA_SKIP_CRON:-}" ]; then
