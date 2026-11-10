@@ -14,7 +14,7 @@ namespace Identity.Infrastructure.Authentication;
 /// and a non-alphanumeric character. The values live in <see cref="IdentityPasswordPolicy"/>
 /// (Identity.Contracts), so HR's employee create checks the same rule before provisioning (N9) and the
 /// caller gets <c>employees.WeakPassword</c> instead of a generic provisioning failure. CRM's client
-/// create does not check it yet (recorded, CRM is out of scope).</para>
+/// create checks it too (LC-2, <c>crm.clients.WeakPassword</c>).</para>
 /// </summary>
 internal static class IdentityPolicy
 {

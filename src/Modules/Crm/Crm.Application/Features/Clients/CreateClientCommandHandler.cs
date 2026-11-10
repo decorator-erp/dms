@@ -46,6 +46,13 @@ internal sealed class CreateClientCommandHandler(CrmDbContext db, IUserProvision
 {
     public async Task<Result<Guid>> HandleAsync(CreateClientCommand command, CancellationToken ct = default)
     {
+        // LC-2: the same password rule Identity enforces, checked first. Without it a password missing,
+        // say, a symbol reached provisioning and came back as the vague users.CreateFailed.
+        if (!IdentityPasswordPolicy.IsSatisfiedBy(command.Password))
+        {
+            return ClientErrors.WeakPassword;
+        }
+
         // ── THE ORDER BELOW IS THE SECURITY PROPERTY. Do not "tidy" it. ────────────────────────────
         //
         // 1. Provision the portal login INACTIVE. If the client row below never commits, this account
