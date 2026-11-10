@@ -19,11 +19,12 @@ internal sealed class ApplicationUser : IdentityUser<string>, IAuditable
     private ApplicationUser() { }
 
     /// <param name="isActive">
-    /// Defaults to <c>true</c> for the seeded admin, which is the ADR's one documented exemption: it has
-    /// no employee record and therefore no integration event that would ever activate it. Every other
-    /// caller provisions through <c>IUserProvisioning</c> and passes <c>false</c> — a login only becomes
-    /// usable once its business record has committed. Last parameter so the exemption is the default
-    /// nobody types, and the deliberate choice is the one that shows up at the call site.
+    /// Defaults to <c>true</c> for the seeded admin, the one login created active: a fresh database needs a
+    /// way in before any business record exists, and no integration event will ever activate it (HR gives
+    /// it its employee profile at seed time instead). Every other caller provisions through
+    /// <c>IUserProvisioning</c> and passes <c>false</c> — a login only becomes usable once its business
+    /// record has committed. Either way every login ends up an employee or a client. Last parameter so the
+    /// default is the one nobody types, and the deliberate choice is the one that shows up at the call site.
     /// </param>
     public static ApplicationUser Create(
         string id,

@@ -23,7 +23,7 @@ internal static class AdminUserSeeder
     /// the same row it created last time even if email/username were ever renamed.</summary>
     /// <summary>Internal rather than private since <c>UserLifecycleMaintenance</c> refuses to delete
     /// this id by name — see its own remarks for why that guard exists on top of the active check.</summary>
-    internal const string SeedAdminUserId = "00000000-0000-0000-0000-000000000001";
+    internal const string SeedAdminUserId = Identity.Contracts.Users.SeedAccounts.AdminUserId;
     private const string SeedAdminEmail = "admin@system.dms";
 
     public static async Task SeedAsync(
@@ -56,15 +56,14 @@ internal static class AdminUserSeeder
             ?? throw new InvalidOperationException(
                 $"Cannot seed the admin user before role '{DefaultRoles.Admin}' exists — RoleSeeder must run first.");
 
-        // isActive: true, stated explicitly rather than left to the default. This is the ADR's one
-        // documented exemption from "a login is created inactive and activated by the integration event
-        // its business record commits with": the seeded admin has no employee record by design, so no
-        // such event will ever be published for it, and an inactive admin would leave a fresh database
-        // with no way in. Every other caller goes through IUserProvisioning, which passes false.
+        // isActive: true, stated explicitly rather than left to the default. Every other login is created
+        // inactive by IUserProvisioning and activated by the integration event its business record commits
+        // with; the seeded admin is created active because a fresh database needs a way in. It is still an
+        // employee like every other staff login: HR, which seeds after Identity, gives it its employee
+        // profile (Hr AdminEmployeeSeeder, keyed on SeedAccounts.AdminUserId). Every login is an employee
+        // or a client; there is no account that is neither.
         //
-        // It is also why UnlinkedUserReaperJob refuses this id outright: an account that is deliberately
-        // active and deliberately unlinked matches nothing the reaper is looking for, but it should not
-        // depend on that to survive.
+        // UnlinkedUserReaperJob also refuses this id outright, as a safety net on top of that link.
         var user = ApplicationUser.Create(
             SeedAdminUserId, SeedAdminEmail, SeedAdminEmail, "System", "Administrator", UserType.Employee,
             isActive: true);
