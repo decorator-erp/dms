@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# DEP-1: one-time setup of a fresh Ubuntu/Debian VPS for PERA. Run as root:
-#   curl -fsSL https://raw.githubusercontent.com/decorator-erp/dms/master/deploy/bootstrap-vps.sh -o bootstrap-vps.sh
-#   bash bootstrap-vps.sh
+# DEP-1: one-time setup of a fresh Ubuntu/Debian VPS for PERA. The repo is private, so copy the
+# deploy/ folder to the VPS first (from a machine with the repo), then run it as root:
+#   scp -r deploy root@<VPS IP>:/root/pera-deploy
+#   ssh root@<VPS IP> 'bash /root/pera-deploy/bootstrap-vps.sh'
 # It is safe to run again: it keeps an existing /opt/pera/.env and only adds what is missing.
 #
 # What it does:
@@ -12,7 +13,7 @@
 #   5. starts PERA and installs the nightly backup.
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/decorator-erp/dms/master/deploy"
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR=/opt/pera
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo -i)."; exit 1; }
@@ -45,7 +46,8 @@ echo "== 3/5 /opt/pera"
 mkdir -p "$DIR"
 cd "$DIR"
 for f in docker-compose.prod.yml deploy.sh backup.sh .env.example; do
-  curl -fsSL "$REPO_RAW/$f" -o "$f"
+  [ -f "$SRC/$f" ] || { echo "   missing $SRC/$f — copy the whole deploy/ folder to the VPS"; exit 1; }
+  [ "$SRC" = "$DIR" ] || cp "$SRC/$f" "$f"
 done
 chmod +x deploy.sh backup.sh
 
