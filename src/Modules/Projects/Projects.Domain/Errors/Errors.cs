@@ -16,6 +16,12 @@ internal static class ProjectErrors
     public static readonly Error AccessDenied = Error.Forbidden(
         "projects.AccessDenied", "The current user does not have access to this project.");
 
+    /// <summary>DEP-1: a project's owner is the creating caller's HR employee. A signed-in account with no
+    /// employee profile (the seeded <c>admin@system.dms</c> system account, on a fresh database) cannot
+    /// own one. Same 403 as <see cref="AccessDenied"/>, but a code that says what is actually missing.</summary>
+    public static readonly Error NoEmployeeProfile = Error.Forbidden(
+        "projects.NoEmployeeProfile", "Only an employee can own a project. This account has no employee profile.");
+
     /// <summary>P10: in scope, but the caller's effective level on the project is below what the action needs.</summary>
     public static readonly Error InsufficientLevel = Error.Forbidden(
         "projects.InsufficientLevel", "Your access level on this project does not allow this action.");

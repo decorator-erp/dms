@@ -66,6 +66,24 @@ public sealed class ProjectValidationTests(ProjectsApplicationFixture fixture)
         Assert.True(notRejected.Count == 0, "expected 400 for: " + string.Join("; ", notRejected));
     }
 
+    /// <summary>DEP-1: a signed-in account with no HR employee profile (the seeded system admin on a fresh
+    /// database) cannot own a project. It answers projects.NoEmployeeProfile, not AccessDenied, so the caller
+    /// is told what is missing.</summary>
+    [Fact]
+    public async Task Create_ByAnAccountWithNoEmployeeProfile_IsNoEmployeeProfile()
+    {
+        await using AsyncServiceScope scope = fixture.CreateScope();
+        TestCurrentUser currentUser = scope.ServiceProvider.GetRequiredService<TestCurrentUser>();
+        currentUser.UserId = Guid.NewGuid().ToString();
+        currentUser.Grant(ProjectsPermissions.Projects.ReadAll);
+
+        Result<Guid> result = await scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateProjectCommand, Guid>>()
+            .HandleAsync(Create());
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(("projects.NoEmployeeProfile", 403), (result.Error.Code, result.Error.Status));
+    }
+
     /// <summary>R1-12: <c>stage_teams."HeadId"</c> is read on every access check (a team head is Manager on the
     /// project) and by its foreign key's checks, so it leads an index.</summary>
     [Fact]
