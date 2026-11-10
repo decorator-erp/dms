@@ -4,6 +4,8 @@ using BuildingBlocks.Outbox;
 using BuildingBlocks.Web;
 using Hr.Contracts;
 using Hr.Infrastructure.Persistence;
+using Hr.Infrastructure.Persistence.Seeders;
+using Identity.Contracts;
 using Hr.Infrastructure.Services;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -58,4 +60,10 @@ internal sealed class HrModule : IModule
 
     public IEndpointRouteBuilder MapEndpoints(IEndpointRouteBuilder app) =>
         app.MapModuleEndpoints(typeof(HrModule).Assembly);
+
+    /// <summary>Every login is an employee or a client: the seeded admin gets its employee profile here,
+    /// after Identity has seeded the user (see <see cref="AdminEmployeeSeeder"/>).</summary>
+    public async Task SeedAsync(IServiceProvider services, CancellationToken ct = default) =>
+        await AdminEmployeeSeeder.SeedAsync(
+            services.GetRequiredService<HrDbContext>(), services.GetRequiredService<IUserDirectory>(), ct);
 }
