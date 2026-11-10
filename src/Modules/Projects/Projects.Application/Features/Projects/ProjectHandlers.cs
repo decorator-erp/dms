@@ -81,7 +81,7 @@ internal sealed class CreateProjectCommandHandler(
         Guid? ownerId = currentUser.UserId is null ? null : await hrDirectory.ResolveEmployeeIdAsync(currentUser.UserId, ct);
         if (ownerId is null)
         {
-            return Result.Failure<Guid>(Domain.ProjectErrors.AccessDenied);
+            return Result.Failure<Guid>(Domain.ProjectErrors.NoEmployeeProfile);
         }
 
         // C-5 (LC-M5): a deactivated client gets no new project — it reads as not found, like an unknown one.
