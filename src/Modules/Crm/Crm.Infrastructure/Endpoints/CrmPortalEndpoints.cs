@@ -124,6 +124,17 @@ internal sealed class CrmPortalEndpoints : IEndpoint
             return result.Match(Results.Ok, r => r.ToProblem());
         }).RequirePermission(CrmPermissions.Meetings.ViewOwn);
 
+        // UI-1: the office's free slots for the client's own project, gated on the permission a client needs to
+        // request one of them — never crm.meetings.read (MT-N1). Same query and response as /api/crm/meetings/free-slots.
+        portal.MapGet("/meetings/free-slots", async (
+            Guid projectId, DateTime fromUtc, DateTime toUtc, ICurrentUser currentUser,
+            IQueryHandler<GetMyPortalFreeMeetingSlotsQuery, IReadOnlyList<FreeSlotResponse>> handler, CancellationToken ct) =>
+        {
+            Result<IReadOnlyList<FreeSlotResponse>> result = await handler.HandleAsync(
+                new GetMyPortalFreeMeetingSlotsQuery(currentUser.UserId!, projectId, fromUtc, toUtc), ct);
+            return result.Match(Results.Ok, r => r.ToProblem());
+        }).RequirePermission(CrmPermissions.Meetings.RequestOwn);
+
         portal.MapPost("/meetings/request", async (
             RequestMeetingRequest request, ICurrentUser currentUser, ICrmAccessGuard guard,
             ICommandHandler<RequestCrmMeetingByClientCommand, Guid> handler, CancellationToken ct) =>
