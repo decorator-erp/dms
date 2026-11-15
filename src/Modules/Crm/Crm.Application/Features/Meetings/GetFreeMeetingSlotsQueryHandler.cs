@@ -17,8 +17,8 @@ internal sealed class GetFreeMeetingSlotsQueryValidator : AbstractValidator<GetF
         RuleFor(x => x.FromUtc).MustBeUtc();
         RuleFor(x => x.ToUtc).MustBeUtc();
         RuleFor(x => x).Must(q => q.ToUtc > q.FromUtc).WithMessage("ToUtc must be after FromUtc.");
-        RuleFor(x => x).Must(q => (q.ToUtc - q.FromUtc).TotalDays <= 60)
-            .WithMessage("The free-slots window cannot exceed 60 days.");
+        RuleFor(x => x).Must(q => (q.ToUtc - q.FromUtc).TotalDays <= FreeMeetingSlots.MaxWindowDays)
+            .WithMessage(FreeMeetingSlots.WindowTooLongMessage);
     }
 }
 
@@ -35,31 +35,46 @@ internal sealed class GetFreeMeetingSlotsQueryHandler(ICrmSchedulerService sched
     public async Task<Result<IReadOnlyList<FreeSlotResponse>>> HandleAsync(
         GetFreeMeetingSlotsQuery query, CancellationToken ct = default)
     {
-        DateTime fromUtc = query.FromUtc < DateTime.UtcNow ? DateTime.UtcNow : query.FromUtc;
-        if (fromUtc >= query.ToUtc)
+        // Guid.Empty matches no meeting, so a caller who is not an employee only contributes the project.
+        Guid caller = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct) ?? Guid.Empty;
+        return Result.Success(await FreeMeetingSlots.ComputeAsync(scheduler, db, query.ProjectId, caller, query.FromUtc, query.ToUtc, ct));
+    }
+}
+
+/// <summary>UI-1: the free-slot computation, shared by the office query above and the portal's
+/// <c>GetMyPortalFreeMeetingSlotsQuery</c> — each handler authorizes its own caller, then both answer from here.</summary>
+internal static class FreeMeetingSlots
+{
+    public const int MaxWindowDays = 60;
+    public const string WindowTooLongMessage = "The free-slots window cannot exceed 60 days.";
+
+    /// <param name="callerEmployeeId">The calling employee, whose own Scheduled meetings are busy too;
+    /// <see cref="Guid.Empty"/> for a caller who is not one (matches no meeting).</param>
+    public static async Task<IReadOnlyList<FreeSlotResponse>> ComputeAsync(
+        ICrmSchedulerService scheduler, CrmDbContext db, Guid projectId, Guid callerEmployeeId,
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        DateTime from = fromUtc < DateTime.UtcNow ? DateTime.UtcNow : fromUtc;
+        if (from >= toUtc)
         {
             return new List<FreeSlotResponse>();
         }
 
-        IReadOnlyList<CrmFreeSlot> slots = await scheduler.GetFreeSlotsAsync(fromUtc, query.ToUtc, ct);
+        IReadOnlyList<CrmFreeSlot> slots = await scheduler.GetFreeSlotsAsync(from, toUtc, ct);
 
-        // Guid.Empty matches no meeting, so a caller who is not an employee only contributes the project.
-        Guid caller = await hrDirectory.ResolveEmployeeIdAsync(query.UserId, ct) ?? Guid.Empty;
         var booked = await db.CrmMeetings.AsNoTracking()
             .Where(m => m.IsActive && m.Status == Domain.MeetingStatus.Scheduled
-                && m.ScheduledAtUtc != null && m.ScheduledAtUtc < query.ToUtc
-                && (m.ProjectId == query.ProjectId
-                    || m.RequestedByEmployeeId == caller
-                    || m.AcceptedByEmployeeId == caller))
+                && m.ScheduledAtUtc != null && m.ScheduledAtUtc < toUtc
+                && (m.ProjectId == projectId
+                    || m.RequestedByEmployeeId == callerEmployeeId
+                    || m.AcceptedByEmployeeId == callerEmployeeId))
             .Select(m => new { Start = m.ScheduledAtUtc!.Value, m.DurationMinutes })
             .ToListAsync(ct);
 
         var busy = booked.Select(b => (b.Start, End: b.Start.AddMinutes(b.DurationMinutes ?? 60))).ToList();
-        var items = slots
+        return slots
             .Where(s => !busy.Any(b => s.StartsAtUtc < b.End && b.Start < s.EndsAtUtc))
             .Select(s => new FreeSlotResponse(s.StartsAtUtc, s.EndsAtUtc))
             .ToList();
-
-        return items;
     }
 }

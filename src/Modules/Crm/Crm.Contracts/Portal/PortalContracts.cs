@@ -1,6 +1,7 @@
 using BuildingBlocks.Messaging;
 using BuildingBlocks.Pagination;
 using Crm.Contracts.Briefs;
+using Crm.Contracts.Meetings;
 
 namespace Crm.Contracts.Portal;
 
@@ -44,6 +45,13 @@ public sealed record PortalMeetingSlotResponse(
 /// Portal-only; the client never holds <c>crm.meetings.read</c> (MT-N1).</summary>
 public sealed record GetMyPortalMeetingByIdQuery(string AppUserId, Guid MeetingId)
     : IQuery<PortalMeetingDetailResponse>, ICrmScoped;
+
+/// <summary>UI-1: the office's free meeting slots (<c>GetFreeMeetingSlotsQuery</c>), for the calling client's own
+/// project — the windows a client may pick for a meeting request, without <c>crm.meetings.read</c> (MT-N1). Same
+/// window rules and the same <see cref="FreeSlotResponse"/> list; another client's, an unknown or an inactive
+/// project is the portal's 404, as on the request itself.</summary>
+public sealed record GetMyPortalFreeMeetingSlotsQuery(string AppUserId, Guid ProjectId, DateTime FromUtc, DateTime ToUtc)
+    : IQuery<IReadOnlyList<FreeSlotResponse>>, ICrmScoped;
 
 public sealed record PortalBriefViewResponse(BriefHeadBlock? Head, IReadOnlyList<PortalBriefSpaceResponse> Spaces);
 
